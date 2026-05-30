@@ -1,15 +1,15 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
+/* ── Tailwind theme mappings ────────────────────────────────── */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+}
+
+/* ── Base next.js vars ──────────────────────────────────────── */
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -23,4 +23,52 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* ── Risansi design tokens ──────────────────────────────────── */
+:root {
+  /* Surface */
+  --bg:           #f6f3ec;
+  --bg-paper:     #ffffff;
+  --bg-elev:      #f0ede6;
+  --bg-sunk:      #e8e4db;
+  --bg-ink:       #1c1a17;
+  --bg-ink-2:     #2a2622;
+
+  /* Text */
+  --fg:   #1c1a17;
+  --fg-2: #3d3a34;
+  --fg-3: #7a7570;
+  --fg-4: #b7b1a3;
+
+  /* Borders */
+  --line:        rgba(28, 26, 23, 0.10);
+  --line-2:      rgba(28, 26, 23, 0.07);
+  --line-strong: rgba(28, 26, 23, 0.20);
+
+  /* Accent — industrial copper */
+  --accent:      oklch(0.62 0.13 50);
+  --accent-fg:   #ffffff;
+  --accent-soft: oklch(0.96 0.03 50);
+  --accent-line: oklch(0.78 0.10 55);
+
+  /* Functional */
+  --pos:       oklch(0.55 0.11 155);
+  --pos-soft:  oklch(0.93 0.04 155);
+  --neg:       oklch(0.55 0.16 28);
+  --neg-soft:  oklch(0.94 0.04 28);
+  --warn:      oklch(0.60 0.13 65);
+  --warn-soft: oklch(0.94 0.06 65);
+  --info:      oklch(0.55 0.10 220);
+  --info-soft: oklch(0.94 0.03 220);
+
+  /* Radii */
+  --radius-sm: 4px;
+  --radius:    6px;
+  --radius-lg: 10px;
+
+  /* Typography — overridden by next/font CSS variable classes in layout */
+  --font-sans:  'IBM Plex Sans',    system-ui, sans-serif;
+  --font-mono:  'IBM Plex Mono',    ui-monospace, monospace;
+  --font-serif: 'Instrument Serif', Georgia, serif;
 }
