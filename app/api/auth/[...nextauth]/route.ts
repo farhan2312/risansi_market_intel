@@ -1,32 +1,30 @@
 import NextAuth, { type AuthOptions } from 'next-auth';
-import AzureADProvider from 'next-auth/providers/azure-ad';
-import risansiPool from '@/lib/db-risansi';
+import CredentialsProvider from 'next-auth/providers/credentials';
 import type { RisansiAccessStatus } from '@/types/risansi';
 
 export const authOptions: AuthOptions = {
   providers: [
-    AzureADProvider({
-      clientId: process.env.AZURE_AD_CLIENT_ID!,
-      clientSecret: process.env.AZURE_AD_CLIENT_SECRET!,
-      tenantId: process.env.AZURE_AD_TENANT_ID!,
+    CredentialsProvider({
+      name: 'Credentials',
+      credentials: {
+        email:    { label: 'Email',    type: 'email' },
+        password: { label: 'Password', type: 'password' },
+      },
+      async authorize(credentials) {
+        if (
+          credentials?.email    === process.env.ADMIN_EMAIL &&
+          credentials?.password === process.env.ADMIN_PASSWORD
+        ) {
+          return { id: '1', email: process.env.ADMIN_EMAIL!, name: 'Admin' };
+        }
+        return null;
+      },
     }),
   ],
   callbacks: {
-    async jwt({ token, account }) {
-      // Runs on every sign-in (account present) and subsequent requests
-      if (account && token.email) {
-        try {
-          const { rows } = await risansiPool.query<{ status: RisansiAccessStatus }>(
-            `SELECT status FROM access_requests
-             WHERE email = $1
-             ORDER BY created_at DESC
-             LIMIT 1`,
-            [token.email],
-          );
-          token.risansiAccess = rows[0]?.status ?? null;
-        } catch {
-          token.risansiAccess = null;
-        }
+    async jwt({ token }) {
+      if (token.email === process.env.ADMIN_EMAIL) {
+        token.risansiAccess = 'Approved' as RisansiAccessStatus;
       }
       return token;
     },
@@ -36,6 +34,9 @@ export const authOptions: AuthOptions = {
       }
       return session;
     },
+  },
+  pages: {
+    signIn: '/api/auth/signin',
   },
 };
 
