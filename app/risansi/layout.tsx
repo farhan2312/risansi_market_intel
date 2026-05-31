@@ -72,7 +72,7 @@ export default async function RisansiLayout({ children }: { children: React.Reac
         display:              'flex',
         height:               '100vh',
         overflow:             'hidden',
-        background:           '#f6f3ec',
+        background:           '#F4F6FB',
       }}
     >
       <Sidebar
@@ -83,7 +83,7 @@ export default async function RisansiLayout({ children }: { children: React.Reac
           role:     isAdmin ? 'Admin' : 'User',
         }}
       />
-      <main style={{ flex: 1, overflowY: 'auto', background: '#f6f3ec', minWidth: 0 }}>
+      <main style={{ flex: 1, overflowY: 'auto', background: '#F4F6FB', minWidth: 0 }}>
         {children}
       </main>
     </div>

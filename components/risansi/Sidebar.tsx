@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import type { CSSProperties } from 'react';
 
@@ -67,7 +68,7 @@ const PATH_TO_ID: [string, string][] = [
   ['/risansi/clients',     'clients'],
   ['/risansi/pipeline',    'pipeline'],
   ['/risansi/revenue',     'revenue'],
-  ['/risansi/visits',      'visits'],  // map item also resolves here
+  ['/risansi/visits',      'visits'],
   ['/risansi/reports',     'reports'],
   ['/risansi/admin',       'admin'],
   ['/risansi/map',         'map'],
@@ -96,11 +97,14 @@ export function Sidebar({ active, role, user, alerts = {} }: SidebarProps) {
     <aside style={ASIDE}>
       {/* Brand */}
       <div style={BRAND_WRAP}>
-        <div style={LOGO_BOX}>R</div>
-        <div>
-          <div style={BRAND_NAME}>Risansi</div>
-          <div style={BRAND_SUB}>Sales Intel · v1.0</div>
-        </div>
+        <Image
+          src="/logo.png"
+          alt="Risansi Industries"
+          width={120}
+          height={36}
+          style={{ objectFit: 'contain', objectPosition: 'left center' }}
+          priority
+        />
       </div>
 
       {/* Operate / Field */}
@@ -163,14 +167,18 @@ function NavLink({ item, isActive, badge, isAlert }: {
   const { href, label, Icon } = item;
   return (
     <Link href={href} style={{ textDecoration: 'none', display: 'block' }}>
-      <div style={{ ...LINK_BASE, color: isActive ? '#fff' : '#b7b1a3', background: isActive ? 'rgba(255,255,255,0.06)' : 'transparent' }}>
+      <div style={{
+        ...LINK_BASE,
+        color:      isActive ? '#ffffff' : '#8BA4C0',
+        background: isActive ? 'rgba(26,92,184,0.20)' : 'transparent',
+      }}>
         {isActive && <span style={ACTIVE_BAR} />}
         <Icon />
         <span style={{ flex: 1 }}>{label}</span>
         {badge != null && (
           <span style={{
             ...BADGE,
-            background: isAlert ? 'oklch(0.55 0.16 28)' : 'rgba(255,255,255,0.10)',
+            background: isAlert ? '#DC2626' : 'rgba(255,255,255,0.10)',
           }}>{badge}</span>
         )}
       </div>
@@ -183,51 +191,23 @@ function NavLink({ item, isActive, badge, isAlert }: {
 const ASIDE: CSSProperties = {
   width: 240,
   flexShrink: 0,
-  background: '#1c1a17',
-  color: '#d9d4c8',
+  background: '#0A1628',
+  color: '#CBD5E1',
   display: 'flex',
   flexDirection: 'column',
   padding: '18px 0',
-  borderRight: '1px solid #2a2622',
+  borderRight: '1px solid rgba(255,255,255,0.06)',
   height: '100%',
   overflowX: 'hidden',
   overflowY: 'auto',
 };
 
 const BRAND_WRAP: CSSProperties = {
-  padding: '6px 20px 22px',
+  padding: '6px 20px 24px',
   display: 'flex',
   alignItems: 'center',
-  gap: 10,
-};
-
-const LOGO_BOX: CSSProperties = {
-  width: 28,
-  height: 28,
-  borderRadius: 4,
-  background: 'oklch(0.62 0.13 50)',
-  color: '#fff',
-  display: 'grid',
-  placeItems: 'center',
-  fontFamily: 'var(--font-serif, "Instrument Serif", Georgia, serif)',
-  fontSize: 19,
-  lineHeight: 1,
-  flexShrink: 0,
-};
-
-const BRAND_NAME: CSSProperties = {
-  fontFamily: 'var(--font-serif, "Instrument Serif", Georgia, serif)',
-  fontSize: 17,
-  color: '#fff',
-  letterSpacing: '-0.01em',
-};
-
-const BRAND_SUB: CSSProperties = {
-  fontSize: 10,
-  color: '#837e74',
-  textTransform: 'uppercase',
-  letterSpacing: '0.1em',
-  marginTop: 1,
+  borderBottom: '1px solid rgba(255,255,255,0.06)',
+  marginBottom: 6,
 };
 
 const GROUP_LABEL: CSSProperties = {
@@ -235,7 +215,7 @@ const GROUP_LABEL: CSSProperties = {
   fontSize: 10,
   textTransform: 'uppercase',
   letterSpacing: '0.12em',
-  color: '#6b665c',
+  color: '#3D5A7A',
   fontWeight: 500,
 };
 
@@ -255,9 +235,9 @@ const ACTIVE_BAR: CSSProperties = {
   left: -12,
   top: 6,
   bottom: 6,
-  width: 2,
-  borderRadius: 1,
-  background: 'oklch(0.62 0.13 50)',
+  width: 3,
+  borderRadius: 2,
+  background: '#00A3C4',
 };
 
 const BADGE: CSSProperties = {
@@ -271,7 +251,7 @@ const BADGE: CSSProperties = {
 const USER_WRAP: CSSProperties = {
   marginTop: 'auto',
   padding: '14px 20px 4px',
-  borderTop: '1px solid #2a2622',
+  borderTop: '1px solid rgba(255,255,255,0.06)',
   display: 'flex',
   gap: 10,
   alignItems: 'center',
@@ -282,7 +262,7 @@ const AVATAR: CSSProperties = {
   height: 30,
   borderRadius: 4,
   flexShrink: 0,
-  background: 'linear-gradient(135deg, #e8b390, #a5664a)',
+  background: 'linear-gradient(135deg, #1A5CB8, #00A3C4)',
   display: 'grid',
   placeItems: 'center',
   fontSize: 12,
@@ -300,7 +280,7 @@ const WHO: CSSProperties = {
 
 const ROLE_LABEL: CSSProperties = {
   fontSize: 10,
-  color: '#6b665c',
+  color: '#3D5A7A',
   textTransform: 'uppercase',
   letterSpacing: '0.1em',
 };

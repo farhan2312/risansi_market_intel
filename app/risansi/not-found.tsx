@@ -55,7 +55,7 @@ export default function RisansiNotFound() {
           fontSize:      13,
           fontFamily:    'var(--font-sans, inherit)',
           fontWeight:    500,
-          background:    'oklch(0.62 0.13 50)',
+          background:    '#1A5CB8',
           color:         '#fff',
           borderRadius:  6,
           textDecoration: 'none',

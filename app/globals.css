@@ -9,7 +9,7 @@
 /* ── Base next.js vars ──────────────────────────────────────── */
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #0D1B2E;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -28,39 +28,45 @@ body {
 /* ── Risansi design tokens ──────────────────────────────────── */
 :root {
   /* Surface */
-  --bg:           #f6f3ec;
-  --bg-paper:     #ffffff;
-  --bg-elev:      #f0ede6;
-  --bg-sunk:      #e8e4db;
-  --bg-ink:       #1c1a17;
-  --bg-ink-2:     #2a2622;
+  --bg:           #F4F6FB;
+  --bg-paper:     #FFFFFF;
+  --bg-elev:      #EDF1F7;
+  --bg-sunk:      #E2E8F3;
+  --bg-ink:       #0A1628;
+  --bg-ink-2:     #132240;
 
   /* Text */
-  --fg:   #1c1a17;
-  --fg-2: #3d3a34;
-  --fg-3: #7a7570;
-  --fg-4: #b7b1a3;
+  --fg:   #0D1B2E;
+  --fg-2: #2D3E55;
+  --fg-3: #6B7F96;
+  --fg-4: #A8BAC8;
 
   /* Borders */
-  --line:        rgba(28, 26, 23, 0.10);
-  --line-2:      rgba(28, 26, 23, 0.07);
-  --line-strong: rgba(28, 26, 23, 0.20);
+  --line:        rgba(10, 22, 40, 0.08);
+  --line-2:      rgba(10, 22, 40, 0.05);
+  --line-strong: rgba(10, 22, 40, 0.16);
 
-  /* Accent — industrial copper */
-  --accent:      oklch(0.62 0.13 50);
+  /* Accent — Risansi blue */
+  --accent:      #1A5CB8;
   --accent-fg:   #ffffff;
-  --accent-soft: oklch(0.96 0.03 50);
-  --accent-line: oklch(0.78 0.10 55);
+  --accent-soft: rgba(26, 92, 184, 0.10);
+  --accent-line: rgba(26, 92, 184, 0.25);
+
+  /* Brand */
+  --brand-navy:  #0A1628;
+  --brand-blue:  #1A5CB8;
+  --brand-cyan:  #00A3C4;
+  --brand-light: #E8F0FB;
 
   /* Functional */
-  --pos:       oklch(0.55 0.11 155);
-  --pos-soft:  oklch(0.93 0.04 155);
-  --neg:       oklch(0.55 0.16 28);
-  --neg-soft:  oklch(0.94 0.04 28);
-  --warn:      oklch(0.60 0.13 65);
-  --warn-soft: oklch(0.94 0.06 65);
-  --info:      oklch(0.55 0.10 220);
-  --info-soft: oklch(0.94 0.03 220);
+  --pos:       #059669;
+  --pos-soft:  #D1FAE5;
+  --neg:       #DC2626;
+  --neg-soft:  #FEE2E2;
+  --warn:      #D97706;
+  --warn-soft: #FEF3C7;
+  --info:      #2563EB;
+  --info-soft: #DBEAFE;
 
   /* Radii */
   --radius-sm: 4px;

@@ -172,9 +172,9 @@ export default async function AdminPage() {
             <div style={{
               padding: '5px 12px',
               background: 'var(--warn-soft)',
-              border: '1px solid color-mix(in oklch, var(--warn) 25%, transparent)',
+              border: '1px solid rgba(217,119,6,0.25)',
               borderRadius: 5, fontSize: 12,
-              color: 'oklch(0.42 0.14 65)', fontWeight: 500,
+              color: '#92400E', fontWeight: 500,
             }}>
               {pendingRequests.length} access request{pendingRequests.length !== 1 ? 's' : ''} pending
             </div>
@@ -233,7 +233,7 @@ export default async function AdminPage() {
                               ...ACTION_BTN,
                               background: 'transparent',
                               color: 'var(--neg)',
-                              border: '1px solid color-mix(in oklch, var(--neg) 30%, transparent)',
+                              border: '1px solid rgba(220,38,38,0.30)',
                             }}>
                               Reject
                             </button>
@@ -286,7 +286,7 @@ export default async function AdminPage() {
                               ...ACTION_BTN,
                               background: 'transparent',
                               color: 'var(--neg)',
-                              border: '1px solid color-mix(in oklch, var(--neg) 30%, transparent)',
+                              border: '1px solid rgba(220,38,38,0.30)',
                             }}>
                               Revoke
                             </button>

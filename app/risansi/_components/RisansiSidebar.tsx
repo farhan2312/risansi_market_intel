@@ -35,12 +35,12 @@ export function RisansiSidebar({ user }: { user: SidebarUser }) {
     <aside style={{
       width: 240,
       flexShrink: 0,
-      background: '#1c1a17',
+      background: '#0A1628',
       color: '#d9d4c8',
       display: 'flex',
       flexDirection: 'column',
       padding: '18px 0',
-      borderRight: '1px solid #2a2622',
+      borderRight: '1px solid rgba(255,255,255,0.06)',
       overflowY: 'auto',
     }}>
 
@@ -48,7 +48,7 @@ export function RisansiSidebar({ user }: { user: SidebarUser }) {
       <div style={{ padding: '6px 20px 22px', display: 'flex', alignItems: 'center', gap: 10 }}>
         <div style={{
           width: 28, height: 28, borderRadius: 4,
-          background: 'oklch(0.62 0.13 50)',
+          background: '#1A5CB8',
           color: '#fff',
           display: 'grid', placeItems: 'center',
           fontFamily: "'Instrument Serif', Georgia, serif",
@@ -84,7 +84,7 @@ export function RisansiSidebar({ user }: { user: SidebarUser }) {
                 <span style={{
                   position: 'absolute', left: -12, top: 6, bottom: 6,
                   width: 2, borderRadius: 1,
-                  background: 'oklch(0.62 0.13 50)',
+                  background: '#1A5CB8',
                 }}/>
               )}
               <Icon />
@@ -115,7 +115,7 @@ export function RisansiSidebar({ user }: { user: SidebarUser }) {
                 <span style={{
                   position: 'absolute', left: -12, top: 6, bottom: 6,
                   width: 2, borderRadius: 1,
-                  background: 'oklch(0.62 0.13 50)',
+                  background: '#1A5CB8',
                 }}/>
               )}
               <Icon />
@@ -129,12 +129,12 @@ export function RisansiSidebar({ user }: { user: SidebarUser }) {
       <div style={{
         marginTop: 'auto',
         padding: '14px 20px 4px',
-        borderTop: '1px solid #2a2622',
+        borderTop: '1px solid rgba(255,255,255,0.06)',
         display: 'flex', gap: 10, alignItems: 'center',
       }}>
         <div style={{
           width: 30, height: 30, borderRadius: 4, flexShrink: 0,
-          background: 'linear-gradient(135deg, #e8b390, #a5664a)',
+          background: 'linear-gradient(135deg, #1A5CB8, #00A3C4)',
           display: 'grid', placeItems: 'center',
           fontSize: 12, color: '#fff', fontWeight: 500,
         }}>

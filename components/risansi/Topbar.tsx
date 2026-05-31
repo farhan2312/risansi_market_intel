@@ -17,8 +17,8 @@ export function Topbar({ crumbs, primaryAction, period = 'FY 25–26' }: TopbarP
           <span key={i} style={{ display: 'contents' }}>
             {i > 0 && <IcChevRight />}
             {i === crumbs.length - 1
-              ? <strong style={{ color: 'var(--fg)', fontWeight: 500 }}>{c}</strong>
-              : <span>{c}</span>
+              ? <strong style={{ color: '#1A5CB8', fontWeight: 600 }}>{c}</strong>
+              : <span style={{ color: 'var(--fg-3)' }}>{c}</span>
             }
           </span>
         ))}
@@ -68,9 +68,9 @@ function TbBtn({ children, primary }: { children: React.ReactNode; primary?: boo
       cursor: 'pointer',
       fontFamily: 'inherit',
       fontWeight: primary ? 500 : 400,
-      background: primary ? '#1c1a17' : 'transparent',
+      background: primary ? '#1A5CB8' : 'transparent',
       color: primary ? '#fff' : 'var(--fg-2)',
-      border: primary ? '1px solid #1c1a17' : '1px solid transparent',
+      border: primary ? '1px solid #1A5CB8' : '1px solid transparent',
     }}>
       {children}
     </button>
@@ -81,7 +81,7 @@ function TbBtn({ children, primary }: { children: React.ReactNode; primary?: boo
 
 const TOPBAR: CSSProperties = {
   height: 52,
-  background: 'var(--bg-paper)',
+  background: '#FFFFFF',
   borderBottom: '1px solid var(--line)',
   display: 'flex',
   alignItems: 'center',
@@ -103,7 +103,7 @@ const LIVE_WRAP: CSSProperties = {
   alignItems: 'center',
   gap: 6,
   fontSize: 12,
-  color: 'var(--fg-2)',
+  color: 'var(--fg-3)',
   padding: '5px 10px',
   borderRadius: 5,
 };
@@ -112,8 +112,8 @@ const LIVE_DOT: CSSProperties = {
   width: 6,
   height: 6,
   borderRadius: '50%',
-  background: 'var(--pos)',
-  boxShadow: '0 0 0 3px color-mix(in oklch, var(--pos) 25%, transparent)',
+  background: '#059669',
+  boxShadow: '0 0 0 3px rgba(5, 150, 105, 0.20)',
   flexShrink: 0,
 };
 
@@ -166,7 +166,7 @@ function IcChevRight() {
   return (
     <svg width={11} height={11} viewBox="0 0 16 16" fill="none"
          stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"
-         style={{ opacity: 0.5 }}>
+         style={{ opacity: 0.4 }}>
       <path d="M6 4l4 4-4 4"/>
     </svg>
   );

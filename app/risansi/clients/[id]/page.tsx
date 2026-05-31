@@ -495,7 +495,7 @@ export default async function ClientProfilePage({
                     </thead>
                     <tbody>
                       {equipment.map((e, i) => (
-                        <tr key={e.id} style={{ borderBottom: i < equipment.length - 1 ? '1px solid var(--line)' : 'none', background: e.opportunity ? 'oklch(0.97 0.04 50 / 0.5)' : 'transparent' }}>
+                        <tr key={e.id} style={{ borderBottom: i < equipment.length - 1 ? '1px solid var(--line)' : 'none', background: e.opportunity ? 'rgba(26,92,184,0.05)' : 'transparent' }}>
                           <td style={{ ...TD, fontSize: 11, color: 'var(--fg-2)' }}>{e.station ?? '—'}</td>
                           <td style={TD}><Tag>{e.equipment_type}</Tag></td>
                           <td style={{ ...TD, fontWeight: e.supplier === 'RIL' ? 500 : 400, color: e.supplier === 'RIL' ? 'var(--accent)' : 'inherit' }}>{e.supplier}</td>
@@ -914,7 +914,7 @@ function RevenueChart({
         return (
           <g key={fyKey}>
             {/* Spare bar (top) */}
-            {sh > 0 && <rect x={x} y={height - ph - sh} width={bw} height={sh} rx={1.5} fill="oklch(0.78 0.10 55)" />}
+            {sh > 0 && <rect x={x} y={height - ph - sh} width={bw} height={sh} rx={1.5} fill="#00A3C4" />}
             {/* Pump bar (bottom) */}
             {ph > 0 && <rect x={x} y={height - ph} width={bw} height={ph} rx={1.5} fill="var(--accent)" />}
             {/* Total label */}
@@ -935,7 +935,7 @@ function RevenueChart({
       <g transform={`translate(${padL}, ${height + 24})`}>
         <rect width="8" height="8" rx="1" fill="var(--accent)" />
         <text x="12" y="8" fontSize="10" fill="var(--fg-2)" fontFamily="var(--font-mono)">Pump</text>
-        <rect x="50" width="8" height="8" rx="1" fill="oklch(0.78 0.10 55)" />
+        <rect x="50" width="8" height="8" rx="1" fill="#00A3C4" />
         <text x="62" y="8" fontSize="10" fill="var(--fg-2)" fontFamily="var(--font-mono)">Spare</text>
       </g>
     </svg>

@@ -17,14 +17,14 @@ async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
 // ── Competitor colour palette ──────────────────────────────────
 
 const COMP_COLORS: Record<string, string> = {
-  RIL:      'oklch(0.62 0.13 50)',
-  Roto:     'oklch(0.50 0.11 155)',
-  Rotomac:  'oklch(0.50 0.10 235)',
-  Gita:     'oklch(0.55 0.11 50)',
-  Sintech:  'oklch(0.55 0.12 20)',
-  PSP:      'oklch(0.55 0.10 280)',
-  Netzsch:  'oklch(0.50 0.09 120)',
-  Tushaco:  'oklch(0.50 0.10 60)',
+  RIL:      '#1A5CB8',
+  Roto:     '#059669',
+  Rotomac:  '#0891B2',
+  Gita:     '#D97706',
+  Sintech:  '#DC2626',
+  PSP:      '#7C3AED',
+  Netzsch:  '#6366F1',
+  Tushaco:  '#B45309',
   Others:   'var(--fg-3)',
 };
 
@@ -619,7 +619,7 @@ export default async function ExecDashboardPage() {
             <div style={PANEL_H}>
               <span style={PANEL_TITLE}>Live Field Activity</span>
               <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--pos)', display: 'inline-block', boxShadow: '0 0 0 3px color-mix(in oklch, var(--pos) 25%, transparent)' }} />
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--pos)', display: 'inline-block', boxShadow: '0 0 0 3px rgba(5,150,105,0.20)' }} />
                 <span style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>real-time</span>
               </div>
             </div>
@@ -673,13 +673,13 @@ export default async function ExecDashboardPage() {
 
 const SEGMENT_COLORS = [
   'var(--accent)',
-  'oklch(0.55 0.13 35)',
-  'oklch(0.55 0.10 110)',
-  'oklch(0.55 0.11 155)',
-  'oklch(0.50 0.09 220)',
+  '#D97706',
+  '#059669',
+  '#0891B2',
+  '#7C3AED',
   'var(--fg-3)',
-  'oklch(0.55 0.10 280)',
-  'oklch(0.55 0.12 20)',
+  '#DC2626',
+  '#6366F1',
 ];
 
 // ── Shared style constants ─────────────────────────────────────

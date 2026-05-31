@@ -3,6 +3,7 @@
 import { useState, FormEvent } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 
 export default function SignInPage() {
   const router   = useRouter();
@@ -34,143 +35,208 @@ export default function SignInPage() {
   return (
     <div style={{
       minHeight: '100vh',
-      background: '#f6f3ec',
       display: 'grid',
-      placeItems: 'center',
+      gridTemplateColumns: '1fr 1fr',
       fontFamily: '"IBM Plex Sans", system-ui, sans-serif',
       WebkitFontSmoothing: 'antialiased',
     }}>
+      {/* ── Left panel — brand ─────────────────────────────── */}
       <div style={{
-        background: '#ffffff',
-        border: '1px solid rgba(28,26,23,0.10)',
-        borderRadius: 10,
-        padding: '48px 40px',
-        width: '100%',
-        maxWidth: 380,
-        boxShadow: '0 4px 24px rgba(28,26,23,0.08)',
+        background: '#0A1628',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'space-between',
+        padding: '48px 56px',
+        position: 'relative',
+        overflow: 'hidden',
       }}>
+        {/* Geometric background accents */}
+        <svg
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0.06 }}
+          viewBox="0 0 600 900" fill="none" preserveAspectRatio="xMidYMid slice"
+        >
+          <circle cx="500" cy="200" r="300" stroke="#00A3C4" strokeWidth="80"/>
+          <circle cx="100" cy="700" r="200" stroke="#1A5CB8" strokeWidth="60"/>
+          <line x1="0" y1="450" x2="600" y2="450" stroke="#fff" strokeWidth="1"/>
+          <line x1="300" y1="0" x2="300" y2="900" stroke="#fff" strokeWidth="1"/>
+        </svg>
 
-        {/* Brand mark */}
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6 }}>
-            <span style={{
-              fontFamily: 'Georgia, "Times New Roman", serif',
-              fontSize: 48,
-              color: 'oklch(0.62 0.13 50)',
-              lineHeight: 1,
-              fontWeight: 400,
-            }}>R</span>
-            <span style={{
-              fontWeight: 600,
-              fontSize: 22,
-              letterSpacing: '-0.01em',
-              color: '#1c1a17',
-            }}>isansi</span>
-          </div>
-          <p style={{
-            fontSize: 12,
-            color: '#837e74',
-            marginTop: 6,
-            letterSpacing: '0.06em',
-            textTransform: 'uppercase',
-          }}>Market Intelligence</p>
+        {/* Logo */}
+        <div style={{ position: 'relative' }}>
+          <Image
+            src="/logo.png"
+            alt="Risansi Industries"
+            width={160}
+            height={48}
+            style={{ objectFit: 'contain', objectPosition: 'left center', filter: 'brightness(0) invert(1)' }}
+            priority
+          />
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {/* Tagline */}
+        <div style={{ position: 'relative' }}>
+          <p style={{
+            fontSize: 28,
+            fontWeight: 300,
+            color: '#ffffff',
+            lineHeight: 1.35,
+            letterSpacing: '-0.01em',
+            marginBottom: 16,
+          }}>
+            Intelligence for<br />
+            <span style={{ color: '#00A3C4', fontWeight: 500 }}>every customer</span>
+          </p>
+          <p style={{ fontSize: 13, color: '#4A6FA5', lineHeight: 1.6, maxWidth: 320 }}>
+            Real-time competitive positioning, visit analytics,
+            and revenue intelligence for the Risansi field team.
+          </p>
+        </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <label style={{ fontSize: 11, fontWeight: 500, color: '#4a4640', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-              Email
-            </label>
-            <input
-              type="email"
-              required
-              autoComplete="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="admin@risansi.com"
-              style={{
-                padding: '9px 11px',
-                fontSize: 13,
-                fontFamily: 'inherit',
-                background: '#faf9f7',
-                border: '1px solid rgba(28,26,23,0.18)',
-                borderRadius: 6,
-                color: '#1c1a17',
-                outline: 'none',
-                transition: 'border-color 0.15s',
-              }}
-              onFocus={e => (e.currentTarget.style.borderColor = 'oklch(0.62 0.13 50)')}
-              onBlur={e  => (e.currentTarget.style.borderColor = 'rgba(28,26,23,0.18)')}
-            />
-          </div>
+        {/* Footer */}
+        <div style={{ position: 'relative', fontSize: 11, color: '#2D4A6E' }}>
+          Risansi Industries Ltd · Internal use only
+        </div>
+      </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <label style={{ fontSize: 11, fontWeight: 500, color: '#4a4640', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-              Password
-            </label>
-            <input
-              type="password"
-              required
-              autoComplete="current-password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="••••••••"
-              style={{
-                padding: '9px 11px',
-                fontSize: 13,
-                fontFamily: 'inherit',
-                background: '#faf9f7',
-                border: '1px solid rgba(28,26,23,0.18)',
-                borderRadius: 6,
-                color: '#1c1a17',
-                outline: 'none',
-                transition: 'border-color 0.15s',
-              }}
-              onFocus={e => (e.currentTarget.style.borderColor = 'oklch(0.62 0.13 50)')}
-              onBlur={e  => (e.currentTarget.style.borderColor = 'rgba(28,26,23,0.18)')}
-            />
-          </div>
+      {/* ── Right panel — form ──────────────────────────────── */}
+      <div style={{
+        background: '#F4F6FB',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '48px 40px',
+      }}>
+        <div style={{
+          background: '#ffffff',
+          border: '1px solid rgba(10,22,40,0.08)',
+          borderRadius: 12,
+          padding: '48px 44px',
+          width: '100%',
+          maxWidth: 400,
+          boxShadow: '0 4px 32px rgba(10,22,40,0.08)',
+        }}>
 
-          {error && (
-            <div style={{
-              padding: '8px 11px',
-              background: 'oklch(0.96 0.04 30)',
-              border: '1px solid oklch(0.88 0.08 30)',
-              borderRadius: 5,
-              fontSize: 12,
-              color: 'oklch(0.45 0.14 30)',
+          {/* Heading */}
+          <div style={{ marginBottom: 36 }}>
+            <h1 style={{
+              fontSize: 22,
+              fontWeight: 600,
+              color: '#0D1B2E',
+              letterSpacing: '-0.01em',
+              marginBottom: 6,
             }}>
-              {error}
+              Sign in
+            </h1>
+            <p style={{ fontSize: 13, color: '#6B7F96' }}>
+              Access the Risansi intelligence platform
+            </p>
+          </div>
+
+          {/* Form */}
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              <label style={{
+                fontSize: 11, fontWeight: 500, color: '#2D3E55',
+                letterSpacing: '0.04em', textTransform: 'uppercase',
+              }}>
+                Email
+              </label>
+              <input
+                type="email"
+                required
+                autoComplete="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="you@risansi.com"
+                style={{
+                  padding: '9px 12px',
+                  fontSize: 13,
+                  fontFamily: 'inherit',
+                  background: '#F4F6FB',
+                  border: '1px solid rgba(10,22,40,0.16)',
+                  borderRadius: 6,
+                  color: '#0D1B2E',
+                  outline: 'none',
+                  transition: 'border-color 0.15s',
+                }}
+                onFocus={e => (e.currentTarget.style.borderColor = '#1A5CB8')}
+                onBlur={e  => (e.currentTarget.style.borderColor = 'rgba(10,22,40,0.16)')}
+              />
             </div>
-          )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              marginTop: 6,
-              padding: '10px 0',
-              fontSize: 13,
-              fontFamily: 'inherit',
-              fontWeight: 500,
-              background: loading ? 'oklch(0.72 0.10 50)' : 'oklch(0.62 0.13 50)',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: 6,
-              cursor: loading ? 'not-allowed' : 'pointer',
-              letterSpacing: '-0.005em',
-              transition: 'background 0.15s',
-            }}
-          >
-            {loading ? 'Signing in…' : 'Sign in'}
-          </button>
-        </form>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              <label style={{
+                fontSize: 11, fontWeight: 500, color: '#2D3E55',
+                letterSpacing: '0.04em', textTransform: 'uppercase',
+              }}>
+                Password
+              </label>
+              <input
+                type="password"
+                required
+                autoComplete="current-password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="••••••••"
+                style={{
+                  padding: '9px 12px',
+                  fontSize: 13,
+                  fontFamily: 'inherit',
+                  background: '#F4F6FB',
+                  border: '1px solid rgba(10,22,40,0.16)',
+                  borderRadius: 6,
+                  color: '#0D1B2E',
+                  outline: 'none',
+                  transition: 'border-color 0.15s',
+                }}
+                onFocus={e => (e.currentTarget.style.borderColor = '#1A5CB8')}
+                onBlur={e  => (e.currentTarget.style.borderColor = 'rgba(10,22,40,0.16)')}
+              />
+            </div>
 
-        <p style={{ fontSize: 11, color: '#b7b1a3', textAlign: 'center', marginTop: 24, marginBottom: 0 }}>
-          Risansi · Internal use only
-        </p>
+            {error && (
+              <div style={{
+                padding: '8px 12px',
+                background: '#FEE2E2',
+                border: '1px solid rgba(220,38,38,0.20)',
+                borderRadius: 5,
+                fontSize: 12,
+                color: '#9B1C1C',
+              }}>
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              style={{
+                marginTop: 4,
+                padding: '11px 0',
+                fontSize: 13,
+                fontFamily: 'inherit',
+                fontWeight: 500,
+                background: loading ? '#4A7FC1' : '#1A5CB8',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: 6,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                letterSpacing: '-0.005em',
+                transition: 'background 0.15s',
+              }}
+            >
+              {loading ? 'Signing in…' : 'Sign in'}
+            </button>
+          </form>
+
+          <p style={{
+            fontSize: 11, color: '#A8BAC8',
+            textAlign: 'center', marginTop: 28, marginBottom: 0,
+          }}>
+            Risansi Industries Ltd · Internal use only
+          </p>
+        </div>
       </div>
     </div>
   );

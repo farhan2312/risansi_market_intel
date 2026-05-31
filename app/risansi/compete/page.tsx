@@ -12,12 +12,12 @@ async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
 // ── Competitor colour palette ──────────────────────────────────
 
 const COMP_COLORS: Record<string, string> = {
-  RIL:           'oklch(0.62 0.13 50)',
-  'Roto+Rotomac': 'oklch(0.50 0.11 155)',
-  Netzsch:       'oklch(0.50 0.09 120)',
-  Gita:          'oklch(0.55 0.11 50)',
-  PSP:           'oklch(0.55 0.10 280)',
-  Tushaco:       'oklch(0.50 0.10 60)',
+  RIL:           '#1A5CB8',
+  'Roto+Rotomac': '#059669',
+  Netzsch:       '#7C3AED',
+  Gita:          '#D97706',
+  PSP:           '#0891B2',
+  Tushaco:       '#DC2626',
   Others:        'var(--fg-3)',
 };
 function compColor(name: string) { return COMP_COLORS[name] ?? COMP_COLORS.Others; }

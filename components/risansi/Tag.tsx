@@ -9,11 +9,11 @@ export interface TagProps {
 }
 
 const KIND_STYLES: Record<TagKind, CSSProperties> = {
-  pos:    { background: 'var(--pos-soft)',  color: 'var(--pos)',  borderColor: 'color-mix(in oklch, var(--pos)  20%, transparent)' },
-  neg:    { background: 'var(--neg-soft)',  color: 'var(--neg)',  borderColor: 'color-mix(in oklch, var(--neg)  20%, transparent)' },
-  warn:   { background: 'var(--warn-soft)', color: 'oklch(0.42 0.14 65)', borderColor: 'color-mix(in oklch, var(--warn) 25%, transparent)' },
-  info:   { background: 'var(--info-soft)', color: 'var(--info)', borderColor: 'color-mix(in oklch, var(--info)  20%, transparent)' },
-  accent: { background: 'var(--accent-soft)', color: 'oklch(0.45 0.14 50)', borderColor: 'color-mix(in oklch, var(--accent) 25%, transparent)' },
+  pos:    { background: '#D1FAE5', color: '#065F46', borderColor: 'rgba(5,150,105,0.20)' },
+  neg:    { background: '#FEE2E2', color: '#9B1C1C', borderColor: 'rgba(220,38,38,0.20)' },
+  warn:   { background: '#FEF3C7', color: '#92400E', borderColor: 'rgba(217,119,6,0.25)' },
+  info:   { background: '#DBEAFE', color: '#1E40AF', borderColor: 'rgba(37,99,235,0.20)' },
+  accent: { background: 'rgba(26,92,184,0.10)', color: '#1A5CB8', borderColor: 'rgba(26,92,184,0.22)' },
 };
 
 const BASE: CSSProperties = {
