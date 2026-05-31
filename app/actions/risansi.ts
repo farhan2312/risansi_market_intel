@@ -56,25 +56,210 @@ export async function requestAccess(_formData: FormData) {
 
 // ── Client: add contact ────────────────────────────────────────
 
-export async function addContact(clientId: string, formData: FormData) {
+export async function addContact(formData: FormData): Promise<void> {
   const user = await requireSession();
 
+  const clientId    = parseInt(formData.get('client_id') as string);
+  if (!clientId) throw new Error('Client ID required');
+
   const name        = (formData.get('name')        as string | null)?.trim() ?? '';
-  const designation = (formData.get('designation') as string | null)?.trim() ?? null;
-  const phone       = (formData.get('phone')       as string | null)?.trim() ?? null;
-  const email       = (formData.get('email')       as string | null)?.trim() ?? null;
-  const isPrimary   = formData.get('is_primary') === 'on';
+  const designation = (formData.get('designation') as string | null)?.trim() || null;
+  const phone       = (formData.get('phone')       as string | null)?.trim() || null;
+  const whatsapp    = (formData.get('whatsapp')    as string | null)?.trim() || null;
+  const email       = (formData.get('email')       as string | null)?.trim() || null;
+  const notes       = (formData.get('notes')       as string | null)?.trim() || null;
+  const isPrimary   = formData.get('is_primary') === 'true';
 
-  if (!name) return; // minimal validation — no UI error needed server-side
+  if (!name) throw new Error('Name is required');
 
-  await risansiPool.query(
-    `INSERT INTO contacts (client_id, name, designation, phone, email, is_primary, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-    [clientId, name, designation, phone, email, isPrimary],
-  );
+  // Unset any existing primary contact first
+  if (isPrimary) {
+    try {
+      await risansiPool.query(
+        'UPDATE contacts SET is_primary = FALSE WHERE client_id = $1',
+        [clientId],
+      );
+    } catch { /* ignore — contacts table may not exist yet */ }
+  }
 
-  await logActivity('client', clientId, `added contact: ${name}${designation ? ` (${designation})` : ''}`, user.email!);
+  try {
+    await risansiPool.query(
+      `INSERT INTO contacts
+         (client_id, name, designation, phone, whatsapp,
+          email, notes, is_primary, added_by, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW())`,
+      [clientId, name, designation, phone, whatsapp, email, notes, isPrimary, user.email ?? 'system'],
+    );
+  } catch {
+    // Fallback: without newer columns
+    await risansiPool.query(
+      `INSERT INTO contacts (client_id, name, designation, phone, email, is_primary, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,NOW())`,
+      [clientId, name, designation, phone, email, isPrimary],
+    );
+  }
+
+  await logActivity('client', String(clientId), `Contact Added: ${name}${designation ? ` (${designation})` : ''}`, user.email!);
   revalidatePath(`/risansi/clients/${clientId}`);
+}
+
+// ── Client: update client details ─────────────────────────────
+
+export async function updateClient(clientId: number, formData: FormData): Promise<void> {
+  const user = await requireSession();
+
+  // Fetch current status for change logging
+  let currentStatus: string | null = null;
+  try {
+    const { rows } = await risansiPool.query<{ status: string }>(
+      `SELECT status FROM clients WHERE id = $1`, [clientId],
+    );
+    currentStatus = rows[0]?.status ?? null;
+  } catch { /* ignore */ }
+
+  const newStatus = (formData.get('status') as string | null)?.trim() ?? currentStatus ?? 'ACTIVE';
+
+  const core = [
+    (formData.get('legal_name')        as string)?.trim() ?? '',      // $1
+    (formData.get('trade_name')        as string | null)?.trim() || null, // $2
+    (formData.get('industry')          as string)?.trim() ?? '',      // $3
+    formData.get('is_sugar') === 'true',                              // $4
+    (formData.get('client_type')       as string)?.trim() ?? '',      // $5
+    (formData.get('market_type')       as string | null)?.trim() || 'Domestic', // $6
+    (formData.get('state')             as string | null)?.trim() || null,  // $7
+    (formData.get('city')              as string | null)?.trim() || null,  // $8
+    (formData.get('address')           as string | null)?.trim() || null,  // $9
+    formData.get('tcd')  ? parseInt(formData.get('tcd')  as string) : null, // $10
+    formData.get('klpd') ? parseFloat(formData.get('klpd') as string) : null, // $11
+    formData.get('primary_rep_id')   ? parseInt(formData.get('primary_rep_id')   as string) : null, // $12
+    (formData.get('primary_rep_name')  as string | null)?.trim() || null, // $13
+    (formData.get('tour_name')         as string | null)?.trim() || null, // $14
+    (formData.get('since_year')        as string | null)?.trim() || null, // $15
+    newStatus,                                                         // $16
+    (formData.get('tier')              as string | null)?.trim() || 'Standard', // $17
+    (formData.get('performance_feedback') as string | null)?.trim() || null, // $18
+    (formData.get('action_points')     as string | null)?.trim() || null, // $19
+    (formData.get('pcp_competitor')    as string | null)?.trim() || null, // $20
+    (formData.get('mgmt_intervention') as string | null)?.trim() || null, // $21
+    (formData.get('constraints_notes') as string | null)?.trim() || null, // $22
+    clientId,                                                          // $23
+  ];
+
+  // Try full UPDATE with all columns; fall back to core-only if schema differs
+  try {
+    await risansiPool.query(
+      `UPDATE clients SET
+        legal_name           = $1,
+        trade_name           = $2,
+        group_name           = $3,
+        industry             = $4,
+        is_sugar             = $5,
+        client_type          = $6,
+        market_type          = $7,
+        country              = $8,
+        state                = $9,
+        city                 = $10,
+        address              = $11,
+        google_maps_url      = $12,
+        capacity_bracket     = $13,
+        tcd                  = $14,
+        klpd                 = $15,
+        primary_rep_id       = $16,
+        primary_rep_name     = $17,
+        secondary_rep_id     = $18,
+        secondary_rep_name   = $19,
+        tour_name            = $20,
+        since_year           = $21,
+        status               = $22,
+        tier                 = $23,
+        performance_feedback = $24,
+        action_points        = $25,
+        pcp_competitor       = $26,
+        mgmt_intervention    = $27,
+        constraints_notes    = $28,
+        updated_by           = $29,
+        updated_at           = NOW()
+      WHERE id = $30`,
+      [
+        (formData.get('legal_name')          as string)?.trim() ?? '',
+        (formData.get('trade_name')          as string | null)?.trim() || null,
+        (formData.get('group_name')          as string | null)?.trim() || null,
+        (formData.get('industry')            as string)?.trim() ?? '',
+        formData.get('is_sugar') === 'true',
+        (formData.get('client_type')         as string)?.trim() ?? '',
+        (formData.get('market_type')         as string | null)?.trim() || 'Domestic',
+        (formData.get('country')             as string | null)?.trim() || 'India',
+        (formData.get('state')               as string | null)?.trim() || null,
+        (formData.get('city')                as string | null)?.trim() || null,
+        (formData.get('address')             as string | null)?.trim() || null,
+        (formData.get('google_maps_url')     as string | null)?.trim() || null,
+        (formData.get('capacity_bracket')    as string | null)?.trim() || null,
+        formData.get('tcd')  ? parseInt(formData.get('tcd')  as string) : null,
+        formData.get('klpd') ? parseFloat(formData.get('klpd') as string) : null,
+        formData.get('primary_rep_id')   ? parseInt(formData.get('primary_rep_id')   as string) : null,
+        (formData.get('primary_rep_name')    as string | null)?.trim() || null,
+        formData.get('secondary_rep_id') ? parseInt(formData.get('secondary_rep_id') as string) : null,
+        (formData.get('secondary_rep_name')  as string | null)?.trim() || null,
+        (formData.get('tour_name')           as string | null)?.trim() || null,
+        (formData.get('since_year')          as string | null)?.trim() || null,
+        newStatus,
+        (formData.get('tier')                as string | null)?.trim() || 'Standard',
+        (formData.get('performance_feedback') as string | null)?.trim() || null,
+        (formData.get('action_points')       as string | null)?.trim() || null,
+        (formData.get('pcp_competitor')      as string | null)?.trim() || null,
+        (formData.get('mgmt_intervention')   as string | null)?.trim() || null,
+        (formData.get('constraints_notes')   as string | null)?.trim() || null,
+        user.email ?? 'system',
+        clientId,
+      ],
+    );
+  } catch {
+    // Fallback: core columns only
+    await risansiPool.query(
+      `UPDATE clients SET
+        legal_name           = $1,
+        trade_name           = $2,
+        industry             = $3,
+        is_sugar             = $4,
+        client_type          = $5,
+        market_type          = $6,
+        state                = $7,
+        city                 = $8,
+        address              = $9,
+        tcd                  = $10,
+        klpd                 = $11,
+        primary_rep_id       = $12,
+        primary_rep_name     = $13,
+        tour_name            = $14,
+        since_year           = $15,
+        status               = $16,
+        tier                 = $17,
+        performance_feedback = $18,
+        action_points        = $19,
+        pcp_competitor       = $20,
+        mgmt_intervention    = $21,
+        constraints_notes    = $22,
+        updated_at           = NOW()
+      WHERE id = $23`,
+      core,
+    );
+  }
+
+  // Log status change
+  if (currentStatus && newStatus !== currentStatus) {
+    try {
+      await risansiPool.query(
+        `INSERT INTO client_status_log
+           (client_id, from_status, to_status, reason, changed_by)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [clientId, currentStatus, newStatus, 'Updated via edit form', user.email],
+      );
+    } catch { /* table may not exist */ }
+  }
+
+  await logActivity('client', String(clientId), 'Client Updated', user.email!);
+  revalidatePath(`/risansi/clients/${clientId}`);
+  revalidatePath('/risansi/clients');
 }
 
 // ── Client: plan visit ─────────────────────────────────────────
@@ -557,28 +742,30 @@ export async function submitOpportunity(formData: FormData) {
 export async function addClient(formData: FormData): Promise<{ error?: string; id?: string }> {
   const user = await requireSession();
 
-  const code         = (formData.get('code')          as string | null)?.trim().toUpperCase() ?? '';
-  const legalName    = (formData.get('legal_name')    as string | null)?.trim() ?? '';
-  const industryId   = (formData.get('industry_id')   as string | null)?.trim() || null;
-  const industry     = (formData.get('industry')       as string | null)?.trim() || null;
-  const clientType   = (formData.get('client_type')   as string | null)?.trim() || null;
-  const zone         = (formData.get('zone')           as string | null)?.trim() || null;
-  const route        = (formData.get('route')          as string | null)?.trim() || null;
-  const repId        = (formData.get('rep_id')         as string | null)?.trim() || null;
-  const city         = (formData.get('city')           as string | null)?.trim() || null;
-  const state        = (formData.get('state')          as string | null)?.trim() || null;
-  const pincode      = (formData.get('pincode')        as string | null)?.trim() || null;
-  const address      = (formData.get('address')        as string | null)?.trim() || null;
-  const phone        = (formData.get('phone')          as string | null)?.trim() || null;
-  const email        = (formData.get('email')          as string | null)?.trim() || null;
-  const website      = (formData.get('website')        as string | null)?.trim() || null;
-  const gstin        = (formData.get('gstin')          as string | null)?.trim() || null;
-  const isSugar      = formData.get('is_sugar') === 'true';
-  const tcdKlpd      = parseFloat((formData.get('tcd_klpd') as string | null) ?? '') || null;
-  const tier         = (formData.get('tier')           as string | null)?.trim() || null;
-  const status       = (formData.get('status')         as string | null)?.trim() || 'ACTIVE';
-  const marketType   = (formData.get('market_type')   as string | null)?.trim() || null;
-  const businessCat  = (formData.get('business_category') as string | null)?.trim() || null;
+  const code           = (formData.get('code')            as string | null)?.trim().toUpperCase() ?? '';
+  const legalName      = (formData.get('legal_name')      as string | null)?.trim() ?? '';
+  const industryId     = (formData.get('industry_id')     as string | null)?.trim() || null;
+  const industry       = (formData.get('industry')         as string | null)?.trim() || null;
+  const clientType     = (formData.get('client_type')     as string | null)?.trim() || null;
+  const zone           = (formData.get('zone')             as string | null)?.trim() || null;
+  const route          = (formData.get('route')            as string | null)?.trim() || null;
+  const repId          = (formData.get('rep_id')           as string | null)?.trim() || null;
+  const repName        = (formData.get('rep_name')         as string | null)?.trim() || null;
+  const city           = (formData.get('city')             as string | null)?.trim() || null;
+  const state          = (formData.get('state')            as string | null)?.trim() || null;
+  const pincode        = (formData.get('pincode')          as string | null)?.trim() || null;
+  const address        = (formData.get('address')          as string | null)?.trim() || null;
+  const googleMapsUrl  = (formData.get('google_maps_url')  as string | null)?.trim() || null;
+  const phone          = (formData.get('phone')            as string | null)?.trim() || null;
+  const email          = (formData.get('email')            as string | null)?.trim() || null;
+  const website        = (formData.get('website')          as string | null)?.trim() || null;
+  const gstin          = (formData.get('gstin')            as string | null)?.trim() || null;
+  const isSugar        = formData.get('is_sugar') === 'true';
+  const tcdKlpd        = parseFloat((formData.get('tcd_klpd') as string | null) ?? '') || null;
+  const tier           = (formData.get('tier')             as string | null)?.trim() || null;
+  const status         = (formData.get('status')           as string | null)?.trim() || 'ACTIVE';
+  const marketType     = (formData.get('market_type')     as string | null)?.trim() || null;
+  const businessCat    = (formData.get('business_category') as string | null)?.trim() || null;
 
   // Validate required fields
   if (!code || !/^[A-Z]{4}\d{2}[A-Z]\d{3}$/.test(code)) {
@@ -610,16 +797,20 @@ export async function addClient(formData: FormData): Promise<{ error?: string; i
   try {
     const { rows } = await risansiPool.query<{ id: string }>(
       `INSERT INTO clients
-         (code, legal_name, industry_id, industry, client_type, zone, route, rep_id,
-          city, state, pincode, address, phone, email, website, gstin,
+         (code, legal_name, industry_id, industry, client_type, zone, route,
+          primary_rep_id, primary_rep_name,
+          city, state, pincode, address, google_maps_url,
+          phone, email, website, gstin,
           is_sugar, tcd_klpd, tier, status, market_type, business_category,
           created_at, updated_at)
        VALUES
-         ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,NOW(),NOW())
+         ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,NOW(),NOW())
        RETURNING id`,
       [
-        code, legalName, industryId, industry, clientType, zone, route, repId,
-        city, state, pincode, address, phone, email, website, gstin,
+        code, legalName, industryId, industry, clientType, zone, route,
+        repId || null, repName || null,
+        city, state, pincode, address, googleMapsUrl,
+        phone, email, website, gstin,
         isSugar, tcdKlpd, tier, status, marketType, businessCat,
       ],
     );

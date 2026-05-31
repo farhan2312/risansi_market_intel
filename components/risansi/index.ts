@@ -10,6 +10,10 @@ export { MultiSelectFilter }  from './MultiSelectFilter';
 export { ActiveFilterBar }    from './ActiveFilterBar';
 export { SortableTH }         from './SortableTH';
 export { useSortableTable }   from './useSortableTable';
+export { RepSelector }        from './RepSelector';
+export { EditClientDrawer }   from './EditClientDrawer';
+export { AddContactDrawer, AddContactTrigger } from './AddContactDrawer';
+export type { ClientForEdit } from './EditClientDrawer';
 
 export type { SidebarProps, SidebarRole, SidebarUser, SidebarAlerts } from './Sidebar';
 export type { TopbarProps }     from './Topbar';

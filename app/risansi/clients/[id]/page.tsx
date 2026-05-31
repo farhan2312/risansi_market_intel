@@ -3,8 +3,8 @@ import { notFound } from 'next/navigation';
 import { Topbar, Tag, StatusDot } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
 import { fyShortLabel, fmtCr, fmtL } from '@/lib/risansi-utils';
-import { addContact } from '@/app/actions/risansi';
-import { ClientActionButtons, PipelineOppBtn } from '@/components/risansi/ClientActionButtons';
+import { ClientActionButtons, PipelineOppBtn, EditDrawerTrigger } from '@/components/risansi/ClientActionButtons';
+import { AddContactTrigger } from '@/components/risansi/AddContactDrawer';
 import type { DrawerRep } from '@/components/risansi/AssignVisitDrawer';
 
 // ── Safe query wrapper ─────────────────────────────────────────
@@ -17,12 +17,19 @@ async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
 
 interface Client {
   id: string; code: string; legal_name: string; trade_name: string | null;
+  group_name: string | null;
   industry: string; zone: string; tour_name: string | null; status: string; tier: string | null;
   market_type: string | null; client_type: string | null;
   since_year: number | null; address: string | null; city: string | null;
-  state: string | null; lat: string | null; lng: string | null;
+  state: string | null; country: string | null;
+  lat: string | null; lng: string | null;
   tcd: number | null; klpd: number | null;
+  capacity_bracket: string | null;
+  google_maps_url: string | null;
   primary_rep_id: string | null; primary_rep_name: string | null; rep_name: string | null;
+  rep_zone: string | null; rep_route: string | null;
+  secondary_rep_id: string | null; secondary_rep_name: string | null;
+  secondary_rep_joined: string | null; secondary_rep_zone: string | null; secondary_rep_route: string | null;
   // Revenue columns (INR — divide by 1L for Lakhs)
   rev_2122_pump: number | null; rev_2122_spare: number | null;
   rev_2223_pump: number | null; rev_2223_spare: number | null;
@@ -48,8 +55,10 @@ interface Client {
 }
 
 interface Contact {
-  id: string; name: string; designation: string | null;
-  phone: string | null; email: string | null; is_primary: boolean;
+  name: string; designation: string | null;
+  phone: string | null; whatsapp: string | null; email: string | null;
+  notes: string | null; is_primary: boolean;
+  source: 'live' | 'excel';
 }
 
 interface RevRow {
@@ -93,9 +102,16 @@ export default async function ClientProfilePage({
 
   const client = await q<Client | null>(async () => {
     const { rows } = await risansiPool.query<Client>(
-      `SELECT c.*, COALESCE(r.name, c.primary_rep_name, '—') AS rep_name
+      `SELECT c.*,
+              COALESCE(r.name,  c.primary_rep_name, '—') AS rep_name,
+              r.zone  AS rep_zone,
+              r.route AS rep_route,
+              r2.name  AS secondary_rep_joined,
+              r2.zone  AS secondary_rep_zone,
+              r2.route AS secondary_rep_route
        FROM clients c
-       LEFT JOIN reps r ON c.primary_rep_id = r.id
+       LEFT JOIN reps r  ON c.primary_rep_id   = r.id
+       LEFT JOIN reps r2 ON c.secondary_rep_id  = r2.id
        WHERE ${whereClause} AND c.deleted_at IS NULL`,
       [id],
     );
@@ -108,27 +124,41 @@ export default async function ClientProfilePage({
 
   const [contacts, revRows, equipment, visits, openOpps, activityLog, reps] = await Promise.all([
 
-    // 2. Contacts — try contacts_raw first (Excel-imported), fall back to contacts
-    (async (): Promise<Contact[]> => {
+    // 2. Contacts — UNION live contacts + Excel imports
+    q<Contact[]>(async () => {
+      // Try full UNION first
       try {
         const { rows } = await risansiPool.query<Contact>(
-          `SELECT id, name, designation, phone, email, is_primary
-           FROM contacts_raw WHERE client_code = $1
-           ORDER BY is_primary DESC, name`,
-          [client.code],
-        );
-        if (rows.length > 0) return rows;
-      } catch { /* table may not exist yet */ }
-      return q<Contact[]>(async () => {
-        const { rows } = await risansiPool.query<Contact>(
-          `SELECT id, name, designation, phone, email, is_primary
-           FROM contacts WHERE client_code = $1
-           ORDER BY is_primary DESC, name`,
-          [client.code],
+          `(SELECT name, designation, phone,
+                   NULL::text AS whatsapp, email, NULL::text AS notes,
+                   is_primary, 'live'::text AS source
+            FROM contacts WHERE client_id = $1::bigint)
+           UNION ALL
+           (SELECT name, designation, phone,
+                   NULL::text AS whatsapp, email, NULL::text AS notes,
+                   is_primary, 'excel'::text AS source
+            FROM contacts_raw WHERE client_code = $2)
+           ORDER BY is_primary DESC, source ASC, name ASC`,
+          [client.id, client.code],
         );
         return rows;
-      }, []);
-    })(),
+      } catch {
+        // Fallback: contacts_raw only
+        try {
+          const { rows } = await risansiPool.query<Contact>(
+            `SELECT name, designation, phone,
+                    NULL::text AS whatsapp, email, NULL::text AS notes,
+                    is_primary, 'excel'::text AS source
+             FROM contacts_raw WHERE client_code = $1
+             ORDER BY is_primary DESC, name ASC`,
+            [client.code],
+          );
+          return rows;
+        } catch {
+          return [];
+        }
+      }
+    }, []),
 
     // 3. Revenue by FY / category (order_value_cr is already in Crores)
     q<RevRow[]>(async () => {
@@ -340,7 +370,66 @@ export default async function ClientProfilePage({
               {client.klpd ? ` · ${client.klpd} KLPD` : ''}
               {client.address && <><span style={{ margin: '0 8px' }}>·</span>{client.address}</>}
               {client.since_year && <><span style={{ margin: '0 8px' }}>·</span>Customer since {client.since_year}</>}
-              {client.rep_name && <><span style={{ margin: '0 8px' }}>·</span>{client.rep_name}{client.tour_name ? ` on ${client.tour_name}` : ''}</>}
+            </div>
+
+            {/* Rep display row */}
+            <div style={{ display: 'flex', gap: 16, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              {/* Primary rep */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 500 }}>Primary</span>
+                {client.primary_rep_id ? (
+                  <span style={{ fontSize: 12, fontWeight: 500 }}>
+                    {client.rep_name}
+                    {(client.rep_zone || client.rep_route) && (
+                      <span style={{ fontWeight: 400, color: 'var(--fg-3)', marginLeft: 4 }}>
+                        · {[client.rep_zone, client.rep_route].filter(Boolean).join(' · ')}
+                      </span>
+                    )}
+                  </span>
+                ) : client.primary_rep_name ? (
+                  <span style={{ fontSize: 12 }}>
+                    {client.primary_rep_name}
+                    <span style={{ fontSize: 10, color: 'var(--fg-3)', marginLeft: 4 }}>(Excel import)</span>
+                  </span>
+                ) : (
+                  <span style={{ fontSize: 12, color: 'var(--neg)' }}>Unassigned</span>
+                )}
+                <EditDrawerTrigger />
+              </div>
+
+              {/* Secondary rep (only if set) */}
+              {(client.secondary_rep_id || client.secondary_rep_name) && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 500 }}>Secondary</span>
+                  {client.secondary_rep_id ? (
+                    <span style={{ fontSize: 12, fontWeight: 500 }}>
+                      {client.secondary_rep_joined ?? client.secondary_rep_name}
+                      {(client.secondary_rep_zone || client.secondary_rep_route) && (
+                        <span style={{ fontWeight: 400, color: 'var(--fg-3)', marginLeft: 4 }}>
+                          · {[client.secondary_rep_zone, client.secondary_rep_route].filter(Boolean).join(' · ')}
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: 12 }}>
+                      {client.secondary_rep_name}
+                      <span style={{ fontSize: 10, color: 'var(--fg-3)', marginLeft: 4 }}>(Excel import)</span>
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Google Maps link */}
+              {client.google_maps_url && (
+                <a
+                  href={client.google_maps_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ fontSize: 12, color: 'var(--accent)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}
+                >
+                  📍 View on Maps
+                </a>
+              )}
             </div>
           </div>
           <ClientActionButtons
@@ -351,6 +440,7 @@ export default async function ClientProfilePage({
             repId={client.primary_rep_id ?? null}
             repName={client.rep_name ?? client.primary_rep_name ?? ''}
             reps={reps}
+            clientData={client}
           />
         </div>
 
@@ -670,9 +760,7 @@ export default async function ClientProfilePage({
               <div style={PANEL_H}>
                 <span style={PANEL_TITLE}>Contacts</span>
                 <div style={{ marginLeft: 'auto' }}>
-                  <form action={addContact.bind(null, client.id)}>
-                    <button type="submit" style={{ ...BTN, padding: '3px 8px', fontSize: 11 }}>+ Add</button>
-                  </form>
+                  <AddContactTrigger />
                 </div>
               </div>
               {contacts.length === 0 ? (
@@ -683,7 +771,7 @@ export default async function ClientProfilePage({
                 <div>
                   {contacts.map((c, i) => (
                     <div
-                      key={c.id}
+                      key={`${c.name}-${i}`}
                       style={{
                         display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
                         padding: '10px 14px',
@@ -694,6 +782,13 @@ export default async function ClientProfilePage({
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                           <span style={{ fontWeight: 500, fontSize: 12 }}>{c.name}</span>
                           {c.is_primary && <Tag kind="accent">PRIMARY</Tag>}
+                          {c.source === 'excel' && (
+                            <span style={{
+                              fontSize: 10, padding: '1px 5px',
+                              background: '#F1F5F9', border: '1px solid #CBD5E1',
+                              borderRadius: 3, color: '#6B7FA3', fontFamily: 'var(--font-mono)',
+                            }}>Excel</span>
+                          )}
                         </div>
                         {c.designation && (
                           <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 1 }}>{c.designation}</div>
@@ -709,8 +804,12 @@ export default async function ClientProfilePage({
                             <PhoneIcon />
                           </a>
                         )}
-                        {c.phone && (
-                          <a href={`https://wa.me/${c.phone.replace(/[^0-9]/g, '')}`} target="_blank" rel="noreferrer" style={ICON_BTN} title="WhatsApp">
+                        {(c.whatsapp ?? c.phone) && (
+                          <a
+                            href={`https://wa.me/${(c.whatsapp ?? c.phone)!.replace(/[^0-9]/g, '')}`}
+                            target="_blank" rel="noreferrer"
+                            style={ICON_BTN} title="WhatsApp"
+                          >
                             <WaIcon />
                           </a>
                         )}

@@ -2,11 +2,11 @@
 
 import { useState, useEffect, useTransition, type CSSProperties } from 'react';
 import { addClient } from '@/app/actions/risansi';
+import { RepSelector } from './RepSelector';
 
 // ── Types ──────────────────────────────────────────────────────
 
 interface Industry { id: string; name: string; is_sugar: boolean; }
-interface Rep { id: string; name: string; zone: string | null; route: string | null; }
 
 const CLIENT_TYPES = ['Sugar Mill', 'Distillery', 'OEM', 'Dealer', 'End User', 'EPC', 'Other'];
 const ZONES        = ['North', 'South', 'East', 'West', 'Central', 'Export'];
@@ -23,7 +23,6 @@ export function AddClientDrawer() {
 
   // Data from APIs
   const [industries, setIndustries] = useState<Industry[]>([]);
-  const [reps, setReps]             = useState<Rep[]>([]);
 
   // Form-level feedback
   const [error, setError]    = useState('');
@@ -37,7 +36,6 @@ export function AddClientDrawer() {
 
   useEffect(() => {
     fetch('/api/risansi/industries').then(r => r.json()).then(setIndustries).catch(() => {});
-    fetch('/api/risansi/reps').then(r => r.json()).then(setReps).catch(() => {});
   }, []);
 
   // ── Open / Close helpers ───────────────────────────────────
@@ -238,7 +236,10 @@ export function AddClientDrawer() {
               </Field>
             </Row>
             <Field label="Address">
-              <textarea name="address" maxLength={400} rows={2} placeholder="Street address…" style={{ ...INP, height: 'auto', resize: 'vertical', lineHeight: 1.5 }} />
+              <textarea name="address" maxLength={400} rows={2} placeholder="Street address…" style={{ ...INP, height: 'auto', resize: 'vertical' as const, lineHeight: 1.5 }} />
+            </Field>
+            <Field label="Google Maps URL">
+              <input type="url" name="google_maps_url" maxLength={500} placeholder="https://maps.google.com/…" style={INP} />
             </Field>
           </Section>
 
@@ -273,16 +274,11 @@ export function AddClientDrawer() {
                 <input type="text" name="route" maxLength={100} placeholder="Route / territory code" style={INP} />
               </Field>
             </Row>
-            <Field label="Assigned Rep">
-              <select name="rep_id" style={INP}>
-                <option value="">Unassigned</option>
-                {reps.map(r => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}{r.zone ? ` · ${r.zone}` : ''}
-                  </option>
-                ))}
-              </select>
-            </Field>
+            <RepSelector
+              label="Assigned Rep"
+              paramName="rep_id"
+              nameName="rep_name"
+            />
           </Section>
 
           {/* ── Section: Status ── */}
