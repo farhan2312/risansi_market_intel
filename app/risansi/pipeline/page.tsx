@@ -1,42 +1,37 @@
 import type { CSSProperties } from 'react';
-import { Topbar, Tag } from '@/components/risansi';
+import { Topbar, Tag, MultiSelectFilter, ActiveFilterBar, SortableTH } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentFY, fmtCr, initials } from '@/lib/risansi-utils';
-
-// ── Safe query wrapper ─────────────────────────────────────────
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
 }
 
-// ── Data shapes ────────────────────────────────────────────────
-
 interface OppRow {
-  id: string;
-  product: string;
-  stage: string;
-  value_cr: number;
-  probability: number | null;
+  id:                  string;
+  product:             string;
+  product_type:        string | null;
+  stage:               string;
+  value_cr:            number;
+  probability:         number | null;
   expected_close_date: string | null;
-  client_name: string;
-  client_code: string;
-  industry: string;
-  rep_name: string | null;
+  client_name:         string;
+  client_code:         string;
+  industry:            string;
+  rep_name:            string | null;
 }
 
 interface WinRateRow {
   industry: string;
-  won: string;
-  lost: string;
+  won:      string;
+  lost:     string;
 }
 
 interface LostToRow {
   competitor: string;
-  opp_count: string;
-  value: number;
+  opp_count:  string;
+  value:      number;
 }
-
-// ── Constants ──────────────────────────────────────────────────
 
 const STAGES = ['Suspect', 'Prospect', 'Quoted', 'Negotiating', 'Won', 'Lost'] as const;
 
@@ -49,23 +44,76 @@ const STAGE_COLOR: Record<string, string> = {
   Lost:        'var(--neg)',
 };
 
-// ── Page ───────────────────────────────────────────────────────
+// Sortable columns for Active Opportunities table
+const SORT_MAP: Record<string, string> = {
+  client:      'c.legal_name',
+  product:     'po.product',
+  stage:       'po.stage',
+  value:       'po.value_cr',
+  probability: 'po.probability',
+  eta:         'po.expected_close_date',
+  rep:         'r.name',
+};
 
-export default async function PipelinePage() {
+export default async function PipelinePage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = await searchParams;
   const fy = getCurrentFY();
 
-  const [openOpps, bookedYTD, annualTarget, winLossRows, lostToRows] = await Promise.all([
+  // Multi-select filters
+  const stageFilts    = typeof sp.stage        === 'string' && sp.stage        ? sp.stage.split(',').filter(Boolean)        : [];
+  const prodTypeFilts = typeof sp.product_type === 'string' && sp.product_type ? sp.product_type.split(',').filter(Boolean) : [];
+  const repFilts      = typeof sp.rep          === 'string' && sp.rep          ? sp.rep.split(',').filter(Boolean)          : [];
+  const indFilts      = typeof sp.industry     === 'string' && sp.industry     ? sp.industry.split(',').filter(Boolean)     : [];
 
-    // 1. Open opportunities + client/rep info
+  // Sort
+  const sortKey  = typeof sp.sort  === 'string' ? sp.sort            : 'value';
+  const orderDir = sp.dir === 'desc'            ? 'DESC'             : 'DESC'; // default value DESC
+  const sortCol  = SORT_MAP[sortKey] ?? 'po.value_cr';
+
+  // Build WHERE for openOpps
+  const conds: string[] = [];
+  const vals: (string | number | string[])[] = [];
+  let idx = 1;
+
+  conds.push(`po.stage NOT IN ('Won', 'Lost')`);
+
+  if (stageFilts.length > 0) {
+    conds.push(`po.stage = ANY($${idx}::text[])`);
+    vals.push(stageFilts); idx++;
+  }
+  if (prodTypeFilts.length > 0) {
+    conds.push(`po.product_type = ANY($${idx}::text[])`);
+    vals.push(prodTypeFilts); idx++;
+  }
+  if (repFilts.length > 0) {
+    conds.push(`r.name = ANY($${idx}::text[])`);
+    vals.push(repFilts); idx++;
+  }
+  if (indFilts.length > 0) {
+    conds.push(`c.industry = ANY($${idx}::text[])`);
+    vals.push(indFilts); idx++;
+  }
+
+  const where = `WHERE ${conds.join(' AND ')}`;
+
+  const [openOpps, bookedYTD, annualTarget, winLossRows, lostToRows, stageOptions, productTypeOptions, repOptions, industryOptions] = await Promise.all([
+
+    // 1. Open opportunities with filters + sort
     q<OppRow[]>(async () => {
       const { rows } = await risansiPool.query<{
-        id: string; product: string; stage: string;
+        id: string; product: string; product_type: string | null; stage: string;
         value_cr: string; probability: number | null;
         expected_close_date: string | null;
         client_name: string; client_code: string; industry: string;
         rep_name: string | null;
       }>(`
-        SELECT po.id, po.product, po.stage,
+        SELECT po.id, po.product,
+               (po.product_type)::text AS product_type,
+               po.stage,
                po.value_cr::text AS value_cr,
                po.probability,
                po.expected_close_date::text AS expected_close_date,
@@ -74,34 +122,33 @@ export default async function PipelinePage() {
         FROM opportunities po
         JOIN clients c ON c.id = po.client_id
         LEFT JOIN reps r ON r.id = c.primary_rep_id
-        WHERE po.stage NOT IN ('Won', 'Lost')
-        ORDER BY po.value_cr DESC NULLS LAST
+        ${where}
+        ORDER BY ${sortCol} ${orderDir} NULLS LAST
         LIMIT 200
-      `);
+      `, vals as (string | number)[]
+      );
       return rows.map(r => ({ ...r, value_cr: Number(r.value_cr) }));
     }, []),
 
-    // 2. Booked YTD — actual orders in current FY
+    // 2. Booked YTD
     q<number>(async () => {
       const { rows } = await risansiPool.query<{ booked: string }>(
-        `SELECT COALESCE(SUM(order_value_cr), 0)::text AS booked
-         FROM orders WHERE financial_year = $1`,
+        `SELECT COALESCE(SUM(order_value_cr), 0)::text AS booked FROM orders WHERE financial_year = $1`,
         [fy.code],
       );
       return Number(rows[0]?.booked ?? 0);
     }, 0),
 
-    // 3. Annual target (safe: table may not exist)
+    // 3. Annual target
     q<number>(async () => {
       const { rows } = await risansiPool.query<{ target: string }>(
-        `SELECT COALESCE(target_amount, 0)::text AS target
-         FROM annual_targets WHERE financial_year = $1 LIMIT 1`,
+        `SELECT COALESCE(target_amount, 0)::text AS target FROM annual_targets WHERE financial_year = $1 LIMIT 1`,
         [fy.code],
       );
       return Number(rows[0]?.target ?? 0);
     }, 0),
 
-    // 4. Win / loss by industry — last 12 months
+    // 4. Win / loss by industry
     q<WinRateRow[]>(async () => {
       const { rows } = await risansiPool.query<WinRateRow>(`
         SELECT c.industry,
@@ -119,7 +166,7 @@ export default async function PipelinePage() {
       return rows;
     }, []),
 
-    // 5. Lost-to competitors — last 12 months (safe: lost_to column may not exist)
+    // 5. Lost-to competitors
     q<LostToRow[]>(async () => {
       const { rows } = await risansiPool.query<{ competitor: string; opp_count: string; value: string }>(`
         SELECT COALESCE(lost_to_competitor, 'Others') AS competitor,
@@ -133,6 +180,35 @@ export default async function PipelinePage() {
         LIMIT 5
       `);
       return rows.map(r => ({ ...r, value: Number(r.value) }));
+    }, []),
+
+    // 6. Filter options
+    q<string[]>(async () => {
+      const { rows } = await risansiPool.query<{ stage: string }>(
+        `SELECT DISTINCT stage FROM opportunities WHERE stage NOT IN ('Won','Lost') ORDER BY stage`,
+      );
+      return rows.map(r => r.stage);
+    }, ['Suspect', 'Prospect', 'Quoted', 'Negotiating']),
+
+    q<string[]>(async () => {
+      const { rows } = await risansiPool.query<{ product_type: string }>(
+        `SELECT DISTINCT product_type FROM opportunities WHERE product_type IS NOT NULL ORDER BY product_type`,
+      );
+      return rows.map(r => r.product_type);
+    }, []),
+
+    q<string[]>(async () => {
+      const { rows } = await risansiPool.query<{ name: string }>(
+        `SELECT DISTINCT r.name FROM reps r WHERE r.deleted_at IS NULL ORDER BY r.name`,
+      );
+      return rows.map(r => r.name);
+    }, []),
+
+    q<string[]>(async () => {
+      const { rows } = await risansiPool.query<{ industry: string }>(
+        `SELECT DISTINCT c.industry FROM clients c WHERE c.industry IS NOT NULL ORDER BY c.industry`,
+      );
+      return rows.map(r => r.industry);
     }, []),
   ]);
 
@@ -151,11 +227,12 @@ export default async function PipelinePage() {
     ? Math.round((totalWon / (totalWon + totalLost)) * 100)
     : 0;
 
-  // Kanban columns — only active stages show open opps
   const byStage: Record<string, OppRow[]> = {};
   for (const s of STAGES) byStage[s] = openOpps.filter(o => o.stage === s);
 
-  // ── Render ─────────────────────────────────────────────────
+  const anyFilter = stageFilts.length > 0 || prodTypeFilts.length > 0 || repFilts.length > 0 || indFilts.length > 0;
+  const curSort = sortKey;
+  const curDir  = orderDir === 'DESC' ? 'desc' : 'asc';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -171,7 +248,7 @@ export default async function PipelinePage() {
             Pipeline & Revenue
           </div>
           <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 4, fontFamily: 'var(--font-mono)' }}>
-            {openOpps.length} open opportunit{openOpps.length !== 1 ? 'ies' : 'y'}
+            {openOpps.length} open opportunit{openOpps.length !== 1 ? 'ies' : ''}
             {' · '}{fmtCr(openTotal)} open value
             {' · '}weighted forecast {fmtCr(probabilityWeighted)}
             {winRatePct > 0 && ` · win rate FY ${winRatePct}%`}
@@ -182,31 +259,13 @@ export default async function PipelinePage() {
         <div style={{ ...PANEL, marginBottom: 14 }}>
           <div style={{ padding: 16 }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 2fr', gap: 24, alignItems: 'center' }}>
-              <ForecastBlock
-                label="Booked (Won YTD)"
-                value={bookedYTD}
-                sub={fy.label}
-                color="var(--pos)"
-              />
-              <ForecastBlock
-                label="Best-case (100% pipe)"
-                value={bestCase}
-                sub={`${fmtCr(bookedYTD)} + ${fmtCr(openTotal)} open`}
-                color="var(--fg)"
-              />
-              <ForecastBlock
-                label="Probability-weighted"
-                value={probabilityWeighted}
-                sub={`${fmtCr(weightedOpen)} weighted pipe + booked`}
-                color="var(--accent)"
-                highlight
-              />
-              <ForecastBlock
-                label="Annual Target"
-                value={target}
-                sub={annualTarget > 0 ? `${fmtCr(toGo)} to go` : 'Target not configured'}
-                color="var(--fg-2)"
-              />
+              <ForecastBlock label="Booked (Won YTD)" value={bookedYTD} sub={fy.label} color="var(--pos)" />
+              <ForecastBlock label="Best-case (100% pipe)" value={bestCase}
+                sub={`${fmtCr(bookedYTD)} + ${fmtCr(openTotal)} open`} color="var(--fg)" />
+              <ForecastBlock label="Probability-weighted" value={probabilityWeighted}
+                sub={`${fmtCr(weightedOpen)} weighted pipe + booked`} color="var(--accent)" highlight />
+              <ForecastBlock label="Annual Target" value={target}
+                sub={annualTarget > 0 ? `${fmtCr(toGo)} to go` : 'Target not configured'} color="var(--fg-2)" />
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--fg-3)', marginBottom: 6 }}>
                   <span>Target {fmtCr(target)}</span>
@@ -254,9 +313,7 @@ export default async function PipelinePage() {
                 <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
                   {items.map(opp => <OppCard key={opp.id} opp={opp} />)}
                   {items.length === 0 && (
-                    <div style={{ fontSize: 10, color: 'var(--fg-3)', textAlign: 'center', padding: 20 }}>
-                      No opps
-                    </div>
+                    <div style={{ fontSize: 10, color: 'var(--fg-3)', textAlign: 'center', padding: 20 }}>No opps</div>
                   )}
                 </div>
               </div>
@@ -271,18 +328,42 @@ export default async function PipelinePage() {
           <div style={PANEL}>
             <div style={PANEL_H}>
               <span style={PANEL_TITLE}>Active Opportunities</span>
-              <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>sorted by value</span>
-              <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
+              <span style={{ fontSize: 11, color: 'var(--fg-3)', marginLeft: 'auto' }}>
                 {Math.min(openOpps.length, 50)} of {openOpps.length}
               </span>
             </div>
-            <div style={{ overflowX: 'auto' }}>
+
+            {/* Filter row */}
+            <div style={{ padding: '10px 14px 0', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <MultiSelectFilter param="stage"        label="Stage"        options={stageOptions}       selected={stageFilts}    />
+              <MultiSelectFilter param="product_type" label="Product Type" options={productTypeOptions}  selected={prodTypeFilts} />
+              <MultiSelectFilter param="rep"          label="Rep"          options={repOptions}          selected={repFilts}      />
+              <MultiSelectFilter param="industry"     label="Industry"     options={industryOptions}     selected={indFilts}      />
+            </div>
+
+            {/* Active filter pills */}
+            {anyFilter && (
+              <div style={{ padding: '4px 14px 0' }}>
+                <ActiveFilterBar filters={[
+                  { param: 'stage',        label: 'Stage',    values: stageFilts    },
+                  { param: 'product_type', label: 'Type',     values: prodTypeFilts },
+                  { param: 'rep',          label: 'Rep',      values: repFilts      },
+                  { param: 'industry',     label: 'Industry', values: indFilts      },
+                ]} />
+              </div>
+            )}
+
+            <div style={{ overflowX: 'auto', marginTop: 4 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ background: 'var(--bg-elev)' }}>
-                    {['Client', 'Product', 'Stage', 'Value', 'Prob', 'ETA', 'Rep'].map(h => (
-                      <th key={h} style={TH}>{h}</th>
-                    ))}
+                    <SortableTH col="client"      label="Client"   currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="product"     label="Product"  currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="stage"       label="Stage"    currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="value"       label="Value"    currentSort={curSort} currentDir={curDir} align="right" />
+                    <SortableTH col="probability" label="Prob"     currentSort={curSort} currentDir={curDir} align="center" />
+                    <SortableTH col="eta"         label="ETA"      currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="rep"         label="Rep"      currentSort={curSort} currentDir={curDir} />
                   </tr>
                 </thead>
                 <tbody>
@@ -327,7 +408,6 @@ export default async function PipelinePage() {
           {/* Win Rate + Lost To */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
-            {/* Win Rate */}
             <div style={PANEL}>
               <div style={PANEL_H}>
                 <span style={PANEL_TITLE}>Win Rate · last 12 months</span>
@@ -369,7 +449,6 @@ export default async function PipelinePage() {
               </div>
             </div>
 
-            {/* Lost To */}
             <div style={PANEL}>
               <div style={PANEL_H}>
                 <span style={PANEL_TITLE}>Lost To · top competitors</span>
@@ -431,9 +510,9 @@ function ForecastBar({ booked, weightedOpen, target }: {
   booked: number; weightedOpen: number; target: number;
 }) {
   const tot = Math.max(target, booked + weightedOpen) * 1.05 || 1;
-  const bookedPct   = Math.min((booked / tot) * 100, 100);
-  const pipePct     = Math.min((weightedOpen / tot) * 100, Math.max(0, 100 - bookedPct));
-  const targetPct   = Math.min((target / tot) * 100, 99);
+  const bookedPct = Math.min((booked / tot) * 100, 100);
+  const pipePct   = Math.min((weightedOpen / tot) * 100, Math.max(0, 100 - bookedPct));
+  const targetPct = Math.min((target / tot) * 100, 99);
   return (
     <div style={{ height: 22, background: 'var(--bg-sunk)', borderRadius: 3, position: 'relative', overflow: 'visible' }}>
       <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', borderRadius: 3 }}>
@@ -488,6 +567,7 @@ const TH: CSSProperties = {
   padding: '9px 12px', textAlign: 'left', fontSize: 10,
   textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 500,
   color: 'var(--fg-3)', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap',
+  background: 'var(--bg-elev)',
 };
 
 const TD: CSSProperties = { padding: '10px 12px', verticalAlign: 'middle' };

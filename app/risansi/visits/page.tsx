@@ -1,60 +1,56 @@
 import type { CSSProperties } from 'react';
 import { Fragment } from 'react';
-import { Topbar, Tag } from '@/components/risansi';
+import { Topbar, Tag, MultiSelectFilter, ActiveFilterBar, SortableTH } from '@/components/risansi';
 import AssignVisitDrawer, { AssignVisitRowBtn, type DrawerRep } from '@/components/risansi/AssignVisitDrawer';
 import risansiPool from '@/lib/db-risansi';
 import { fmtL, formatRevLakh } from '@/lib/risansi-utils';
-
-// ── Safe query wrapper ─────────────────────────────────────────
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
 }
 
-// ── Data shapes ────────────────────────────────────────────────
-
 interface RepRow extends DrawerRep {
   initials: string | null;
-  zone: string | null;
+  zone:     string | null;
 }
 
 interface WeekVisit {
-  id: string;
-  visit_date: string;
-  status: string;
-  purpose: string | null;
-  outcome: string | null;
-  client_id: string;
-  client_name: string;
-  client_code: string;
-  industry: string | null;
-  city: string | null;
-  tier: string | null;
-  rep_name: string;
-  rep_id: string | null;
+  id:           string;
+  visit_date:   string;
+  status:       string;
+  purpose:      string | null;
+  outcome:      string | null;
+  client_id:    string;
+  client_name:  string;
+  client_code:  string;
+  industry:     string | null;
+  city:         string | null;
+  tier:         string | null;
+  rep_name:     string;
+  rep_id:       string | null;
 }
 
 interface WeekStats {
-  planned: string;
-  completed: string;
-  missed: string;
+  planned:    string;
+  completed:  string;
+  missed:     string;
   checked_in: string;
 }
 
 interface OverdueAccount {
-  id: string;
-  code: string;
-  legal_name: string;
-  industry: string | null;
-  tier: string | null;
-  state: string | null;
-  city: string | null;
+  id:              string;
+  code:            string;
+  legal_name:      string;
+  industry:        string | null;
+  tier:            string | null;
+  state:           string | null;
+  city:            string | null;
   last_visit_date: string | null;
-  days_overdue: number | null;
-  rep_name: string;
-  rep_id: string | null;
-  tour_name: string | null;
-  ytd_inr: number;
+  days_overdue:    number | null;
+  rep_name:        string;
+  rep_id:          string | null;
+  tour_name:       string | null;
+  ytd_inr:         number;
 }
 
 // ── Week date helpers ──────────────────────────────────────────
@@ -87,18 +83,12 @@ function todayStr(): string {
 }
 
 function fmtDate(s: string): string {
-  return new Date(s + 'T00:00:00').toLocaleDateString('en-IN', {
-    day: 'numeric', month: 'short',
-  });
+  return new Date(s + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 }
 
 function fmtDateLong(s: string): string {
-  return new Date(s + 'T00:00:00').toLocaleDateString('en-IN', {
-    day: 'numeric', month: 'short', year: 'numeric',
-  });
+  return new Date(s + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
-
-// ── Constants ──────────────────────────────────────────────────
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -111,7 +101,16 @@ const PURPOSE_COLOR: Record<string, string> = {
   'Management Relationship Visit': '#0A3D8F',
 };
 
-// ── Page ───────────────────────────────────────────────────────
+// Sort map for overdue table
+const SORT_MAP: Record<string, string> = {
+  name:         'c.legal_name',
+  days_overdue: 'days_overdue',
+  last_visit:   'c.last_visit_date',
+  ytd:          'ytd_inr',
+  rep:          'rep_name',
+  tier:         'c.tier',
+  state:        'c.state',
+};
 
 export default async function VisitsPage({
   searchParams,
@@ -122,30 +121,48 @@ export default async function VisitsPage({
   const tab   = typeof sp.tab === 'string' ? sp.tab : 'week';
   const wParm = typeof sp.w   === 'string' ? sp.w   : undefined;
 
+  // Overdue tab filters
+  const repFilts  = typeof sp.rep  === 'string' && sp.rep  ? sp.rep.split(',').filter(Boolean)  : [];
+  const tierFilts = typeof sp.tier === 'string' && sp.tier ? sp.tier.split(',').filter(Boolean) : [];
+
+  // Overdue sort
+  const sortKey  = typeof sp.sort === 'string' ? sp.sort : 'days_overdue';
+  const orderDir = sp.dir === 'asc' ? 'ASC' : 'DESC';
+  const sortCol  = SORT_MAP[sortKey] ?? 'days_overdue';
+
   const monday = weekMonday(wParm);
   const sunday = addDays(monday, 6);
   const today  = todayStr();
   const days   = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
 
-  const prevWeek  = addDays(monday, -7);
-  const nextWeek  = addDays(monday,  7);
-  const isThisWk  = monday === weekMonday();
+  const prevWeek = addDays(monday, -7);
+  const nextWeek = addDays(monday,  7);
+  const isThisWk = monday === weekMonday();
 
   const startDisp = fmtDate(monday);
   const endDisp   = fmtDateLong(sunday);
   const weekLabel = `${startDisp} – ${endDisp}`;
 
-  // Build tab-preserving URLs
-  const tabParam = (t: string) => t === 'week' ? '' : `&tab=${t}`;
+  // Build overdue WHERE conditions
+  const overdueConds: string[] = [];
+  const overdueVals: (string | string[])[] = [];
+  let idx = 1;
 
-  const [reps, weekVisits, stats, overdueAccounts] = await Promise.all([
+  if (repFilts.length > 0) {
+    overdueConds.push(`COALESCE(r.name, c.primary_rep_name, '—') = ANY($${idx}::text[])`);
+    overdueVals.push(repFilts); idx++;
+  }
+  if (tierFilts.length > 0) {
+    overdueConds.push(`c.tier = ANY($${idx}::text[])`);
+    overdueVals.push(tierFilts); idx++;
+  }
 
-    // Active reps — try with optional columns, fall back to id+name only
+  const [reps, weekVisits, stats, overdueAccounts, repOptions, tierOptions] = await Promise.all([
+
     q<RepRow[]>(async () => {
       try {
         const { rows } = await risansiPool.query<RepRow>(
-          `SELECT id, name, initials, zone, route
-           FROM reps WHERE is_active = TRUE ORDER BY name ASC`,
+          `SELECT id, name, initials, zone, route FROM reps WHERE is_active = TRUE ORDER BY name ASC`,
         );
         return rows;
       } catch {
@@ -156,7 +173,6 @@ export default async function VisitsPage({
       }
     }, []),
 
-    // Week visits — spec's exact query (parameterised for week nav)
     q<WeekVisit[]>(async () => {
       const { rows } = await risansiPool.query<WeekVisit & { visit_date: string }>(`
         SELECT
@@ -183,7 +199,6 @@ export default async function VisitsPage({
       return rows;
     }, []),
 
-    // Week KPI stats
     q<WeekStats>(async () => {
       const { rows } = await risansiPool.query<WeekStats>(`
         SELECT
@@ -197,8 +212,8 @@ export default async function VisitsPage({
       return rows[0] ?? { planned: '0', completed: '0', missed: '0', checked_in: '0' };
     }, { planned: '0', completed: '0', missed: '0', checked_in: '0' }),
 
-    // Overdue accounts — tier-based thresholds, try last_visit_date column first
     q<OverdueAccount[]>(async () => {
+      const extraConds = overdueConds.length > 0 ? `AND ${overdueConds.join(' AND ')}` : '';
       try {
         const { rows } = await risansiPool.query<{
           id: string; code: string; legal_name: string;
@@ -226,16 +241,16 @@ export default async function VisitsPage({
               OR (c.tier = 'Key'  AND c.last_visit_date < NOW() - INTERVAL '100 days')
               OR (c.tier != 'Key' AND c.last_visit_date < NOW() - INTERVAL '200 days')
             )
-          ORDER BY days_overdue DESC NULLS FIRST
+            ${extraConds}
+          ORDER BY ${sortCol} ${orderDir} NULLS ${orderDir === 'DESC' ? 'LAST' : 'FIRST'}
           LIMIT 100
-        `);
+        `, overdueVals as string[]);
         return rows.map(r => ({
           ...r,
           days_overdue: r.days_overdue != null ? Number(r.days_overdue) : null,
           ytd_inr:      Number(r.ytd_inr ?? 0),
         }));
       } catch {
-        // Fallback: compute last visit via join when last_visit_date column absent
         const { rows } = await risansiPool.query<{
           id: string; code: string; legal_name: string;
           industry: string | null; tier: string | null;
@@ -271,6 +286,22 @@ export default async function VisitsPage({
         }));
       }
     }, []),
+
+    // Rep options for filter
+    q<string[]>(async () => {
+      const { rows } = await risansiPool.query<{ name: string }>(
+        `SELECT DISTINCT name FROM reps WHERE deleted_at IS NULL ORDER BY name`,
+      );
+      return rows.map(r => r.name);
+    }, []),
+
+    // Tier options for filter
+    q<string[]>(async () => {
+      const { rows } = await risansiPool.query<{ tier: string }>(
+        `SELECT DISTINCT tier FROM clients WHERE tier IS NOT NULL AND deleted_at IS NULL ORDER BY tier`,
+      );
+      return rows.map(r => r.tier);
+    }, []),
   ]);
 
   // ── Derived stats ──────────────────────────────────────────
@@ -283,7 +314,6 @@ export default async function VisitsPage({
   const denomComp  = nPlanned + nCompleted + nMissed;
   const compliance = denomComp > 0 ? Math.round((nCompleted / denomComp) * 100) : 0;
 
-  // Rep × day grid
   const byRepDay: Record<string, Record<string, WeekVisit[]>> = {};
   for (const v of weekVisits) {
     const rid = v.rep_id ?? '__unassigned__';
@@ -292,17 +322,16 @@ export default async function VisitsPage({
     byRepDay[rid][v.visit_date].push(v);
   }
 
-  // Overdue summary
-  const keyOverdue      = overdueAccounts.filter(a => a.tier === 'Key').length;
-  const stdOverdue      = overdueAccounts.filter(a => a.tier !== 'Key').length;
+  const keyOverdue     = overdueAccounts.filter(a => a.tier === 'Key').length;
+  const stdOverdue     = overdueAccounts.filter(a => a.tier !== 'Key').length;
   const totalExposureL = overdueAccounts.reduce((s, a) => s + a.ytd_inr, 0) / 100_000;
 
-  // ── Render ─────────────────────────────────────────────────
+  const curSort = sortKey;
+  const curDir  = orderDir === 'DESC' ? 'desc' : 'asc';
+  const anyFilter = repFilts.length > 0 || tierFilts.length > 0;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-
-      {/* Sticky topbar */}
       <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
         <Topbar crumbs={['Risansi', 'Visit Plan']} />
       </div>
@@ -320,7 +349,6 @@ export default async function VisitsPage({
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            {/* Stat chips */}
             <span style={STAT_CHIP}>
               {nTotal} visit{nTotal !== 1 ? 's' : ''} planned this week
             </span>
@@ -331,23 +359,16 @@ export default async function VisitsPage({
             }}>
               {denomComp > 0 ? `${compliance}% compliance` : '— compliance'}
             </span>
-            {/* Drawer island — renders + Assign Visit button + drawer */}
             <AssignVisitDrawer reps={reps} />
           </div>
         </div>
 
         {/* ── Tab bar ──────────────────────────────────────── */}
         <div style={{ display: 'flex', borderBottom: '2px solid #DDE6F5', marginBottom: 18, gap: 0 }}>
-          <TabLink
-            href={`?tab=week${wParm ? '&w=' + wParm : ''}`}
-            active={tab !== 'overdue'}
-          >
+          <TabLink href={`?tab=week${wParm ? '&w=' + wParm : ''}`} active={tab !== 'overdue'}>
             Week View
           </TabLink>
-          <TabLink
-            href={`?tab=overdue${wParm ? '&w=' + wParm : ''}`}
-            active={tab === 'overdue'}
-          >
+          <TabLink href={`?tab=overdue${wParm ? '&w=' + wParm : ''}`} active={tab === 'overdue'}>
             Overdue Accounts
             {overdueAccounts.length > 0 && (
               <span style={{ marginLeft: 6, background: '#FEE2E2', color: '#9B1C1C', borderRadius: 10, padding: '1px 7px', fontSize: 10, fontWeight: 700 }}>
@@ -360,7 +381,6 @@ export default async function VisitsPage({
         {/* ── Tab 1: Week View ─────────────────────────────── */}
         {tab !== 'overdue' && (
           <>
-            {/* Week navigation */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
               <a href={`?tab=week&w=${prevWeek}`} style={NAV_BTN}>← Prev</a>
               <span style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: '#2C3E5A' }}>{weekLabel}</span>
@@ -392,16 +412,12 @@ export default async function VisitsPage({
                   gridTemplateColumns: `140px repeat(7, minmax(130px, 1fr))`,
                   minWidth: 1050,
                 }}>
-                  {/* Column headers */}
                   <div style={HEAD_CELL} />
                   {days.map((day, i) => {
                     const isToday = day === today;
                     const d = new Date(day + 'T00:00:00');
                     return (
-                      <div key={day} style={{
-                        ...HEAD_CELL,
-                        background: isToday ? '#EBF1FB' : '#F8FAFC',
-                      }}>
+                      <div key={day} style={{ ...HEAD_CELL, background: isToday ? '#EBF1FB' : '#F8FAFC' }}>
                         <div style={{ fontSize: 9, color: isToday ? '#0A3D8F' : '#6B7FA3', textTransform: 'uppercase', letterSpacing: '0.10em', fontWeight: isToday ? 700 : 500 }}>
                           {DAY_LABELS[i]}
                         </div>
@@ -412,16 +428,14 @@ export default async function VisitsPage({
                     );
                   })}
 
-                  {/* Rep rows */}
                   {reps.map((rep, repIdx) => {
                     const abbr = rep.initials
                       ?? (rep.name.split(' ').filter(Boolean).map(p => p[0]).slice(0, 2).join('').toUpperCase() || '?');
-                    const isLast   = repIdx === reps.length - 1;
-                    const rowLine  = isLast ? 'none' : '1px solid #DDE6F5';
+                    const isLast  = repIdx === reps.length - 1;
+                    const rowLine = isLast ? 'none' : '1px solid #DDE6F5';
 
                     return (
                       <Fragment key={rep.id}>
-                        {/* Rep label cell */}
                         <div style={{
                           ...BODY_CELL,
                           borderBottom: rowLine,
@@ -447,7 +461,6 @@ export default async function VisitsPage({
                           )}
                         </div>
 
-                        {/* Day cells */}
                         {days.map(day => {
                           const dayVisits = byRepDay[rep.id]?.[day] ?? [];
                           const isToday   = day === today;
@@ -462,9 +475,7 @@ export default async function VisitsPage({
                               {dayVisits.length === 0 ? (
                                 <div style={{ height: '100%', minHeight: 62, border: '1px dashed #E2E8F0', borderRadius: 4, margin: 1 }} />
                               ) : (
-                                dayVisits.map(v => (
-                                  <VisitCard key={v.id} visit={v} />
-                                ))
+                                dayVisits.map(v => <VisitCard key={v.id} visit={v} />)
                               )}
                             </div>
                           );
@@ -476,7 +487,6 @@ export default async function VisitsPage({
               </div>
             )}
 
-            {/* Legend */}
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', marginBottom: 4 }}>
               <div style={{ fontSize: 10, color: '#6B7FA3', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                 Purpose
@@ -509,7 +519,7 @@ export default async function VisitsPage({
         {tab === 'overdue' && (
           <>
             {/* Summary strip */}
-            <div style={{ ...PANEL, padding: '12px 16px', marginBottom: 14, display: 'flex', gap: 24, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ ...PANEL, padding: '12px 16px', marginBottom: 10, display: 'flex', gap: 24, alignItems: 'center', flexWrap: 'wrap' }}>
               {keyOverdue > 0 && (
                 <div style={{ fontSize: 12 }}>
                   <span style={{ fontWeight: 700, color: '#E02424', fontFamily: 'var(--font-mono)' }}>{keyOverdue}</span>
@@ -530,21 +540,45 @@ export default async function VisitsPage({
                   </span>
                 </div>
               )}
-              {overdueAccounts.length === 0 && (
+              {overdueAccounts.length === 0 && !anyFilter && (
                 <div style={{ fontSize: 13, color: '#0E9F6E', fontWeight: 500 }}>
                   ✓ All accounts are within visit frequency thresholds.
                 </div>
               )}
             </div>
 
-            {overdueAccounts.length === 0 ? null : (
-              <div style={{ ...PANEL, overflowX: 'auto' }}>
+            {/* Filter row */}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
+              <MultiSelectFilter param="rep"  label="Rep"  options={repOptions}  selected={repFilts}  />
+              <MultiSelectFilter param="tier" label="Tier" options={tierOptions} selected={tierFilts} />
+            </div>
+
+            {/* Active filter pills */}
+            {anyFilter && (
+              <ActiveFilterBar filters={[
+                { param: 'rep',  label: 'Rep',  values: repFilts  },
+                { param: 'tier', label: 'Tier', values: tierFilts },
+              ]} />
+            )}
+
+            {overdueAccounts.length === 0 ? (
+              <div style={{ ...PANEL, padding: '32px 0', textAlign: 'center', fontSize: 13, color: '#6B7FA3', marginTop: 8 }}>
+                No overdue accounts match the current filters.
+              </div>
+            ) : (
+              <div style={{ ...PANEL, overflowX: 'auto', marginTop: 8 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead>
                     <tr>
-                      {['Client', 'Industry', 'State', 'Tier', 'Last Visit', 'Days Overdue', '25–26 Revenue', 'Rep', 'Action'].map(h => (
-                        <th key={h} style={TH}>{h}</th>
-                      ))}
+                      <SortableTH col="name"         label="Client"        currentSort={curSort} currentDir={curDir} style={OD_TH} />
+                      <th style={OD_TH}>Industry</th>
+                      <SortableTH col="state"        label="State"         currentSort={curSort} currentDir={curDir} style={OD_TH} />
+                      <SortableTH col="tier"         label="Tier"          currentSort={curSort} currentDir={curDir} style={OD_TH} />
+                      <SortableTH col="last_visit"   label="Last Visit"    currentSort={curSort} currentDir={curDir} style={OD_TH} />
+                      <SortableTH col="days_overdue" label="Days Overdue"  currentSort={curSort} currentDir={curDir} style={OD_TH} align="right" />
+                      <SortableTH col="ytd"          label="25–26 Revenue" currentSort={curSort} currentDir={curDir} style={OD_TH} align="right" />
+                      <SortableTH col="rep"          label="Rep"           currentSort={curSort} currentDir={curDir} style={OD_TH} />
+                      <th style={OD_TH}>Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -553,44 +587,31 @@ export default async function VisitsPage({
                       const { color: dColor, label: dLabel } = overdueStyle(a.days_overdue);
                       return (
                         <tr key={a.id} style={{ borderBottom: i < last ? '1px solid #EBF1FB' : 'none' }}>
-                          {/* Client */}
                           <td style={{ padding: '10px 12px', verticalAlign: 'middle' }}>
                             <div style={{ fontWeight: 600, fontSize: 12, color: '#0D1B2A' }}>{a.legal_name}</div>
                             <div style={{ fontSize: 10, color: '#6B7FA3', fontFamily: 'var(--font-mono)', marginTop: 1 }}>
                               {a.code}{a.tour_name ? ` · ${a.tour_name}` : ''}
                             </div>
                           </td>
-                          {/* Industry */}
                           <td style={TD}>
-                            {a.industry
-                              ? <Tag>{a.industry}</Tag>
-                              : <span style={{ color: '#6B7FA3' }}>—</span>
-                            }
+                            {a.industry ? <Tag>{a.industry}</Tag> : <span style={{ color: '#6B7FA3' }}>—</span>}
                           </td>
-                          {/* State */}
                           <td style={{ ...TD, color: '#6B7FA3' }}>{a.state ?? '—'}</td>
-                          {/* Tier */}
                           <td style={TD}>
                             {a.tier
                               ? <Tag kind={a.tier === 'Key' ? 'warn' : undefined}>{a.tier}</Tag>
-                              : <span style={{ color: '#6B7FA3' }}>—</span>
-                            }
+                              : <span style={{ color: '#6B7FA3' }}>—</span>}
                           </td>
-                          {/* Last Visit */}
                           <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: '#6B7FA3' }}>
                             {a.last_visit_date ? fmtDateLong(a.last_visit_date) : '—'}
                           </td>
-                          {/* Days overdue */}
                           <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: dColor, fontWeight: a.days_overdue != null && a.days_overdue > 365 ? 700 : 500 }}>
                             {dLabel}
                           </td>
-                          {/* Revenue */}
                           <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
                             {a.ytd_inr > 0 ? formatRevLakh(a.ytd_inr) : '—'}
                           </td>
-                          {/* Rep */}
                           <td style={{ ...TD, color: '#2C3E5A' }}>{a.rep_name}</td>
-                          {/* Action */}
                           <td style={{ ...TD, whiteSpace: 'nowrap' }}>
                             <AssignVisitRowBtn
                               clientId={a.id}
@@ -630,10 +651,7 @@ function VisitCard({ visit: v }: { visit: WeekVisit }) {
       marginBottom: 4,
       textDecoration: cross ? 'line-through' : 'none',
     }}>
-      <div style={{
-        fontSize: 11, fontWeight: 600, color: '#0D1B2A',
-        lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-      }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: '#0D1B2A', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {v.client_name}
       </div>
       <div style={{ fontSize: 9, color: '#6B7FA3', marginTop: 1, marginBottom: 4 }}>
@@ -651,11 +669,7 @@ function VisitCard({ visit: v }: { visit: WeekVisit }) {
   );
 }
 
-// ── Sub-components ─────────────────────────────────────────────
-
-function TabLink({ href, active, children }: {
-  href: string; active: boolean; children: React.ReactNode;
-}) {
+function TabLink({ href, active, children }: { href: string; active: boolean; children: React.ReactNode }) {
   return (
     <a href={href} style={{
       display: 'inline-flex', alignItems: 'center', gap: 4,
@@ -671,21 +685,14 @@ function TabLink({ href, active, children }: {
   );
 }
 
-// ── Style helpers ──────────────────────────────────────────────
-
 function statusStyle(status: string): { bg: string; fg: string; cross: boolean } {
   switch (status) {
-    case 'completed':
-      return { bg: '#0E9F6E', fg: '#fff', cross: false };
+    case 'completed':   return { bg: '#0E9F6E', fg: '#fff', cross: false };
     case 'checked-in':
-    case 'checked_in':
-      return { bg: '#1A5CB8', fg: '#fff', cross: false };
-    case 'missed':
-      return { bg: '#E02424', fg: '#fff', cross: false };
-    case 'cancelled':
-      return { bg: '#F3F4F6', fg: '#6B7280', cross: true };
-    default: // planned
-      return { bg: '#F3F4F6', fg: '#374151', cross: false };
+    case 'checked_in':  return { bg: '#1A5CB8', fg: '#fff', cross: false };
+    case 'missed':      return { bg: '#E02424', fg: '#fff', cross: false };
+    case 'cancelled':   return { bg: '#F3F4F6', fg: '#6B7280', cross: true };
+    default:            return { bg: '#F3F4F6', fg: '#374151', cross: false };
   }
 }
 
@@ -728,12 +735,17 @@ const NAV_BTN: CSSProperties = {
   color: '#2C3E5A', borderRadius: 5, textDecoration: 'none',
 };
 
-const TH: CSSProperties = {
-  padding: '9px 12px', textAlign: 'left',
-  fontSize: 10, textTransform: 'uppercase',
-  letterSpacing: '0.08em', fontWeight: 700, color: '#6B7FA3',
-  background: '#EBF1FB', borderBottom: '2px solid #DDE6F5',
-  whiteSpace: 'nowrap',
+const OD_TH: CSSProperties = {
+  padding:       '9px 12px',
+  textAlign:     'left',
+  fontSize:      10,
+  textTransform: 'uppercase',
+  letterSpacing: '0.08em',
+  fontWeight:    700,
+  color:         '#6B7FA3',
+  background:    '#EBF1FB',
+  borderBottom:  '2px solid #DDE6F5',
+  whiteSpace:    'nowrap',
 };
 
 const TD: CSSProperties = {

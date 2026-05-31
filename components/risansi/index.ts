@@ -6,6 +6,10 @@ export { MiniBars }   from './MiniBars';
 export { Donut }      from './Donut';
 export { Tag }        from './Tag';
 export { StatusDot }  from './StatusDot';
+export { MultiSelectFilter }  from './MultiSelectFilter';
+export { ActiveFilterBar }    from './ActiveFilterBar';
+export { SortableTH }         from './SortableTH';
+export { useSortableTable }   from './useSortableTable';
 
 export type { SidebarProps, SidebarRole, SidebarUser, SidebarAlerts } from './Sidebar';
 export type { TopbarProps }     from './Topbar';
@@ -15,3 +19,4 @@ export type { MiniBarsProps }   from './MiniBars';
 export type { DonutProps, DonutSlice } from './Donut';
 export type { TagProps, TagKind }      from './Tag';
 export type { StatusDotProps, StatusKind } from './StatusDot';
+export type { FilterDef }             from './ActiveFilterBar';

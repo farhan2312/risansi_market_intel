@@ -5,25 +5,10 @@ import { useState, useEffect, useTransition, useRef } from 'react';
 import type { CSSProperties } from 'react';
 
 interface FilterBarProps {
-  industries: string[];
-  zones:      string[];
-  tiers:      string[];
-  q:          string;
-  industry:   string;
-  zone:       string;
-  tier:       string;
-  status:     string;
-  sugar:      string;   // '' | 'true' | 'false'
-  total:      number;
+  q:      string;
+  sugar:  string;   // '' | 'true' | 'false'
+  total:  number;
 }
-
-// Status values must match DB storage (uppercase)
-const STATUS_OPTIONS = [
-  { value: 'ACTIVE',      label: 'Active'      },
-  { value: 'INACTIVE',    label: 'Inactive'     },
-  { value: 'PROSPECTIVE', label: 'Prospective'  },
-  { value: 'BLACKLISTED', label: 'Blacklisted'  },
-];
 
 const FIELD: CSSProperties = {
   height: 30, padding: '0 8px',
@@ -36,28 +21,18 @@ const FIELD: CSSProperties = {
   cursor: 'pointer',
 };
 
-export function FilterBar({
-  industries, zones, tiers, q: initQ,
-  industry, zone, tier, status, sugar, total,
-}: FilterBarProps) {
+export function FilterBar({ q: initQ, sugar, total }: FilterBarProps) {
   const router   = useRouter();
   const pathname = usePathname();
   const [pending, startTransition] = useTransition();
   const [search, setSearch] = useState(initQ);
-
-  // Track whether the component has mounted to prevent debounce from
-  // firing on initial render (which would drop ?page=N from the URL).
   const mounted = useRef(false);
 
-  // Sync search field when URL changes (browser back/forward)
   useEffect(() => { setSearch(initQ); }, [initQ]);
 
-  // Debounced search — skip the very first render
+  // Debounced search
   useEffect(() => {
-    if (!mounted.current) {
-      mounted.current = true;
-      return;
-    }
+    if (!mounted.current) { mounted.current = true; return; }
     const id = setTimeout(() => {
       const p = new URLSearchParams(window.location.search);
       if (search) p.set('q', search);
@@ -66,7 +41,7 @@ export function FilterBar({
       startTransition(() => router.replace(`${pathname}?${p.toString()}`));
     }, 280);
     return () => clearTimeout(id);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
 
   const updateParam = (key: string, value: string) => {
@@ -76,8 +51,6 @@ export function FilterBar({
     p.delete('page');
     startTransition(() => router.replace(`${pathname}?${p.toString()}`));
   };
-
-  const hasFilters = !!(search || industry || zone || tier || status || sugar);
 
   return (
     <div style={{
@@ -102,33 +75,7 @@ export function FilterBar({
         />
       </div>
 
-      {/* Industry */}
-      <select value={industry} onChange={e => updateParam('industry', e.target.value)} style={FIELD}>
-        <option value="">All industries</option>
-        {industries.map(i => <option key={i} value={i}>{i}</option>)}
-      </select>
-
-      {/* Zone */}
-      <select value={zone} onChange={e => updateParam('zone', e.target.value)} style={FIELD}>
-        <option value="">All zones</option>
-        {zones.map(z => <option key={z} value={z}>{z}</option>)}
-      </select>
-
-      {/* Tier — populated from DB values */}
-      <select value={tier} onChange={e => updateParam('tier', e.target.value)} style={FIELD}>
-        <option value="">All tiers</option>
-        {tiers.map(t => <option key={t} value={t}>{t}</option>)}
-      </select>
-
-      {/* Status — values must match DB (uppercase) */}
-      <select value={status} onChange={e => updateParam('status', e.target.value)} style={FIELD}>
-        <option value="">All statuses</option>
-        {STATUS_OPTIONS.map(s => (
-          <option key={s.value} value={s.value}>{s.label}</option>
-        ))}
-      </select>
-
-      {/* Sugar toggle — maps to is_sugar boolean column */}
+      {/* Sugar toggle */}
       <div style={{
         display: 'flex', background: 'var(--bg-paper)',
         border: '1px solid var(--line-strong)', borderRadius: 5, overflow: 'hidden',
@@ -154,19 +101,6 @@ export function FilterBar({
           </button>
         ))}
       </div>
-
-      {/* Clear filters */}
-      {hasFilters && (
-        <button
-          onClick={() => {
-            setSearch('');
-            startTransition(() => router.replace(pathname));
-          }}
-          style={{ ...FIELD, padding: '0 10px', color: 'var(--fg-3)', fontSize: 11 }}
-        >
-          Clear
-        </button>
-      )}
 
       <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
         {total.toLocaleString('en-IN')} client{total !== 1 ? 's' : ''}

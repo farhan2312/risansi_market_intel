@@ -1,15 +1,11 @@
 import type { CSSProperties } from 'react';
-import { Topbar, Donut, Tag, KpiCard } from '@/components/risansi';
+import { Topbar, Donut, Tag, KpiCard, MultiSelectFilter, ActiveFilterBar, SortableTH } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
 import { fmtCr } from '@/lib/risansi-utils';
-
-// ── Safe query wrapper ─────────────────────────────────────────
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
 }
-
-// ── Competitor colour palette ──────────────────────────────────
 
 const COMP_COLORS: Record<string, string> = {
   RIL:           '#1A5CB8',
@@ -21,8 +17,6 @@ const COMP_COLORS: Record<string, string> = {
   Others:        'var(--fg-3)',
 };
 function compColor(name: string) { return COMP_COLORS[name] ?? COMP_COLORS.Others; }
-
-// ── Data shapes ────────────────────────────────────────────────
 
 interface MarketTotals {
   ril_pcp:     number;
@@ -45,19 +39,60 @@ interface DisplacementAccount {
 }
 
 interface IndustryShare {
-  industry:    string;
-  ril_pcp:     number;
-  total_pcp:   number;
+  industry:  string;
+  ril_pcp:   number;
+  total_pcp: number;
 }
 
-// ── Page ───────────────────────────────────────────────────────
+// Sort map for displacement table
+const SORT_MAP: Record<string, string> = {
+  client:         'c.legal_name',
+  zone:           'c.zone',
+  ril_pcp:        'cib.ril_pcp',
+  competitor_pcp: '(cib.total_pcp - COALESCE(cib.ril_pcp, 0))',
+  total_pcp:      'cib.total_pcp',
+  share:          '(COALESCE(cib.ril_pcp,0)::float / NULLIF(cib.total_pcp,0))',
+  rep:            'r.name',
+};
 
-export default async function CompetePage() {
+export default async function CompetePage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = await searchParams;
 
-  // ── All queries in parallel ───────────────────────────────────
-  const [totals, displacementAccounts, industryShare] = await Promise.all([
+  // Multi-select filters for displacement table
+  const zoneFilts = typeof sp.zone === 'string' && sp.zone ? sp.zone.split(',').filter(Boolean) : [];
+  const repFilts  = typeof sp.rep  === 'string' && sp.rep  ? sp.rep.split(',').filter(Boolean)  : [];
 
-    // 1. Aggregate totals across all clients
+  // Sort
+  const sortKey  = typeof sp.sort === 'string' ? sp.sort : 'competitor_pcp';
+  const orderDir = sp.dir === 'asc' ? 'ASC' : 'DESC';
+  const sortCol  = SORT_MAP[sortKey] ?? '(cib.total_pcp - COALESCE(cib.ril_pcp, 0))';
+
+  // Build WHERE for displacement query
+  const dispConds: string[] = [
+    `(cib.total_pcp - COALESCE(cib.ril_pcp, 0)) > 0`,
+    `c.status = 'ACTIVE'`,
+  ];
+  const dispVals: (string | string[])[] = [];
+  let idx = 1;
+
+  if (zoneFilts.length > 0) {
+    dispConds.push(`c.zone = ANY($${idx}::text[])`);
+    dispVals.push(zoneFilts); idx++;
+  }
+  if (repFilts.length > 0) {
+    dispConds.push(`r.name = ANY($${idx}::text[])`);
+    dispVals.push(repFilts); idx++;
+  }
+
+  const dispWhere = `WHERE ${dispConds.join(' AND ')}`;
+
+  const [totals, displacementAccounts, industryShare, zoneOptions, repOptions] = await Promise.all([
+
+    // 1. Aggregate totals
     q<MarketTotals>(async () => {
       const { rows } = await risansiPool.query<{
         ril_pcp: string; roto_pcp: string; rotomac_pcp: string;
@@ -88,7 +123,7 @@ export default async function CompetePage() {
       };
     }, { ril_pcp: 0, roto_pcp: 0, rotomac_pcp: 0, netzsch_pcp: 0, gita_pcp: 0, psp_pcp: 0, tushaco_pcp: 0, total_pcp: 0 }),
 
-    // 2. Displacement accounts
+    // 2. Displacement accounts (with filters + sort)
     q<DisplacementAccount[]>(async () => {
       const { rows } = await risansiPool.query<{
         client_name: string; zone: string | null;
@@ -103,10 +138,10 @@ export default async function CompetePage() {
          FROM competitor_installed_base cib
          JOIN clients c ON c.code = cib.client_code
          LEFT JOIN reps r ON r.id = c.primary_rep_id
-         WHERE (cib.total_pcp - COALESCE(cib.ril_pcp, 0)) > 0
-           AND c.status = 'ACTIVE'
-         ORDER BY competitor_pcp DESC
-         LIMIT 30`,
+         ${dispWhere}
+         ORDER BY ${sortCol} ${orderDir} NULLS LAST
+         LIMIT 50`,
+        dispVals as string[],
       );
       return rows.map(r => ({
         client_name:    r.client_name,
@@ -137,36 +172,53 @@ export default async function CompetePage() {
         total_pcp: Number(r.total),
       }));
     }, []),
+
+    // 4. Zone options for filter
+    q<string[]>(async () => {
+      const { rows } = await risansiPool.query<{ zone: string }>(
+        `SELECT DISTINCT c.zone FROM clients c
+         JOIN competitor_installed_base cib ON c.code = cib.client_code
+         WHERE c.zone IS NOT NULL AND c.status = 'ACTIVE'
+         ORDER BY c.zone`,
+      );
+      return rows.map(r => r.zone);
+    }, []),
+
+    // 5. Rep options for filter
+    q<string[]>(async () => {
+      const { rows } = await risansiPool.query<{ name: string }>(
+        `SELECT DISTINCT name FROM reps WHERE deleted_at IS NULL ORDER BY name`,
+      );
+      return rows.map(r => r.name);
+    }, []),
   ]);
 
-  // ── Derived values ────────────────────────────────────────────
+  // ── Derived values ─────────────────────────────────────────────
   const safeTotal = Math.max(totals.total_pcp, 1);
   const rilShare  = (totals.ril_pcp / safeTotal) * 100;
 
-  // Build donut slices: RIL + competitor groupings + Others
   const rotoTotal  = totals.roto_pcp + totals.rotomac_pcp;
   const namedTotal = totals.ril_pcp + rotoTotal + totals.netzsch_pcp + totals.gita_pcp + totals.psp_pcp + totals.tushaco_pcp;
   const othersUnits = Math.max(0, totals.total_pcp - namedTotal);
 
   const donutSlices = [
-    { name: 'RIL',            units: totals.ril_pcp,     color: compColor('RIL') },
-    { name: 'Roto+Rotomac',   units: rotoTotal,           color: compColor('Roto+Rotomac') },
-    { name: 'Netzsch',        units: totals.netzsch_pcp,  color: compColor('Netzsch') },
-    { name: 'Gita',           units: totals.gita_pcp,     color: compColor('Gita') },
-    { name: 'PSP',            units: totals.psp_pcp,      color: compColor('PSP') },
-    { name: 'Tushaco',        units: totals.tushaco_pcp,  color: compColor('Tushaco') },
+    { name: 'RIL',          units: totals.ril_pcp,    color: compColor('RIL') },
+    { name: 'Roto+Rotomac', units: rotoTotal,          color: compColor('Roto+Rotomac') },
+    { name: 'Netzsch',      units: totals.netzsch_pcp, color: compColor('Netzsch') },
+    { name: 'Gita',         units: totals.gita_pcp,    color: compColor('Gita') },
+    { name: 'PSP',          units: totals.psp_pcp,     color: compColor('PSP') },
+    { name: 'Tushaco',      units: totals.tushaco_pcp, color: compColor('Tushaco') },
     ...(othersUnits > 0 ? [{ name: 'Others', units: othersUnits, color: compColor('Others') }] : []),
   ].filter(d => d.units > 0).map(d => ({ ...d, pct: (d.units / safeTotal) * 100 }));
 
   const competitors = donutSlices.filter(d => d.name !== 'RIL');
-
+  const maxCompPct  = competitors.length > 0 ? Math.max(...competitors.map(c => c.pct)) : 1;
   const totalCompetitorUnits = displacementAccounts.reduce((s, r) => s + r.competitor_pcp, 0);
 
-  const maxCompPct = competitors.length > 0
-    ? Math.max(...competitors.map(c => c.pct))
-    : 1;
+  const curSort  = sortKey;
+  const curDir   = orderDir === 'DESC' ? 'desc' : 'asc';
+  const anyFilter = zoneFilts.length > 0 || repFilts.length > 0;
 
-  // ── Render ───────────────────────────────────────────────────
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
@@ -175,7 +227,6 @@ export default async function CompetePage() {
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>
 
-        {/* Page header */}
         <div style={{ marginBottom: 18 }}>
           <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
             Competitive Intelligence
@@ -211,21 +262,17 @@ export default async function CompetePage() {
           />
         </div>
 
-        {/* ── Donut + Competitor table ─────────────────────────── */}
+        {/* ── Donut + Competitor breakdown ──────────────────────── */}
         <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: 14, marginBottom: 14 }}>
 
-          {/* Market share donut */}
           <div style={PANEL}>
-            <div style={PANEL_H}>
-              <span style={PANEL_TITLE}>PCP Market Share</span>
-            </div>
+            <div style={PANEL_H}><span style={PANEL_TITLE}>PCP Market Share</span></div>
             <div style={{ padding: 20, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
               {totals.total_pcp > 0 ? (
                 <>
                   <Donut
                     data={donutSlices.map(d => ({ pct: d.pct, color: d.color, name: d.name }))}
-                    size={160}
-                    thick={22}
+                    size={160} thick={22}
                     center={
                       <div style={{ textAlign: 'center' }}>
                         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 24, fontWeight: 500, color: 'var(--fg)' }}>
@@ -265,7 +312,6 @@ export default async function CompetePage() {
             </div>
           </div>
 
-          {/* Competitor breakdown table */}
           <div style={PANEL}>
             <div style={PANEL_H}>
               <span style={PANEL_TITLE}>Competitor Breakdown · PCP</span>
@@ -289,9 +335,7 @@ export default async function CompetePage() {
                 <tbody>
                   {competitors.map(comp => {
                     const barPct = maxCompPct > 0 ? (comp.pct / maxCompPct) * 100 : 0;
-                    const vsRil = totals.ril_pcp > 0
-                      ? ((comp.units - totals.ril_pcp) / totals.ril_pcp) * 100
-                      : 0;
+                    const vsRil  = totals.ril_pcp > 0 ? ((comp.units - totals.ril_pcp) / totals.ril_pcp) * 100 : 0;
                     return (
                       <tr key={comp.name} style={{ borderBottom: '1px solid var(--line)' }}>
                         <td style={{ padding: '10px 12px', verticalAlign: 'middle' }}>
@@ -361,7 +405,7 @@ export default async function CompetePage() {
           </div>
         )}
 
-        {/* ── Displacement opportunities ───────────────────────── */}
+        {/* ── Displacement accounts ────────────────────────────── */}
         <div style={PANEL}>
           <div style={PANEL_H}>
             <span style={PANEL_TITLE}>Accounts with Competitor Presence</span>
@@ -374,18 +418,39 @@ export default async function CompetePage() {
               </div>
             )}
           </div>
+
+          {/* Filter row */}
+          <div style={{ padding: '10px 14px 0', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <MultiSelectFilter param="zone" label="Zone" options={zoneOptions} selected={zoneFilts} />
+            <MultiSelectFilter param="rep"  label="Rep"  options={repOptions}  selected={repFilts}  />
+          </div>
+
+          {/* Active filter pills */}
+          {anyFilter && (
+            <div style={{ padding: '4px 14px 0' }}>
+              <ActiveFilterBar filters={[
+                { param: 'zone', label: 'Zone', values: zoneFilts },
+                { param: 'rep',  label: 'Rep',  values: repFilts  },
+              ]} />
+            </div>
+          )}
+
           {displacementAccounts.length === 0 ? (
             <div style={{ fontSize: 12, color: 'var(--fg-3)', textAlign: 'center', padding: '40px 0' }}>
               No displacement data available
             </div>
           ) : (
-            <div style={{ overflowX: 'auto' }}>
+            <div style={{ overflowX: 'auto', marginTop: 8 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: 'var(--bg-elev)' }}>
-                    {['Client', 'Zone', 'RIL PCP', 'Competitor PCP', 'Total PCP', 'RIL Share', 'Rep'].map(h => (
-                      <th key={h} style={TH}>{h}</th>
-                    ))}
+                    <SortableTH col="client"         label="Client"          currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="zone"           label="Zone"            currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="ril_pcp"        label="RIL PCP"         currentSort={curSort} currentDir={curDir} align="right" />
+                    <SortableTH col="competitor_pcp" label="Competitor PCP"  currentSort={curSort} currentDir={curDir} align="right" />
+                    <SortableTH col="total_pcp"      label="Total PCP"       currentSort={curSort} currentDir={curDir} align="right" />
+                    <SortableTH col="share"          label="RIL Share"       currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="rep"            label="Rep"             currentSort={curSort} currentDir={curDir} />
                   </tr>
                 </thead>
                 <tbody>
@@ -467,6 +532,7 @@ const TH: CSSProperties = {
   color:         'var(--fg-3)',
   borderBottom:  '1px solid var(--line)',
   whiteSpace:    'nowrap',
+  background:    'var(--bg-elev)',
 };
 
 const TD: CSSProperties = {
