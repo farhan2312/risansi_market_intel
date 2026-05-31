@@ -37,15 +37,17 @@ export default async function ClientListPage({
 }) {
   const sp = await searchParams;
 
-  const q_str   = typeof sp.q        === 'string' ? sp.q.trim()        : '';
-  const indFilt = typeof sp.industry === 'string' ? sp.industry.trim() : '';
-  const zoneFilt = typeof sp.zone    === 'string' ? sp.zone.trim()     : '';
-  const tierFilt = typeof sp.tier    === 'string' ? sp.tier.trim()     : '';
-  const statFilt = typeof sp.status  === 'string' ? sp.status.trim()   : '';
-  const catFilt  = typeof sp.category === 'string' ? sp.category.trim() : '';
-  // Default: sort by last visit date ascending so most-overdue appear first.
-  const sortKey  = typeof sp.sort    === 'string' ? sp.sort            : 'last_visit';
-  const orderDir = sp.order === 'desc'            ? 'DESC'             : 'ASC';
+  const q_str    = typeof sp.q        === 'string' ? sp.q.trim()        : '';
+  const indFilt  = typeof sp.industry === 'string' ? sp.industry.trim() : '';
+  const zoneFilt = typeof sp.zone     === 'string' ? sp.zone.trim()     : '';
+  const tierFilt = typeof sp.tier     === 'string' ? sp.tier.trim()     : '';
+  // Status stored uppercase in DB; accept any case from URL and normalise
+  const statFilt = typeof sp.status   === 'string' ? sp.status.trim().toUpperCase() : '';
+  // 'sugar' param: '' | 'true' | 'false'  (maps to is_sugar boolean column)
+  const sugarFilt = typeof sp.sugar   === 'string' ? sp.sugar.trim()   : '';
+  // Default: sort by last visit date ascending so never-visited appear first.
+  const sortKey  = typeof sp.sort     === 'string' ? sp.sort            : 'last_visit';
+  const orderDir = sp.order === 'desc'             ? 'DESC'             : 'ASC';
   const pageNum  = Math.max(1, parseInt(typeof sp.page === 'string' ? sp.page : '1', 10) || 1);
   const offset   = (pageNum - 1) * PAGE_SIZE;
 
@@ -59,7 +61,7 @@ export default async function ClientListPage({
   let idx = 1;
 
   if (q_str) {
-    conds.push(`(c.legal_name ILIKE $${idx} OR c.trade_name ILIKE $${idx} OR c.code ILIKE $${idx} OR c.city ILIKE $${idx})`);
+    conds.push(`(c.legal_name ILIKE $${idx} OR c.trade_name ILIKE $${idx} OR c.code ILIKE $${idx} OR c.city ILIKE $${idx} OR c.state ILIKE $${idx})`);
     vals.push(`%${q_str}%`); idx++;
   }
   if (indFilt) {
@@ -67,7 +69,8 @@ export default async function ClientListPage({
     vals.push(indFilt); idx++;
   }
   if (zoneFilt) {
-    conds.push(`c.zone = $${idx}`);
+    // Check both the client's own zone column and the assigned rep's zone
+    conds.push(`(c.zone = $${idx} OR r.zone = $${idx})`);
     vals.push(zoneFilt); idx++;
   }
   if (tierFilt) {
@@ -75,12 +78,14 @@ export default async function ClientListPage({
     vals.push(tierFilt); idx++;
   }
   if (statFilt) {
-    conds.push(`c.status = $${idx}`);
+    // DB stores uppercase (ACTIVE, INACTIVE …); URL value already uppercased above
+    conds.push(`UPPER(c.status) = $${idx}`);
     vals.push(statFilt); idx++;
   }
-  if (catFilt) {
-    conds.push(`c.business_category = $${idx}`);
-    vals.push(catFilt); idx++;
+  if (sugarFilt === 'true') {
+    conds.push(`c.is_sugar = TRUE`);
+  } else if (sugarFilt === 'false') {
+    conds.push(`(c.is_sugar = FALSE OR c.is_sugar IS NULL)`);
   }
 
   const baseWhere = `c.deleted_at IS NULL`;
@@ -111,7 +116,7 @@ export default async function ClientListPage({
     ytd_inr:             string;
   }
 
-  const [clients, total, industries, zones] = await Promise.all([
+  const [clients, total, industries, zones, tiers] = await Promise.all([
     q<ClientRow[]>(async () => {
       const mainVals: (string | number)[] = [...vals, PAGE_SIZE, offset];
       const limIdx = idx;
@@ -128,7 +133,7 @@ export default async function ClientListPage({
          FROM clients c
          LEFT JOIN reps r ON c.primary_rep_id = r.id
          ${where}
-         ORDER BY ${sortCol} ${orderDir} NULLS LAST
+         ORDER BY ${sortCol} ${orderDir} ${orderDir === 'ASC' ? 'NULLS FIRST' : 'NULLS LAST'}
          LIMIT $${limIdx} OFFSET $${offIdx}`,
         mainVals,
       );
@@ -153,10 +158,22 @@ export default async function ClientListPage({
 
     q<string[]>(async () => {
       const { rows } = await risansiPool.query<{ zone: string }>(
-        `SELECT DISTINCT zone FROM clients WHERE zone IS NOT NULL ORDER BY zone`,
+        `SELECT DISTINCT COALESCE(r.zone, c.zone) AS zone
+         FROM clients c
+         LEFT JOIN reps r ON c.primary_rep_id = r.id
+         WHERE COALESCE(r.zone, c.zone) IS NOT NULL AND c.deleted_at IS NULL
+         ORDER BY 1`,
         [],
       );
       return rows.map(r => r.zone);
+    }, []),
+
+    q<string[]>(async () => {
+      const { rows } = await risansiPool.query<{ tier: string }>(
+        `SELECT DISTINCT tier FROM clients WHERE tier IS NOT NULL AND deleted_at IS NULL ORDER BY tier`,
+        [],
+      );
+      return rows.map(r => r.tier);
     }, []),
   ]);
 
@@ -172,13 +189,13 @@ export default async function ClientListPage({
 
   function buildUrl(overrides: Record<string, string | number | undefined>): string {
     const base: Record<string, string> = {};
-    if (q_str)   base.q        = q_str;
-    if (indFilt) base.industry = indFilt;
-    if (zoneFilt) base.zone    = zoneFilt;
-    if (tierFilt) base.tier    = tierFilt;
-    if (statFilt) base.status  = statFilt;
-    if (catFilt)  base.category = catFilt;
-    if (sortKey)  base.sort    = sortKey;
+    if (q_str)     base.q        = q_str;
+    if (indFilt)   base.industry = indFilt;
+    if (zoneFilt)  base.zone     = zoneFilt;
+    if (tierFilt)  base.tier     = tierFilt;
+    if (statFilt)  base.status   = statFilt;
+    if (sugarFilt) base.sugar    = sugarFilt;
+    if (sortKey)   base.sort     = sortKey;
     if (orderDir === 'DESC') base.order = 'desc';
     base.page = String(pageNum);
     const merged = { ...base, ...Object.fromEntries(
@@ -244,12 +261,13 @@ export default async function ClientListPage({
         <FilterBar
           industries={industries}
           zones={zones}
+          tiers={tiers}
           q={q_str}
           industry={indFilt}
           zone={zoneFilt}
           tier={tierFilt}
           status={statFilt}
-          category={catFilt}
+          sugar={sugarFilt}
           total={total}
         />
 

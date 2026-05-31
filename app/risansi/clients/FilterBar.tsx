@@ -1,23 +1,29 @@
 'use client';
 
 import { useRouter, usePathname } from 'next/navigation';
-import { useState, useEffect, useTransition } from 'react';
+import { useState, useEffect, useTransition, useRef } from 'react';
 import type { CSSProperties } from 'react';
 
 interface FilterBarProps {
   industries: string[];
   zones:      string[];
+  tiers:      string[];
   q:          string;
   industry:   string;
   zone:       string;
   tier:       string;
   status:     string;
-  category:   string;
+  sugar:      string;   // '' | 'true' | 'false'
   total:      number;
 }
 
-const TIERS    = ['Key', 'Standard', 'OEM', 'Prospective'];
-const STATUSES = ['Active', 'Inactive', 'Prospective', 'Closed'];
+// Status values must match DB storage (uppercase)
+const STATUS_OPTIONS = [
+  { value: 'ACTIVE',      label: 'Active'      },
+  { value: 'INACTIVE',    label: 'Inactive'     },
+  { value: 'PROSPECTIVE', label: 'Prospective'  },
+  { value: 'BLACKLISTED', label: 'Blacklisted'  },
+];
 
 const FIELD: CSSProperties = {
   height: 30, padding: '0 8px',
@@ -30,17 +36,28 @@ const FIELD: CSSProperties = {
   cursor: 'pointer',
 };
 
-export function FilterBar({ industries, zones, q: initQ, industry, zone, tier, status, category, total }: FilterBarProps) {
-  const router    = useRouter();
-  const pathname  = usePathname();
+export function FilterBar({
+  industries, zones, tiers, q: initQ,
+  industry, zone, tier, status, sugar, total,
+}: FilterBarProps) {
+  const router   = useRouter();
+  const pathname = usePathname();
   const [pending, startTransition] = useTransition();
-  const [search,  setSearch]  = useState(initQ);
+  const [search, setSearch] = useState(initQ);
 
-  // Sync search when URL changes (browser back/fwd)
+  // Track whether the component has mounted to prevent debounce from
+  // firing on initial render (which would drop ?page=N from the URL).
+  const mounted = useRef(false);
+
+  // Sync search field when URL changes (browser back/forward)
   useEffect(() => { setSearch(initQ); }, [initQ]);
 
-  // Debounced search navigation
+  // Debounced search — skip the very first render
   useEffect(() => {
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
+    }
     const id = setTimeout(() => {
       const p = new URLSearchParams(window.location.search);
       if (search) p.set('q', search);
@@ -60,6 +77,8 @@ export function FilterBar({ industries, zones, q: initQ, industry, zone, tier, s
     startTransition(() => router.replace(`${pathname}?${p.toString()}`));
   };
 
+  const hasFilters = !!(search || industry || zone || tier || status || sugar);
+
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
@@ -67,6 +86,7 @@ export function FilterBar({ industries, zones, q: initQ, industry, zone, tier, s
       opacity: pending ? 0.6 : 1,
       transition: 'opacity 0.15s',
     }}>
+
       {/* Search */}
       <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
         <svg style={{ position: 'absolute', left: 8, pointerEvents: 'none', color: 'var(--fg-3)' }}
@@ -94,43 +114,53 @@ export function FilterBar({ industries, zones, q: initQ, industry, zone, tier, s
         {zones.map(z => <option key={z} value={z}>{z}</option>)}
       </select>
 
-      {/* Tier */}
+      {/* Tier — populated from DB values */}
       <select value={tier} onChange={e => updateParam('tier', e.target.value)} style={FIELD}>
         <option value="">All tiers</option>
-        {TIERS.map(t => <option key={t} value={t}>{t}</option>)}
+        {tiers.map(t => <option key={t} value={t}>{t}</option>)}
       </select>
 
-      {/* Status */}
+      {/* Status — values must match DB (uppercase) */}
       <select value={status} onChange={e => updateParam('status', e.target.value)} style={FIELD}>
         <option value="">All statuses</option>
-        {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+        {STATUS_OPTIONS.map(s => (
+          <option key={s.value} value={s.value}>{s.label}</option>
+        ))}
       </select>
 
-      {/* Business category toggle */}
-      <div style={{ display: 'flex', background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', borderRadius: 5, overflow: 'hidden' }}>
-        {(['', 'Sugar', 'Non-Sugar'] as const).map((cat) => (
+      {/* Sugar toggle — maps to is_sugar boolean column */}
+      <div style={{
+        display: 'flex', background: 'var(--bg-paper)',
+        border: '1px solid var(--line-strong)', borderRadius: 5, overflow: 'hidden',
+      }}>
+        {([
+          { value: '',      label: 'All'       },
+          { value: 'true',  label: 'Sugar'     },
+          { value: 'false', label: 'Non-Sugar' },
+        ] as const).map(opt => (
           <button
-            key={cat || 'all'}
-            onClick={() => updateParam('category', cat)}
+            key={opt.value || 'all'}
+            onClick={() => updateParam('sugar', opt.value)}
             style={{
               height: 30, padding: '0 10px', fontSize: 11, fontFamily: 'inherit',
-              cursor: 'pointer', border: 'none', borderRight: '1px solid var(--line-strong)',
-              background: category === cat ? 'var(--accent)' : 'transparent',
-              color:      category === cat ? '#fff'         : 'var(--fg-2)',
-              fontWeight: category === cat ? 500            : 400,
+              cursor: 'pointer', border: 'none',
+              borderRight: opt.value === 'false' ? 'none' : '1px solid var(--line-strong)',
+              background: sugar === opt.value ? 'var(--accent)' : 'transparent',
+              color:      sugar === opt.value ? '#fff'          : 'var(--fg-2)',
+              fontWeight: sugar === opt.value ? 500             : 400,
             }}
           >
-            {cat || 'All'}
+            {opt.label}
           </button>
         ))}
       </div>
 
       {/* Clear filters */}
-      {(search || industry || zone || tier || status || category) && (
+      {hasFilters && (
         <button
           onClick={() => {
             setSearch('');
-            startTransition(() => router.replace(pathname));  // clears all params
+            startTransition(() => router.replace(pathname));
           }}
           style={{ ...FIELD, padding: '0 10px', color: 'var(--fg-3)', fontSize: 11 }}
         >
