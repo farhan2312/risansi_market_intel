@@ -2,7 +2,11 @@ import NextAuth, { type AuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import type { RisansiAccessStatus } from '@/types/risansi';
 
+const VALID_EMAIL    = process.env.ADMIN_EMAIL    ?? 'admin@risansi.com';
+const VALID_PASSWORD = process.env.ADMIN_PASSWORD ?? 'risansi2026';
+
 export const authOptions: AuthOptions = {
+  secret: process.env.NEXTAUTH_SECRET ?? 'risansi-dev-secret-2026',
   providers: [
     CredentialsProvider({
       name: 'Credentials',
@@ -11,11 +15,18 @@ export const authOptions: AuthOptions = {
         password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials) {
+        console.log('LOGIN ATTEMPT:', {
+          inputEmail:   credentials?.email,
+          inputPassword: credentials?.password,
+          envEmail:     process.env.ADMIN_EMAIL,
+          envPassword:  process.env.ADMIN_PASSWORD,
+        });
+
         if (
-          credentials?.email    === process.env.ADMIN_EMAIL &&
-          credentials?.password === process.env.ADMIN_PASSWORD
+          credentials?.email    === VALID_EMAIL &&
+          credentials?.password === VALID_PASSWORD
         ) {
-          return { id: '1', email: process.env.ADMIN_EMAIL!, name: 'Admin' };
+          return { id: '1', email: VALID_EMAIL, name: 'Admin' };
         }
         return null;
       },
@@ -23,7 +34,7 @@ export const authOptions: AuthOptions = {
   ],
   callbacks: {
     async jwt({ token }) {
-      if (token.email === process.env.ADMIN_EMAIL) {
+      if (token.email === VALID_EMAIL) {
         token.risansiAccess = 'Approved' as RisansiAccessStatus;
       }
       return token;
