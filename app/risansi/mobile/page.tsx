@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentFY } from '@/lib/risansi-utils';
+import { getCurrentFY, getGreeting } from '@/lib/risansi-utils';
 import Link from 'next/link';
 
 // ── Safe query wrapper ─────────────────────────────────────────
@@ -55,13 +55,6 @@ function addDays(dateStr: string, n: number): string {
   const [y, m, day] = dateStr.split('-').map(Number);
   const d = new Date(y, m - 1, day + n);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function greeting(): string {
-  const h = new Date().getHours();
-  if (h < 12) return 'Good morning';
-  if (h < 17) return 'Good afternoon';
-  return 'Good evening';
 }
 
 // ── Status display ─────────────────────────────────────────────
@@ -207,7 +200,7 @@ export default async function MobileDayPage() {
       {/* Header */}
       <div style={{ padding: '24px 16px 16px', background: 'var(--bg-paper)', borderBottom: '1px solid var(--line)' }}>
         <div style={{ fontSize: 20, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)', lineHeight: 1.2 }}>
-          {greeting()}, {firstName}
+          {getGreeting()}, {firstName}
         </div>
         <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 4, fontFamily: 'var(--font-mono)' }}>
           {todayDisplay}

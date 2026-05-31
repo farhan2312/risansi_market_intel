@@ -44,7 +44,7 @@ const MAIN_NAV: NavItem[] = [
   { id: 'dash',      href: '/risansi',              label: 'Dashboard',    Icon: IcDash },
   { id: 'clients',   href: '/risansi/clients',      label: 'Clients',      Icon: IcClient },
   { id: 'visits',    href: '/risansi/visits',       label: 'Visit Plan',   Icon: IcCal },
-  { id: 'map',       href: '/risansi/visits',       label: 'Coverage Map', Icon: IcMap },
+  { id: 'map',       href: '/risansi/visits/coverage', label: 'Coverage Map', Icon: IcMap },
   { id: 'pipeline',  href: '/risansi/pipeline',     label: 'Pipeline',     Icon: IcPipeline },
   { id: 'compete',   href: '/risansi/compete',      label: 'Competitive',  Icon: IcTower, alertKey: 'compete' },
   { id: 'revenue',   href: '/risansi/revenue',      label: 'Revenue',      Icon: IcBag },
@@ -65,12 +65,13 @@ const INTEL_NAV: NavItem[] = [
 
 // Path → id mapping for URL-based active derivation
 const PATH_TO_ID: [string, string][] = [
-  ['/risansi/compete',     'compete'],
-  ['/risansi/clients',     'clients'],
-  ['/risansi/pipeline',    'pipeline'],
-  ['/risansi/revenue',     'revenue'],
-  ['/risansi/visits',      'visits'],
-  ['/risansi/reports',     'reports'],
+  ['/risansi/compete',          'compete'],
+  ['/risansi/clients',          'clients'],
+  ['/risansi/pipeline',         'pipeline'],
+  ['/risansi/revenue',          'revenue'],
+  ['/risansi/visits/coverage',  'map'],      // must come before /risansi/visits
+  ['/risansi/visits',           'visits'],
+  ['/risansi/reports',          'reports'],
   ['/risansi/admin',       'admin'],
   ['/risansi/map',         'map'],
   ['/risansi/tasks',       'tasks'],

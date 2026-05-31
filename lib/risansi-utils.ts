@@ -176,6 +176,20 @@ export function getAlertLevel(
   return 'ok';
 }
 
+// ── Greeting ──────────────────────────────────────────────────
+
+/** IST-aware server-side greeting. Runs at render time. */
+export function getGreeting(): string {
+  const now = new Date();
+  // IST = UTC + 5:30
+  const ist  = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  const hour = ist.getUTCHours();
+  if (hour >= 5  && hour < 12) return 'Good morning';
+  if (hour >= 12 && hour < 17) return 'Good afternoon';
+  if (hour >= 17 && hour < 21) return 'Good evening';
+  return 'Good evening';
+}
+
 // ── Industry normalisation ─────────────────────────────────────
 
 const INDUSTRY_ALIASES: Record<string, string> = {

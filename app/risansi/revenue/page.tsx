@@ -31,7 +31,7 @@ interface TopClient {
   ytd: number; py: number;
 }
 
-interface BizCatRow { category: string; ytd: number; }
+interface BizCatRow { category: string; client_count: number; ytd: number; }
 
 // ── Page ───────────────────────────────────────────────────────
 
@@ -164,18 +164,24 @@ export default async function RevenuePage() {
       }));
     }, []),
 
-    // 6. By business category
+    // 6. By business category (active clients only, with count)
     q<BizCatRow[]>(async () => {
-      const { rows } = await risansiPool.query<{ category: string; ytd: string }>(
+      const { rows } = await risansiPool.query<{ category: string; client_count: string; ytd: string }>(
         `SELECT
            COALESCE(business_category, 'Uncategorised') AS category,
+           COUNT(*)::text AS client_count,
            (COALESCE(SUM(rev_2526_pump),0) + COALESCE(SUM(rev_2526_spare),0))::text AS ytd
          FROM clients
-         WHERE deleted_at IS NULL
-         GROUP BY COALESCE(business_category, 'Uncategorised')
-         ORDER BY SUM(COALESCE(rev_2526_pump,0) + COALESCE(rev_2526_spare,0)) DESC`,
+         WHERE deleted_at IS NULL AND status = 'ACTIVE'
+         GROUP BY business_category
+         ORDER BY SUM(COALESCE(rev_2526_pump,0) + COALESCE(rev_2526_spare,0)) DESC
+         LIMIT 8`,
       );
-      return rows.map(r => ({ category: r.category, ytd: Number(r.ytd) / INR_TO_CR }));
+      return rows.map(r => ({
+        category:     r.category,
+        client_count: Number(r.client_count),
+        ytd:          Number(r.ytd) / INR_TO_CR,
+      }));
     }, []),
   ]);
 
@@ -266,35 +272,68 @@ export default async function RevenuePage() {
             </div>
           </div>
 
-          {/* Business category */}
+          {/* Business category — table */}
           <div style={PANEL}>
             <div style={PANEL_H}>
               <span style={PANEL_TITLE}>Business Category</span>
+              <span style={META}>{fy.label} · active clients</span>
             </div>
-            <div style={{ padding: '14px 16px' }}>
-              {byBizCat.length === 0 && (
-                <div style={{ fontSize: 12, color: 'var(--fg-3)', textAlign: 'center', padding: '24px 0' }}>No data</div>
-              )}
-              {byBizCat.map((row, i) => {
-                const pct = summary.ytd > 0 ? (row.ytd / summary.ytd) * 100 : 0;
-                const colors = ['#1A5CB8', '#00B4D8', '#059669', '#D97706', '#6B7FA3'];
-                const color = colors[i % colors.length];
-                return (
-                  <div key={row.category} style={{ marginBottom: 14 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 12 }}>
-                      <span style={{ color: '#2C3E5A', fontWeight: 500 }}>{row.category}</span>
-                      <span style={{ fontFamily: 'var(--font-mono)', color: '#0D1B2A' }}>
-                        {fmtCr(row.ytd)}
-                        <span style={{ color: 'var(--fg-3)', marginLeft: 6 }}>({pct.toFixed(0)}%)</span>
-                      </span>
-                    </div>
-                    <div style={{ height: 5, background: '#DDE6F5', borderRadius: 2, overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${pct}%`, background: color, borderRadius: 2 }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            {byBizCat.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--fg-3)', textAlign: 'center', padding: '32px 0' }}>No data</div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg-elev)' }}>
+                    {['Category', 'Clients', 'Revenue FY26', '% of Total'].map(h => (
+                      <th key={h} style={TH}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {byBizCat.map((row, i) => {
+                    const pct = summary.ytd > 0 ? (row.ytd / summary.ytd) * 100 : 0;
+                    return (
+                      <tr key={row.category} style={{ borderBottom: '1px solid var(--line)' }}>
+                        <td style={{ padding: '8px 12px', verticalAlign: 'middle' }}>
+                          <BizCatPill category={row.category} />
+                        </td>
+                        <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                          {row.client_count}
+                        </td>
+                        <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, color: '#0D1B2A', fontSize: 12 }}>
+                          {fmtCr(row.ytd)}
+                        </td>
+                        <td style={{ ...TD, minWidth: 90 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <div style={{ flex: 1, height: 4, background: '#DDE6F5', borderRadius: 2, overflow: 'hidden' }}>
+                              <div style={{ height: '100%', width: `${pct}%`, background: '#1A5CB8', borderRadius: 2 }} />
+                            </div>
+                            <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--fg-3)', minWidth: 30, textAlign: 'right' }}>
+                              {pct.toFixed(0)}%
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {/* Total row */}
+                  <tr style={{ background: 'var(--bg-elev)', fontWeight: 600 }}>
+                    <td style={{ padding: '8px 12px', fontSize: 11, fontWeight: 700, color: '#0A3D8F', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      Total
+                    </td>
+                    <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                      {byBizCat.reduce((s, r) => s + r.client_count, 0)}
+                    </td>
+                    <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 700, color: '#0D1B2A' }}>
+                      {fmtCr(byBizCat.reduce((s, r) => s + r.ytd, 0))}
+                    </td>
+                    <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)', textAlign: 'right' }}>
+                      100%
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
 
@@ -440,6 +479,36 @@ export default async function RevenuePage() {
 }
 
 // ── Sub-components ─────────────────────────────────────────────
+
+// ── Business category pill ─────────────────────────────────────
+
+const BIZ_CAT_STYLE: Record<string, { bg: string; color: string }> = {
+  '1 Cr+ per annum':         { bg: '#DBEAFE', color: '#1D4ED8' },  // blue
+  '15-100 Lacs per annum':   { bg: '#CFFAFE', color: '#0E7490' },  // teal
+  '5-15 Lacs per annum':     { bg: '#FEF3C7', color: '#B45309' },  // amber
+  'Below 5 Lacs per annum':  { bg: '#F1F5F9', color: '#64748B' },  // grey
+  'Active — No Revenue FY26':{ bg: '#FEE2E2', color: '#B91C1C' },  // red
+  'New Business':            { bg: '#D1FAE5', color: '#065F46' },  // green
+  'Uncategorised':           { bg: '#F1F5F9', color: '#64748B' },  // grey
+};
+
+function BizCatPill({ category }: { category: string }) {
+  const style = BIZ_CAT_STYLE[category] ?? { bg: '#F1F5F9', color: '#64748B' };
+  return (
+    <span style={{
+      display:      'inline-block',
+      padding:      '2px 8px',
+      borderRadius: 12,
+      fontSize:     11,
+      fontWeight:   500,
+      background:   style.bg,
+      color:        style.color,
+      whiteSpace:   'nowrap',
+    }}>
+      {category}
+    </span>
+  );
+}
 
 function KpiCard({ label, value, delta, positive }: {
   label: string; value: string; delta?: string; positive?: boolean;

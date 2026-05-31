@@ -10,6 +10,7 @@ import risansiPool from '@/lib/db-risansi';
 import {
   getCurrentFY, getPreviousFYCodes, fyShortLabel,
   fyYtdPct, fyDaysLeft, formatIndianDate, formatTime, fmtCr, initials,
+  getGreeting,
 } from '@/lib/risansi-utils';
 
 // ── Safe query wrapper ─────────────────────────────────────────
@@ -367,7 +368,7 @@ export default async function ExecDashboardPage() {
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 18 }}>
           <div>
             <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
-              Good morning, {displayName}.
+              {getGreeting()}, {displayName}.
             </div>
             <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>
               {formatIndianDate(today)}
