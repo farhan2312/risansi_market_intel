@@ -38,116 +38,121 @@ export default async function AdminPage() {
     redirect('/risansi');
   }
 
-  // ── 1. Pending access requests ──────────────────────────────
-  const pendingRequests = await q<AccessRequest[]>(async () => {
-    const { rows } = await risansiPool.query<{ email: string; display_name: string; created_at: string }>(
-      `SELECT email, display_name, created_at::text
-       FROM access_requests
-       WHERE status = 'Pending'
-       ORDER BY created_at ASC`,
-      [],
-    );
-    return rows;
-  }, []);
+  // ── All queries in parallel ───────────────────────────────────
+  const [
+    pendingRequests,
+    approvedUsers,
+    coldAccounts,
+    noContactClients,
+    noOrderClients,
+    staleOpps,
+    activityLog,
+  ] = await Promise.all([
 
-  // ── 2. Approved users roster ────────────────────────────────
-  const approvedUsers = await q<ApprovedUser[]>(async () => {
-    const { rows } = await risansiPool.query<{ email: string; display_name: string; status: string; created_at: string }>(
-      `SELECT email, display_name, status, created_at::text
-       FROM access_requests
-       WHERE status IN ('Approved', 'Revoked')
-       ORDER BY created_at DESC`,
-      [],
-    );
-    return rows;
-  }, []);
+    // 1. Pending access requests
+    q<AccessRequest[]>(async () => {
+      const { rows } = await risansiPool.query<{ email: string; display_name: string; created_at: string }>(
+        `SELECT email, display_name, created_at::text
+         FROM access_requests
+         WHERE status = 'Pending'
+         ORDER BY created_at ASC`,
+      );
+      return rows;
+    }, []),
 
-  // ── 3a. Data quality: cold accounts (no visit 180+ days) ───
-  const coldAccounts = await q<ColdAccount[]>(async () => {
-    const { rows } = await risansiPool.query<{ id: string; legal_name: string; industry: string; zone: string; last_visit: string | null }>(
-      `SELECT c.id::text, c.legal_name, c.industry, c.zone,
-              MAX(v.visit_date)::text AS last_visit
-       FROM clients c
-       LEFT JOIN visits v ON v.client_id = c.id
-       WHERE c.status = 'Active'
-       GROUP BY c.id, c.legal_name, c.industry, c.zone
-       HAVING MAX(v.visit_date) < NOW() - INTERVAL '180 days'
-           OR MAX(v.visit_date) IS NULL
-       ORDER BY last_visit ASC NULLS FIRST
-       LIMIT 20`,
-      [],
-    );
-    return rows;
-  }, []);
+    // 2. Approved users roster
+    q<ApprovedUser[]>(async () => {
+      const { rows } = await risansiPool.query<{ email: string; display_name: string; status: string; created_at: string }>(
+        `SELECT email, display_name, status, created_at::text
+         FROM access_requests
+         WHERE status IN ('Approved', 'Revoked')
+         ORDER BY created_at DESC`,
+      );
+      return rows;
+    }, []),
 
-  // ── 3b. Clients with no contacts ───────────────────────────
-  const noContactClients = await q<NoContactClient[]>(async () => {
-    const { rows } = await risansiPool.query<{ id: string; legal_name: string; industry: string; zone: string }>(
-      `SELECT c.id::text, c.legal_name, c.industry, c.zone
-       FROM clients c
-       WHERE c.status = 'Active'
-         AND NOT EXISTS (SELECT 1 FROM contacts ct WHERE ct.client_id = c.id)
-       ORDER BY c.legal_name
-       LIMIT 20`,
-      [],
-    );
-    return rows;
-  }, []);
+    // 3a. Cold accounts (no visit 180+ days)
+    q<ColdAccount[]>(async () => {
+      const { rows } = await risansiPool.query<{ id: string; legal_name: string; industry: string; zone: string; last_visit: string | null }>(
+        `SELECT c.id::text, c.legal_name, c.industry, c.zone,
+                MAX(v.visit_date)::text AS last_visit
+         FROM clients c
+         LEFT JOIN visits v ON v.client_id = c.id
+         WHERE c.status = 'Active'
+         GROUP BY c.id, c.legal_name, c.industry, c.zone
+         HAVING MAX(v.visit_date) < NOW() - INTERVAL '180 days'
+             OR MAX(v.visit_date) IS NULL
+         ORDER BY last_visit ASC NULLS FIRST
+         LIMIT 20`,
+      );
+      return rows;
+    }, []),
 
-  // ── 3c. Clients with no orders ever ────────────────────────
-  const noOrderClients = await q<NoOrderClient[]>(async () => {
-    const { rows } = await risansiPool.query<{ id: string; legal_name: string; industry: string; zone: string }>(
-      `SELECT c.id::text, c.legal_name, c.industry, c.zone
-       FROM clients c
-       WHERE c.status = 'Active'
-         AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.client_id = c.id)
-       ORDER BY c.legal_name
-       LIMIT 20`,
-      [],
-    );
-    return rows;
-  }, []);
+    // 3b. Clients with no contacts
+    q<NoContactClient[]>(async () => {
+      const { rows } = await risansiPool.query<{ id: string; legal_name: string; industry: string; zone: string }>(
+        `SELECT c.id::text, c.legal_name, c.industry, c.zone
+         FROM clients c
+         WHERE c.status = 'Active'
+           AND NOT EXISTS (SELECT 1 FROM contacts ct WHERE ct.client_id = c.id)
+         ORDER BY c.legal_name
+         LIMIT 20`,
+      );
+      return rows;
+    }, []),
 
-  // ── 3d. Stale pipeline opportunities (no update 60 days) ───
-  const staleOpps = await q<StaleOpp[]>(async () => {
-    const { rows } = await risansiPool.query<{
-      id: string; legal_name: string; stage: string;
-      estimated_value: string; updated_at: string | null;
-    }>(
-      `SELECT p.id::text, c.legal_name, p.stage,
-              COALESCE(p.estimated_value, 0)::text AS estimated_value,
-              p.updated_at::text
-       FROM pipeline_opportunities p
-       JOIN clients c ON c.id = p.client_id
-       WHERE p.stage NOT IN ('Won', 'Lost')
-         AND (p.updated_at < NOW() - INTERVAL '60 days' OR p.updated_at IS NULL)
-       ORDER BY p.updated_at ASC NULLS FIRST
-       LIMIT 20`,
-      [],
-    );
-    return rows.map(r => ({
-      id:              r.id,
-      legal_name:      r.legal_name,
-      stage:           r.stage,
-      estimated_value: Number(r.estimated_value),
-      updated_at:      r.updated_at,
-    }));
-  }, []);
+    // 3c. Clients with no orders
+    q<NoOrderClient[]>(async () => {
+      const { rows } = await risansiPool.query<{ id: string; legal_name: string; industry: string; zone: string }>(
+        `SELECT c.id::text, c.legal_name, c.industry, c.zone
+         FROM clients c
+         WHERE c.status = 'Active'
+           AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.client_id = c.id)
+         ORDER BY c.legal_name
+         LIMIT 20`,
+      );
+      return rows;
+    }, []),
 
-  // ── 4. Activity log (last 10) ───────────────────────────────
-  const activityLog = await q<ActivityEntry[]>(async () => {
-    const { rows } = await risansiPool.query<{
-      entity_type: string | null; entity_id: string | null;
-      action: string; email: string; created_at: string;
-    }>(
-      `SELECT entity_type, entity_id, action, email, created_at::text
-       FROM risansi_activity_log
-       ORDER BY created_at DESC
-       LIMIT 10`,
-      [],
-    );
-    return rows;
-  }, []);
+    // 3d. Stale pipeline opportunities (no update 60 days)
+    q<StaleOpp[]>(async () => {
+      const { rows } = await risansiPool.query<{
+        id: string; legal_name: string; stage: string;
+        estimated_value: string; updated_at: string | null;
+      }>(
+        `SELECT p.id::text, c.legal_name, p.stage,
+                COALESCE(p.estimated_value, 0)::text AS estimated_value,
+                p.updated_at::text
+         FROM pipeline_opportunities p
+         JOIN clients c ON c.id = p.client_id
+         WHERE p.stage NOT IN ('Won', 'Lost')
+           AND (p.updated_at < NOW() - INTERVAL '60 days' OR p.updated_at IS NULL)
+         ORDER BY p.updated_at ASC NULLS FIRST
+         LIMIT 20`,
+      );
+      return rows.map(r => ({
+        id:              r.id,
+        legal_name:      r.legal_name,
+        stage:           r.stage,
+        estimated_value: Number(r.estimated_value),
+        updated_at:      r.updated_at,
+      }));
+    }, []),
+
+    // 4. Activity log (last 10)
+    q<ActivityEntry[]>(async () => {
+      const { rows } = await risansiPool.query<{
+        entity_type: string | null; entity_id: string | null;
+        action: string; email: string; created_at: string;
+      }>(
+        `SELECT entity_type, entity_id, action, email, created_at::text
+         FROM risansi_activity_log
+         ORDER BY created_at DESC
+         LIMIT 10`,
+      );
+      return rows;
+    }, []),
+  ]);
 
   // ── Render ───────────────────────────────────────────────────
   return (

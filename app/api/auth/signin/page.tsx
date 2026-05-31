@@ -61,16 +61,19 @@ export default function SignInPage() {
           <line x1="300" y1="0" x2="300" y2="900" stroke="#fff" strokeWidth="1"/>
         </svg>
 
-        {/* Logo */}
+        {/* Logo — dark bg blends into navy panel */}
         <div style={{ position: 'relative' }}>
           <Image
             src="/logo.png"
             alt="Risansi Industries"
             width={160}
             height={48}
-            style={{ objectFit: 'contain', objectPosition: 'left center', filter: 'brightness(0) invert(1)' }}
+            style={{ objectFit: 'contain', objectPosition: 'left center' }}
             priority
           />
+          <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 8, letterSpacing: '0.04em' }}>
+            Risansi Industries Ltd
+          </p>
         </div>
 
         {/* Tagline */}
@@ -116,8 +119,27 @@ export default function SignInPage() {
           boxShadow: '0 4px 32px rgba(10,22,40,0.08)',
         }}>
 
+          {/* Logo — blue box with white logo mark */}
+          <div style={{ marginBottom: 32, display: 'flex', justifyContent: 'center' }}>
+            <div style={{
+              background: '#1A5CB8',
+              borderRadius: 8,
+              padding: '10px 20px',
+              display: 'inline-flex',
+              alignItems: 'center',
+            }}>
+              <Image
+                src="/logo.png"
+                alt="Risansi Industries"
+                width={120}
+                height={36}
+                style={{ objectFit: 'contain', filter: 'brightness(0) invert(1)' }}
+              />
+            </div>
+          </div>
+
           {/* Heading */}
-          <div style={{ marginBottom: 36 }}>
+          <div style={{ marginBottom: 32 }}>
             <h1 style={{
               fontSize: 22,
               fontWeight: 600,

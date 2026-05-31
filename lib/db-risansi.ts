@@ -17,8 +17,8 @@ const risansiPool: Pool =
     // Serverless-friendly settings: time out fast, keep pool small,
     // release idle connections quickly.
     connectionTimeoutMillis: 5_000,
-    idleTimeoutMillis:       30_000,
-    max:                     10,
+    idleTimeoutMillis:       10_000,
+    max:                     3,
   });
 
 if (process.env.NODE_ENV !== 'production') {

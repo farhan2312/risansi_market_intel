@@ -72,6 +72,27 @@ body {
   --radius-sm: 4px;
   --radius:    6px;
   --radius-lg: 10px;
+}
+
+/* ── Skeleton shimmer ───────────────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -800px 0; }
+  100% { background-position:  800px 0; }
+}
+
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--bg-sunk) 25%,
+    var(--bg-elev) 50%,
+    var(--bg-sunk) 75%
+  );
+  background-size: 800px 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+/* sentinel — keep :root open in original block */
+:root {
 
   /* Typography — overridden by next/font CSS variable classes in layout */
   --font-sans:  'IBM Plex Sans',    system-ui, sans-serif;

@@ -7,6 +7,13 @@ const VALID_PASSWORD = process.env.ADMIN_PASSWORD ?? 'risansi2026';
 
 export const authOptions: AuthOptions = {
   secret: process.env.NEXTAUTH_SECRET ?? 'risansi-dev-secret-2026',
+  session: {
+    strategy: 'jwt' as const,
+    maxAge:   8 * 60 * 60,  // 8 hours
+  },
+  jwt: {
+    maxAge: 8 * 60 * 60,
+  },
   providers: [
     CredentialsProvider({
       name: 'Credentials',

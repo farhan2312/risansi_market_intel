@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
+import { signOut } from 'next-auth/react';
 import type { CSSProperties } from 'react';
 
 // ── Types ─────────────────────────────────────────────────────
@@ -100,8 +101,8 @@ export function Sidebar({ active, role, user, alerts = {} }: SidebarProps) {
         <Image
           src="/logo.png"
           alt="Risansi Industries"
-          width={120}
-          height={36}
+          width={160}
+          height={50}
           style={{ objectFit: 'contain', objectPosition: 'left center' }}
           priority
         />
@@ -138,9 +139,15 @@ export function Sidebar({ active, role, user, alerts = {} }: SidebarProps) {
       {/* User */}
       <div style={USER_WRAP}>
         <div style={AVATAR}>{user.initials}</div>
-        <div style={{ minWidth: 0 }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
           <div style={WHO}>{user.name}</div>
           <div style={ROLE_LABEL}>{user.role}</div>
+          <button
+            onClick={() => signOut({ callbackUrl: '/api/auth/signin' })}
+            style={SIGNOUT_BTN}
+          >
+            Sign out
+          </button>
         </div>
       </div>
     </aside>
@@ -203,11 +210,10 @@ const ASIDE: CSSProperties = {
 };
 
 const BRAND_WRAP: CSSProperties = {
-  padding: '6px 20px 24px',
+  padding: '10px 16px 14px',
   display: 'flex',
   alignItems: 'center',
-  borderBottom: '1px solid rgba(255,255,255,0.06)',
-  marginBottom: 6,
+  background: '#071E47',
 };
 
 const GROUP_LABEL: CSSProperties = {
@@ -258,16 +264,29 @@ const USER_WRAP: CSSProperties = {
 };
 
 const AVATAR: CSSProperties = {
-  width: 30,
-  height: 30,
-  borderRadius: 4,
+  width: 34,
+  height: 34,
+  borderRadius: '50%',
   flexShrink: 0,
-  background: 'linear-gradient(135deg, #1A5CB8, #00A3C4)',
+  background: 'rgba(26,92,184,0.25)',
   display: 'grid',
   placeItems: 'center',
-  fontSize: 12,
+  fontSize: 13,
   color: '#fff',
-  fontWeight: 500,
+  fontWeight: 600,
+};
+
+const SIGNOUT_BTN: CSSProperties = {
+  marginTop: 4,
+  display: 'block',
+  fontSize: 11,
+  color: '#00A3C4',
+  background: 'none',
+  border: 'none',
+  padding: 0,
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+  textAlign: 'left',
 };
 
 const WHO: CSSProperties = {

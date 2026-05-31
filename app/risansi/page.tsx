@@ -48,6 +48,8 @@ interface HistoricalFY { code: string; label: string; total: number; }
 interface SegmentRow   { industry: string; total: number; }
 interface FunnelRow    { stage: string; count: number; value: number; }
 interface MarketEntry  { supplier: string; units: number; pct: number; color: string; }
+interface CIBTotals    { ril: number; roto: number; rotomac: number; netzsch: number; gita: number; psp: number; tushaco: number; total: number; }
+interface HistRow      { h2021: string; h2122: string; h2223: string; h2324: string; h2425: string; }
 interface TopAccount {
   client_code: string; legal_name: string; industry: string; zone: string; status: string;
   ytd: number; py: number;
@@ -63,161 +65,257 @@ interface AtRisk { count: number; exposure: number; }
 
 export default async function ExecDashboardPage() {
   // ── Mobile redirect (must live here, not in layout) ────────
-  // The parent layout wraps all /risansi/* including /risansi/mobile,
-  // so a UA redirect there would loop. This page only renders for
-  // the exact /risansi path.
   const headersList = await headers();
   const ua = headersList.get('user-agent') ?? '';
   if (/Mobile|Android|iPhone|iPad|iPod|Opera Mini|IEMobile/i.test(ua)) {
     redirect('/risansi/mobile');
   }
 
-  const fy       = getCurrentFY();
-  const prevCodes = getPreviousFYCodes(5);           // ['20-21'..'24-25']
-  const ytdPct   = fyYtdPct(fy);
+  const fy        = getCurrentFY();
+  const prevCodes = getPreviousFYCodes(5);   // ['20-21'..'24-25']
+  const ytdPct    = fyYtdPct(fy);
   const daysLeft  = fyDaysLeft(fy);
   const today     = new Date();
 
-  // ── 1. Booked revenue this FY from clients.rev_2526_* (INR ÷ 10M = Cr) ──
   const INR_TO_CR = 10_000_000;
-  const revSplit = await q<RevenueSplit>(async () => {
-    const { rows } = await risansiPool.query<{ pump: string; spare: string }>(
-      `SELECT COALESCE(SUM(rev_2526_pump),0)::text AS pump,
-              COALESCE(SUM(rev_2526_spare),0)::text AS spare
-       FROM clients`,
-      [],
-    );
-    return {
-      pump:  Number(rows[0]?.pump  ?? 0) / INR_TO_CR,
-      spare: Number(rows[0]?.spare ?? 0) / INR_TO_CR,
-    };
-  }, { pump: 0, spare: 0 });
+
+  // ── All queries in parallel — replaces 10 sequential awaits ──
+  const [
+    revSplit,
+    pyTotal,
+    annTarget,
+    histRow,
+    segments,
+    domExp,
+    funnel,
+    cibTotals,
+    atRisk,
+    topAccounts,
+    visits,
+  ] = await Promise.all([
+
+    // 1. Current FY revenue from clients.rev_2526_* (INR ÷ 10M = Cr)
+    q<RevenueSplit>(async () => {
+      const { rows } = await risansiPool.query<{ pump: string; spare: string }>(
+        `SELECT COALESCE(SUM(rev_2526_pump),0)::text AS pump,
+                COALESCE(SUM(rev_2526_spare),0)::text AS spare
+         FROM clients`,
+      );
+      return {
+        pump:  Number(rows[0]?.pump  ?? 0) / INR_TO_CR,
+        spare: Number(rows[0]?.spare ?? 0) / INR_TO_CR,
+      };
+    }, { pump: 0, spare: 0 }),
+
+    // 2. Previous-year total from clients.rev_2425_*
+    q<number>(async () => {
+      const { rows } = await risansiPool.query<{ total: string }>(
+        `SELECT (COALESCE(SUM(rev_2425_pump),0) + COALESCE(SUM(rev_2425_spare),0))::text AS total
+         FROM clients`,
+      );
+      return Number(rows[0]?.total ?? 0) / INR_TO_CR;
+    }, 0),
+
+    // 3. Annual target
+    q<number>(async () => {
+      const { rows } = await risansiPool.query<{ target_value: string }>(
+        `SELECT target_value::text FROM sales_targets
+         WHERE financial_year = $1 AND target_type = 'national' LIMIT 1`,
+        [fy.code],
+      );
+      return rows[0] ? Number(rows[0].target_value) : 320;
+    }, 320),
+
+    // 4. Historical revenue — single query for all 5 prior FYs (replaces 5 sequential queries)
+    q<HistRow>(async () => {
+      const { rows } = await risansiPool.query<HistRow>(
+        `SELECT
+           (COALESCE(SUM(rev_2021_pump),0) + COALESCE(SUM(rev_2021_spare),0))::text AS h2021,
+           (COALESCE(SUM(rev_2122_pump),0) + COALESCE(SUM(rev_2122_spare),0))::text AS h2122,
+           (COALESCE(SUM(rev_2223_pump),0) + COALESCE(SUM(rev_2223_spare),0))::text AS h2223,
+           (COALESCE(SUM(rev_2324_pump),0) + COALESCE(SUM(rev_2324_spare),0))::text AS h2324,
+           (COALESCE(SUM(rev_2425_pump),0) + COALESCE(SUM(rev_2425_spare),0))::text AS h2425
+         FROM clients`,
+      );
+      return rows[0] ?? { h2021: '0', h2122: '0', h2223: '0', h2324: '0', h2425: '0' };
+    }, { h2021: '0', h2122: '0', h2223: '0', h2324: '0', h2425: '0' }),
+
+    // 5. Revenue by industry segment
+    q<SegmentRow[]>(async () => {
+      const { rows } = await risansiPool.query<{ industry: string; total: string }>(
+        `SELECT c.industry, COALESCE(SUM(o.order_value),0)::text AS total
+         FROM orders o JOIN clients c ON c.id = o.client_id
+         WHERE o.financial_year = $1
+         GROUP BY c.industry ORDER BY SUM(o.order_value) DESC LIMIT 8`,
+        [fy.code],
+      );
+      return rows.map(r => ({ industry: r.industry, total: Number(r.total) }));
+    }, []),
+
+    // 6. Domestic / Export split
+    q<{ domestic: number; export: number; pump_pct: number }>(async () => {
+      const { rows } = await risansiPool.query<{ market_type: string; cat: string; total: string }>(
+        `SELECT c.market_type, o.product_category AS cat,
+                COALESCE(SUM(o.order_value),0)::text AS total
+         FROM orders o JOIN clients c ON c.id = o.client_id
+         WHERE o.financial_year = $1
+         GROUP BY c.market_type, o.product_category`,
+        [fy.code],
+      );
+      const domestic = rows.filter(r => r.market_type === 'Domestic').reduce((s, r) => s + Number(r.total), 0);
+      const exportV  = rows.filter(r => r.market_type === 'Export').reduce((s, r) => s + Number(r.total), 0);
+      const pump     = rows.filter(r => r.cat === 'Pump').reduce((s, r) => s + Number(r.total), 0);
+      const total    = rows.reduce((s, r) => s + Number(r.total), 0) || 1;
+      return { domestic, export: exportV, pump_pct: Math.round((pump / total) * 100) };
+    }, { domestic: 0, export: 0, pump_pct: 0 }),
+
+    // 7. Pipeline funnel
+    q<FunnelRow[]>(async () => {
+      const { rows } = await risansiPool.query<{ stage: string; cnt: string; val: string }>(
+        `SELECT stage,
+                COUNT(*)::text                            AS cnt,
+                COALESCE(SUM(estimated_value),0)::text   AS val
+         FROM pipeline_opportunities
+         WHERE stage IN ('Suspect','Prospect','Quoted','Negotiating')
+         GROUP BY stage`,
+      );
+      return ['Suspect','Prospect','Quoted','Negotiating'].map(stage => {
+        const row = rows.find(r => r.stage === stage);
+        return { stage, count: Number(row?.cnt ?? 0), value: Number(row?.val ?? 0) };
+      });
+    }, ['Suspect','Prospect','Quoted','Negotiating'].map(stage => ({ stage, count: 0, value: 0 }))),
+
+    // 8. Market share from competitor_installed_base
+    q<CIBTotals>(async () => {
+      const { rows } = await risansiPool.query<{
+        ril: string; roto: string; rotomac: string; netzsch: string;
+        gita: string; psp: string; tushaco: string; total: string;
+      }>(
+        `SELECT
+           COALESCE(SUM(ril_pcp),0)::text     AS ril,
+           COALESCE(SUM(roto_pcp),0)::text    AS roto,
+           COALESCE(SUM(rotomac_pcp),0)::text AS rotomac,
+           COALESCE(SUM(netzsch_pcp),0)::text AS netzsch,
+           COALESCE(SUM(gita_pcp),0)::text    AS gita,
+           COALESCE(SUM(psp_pcp),0)::text     AS psp,
+           COALESCE(SUM(tushaco_pcp),0)::text AS tushaco,
+           COALESCE(SUM(total_pcp),0)::text   AS total
+         FROM competitor_installed_base`,
+      );
+      const r = rows[0];
+      return {
+        ril:     Number(r?.ril     ?? 0), roto:    Number(r?.roto    ?? 0),
+        rotomac: Number(r?.rotomac ?? 0), netzsch: Number(r?.netzsch ?? 0),
+        gita:    Number(r?.gita    ?? 0), psp:     Number(r?.psp     ?? 0),
+        tushaco: Number(r?.tushaco ?? 0), total:   Number(r?.total   ?? 0),
+      };
+    }, { ril: 0, roto: 0, rotomac: 0, netzsch: 0, gita: 0, psp: 0, tushaco: 0, total: 0 }),
+
+    // 9. At-risk accounts (no visit 18+ months or null)
+    q<AtRisk>(async () => {
+      const { rows } = await risansiPool.query<{ cnt: string; exposure: string }>(
+        `SELECT COUNT(*)::text AS cnt,
+                COALESCE(SUM(COALESCE(rev_2425_pump,0) + COALESCE(rev_2425_spare,0)),0)::text AS exposure
+         FROM clients
+         WHERE status = 'Active'
+           AND (last_visit_date < NOW() - INTERVAL '18 months'
+                OR last_visit_date IS NULL)`,
+      );
+      return {
+        count:    Number(rows[0]?.cnt      ?? 0),
+        exposure: Number(rows[0]?.exposure ?? 0) / INR_TO_CR,
+      };
+    }, { count: 0, exposure: 0 }),
+
+    // 10. Top 7 accounts by YTD revenue
+    q<TopAccount[]>(async () => {
+      const { rows } = await risansiPool.query<{
+        client_code: string; legal_name: string; industry: string; zone: string; status: string;
+        ytd: string; py: string; fy20: string; fy21: string; fy22: string; fy23: string; fy24: string; fy25: string;
+      }>(
+        `SELECT
+           client_code, legal_name, industry, zone, status,
+           (COALESCE(rev_2526_pump,0) + COALESCE(rev_2526_spare,0))::text AS ytd,
+           (COALESCE(rev_2425_pump,0) + COALESCE(rev_2425_spare,0))::text AS py,
+           (COALESCE(rev_2021_pump,0) + COALESCE(rev_2021_spare,0))::text AS fy20,
+           (COALESCE(rev_2122_pump,0) + COALESCE(rev_2122_spare,0))::text AS fy21,
+           (COALESCE(rev_2223_pump,0) + COALESCE(rev_2223_spare,0))::text AS fy22,
+           (COALESCE(rev_2324_pump,0) + COALESCE(rev_2324_spare,0))::text AS fy23,
+           (COALESCE(rev_2425_pump,0) + COALESCE(rev_2425_spare,0))::text AS fy24,
+           (COALESCE(rev_2526_pump,0) + COALESCE(rev_2526_spare,0))::text AS fy25
+         FROM clients
+         WHERE (COALESCE(rev_2526_pump,0) + COALESCE(rev_2526_spare,0)) > 0
+            OR (COALESCE(rev_2425_pump,0) + COALESCE(rev_2425_spare,0)) > 0
+         ORDER BY ytd DESC LIMIT 7`,
+      );
+      return rows.map(r => ({
+        client_code: r.client_code,
+        legal_name:  r.legal_name,
+        industry:    r.industry,
+        zone:        r.zone,
+        status:      r.status,
+        ytd:  Number(r.ytd)  / INR_TO_CR,
+        py:   Number(r.py)   / INR_TO_CR,
+        fy20: Number(r.fy20) / INR_TO_CR,
+        fy21: Number(r.fy21) / INR_TO_CR,
+        fy22: Number(r.fy22) / INR_TO_CR,
+        fy23: Number(r.fy23) / INR_TO_CR,
+        fy24: Number(r.fy24) / INR_TO_CR,
+        fy25: Number(r.fy25) / INR_TO_CR,
+      }));
+    }, []),
+
+    // 11. Recent visit feed (last 10)
+    q<VisitEntry[]>(async () => {
+      const { rows } = await risansiPool.query<{
+        id: string; rep_name: string; client_name: string;
+        visit_date: Date; outcome: string | null; purpose: string;
+        status: string; synced_at: Date | null;
+      }>(
+        `SELECT v.id,
+                u.name                AS rep_name,
+                c.legal_name          AS client_name,
+                v.visit_date,
+                v.outcome,
+                v.purpose,
+                v.status,
+                v.synced_at
+         FROM visits v
+         JOIN clients c ON c.id = v.client_id
+         JOIN users   u ON u.id = v.rep_id
+         WHERE v.status IN ('completed','checked-in')
+         ORDER BY COALESCE(v.checkin_time, v.visit_date::timestamp) DESC
+         LIMIT 10`,
+      );
+      return rows.map(r => ({
+        id:           r.id,
+        rep_name:     r.rep_name,
+        rep_initials: initials(r.rep_name),
+        client_name:  r.client_name,
+        visit_date:   new Date(r.visit_date),
+        outcome:      r.outcome,
+        purpose:      r.purpose,
+        status:       r.status,
+        synced:       r.synced_at != null,
+      }));
+    }, []),
+  ]);
+
+  // ── Derived values ────────────────────────────────────────────
 
   const totalBooked = revSplit.pump + revSplit.spare;
 
-  // ── 2. Previous-year total from clients.rev_2425_* ──────────
-  const pyTotal = await q<number>(async () => {
-    const { rows } = await risansiPool.query<{ total: string }>(
-      `SELECT (COALESCE(SUM(rev_2425_pump),0) + COALESCE(SUM(rev_2425_spare),0))::text AS total
-       FROM clients`,
-      [],
-    );
-    return Number(rows[0]?.total ?? 0) / INR_TO_CR;
-  }, 0);
+  // Historical — built from single-query histRow
+  const historical: HistoricalFY[] = [
+    { code: '20-21', label: fyShortLabel('20-21'), total: Number(histRow.h2021) / INR_TO_CR },
+    { code: '21-22', label: fyShortLabel('21-22'), total: Number(histRow.h2122) / INR_TO_CR },
+    { code: '22-23', label: fyShortLabel('22-23'), total: Number(histRow.h2223) / INR_TO_CR },
+    { code: '23-24', label: fyShortLabel('23-24'), total: Number(histRow.h2324) / INR_TO_CR },
+    { code: '24-25', label: fyShortLabel('24-25'), total: Number(histRow.h2425) / INR_TO_CR },
+  ];
 
-  // ── 3. Annual target ─────────────────────────────────────────
-  const annTarget = await q<number>(async () => {
-    const { rows } = await risansiPool.query<{ target_value: string }>(
-      `SELECT target_value::text FROM sales_targets
-       WHERE financial_year = $1 AND target_type = 'national' LIMIT 1`,
-      [fy.code],
-    );
-    return rows[0] ? Number(rows[0].target_value) : 320;
-  }, 320);
-
-  // ── 4. Historical revenue (5 previous FYs for MiniBars from clients table) ─
-  // Map FY code to the corresponding column names on clients table.
-  const FY_COL_MAP: Record<string, [string, string]> = {
-    '20-21': ['rev_2021_pump', 'rev_2021_spare'],
-    '21-22': ['rev_2122_pump', 'rev_2122_spare'],
-    '22-23': ['rev_2223_pump', 'rev_2223_spare'],
-    '23-24': ['rev_2324_pump', 'rev_2324_spare'],
-    '24-25': ['rev_2425_pump', 'rev_2425_spare'],
-  };
-  const historical = await q<HistoricalFY[]>(async () => {
-    const results: HistoricalFY[] = [];
-    for (const code of prevCodes) {
-      const cols = FY_COL_MAP[code];
-      if (!cols) { results.push({ code, label: fyShortLabel(code), total: 0 }); continue; }
-      try {
-        const { rows } = await risansiPool.query<{ total: string }>(
-          `SELECT (COALESCE(SUM(${cols[0]}),0) + COALESCE(SUM(${cols[1]}),0))::text AS total FROM clients`,
-          [],
-        );
-        results.push({ code, label: fyShortLabel(code), total: Number(rows[0]?.total ?? 0) / INR_TO_CR });
-      } catch {
-        results.push({ code, label: fyShortLabel(code), total: 0 });
-      }
-    }
-    return results;
-  }, prevCodes.map(code => ({ code, label: fyShortLabel(code), total: 0 })));
-
-  // ── 5. Revenue by industry segment ──────────────────────────
-  const segments = await q<SegmentRow[]>(async () => {
-    const { rows } = await risansiPool.query<{ industry: string; total: string }>(
-      `SELECT c.industry, COALESCE(SUM(o.order_value),0)::text AS total
-       FROM orders o JOIN clients c ON c.id = o.client_id
-       WHERE o.financial_year = $1
-       GROUP BY c.industry ORDER BY SUM(o.order_value) DESC LIMIT 8`,
-      [fy.code],
-    );
-    return rows.map(r => ({ industry: r.industry, total: Number(r.total) }));
-  }, []);
-
-  // Domestic / Export split
-  const domExp = await q<{ domestic: number; export: number; pump_pct: number }>(async () => {
-    const { rows } = await risansiPool.query<{ market_type: string; cat: string; total: string }>(
-      `SELECT c.market_type, o.product_category AS cat,
-              COALESCE(SUM(o.order_value),0)::text AS total
-       FROM orders o JOIN clients c ON c.id = o.client_id
-       WHERE o.financial_year = $1
-       GROUP BY c.market_type, o.product_category`,
-      [fy.code],
-    );
-    const domestic = rows.filter(r => r.market_type === 'Domestic').reduce((s, r) => s + Number(r.total), 0);
-    const exportV  = rows.filter(r => r.market_type === 'Export').reduce((s, r) => s + Number(r.total), 0);
-    const pump     = rows.filter(r => r.cat === 'Pump').reduce((s, r) => s + Number(r.total), 0);
-    const total    = rows.reduce((s, r) => s + Number(r.total), 0) || 1;
-    return { domestic, export: exportV, pump_pct: Math.round((pump / total) * 100) };
-  }, { domestic: 0, export: 0, pump_pct: 0 });
-
-  // ── 6. Pipeline funnel ───────────────────────────────────────
-  const funnel = await q<FunnelRow[]>(async () => {
-    const { rows } = await risansiPool.query<{ stage: string; cnt: string; val: string }>(
-      `SELECT stage,
-              COUNT(*)::text                            AS cnt,
-              COALESCE(SUM(estimated_value),0)::text   AS val
-       FROM pipeline_opportunities
-       WHERE stage IN ('Suspect','Prospect','Quoted','Negotiating')
-       GROUP BY stage`,
-      [],
-    );
-    return ['Suspect','Prospect','Quoted','Negotiating'].map(stage => {
-      const row = rows.find(r => r.stage === stage);
-      return { stage, count: Number(row?.cnt ?? 0), value: Number(row?.val ?? 0) };
-    });
-  }, ['Suspect','Prospect','Quoted','Negotiating'].map(stage => ({ stage, count: 0, value: 0 })));
-
-  const pipelineTotal = funnel.reduce((s, r) => s + r.value, 0);
+  const pipelineTotal    = funnel.reduce((s, r) => s + r.value, 0);
   const negotiatingCount = funnel.find(r => r.stage === 'Negotiating')?.count ?? 0;
-
-  // ── 7. Market share from competitor_installed_base ───────────
-  interface CIBTotals { ril: number; roto: number; rotomac: number; netzsch: number; gita: number; psp: number; tushaco: number; total: number; }
-  const cibTotals = await q<CIBTotals>(async () => {
-    const { rows } = await risansiPool.query<{
-      ril: string; roto: string; rotomac: string; netzsch: string;
-      gita: string; psp: string; tushaco: string; total: string;
-    }>(
-      `SELECT
-         COALESCE(SUM(ril_pcp),0)::text     AS ril,
-         COALESCE(SUM(roto_pcp),0)::text    AS roto,
-         COALESCE(SUM(rotomac_pcp),0)::text AS rotomac,
-         COALESCE(SUM(netzsch_pcp),0)::text AS netzsch,
-         COALESCE(SUM(gita_pcp),0)::text    AS gita,
-         COALESCE(SUM(psp_pcp),0)::text     AS psp,
-         COALESCE(SUM(tushaco_pcp),0)::text AS tushaco,
-         COALESCE(SUM(total_pcp),0)::text   AS total
-       FROM competitor_installed_base`,
-      [],
-    );
-    const r = rows[0];
-    return {
-      ril:     Number(r?.ril     ?? 0), roto:    Number(r?.roto    ?? 0),
-      rotomac: Number(r?.rotomac ?? 0), netzsch: Number(r?.netzsch ?? 0),
-      gita:    Number(r?.gita    ?? 0), psp:     Number(r?.psp     ?? 0),
-      tushaco: Number(r?.tushaco ?? 0), total:   Number(r?.total   ?? 0),
-    };
-  }, { ril: 0, roto: 0, rotomac: 0, netzsch: 0, gita: 0, psp: 0, tushaco: 0, total: 0 });
 
   const shareTotal = Math.max(cibTotals.total, 1);
   const rilUnits   = cibTotals.ril;
@@ -236,98 +334,6 @@ export default async function ExecDashboardPage() {
     { supplier: 'Tushaco',       units: cibTotals.tushaco, pct: (cibTotals.tushaco / shareTotal) * 100, color: compColor('Tushaco') },
     ...(othersU > 0 ? [{ supplier: 'Others', units: othersU, pct: (othersU / shareTotal) * 100, color: compColor('Others') }] : []),
   ].filter(d => d.units > 0);
-
-  // ── 8. At-risk accounts (last_visit_date > 18 months ago or null) ──────────
-  const atRisk = await q<AtRisk>(async () => {
-    const { rows } = await risansiPool.query<{ cnt: string; exposure: string }>(
-      `SELECT COUNT(*)::text AS cnt,
-              COALESCE(SUM(COALESCE(rev_2425_pump,0) + COALESCE(rev_2425_spare,0)),0)::text AS exposure
-       FROM clients
-       WHERE status = 'Active'
-         AND (last_visit_date < NOW() - INTERVAL '18 months'
-              OR last_visit_date IS NULL)`,
-      [],
-    );
-    return {
-      count:    Number(rows[0]?.cnt      ?? 0),
-      exposure: Number(rows[0]?.exposure ?? 0) / INR_TO_CR,
-    };
-  }, { count: 0, exposure: 0 });
-
-  // ── 9. Top 7 accounts by YTD revenue (from clients rev_ columns) ───────────
-  const topAccounts = await q<TopAccount[]>(async () => {
-    const { rows } = await risansiPool.query<{
-      client_code: string; legal_name: string; industry: string; zone: string; status: string;
-      ytd: string; py: string; fy20: string; fy21: string; fy22: string; fy23: string; fy24: string; fy25: string;
-    }>(
-      `SELECT
-         client_code, legal_name, industry, zone, status,
-         (COALESCE(rev_2526_pump,0) + COALESCE(rev_2526_spare,0))::text AS ytd,
-         (COALESCE(rev_2425_pump,0) + COALESCE(rev_2425_spare,0))::text AS py,
-         (COALESCE(rev_2021_pump,0) + COALESCE(rev_2021_spare,0))::text AS fy20,
-         (COALESCE(rev_2122_pump,0) + COALESCE(rev_2122_spare,0))::text AS fy21,
-         (COALESCE(rev_2223_pump,0) + COALESCE(rev_2223_spare,0))::text AS fy22,
-         (COALESCE(rev_2324_pump,0) + COALESCE(rev_2324_spare,0))::text AS fy23,
-         (COALESCE(rev_2425_pump,0) + COALESCE(rev_2425_spare,0))::text AS fy24,
-         (COALESCE(rev_2526_pump,0) + COALESCE(rev_2526_spare,0))::text AS fy25
-       FROM clients
-       WHERE (COALESCE(rev_2526_pump,0) + COALESCE(rev_2526_spare,0)) > 0
-          OR (COALESCE(rev_2425_pump,0) + COALESCE(rev_2425_spare,0)) > 0
-       ORDER BY ytd DESC LIMIT 7`,
-      [],
-    );
-    return rows.map(r => ({
-      client_code: r.client_code,
-      legal_name:  r.legal_name,
-      industry:    r.industry,
-      zone:        r.zone,
-      status:      r.status,
-      ytd:  Number(r.ytd)  / INR_TO_CR,
-      py:   Number(r.py)   / INR_TO_CR,
-      fy20: Number(r.fy20) / INR_TO_CR,
-      fy21: Number(r.fy21) / INR_TO_CR,
-      fy22: Number(r.fy22) / INR_TO_CR,
-      fy23: Number(r.fy23) / INR_TO_CR,
-      fy24: Number(r.fy24) / INR_TO_CR,
-      fy25: Number(r.fy25) / INR_TO_CR,
-    }));
-  }, []);
-
-  // ── 10. Recent visit feed (last 10) ──────────────────────────
-  const visits = await q<VisitEntry[]>(async () => {
-    const { rows } = await risansiPool.query<{
-      id: string; rep_name: string; client_name: string;
-      visit_date: Date; outcome: string | null; purpose: string;
-      status: string; synced_at: Date | null;
-    }>(
-      `SELECT v.id,
-              u.name                AS rep_name,
-              c.legal_name          AS client_name,
-              v.visit_date,
-              v.outcome,
-              v.purpose,
-              v.status,
-              v.synced_at
-       FROM visits v
-       JOIN clients c ON c.id = v.client_id
-       JOIN users   u ON u.id = v.rep_id
-       WHERE v.status IN ('completed','checked-in')
-       ORDER BY COALESCE(v.checkin_time, v.visit_date::timestamp) DESC
-       LIMIT 10`,
-      [],
-    );
-    return rows.map(r => ({
-      id:           r.id,
-      rep_name:     r.rep_name,
-      rep_initials: initials(r.rep_name),
-      client_name:  r.client_name,
-      visit_date:   new Date(r.visit_date),
-      outcome:      r.outcome,
-      purpose:      r.purpose,
-      status:       r.status,
-      synced:       r.synced_at != null,
-    }));
-  }, []);
 
   // ── Derived display values ────────────────────────────────────
   const bookedDelta   = pyTotal > 0 ? ((totalBooked - pyTotal) / pyTotal) * 100 : 0;

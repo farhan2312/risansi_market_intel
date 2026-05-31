@@ -54,38 +54,92 @@ interface IndustryShare {
 
 export default async function CompetePage() {
 
-  // 1. Aggregate totals across all clients
-  const totals = await q<MarketTotals>(async () => {
-    const { rows } = await risansiPool.query<{
-      ril_pcp: string; roto_pcp: string; rotomac_pcp: string;
-      netzsch_pcp: string; gita_pcp: string; psp_pcp: string;
-      tushaco_pcp: string; total_pcp: string;
-    }>(
-      `SELECT
-         COALESCE(SUM(ril_pcp),0)::text     AS ril_pcp,
-         COALESCE(SUM(roto_pcp),0)::text    AS roto_pcp,
-         COALESCE(SUM(rotomac_pcp),0)::text AS rotomac_pcp,
-         COALESCE(SUM(netzsch_pcp),0)::text AS netzsch_pcp,
-         COALESCE(SUM(gita_pcp),0)::text    AS gita_pcp,
-         COALESCE(SUM(psp_pcp),0)::text     AS psp_pcp,
-         COALESCE(SUM(tushaco_pcp),0)::text AS tushaco_pcp,
-         COALESCE(SUM(total_pcp),0)::text   AS total_pcp
-       FROM competitor_installed_base`,
-      [],
-    );
-    const r = rows[0];
-    return {
-      ril_pcp:     Number(r?.ril_pcp     ?? 0),
-      roto_pcp:    Number(r?.roto_pcp    ?? 0),
-      rotomac_pcp: Number(r?.rotomac_pcp ?? 0),
-      netzsch_pcp: Number(r?.netzsch_pcp ?? 0),
-      gita_pcp:    Number(r?.gita_pcp    ?? 0),
-      psp_pcp:     Number(r?.psp_pcp     ?? 0),
-      tushaco_pcp: Number(r?.tushaco_pcp ?? 0),
-      total_pcp:   Number(r?.total_pcp   ?? 0),
-    };
-  }, { ril_pcp: 0, roto_pcp: 0, rotomac_pcp: 0, netzsch_pcp: 0, gita_pcp: 0, psp_pcp: 0, tushaco_pcp: 0, total_pcp: 0 });
+  // ── All queries in parallel ───────────────────────────────────
+  const [totals, displacementAccounts, industryShare] = await Promise.all([
 
+    // 1. Aggregate totals across all clients
+    q<MarketTotals>(async () => {
+      const { rows } = await risansiPool.query<{
+        ril_pcp: string; roto_pcp: string; rotomac_pcp: string;
+        netzsch_pcp: string; gita_pcp: string; psp_pcp: string;
+        tushaco_pcp: string; total_pcp: string;
+      }>(
+        `SELECT
+           COALESCE(SUM(ril_pcp),0)::text     AS ril_pcp,
+           COALESCE(SUM(roto_pcp),0)::text    AS roto_pcp,
+           COALESCE(SUM(rotomac_pcp),0)::text AS rotomac_pcp,
+           COALESCE(SUM(netzsch_pcp),0)::text AS netzsch_pcp,
+           COALESCE(SUM(gita_pcp),0)::text    AS gita_pcp,
+           COALESCE(SUM(psp_pcp),0)::text     AS psp_pcp,
+           COALESCE(SUM(tushaco_pcp),0)::text AS tushaco_pcp,
+           COALESCE(SUM(total_pcp),0)::text   AS total_pcp
+         FROM competitor_installed_base`,
+      );
+      const r = rows[0];
+      return {
+        ril_pcp:     Number(r?.ril_pcp     ?? 0),
+        roto_pcp:    Number(r?.roto_pcp    ?? 0),
+        rotomac_pcp: Number(r?.rotomac_pcp ?? 0),
+        netzsch_pcp: Number(r?.netzsch_pcp ?? 0),
+        gita_pcp:    Number(r?.gita_pcp    ?? 0),
+        psp_pcp:     Number(r?.psp_pcp     ?? 0),
+        tushaco_pcp: Number(r?.tushaco_pcp ?? 0),
+        total_pcp:   Number(r?.total_pcp   ?? 0),
+      };
+    }, { ril_pcp: 0, roto_pcp: 0, rotomac_pcp: 0, netzsch_pcp: 0, gita_pcp: 0, psp_pcp: 0, tushaco_pcp: 0, total_pcp: 0 }),
+
+    // 2. Displacement accounts
+    q<DisplacementAccount[]>(async () => {
+      const { rows } = await risansiPool.query<{
+        client_name: string; zone: string | null;
+        ril_pcp: string; total_pcp: string;
+        competitor_pcp: string; rep_name: string | null;
+      }>(
+        `SELECT c.legal_name AS client_name, c.zone,
+                cib.ril_pcp::text,
+                cib.total_pcp::text,
+                (cib.total_pcp - COALESCE(cib.ril_pcp, 0))::text AS competitor_pcp,
+                u.name AS rep_name
+         FROM competitor_installed_base cib
+         JOIN clients c ON c.client_code = cib.client_code
+         LEFT JOIN users u ON u.id = c.rep_id
+         WHERE (cib.total_pcp - COALESCE(cib.ril_pcp, 0)) > 0
+           AND c.status = 'Active'
+         ORDER BY competitor_pcp DESC
+         LIMIT 30`,
+      );
+      return rows.map(r => ({
+        client_name:    r.client_name,
+        zone:           r.zone,
+        ril_pcp:        Number(r.ril_pcp ?? 0),
+        total_pcp:      Number(r.total_pcp ?? 0),
+        competitor_pcp: Number(r.competitor_pcp ?? 0),
+        rep_name:       r.rep_name,
+      }));
+    }, []),
+
+    // 3. RIL share by industry
+    q<IndustryShare[]>(async () => {
+      const { rows } = await risansiPool.query<{ industry: string; ril: string; total: string }>(
+        `SELECT c.industry,
+                COALESCE(SUM(cib.ril_pcp),0)::text   AS ril,
+                COALESCE(SUM(cib.total_pcp),0)::text AS total
+         FROM competitor_installed_base cib
+         JOIN clients c ON c.client_code = cib.client_code
+         WHERE c.industry IS NOT NULL
+         GROUP BY c.industry
+         ORDER BY SUM(cib.total_pcp) DESC
+         LIMIT 8`,
+      );
+      return rows.map(r => ({
+        industry:  r.industry,
+        ril_pcp:   Number(r.ril),
+        total_pcp: Number(r.total),
+      }));
+    }, []),
+  ]);
+
+  // ── Derived values ────────────────────────────────────────────
   const safeTotal = Math.max(totals.total_pcp, 1);
   const rilShare  = (totals.ril_pcp / safeTotal) * 100;
 
@@ -106,59 +160,7 @@ export default async function CompetePage() {
 
   const competitors = donutSlices.filter(d => d.name !== 'RIL');
 
-  // 2. Accounts with high competitor penetration — displacement opportunities
-  const displacementAccounts = await q<DisplacementAccount[]>(async () => {
-    const { rows } = await risansiPool.query<{
-      client_name: string; zone: string | null;
-      ril_pcp: string; total_pcp: string;
-      competitor_pcp: string; rep_name: string | null;
-    }>(
-      `SELECT c.legal_name AS client_name, c.zone,
-              cib.ril_pcp::text,
-              cib.total_pcp::text,
-              (cib.total_pcp - COALESCE(cib.ril_pcp, 0))::text AS competitor_pcp,
-              u.name AS rep_name
-       FROM competitor_installed_base cib
-       JOIN clients c ON c.client_code = cib.client_code
-       LEFT JOIN users u ON u.id = c.rep_id
-       WHERE (cib.total_pcp - COALESCE(cib.ril_pcp, 0)) > 0
-         AND c.status = 'Active'
-       ORDER BY competitor_pcp DESC
-       LIMIT 30`,
-      [],
-    );
-    return rows.map(r => ({
-      client_name:    r.client_name,
-      zone:           r.zone,
-      ril_pcp:        Number(r.ril_pcp ?? 0),
-      total_pcp:      Number(r.total_pcp ?? 0),
-      competitor_pcp: Number(r.competitor_pcp ?? 0),
-      rep_name:       r.rep_name,
-    }));
-  }, []);
-
   const totalCompetitorUnits = displacementAccounts.reduce((s, r) => s + r.competitor_pcp, 0);
-
-  // 3. RIL share by industry
-  const industryShare = await q<IndustryShare[]>(async () => {
-    const { rows } = await risansiPool.query<{ industry: string; ril: string; total: string }>(
-      `SELECT c.industry,
-              COALESCE(SUM(cib.ril_pcp),0)::text   AS ril,
-              COALESCE(SUM(cib.total_pcp),0)::text AS total
-       FROM competitor_installed_base cib
-       JOIN clients c ON c.client_code = cib.client_code
-       WHERE c.industry IS NOT NULL
-       GROUP BY c.industry
-       ORDER BY SUM(cib.total_pcp) DESC
-       LIMIT 8`,
-      [],
-    );
-    return rows.map(r => ({
-      industry:  r.industry,
-      ril_pcp:   Number(r.ril),
-      total_pcp: Number(r.total),
-    }));
-  }, []);
 
   const maxCompPct = competitors.length > 0
     ? Math.max(...competitors.map(c => c.pct))

@@ -2,8 +2,12 @@ import { IBM_Plex_Sans, IBM_Plex_Mono, Instrument_Serif } from 'next/font/google
 import { getServerSession } from 'next-auth/next';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { cache } from 'react';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Sidebar } from '@/components/risansi';
+
+// Deduplicate session calls across server components in the same request
+const getSession = cache(() => getServerSession(authOptions));
 
 const ibmPlexSans = IBM_Plex_Sans({
   weight: ['400', '500', '600'],
@@ -38,7 +42,7 @@ function isMobileUA(ua: string): boolean {
 
 export default async function RisansiLayout({ children }: { children: React.ReactNode }) {
   // ── Auth check ──────────────────────────────────────────────
-  const session = await getServerSession(authOptions);
+  const session = await getSession();
   if (!session?.user?.email) {
     redirect('/api/auth/signin');
   }
