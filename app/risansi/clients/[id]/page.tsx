@@ -2,8 +2,8 @@ import type { CSSProperties } from 'react';
 import { notFound } from 'next/navigation';
 import { Topbar, Tag, StatusDot } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentFY, getPreviousFYCodes, fyShortLabel, fmtCr, formatIndianDate, initials } from '@/lib/risansi-utils';
-import { addContact, planVisit, createOpportunity, updateClientTier } from '@/app/actions/risansi';
+import { fyShortLabel, fmtCr } from '@/lib/risansi-utils';
+import { addContact, planVisit, createOpportunity } from '@/app/actions/risansi';
 
 // ── Safe query wrapper ─────────────────────────────────────────
 
@@ -14,13 +14,13 @@ async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
 // ── Data shapes ────────────────────────────────────────────────
 
 interface Client {
-  id: string; client_code: string; legal_name: string; trade_name: string | null;
-  industry: string; zone: string; route: string | null; status: string; tier: string | null;
-  market_type: string | null; client_type: string | null; is_key_account: boolean;
+  id: string; code: string; legal_name: string; trade_name: string | null;
+  industry: string; zone: string; tour_name: string | null; status: string; tier: string | null;
+  market_type: string | null; client_type: string | null;
   since_year: number | null; address: string | null; city: string | null;
   state: string | null; lat: string | null; lng: string | null;
   tcd: number | null; klpd: number | null;
-  rep_id: string | null; rep_name: string | null;
+  primary_rep_id: string | null; primary_rep_name: string | null; rep_name: string | null;
   // Revenue columns (INR — divide by 10M for Crores)
   rev_2122_pump: number | null; rev_2122_spare: number | null;
   rev_2223_pump: number | null; rev_2223_spare: number | null;
@@ -29,20 +29,20 @@ interface Client {
   rev_2526_pump: number | null; rev_2526_spare: number | null;
   rev_2627_pump: number | null; rev_2627_spare: number | null;
   // Plan of Action
-  action_points:     string | null;
-  pcp_competitor:    string | null;
-  mgmt_intervention: boolean | string | null;
-  constraints_notes: string | null;
-  expected_pump:     number | null;
-  expected_spare:    number | null;
+  action_points:      string | null;
+  pcp_competitor:     string | null;
+  mgmt_intervention:  boolean | string | null;
+  constraints_notes:  string | null;
+  expected_to_pump:   number | null;
+  expected_to_spare:  number | null;
   // Field intelligence
   performance_feedback: string | null;
   last_visit_summary:   string | null;
   open_remarks:         string | null;
   complaint_notes:      string | null;
   last_visit_fy:        string | null;
-  ril_pcp:              number | null;
-  total_pcp:            number | null;
+  ril_pcp_count:        number | null;
+  total_others_pcp:     number | null;
 }
 
 interface Contact {
@@ -54,7 +54,6 @@ interface RevRow {
   financial_year: string; product_category: string; total: string; order_count: string;
 }
 
-// (equipment_assessment_entries used for detailed field logs)
 interface Equipment {
   id: string; station: string | null; equipment_type: string;
   supplier: string; model: string | null; quantity: number;
@@ -64,13 +63,13 @@ interface Equipment {
 interface Visit {
   id: string; rep_name: string; visit_date: Date;
   purpose: string | null; outcome: string | null;
-  notes: string | null; status: string; synced: boolean;
+  summary: string | null; status: string; synced: boolean;
 }
 
 interface Opportunity {
   id: string; product: string; stage: string;
-  estimated_value: string; probability: number | null;
-  expected_close: string | null;
+  value_cr: string; probability: number | null;
+  expected_close_date: string | null;
 }
 
 interface ActivityEntry {
@@ -85,78 +84,78 @@ export default async function ClientProfilePage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params;
-  const fy      = getCurrentFY();
-  const prevFYs = getPreviousFYCodes(5); // ['20-21'..'24-25']
 
-  // All FYs for revenue chart: 5 previous + current
-  const revFYs = [...prevFYs, fy.code];
+  // ── Dual-key client fetch (numeric id OR code string) ─────
+  const isNumeric = /^\d+$/.test(id);
+  const whereClause = isNumeric ? 'c.id = $1::bigint' : 'c.code = $1';
 
-  // ── Fetch all data ────────────────────────────────────────
+  const client = await q<Client | null>(async () => {
+    const { rows } = await risansiPool.query<Client>(
+      `SELECT c.*, COALESCE(r.name, c.primary_rep_name, '—') AS rep_name
+       FROM clients c
+       LEFT JOIN reps r ON c.primary_rep_id = r.id
+       WHERE ${whereClause} AND c.deleted_at IS NULL`,
+      [id],
+    );
+    return rows[0] ?? null;
+  }, null);
 
-  const [client, contacts, revRows, equipment, visits, openOpps, activityLog] = await Promise.all([
+  if (!client) notFound();
 
-    // 1. Client + rep
-    q<Client | null>(async () => {
-      const { rows } = await risansiPool.query<Client>(
-        `SELECT c.*, u.name AS rep_name
-         FROM clients c
-         LEFT JOIN users u ON u.id = c.rep_id
-         WHERE c.id = $1`,
-        [id],
-      );
-      return rows[0] ?? null;
-    }, null),
+  // ── Fetch supporting data in parallel ─────────────────────
+
+  const [contacts, revRows, equipment, visits, openOpps, activityLog] = await Promise.all([
 
     // 2. Contacts — try contacts_raw first (Excel-imported), fall back to contacts
     (async (): Promise<Contact[]> => {
       try {
         const { rows } = await risansiPool.query<Contact>(
           `SELECT id, name, designation, phone, email, is_primary
-           FROM contacts_raw WHERE client_id = $1
+           FROM contacts_raw WHERE client_code = $1
            ORDER BY is_primary DESC, name`,
-          [id],
+          [client.code],
         );
         if (rows.length > 0) return rows;
       } catch { /* table may not exist yet */ }
       return q<Contact[]>(async () => {
         const { rows } = await risansiPool.query<Contact>(
           `SELECT id, name, designation, phone, email, is_primary
-           FROM contacts WHERE client_id = $1
+           FROM contacts WHERE client_code = $1
            ORDER BY is_primary DESC, name`,
-          [id],
+          [client.code],
         );
         return rows;
       }, []);
     })(),
 
-    // 3. Revenue by FY / category (orders table — kept for transactional data)
+    // 3. Revenue by FY / category (order_value_cr is already in Crores)
     q<RevRow[]>(async () => {
       const { rows } = await risansiPool.query<RevRow>(
         `SELECT financial_year, product_category,
-                COALESCE(SUM(order_value),0)::text AS total,
+                COALESCE(SUM(order_value_cr),0)::text AS total,
                 COUNT(*)::text AS order_count
          FROM orders WHERE client_id = $1
          GROUP BY financial_year, product_category
          ORDER BY financial_year`,
-        [id],
+        [client.id],
       );
       return rows;
     }, []),
 
-    // 4. Competitor installed base (one row per client from master data)
+    // 4. Competitor installed base
     q<Equipment[]>(async () => {
-      // Kept for field assessment detail logs
       const { rows } = await risansiPool.query<{
         id: string; station: string | null; equipment_type: string;
         supplier: string; model: string | null; quantity: string;
         condition: string; opportunity: boolean;
       }>(
-        `SELECT id, station, equipment_type, supplier, model, quantity::int AS quantity,
-                condition, opportunity
-         FROM equipment_assessment_entries
-         WHERE client_id = $1
-         ORDER BY (supplier = 'RIL') DESC, condition, station`,
-        [id],
+        `SELECT id, station, equipment_type, supplier, model,
+                COALESCE(quantity, 1)::int AS quantity,
+                COALESCE(condition, 'Unknown') AS condition,
+                COALESCE(opportunity, false) AS opportunity
+         FROM competitor_installed_base
+         WHERE client_code = $1`,
+        [client.code],
       );
       return rows.map(r => ({ ...r, quantity: Number(r.quantity) }));
     }, []),
@@ -166,32 +165,32 @@ export default async function ClientProfilePage({
       const { rows } = await risansiPool.query<{
         id: string; rep_name: string; visit_date: Date;
         purpose: string | null; outcome: string | null;
-        notes: string | null; status: string; synced_at: Date | null;
+        summary: string | null; status: string;
       }>(
-        `SELECT v.id, u.name AS rep_name, v.visit_date, v.purpose, v.outcome,
-                v.notes, v.status, v.synced_at
+        `SELECT v.id, COALESCE(r.name, '—') AS rep_name, v.visit_date,
+                v.purpose, v.outcome, v.summary, v.status
          FROM visits v
-         JOIN users u ON u.id = v.rep_id
+         LEFT JOIN reps r ON r.id = v.rep_id
          WHERE v.client_id = $1
          ORDER BY v.visit_date DESC
          LIMIT 20`,
-        [id],
+        [client.id],
       );
-      return rows.map(r => ({ ...r, synced: r.synced_at != null }));
+      return rows.map(r => ({ ...r, synced: false }));
     }, []),
 
     // 6. Open pipeline opportunities
     q<Opportunity[]>(async () => {
       const { rows } = await risansiPool.query<{
         id: string; product: string; stage: string;
-        estimated_value: string; probability: number | null;
-        expected_close: string | null;
+        value_cr: string; probability: number | null;
+        expected_close_date: string | null;
       }>(
-        `SELECT id, product, stage, estimated_value::text, probability, expected_close
-         FROM pipeline_opportunities
+        `SELECT id, product, stage, value_cr::text, probability, expected_close_date
+         FROM opportunities
          WHERE client_id = $1 AND stage NOT IN ('Won','Lost')
-         ORDER BY estimated_value DESC`,
-        [id],
+         ORDER BY value_cr DESC`,
+        [client.id],
       );
       return rows;
     }, []),
@@ -204,18 +203,15 @@ export default async function ClientProfilePage({
          WHERE entity_type = 'client' AND entity_id::text = $1
          ORDER BY created_at DESC
          LIMIT 20`,
-        [id],
+        [String(client.id)],
       );
       return rows;
     }, []),
   ]);
 
-  if (!client) notFound();
-
   // ── Derived values ────────────────────────────────────────
 
   // Revenue chart data — from rev_* columns on clients (INR ÷ 10M = Crores)
-  // Fall back to orders table rows if the columns are missing/zero.
   const INR_TO_CR = 10_000_000;
 
   const REV_COLS: [string, keyof typeof client, keyof typeof client][] = [
@@ -239,14 +235,13 @@ export default async function ClientProfilePage({
     };
   }
 
-  // Also merge orders table rows (transactional entries)
+  // Merge orders table rows (already in Crores — no conversion needed)
   for (const r of revRows) {
     const total = Number(r.total);
     if (!revByFY[r.financial_year]) {
       revByFY[r.financial_year] = { pump: 0, spare: 0, orders: 0 };
     }
     if (r.product_category === 'Pump') {
-      // Use orders value only if column value is zero (avoids double-counting)
       if (revByFY[r.financial_year].pump === 0) revByFY[r.financial_year].pump = total;
     } else {
       if (revByFY[r.financial_year].spare === 0) revByFY[r.financial_year].spare = total;
@@ -259,19 +254,19 @@ export default async function ClientProfilePage({
 
   let lifetimePump = 0, lifetimeSpare = 0, lifetimeOrders = 0;
   for (const { pump, spare, orders } of Object.values(revByFY)) {
-    lifetimePump  += pump;
-    lifetimeSpare += spare;
+    lifetimePump   += pump;
+    lifetimeSpare  += spare;
     lifetimeOrders += orders;
   }
   const lifetimeTotal = lifetimePump + lifetimeSpare;
 
-  // Competitor installed base summary (from client master columns)
-  const rilPcp   = Number(client.ril_pcp   ?? 0);
-  const totalPcp = Number(client.total_pcp ?? 0);
-  const compPcp  = Math.max(0, totalPcp - rilPcp);
+  // PCP summary from client master columns
+  const rilPcp   = Number(client.ril_pcp_count    ?? 0);
+  const compPcp  = Number(client.total_others_pcp ?? 0);
+  const totalPcp = rilPcp + compPcp;
 
   // 5yr CAGR (from master data columns)
-  const chartTotals   = chartFYs.map(f => (revByFY[f]?.pump ?? 0) + (revByFY[f]?.spare ?? 0));
+  const chartTotals = chartFYs.map(f => (revByFY[f]?.pump ?? 0) + (revByFY[f]?.spare ?? 0));
   const cagr5yr = (() => {
     const nonZero = chartTotals.filter(v => v > 0);
     if (nonZero.length < 2) return null;
@@ -283,16 +278,15 @@ export default async function ClientProfilePage({
   // Equipment KPIs — prefer master data columns; fall back to field assessments
   const rilUnits   = rilPcp   > 0 ? rilPcp   : equipment.filter(e => e.supplier === 'RIL').reduce((s, e) => s + e.quantity, 0);
   const totalUnits = totalPcp > 0 ? totalPcp : equipment.reduce((s, e) => s + e.quantity, 0);
-  const dispOpps   = equipment.filter(e => e.opportunity).length;
 
   // Last visit
-  const lastVisit   = visits[0] ?? null;
-  const daysAgo     = lastVisit
+  const lastVisit = visits[0] ?? null;
+  const daysAgo   = lastVisit
     ? Math.floor((Date.now() - new Date(lastVisit.visit_date).getTime()) / 86_400_000)
     : null;
 
-  // Pipeline total
-  const pipelineTotal = openOpps.reduce((s, o) => s + Number(o.estimated_value), 0);
+  // Pipeline total (value_cr already in Crores)
+  const pipelineTotal = openOpps.reduce((s, o) => s + Number(o.value_cr), 0);
 
   // ── Outcome color ─────────────────────────────────────────
 
@@ -323,20 +317,20 @@ export default async function ClientProfilePage({
               <span style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
                 {client.legal_name}
               </span>
-              <StatusDot s={client.status === 'Active' ? 'active' : client.status === 'Inactive' ? 'inactive' : 'prospect'} />
+              <StatusDot s={client.status === 'ACTIVE' ? 'active' : client.status === 'INACTIVE' ? 'inactive' : 'prospect'} />
               <span style={{ fontSize: 12, color: 'var(--fg-3)', marginLeft: -4 }}>{client.status}</span>
               {client.tier === 'Key' && <Tag kind="accent">Key Account</Tag>}
               {client.tier && client.tier !== 'Key' && <Tag>{client.tier}</Tag>}
             </div>
             <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 6, lineHeight: 1.6 }}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{client.client_code}</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{client.code}</span>
               <span style={{ margin: '0 8px' }}>·</span>
               {client.industry}
               {client.tcd ? ` · ${client.tcd} TCD` : ''}
               {client.klpd ? ` · ${client.klpd} KLPD` : ''}
               {client.address && <><span style={{ margin: '0 8px' }}>·</span>{client.address}</>}
               {client.since_year && <><span style={{ margin: '0 8px' }}>·</span>Customer since {client.since_year}</>}
-              {client.rep_name && <><span style={{ margin: '0 8px' }}>·</span>{client.rep_name}{client.route ? ` on ${client.route}` : ''}</>}
+              {client.rep_name && <><span style={{ margin: '0 8px' }}>·</span>{client.rep_name}{client.tour_name ? ` on ${client.tour_name}` : ''}</>}
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
@@ -516,7 +510,7 @@ export default async function ClientProfilePage({
             </div>
 
             {/* Plan of Action */}
-            {(client.action_points || client.expected_pump || client.expected_spare || client.mgmt_intervention) && (
+            {(client.action_points || client.expected_to_pump || client.expected_to_spare || client.mgmt_intervention) && (
               <div style={PANEL}>
                 <div style={PANEL_H}>
                   <span style={PANEL_TITLE}>Plan of Action</span>
@@ -534,19 +528,19 @@ export default async function ClientProfilePage({
                     </div>
                   )}
                   <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-                    {client.expected_pump != null && (
+                    {client.expected_to_pump != null && (
                       <div>
                         <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.10em' }}>Expected Pump</div>
                         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 16, marginTop: 3, color: 'var(--pos)' }}>
-                          ₹{(client.expected_pump / 100_000).toFixed(1)} L
+                          ₹{(client.expected_to_pump / 100_000).toFixed(1)} L
                         </div>
                       </div>
                     )}
-                    {client.expected_spare != null && (
+                    {client.expected_to_spare != null && (
                       <div>
                         <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.10em' }}>Expected Spare</div>
                         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 16, marginTop: 3, color: 'var(--pos)' }}>
-                          ₹{(client.expected_spare / 100_000).toFixed(1)} L
+                          ₹{(client.expected_to_spare / 100_000).toFixed(1)} L
                         </div>
                       </div>
                     )}
@@ -638,15 +632,15 @@ export default async function ClientProfilePage({
                           </div>
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: v.notes ? 6 : 0 }}>
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: v.summary ? 6 : 0 }}>
                             <span style={{ fontWeight: 500, fontSize: 12 }}>{v.purpose ?? 'Visit'}</span>
                             {v.outcome && <Tag kind={outcomeKind(v.outcome)} dot>{v.outcome}</Tag>}
                             {v.synced && (
                               <span style={{ fontSize: 10, color: 'var(--pos)', fontFamily: 'var(--font-mono)' }}>✓ GPS verified</span>
                             )}
                           </div>
-                          {v.notes && (
-                            <div style={{ fontSize: 12, color: 'var(--fg-2)', lineHeight: 1.5 }}>{v.notes}</div>
+                          {v.summary && (
+                            <div style={{ fontSize: 12, color: 'var(--fg-2)', lineHeight: 1.5 }}>{v.summary}</div>
                           )}
                         </div>
                       </div>
@@ -721,7 +715,7 @@ export default async function ClientProfilePage({
               )}
             </div>
 
-            {/* Plant location placeholder */}
+            {/* Plant location */}
             {(client.lat && client.lng) ? (
               <div style={PANEL}>
                 <div style={PANEL_H}>
@@ -737,17 +731,14 @@ export default async function ClientProfilePage({
                   </div>
                 </div>
                 <div style={{ position: 'relative' }}>
-                  {/* Decorative map grid */}
                   <div style={{ height: 150, background: 'var(--bg-elev)', overflow: 'hidden', position: 'relative' }}>
                     <svg width="100%" height="150" viewBox="0 0 300 150" style={{ position: 'absolute', inset: 0 }}>
-                      {/* Grid lines */}
                       {[30, 60, 90, 120].map(y => (
                         <line key={y} x1="0" x2="300" y1={y} y2={y} stroke="var(--line)" strokeDasharray="3 4" />
                       ))}
                       {[75, 150, 225].map(x => (
                         <line key={x} x1={x} x2={x} y1="0" y2="150" stroke="var(--line)" strokeDasharray="3 4" />
                       ))}
-                      {/* Pin */}
                       <circle cx="150" cy="75" r="28" fill="var(--accent)" opacity="0.12" />
                       <circle cx="150" cy="75" r="14" fill="var(--accent)" opacity="0.25" />
                       <circle cx="150" cy="75" r="5" fill="var(--accent)" />
@@ -797,13 +788,13 @@ export default async function ClientProfilePage({
                           {o.probability != null && (
                             <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>{o.probability}%</span>
                           )}
-                          {o.expected_close && (
-                            <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>· {o.expected_close}</span>
+                          {o.expected_close_date && (
+                            <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>· {o.expected_close_date}</span>
                           )}
                         </div>
                       </div>
                       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 500, flexShrink: 0, marginLeft: 8 }}>
-                        {fmtCr(Number(o.estimated_value))}
+                        {fmtCr(Number(o.value_cr))}
                       </div>
                     </div>
                   ))}
@@ -913,17 +904,13 @@ function RevenueChart({
         const total = pump + spare;
         return (
           <g key={fyKey}>
-            {/* Spare bar (top) */}
             {sh > 0 && <rect x={x} y={height - ph - sh} width={bw} height={sh} rx={1.5} fill="#00A3C4" />}
-            {/* Pump bar (bottom) */}
             {ph > 0 && <rect x={x} y={height - ph} width={bw} height={ph} rx={1.5} fill="var(--accent)" />}
-            {/* Total label */}
             {total > 0 && (
               <text x={x + bw / 2} y={height - ph - sh - 4} textAnchor="middle" fontSize="9" fill="var(--fg-2)" fontFamily="var(--font-mono)">
                 {total.toFixed(1)}
               </text>
             )}
-            {/* FY label */}
             <text x={x + bw / 2} y={height + 13} textAnchor="middle" fontSize="10" fill="var(--fg-3)" fontFamily="var(--font-mono)">
               {fyShortLabel(fyKey)}
             </text>

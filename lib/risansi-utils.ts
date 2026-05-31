@@ -87,8 +87,47 @@ export function fmtCr(val: number | null | undefined, decimals = 1): string {
   return `₹${val.toFixed(decimals)} Cr`;
 }
 
-/** Alias matching the task spec signature */
-export const formatCr = fmtCr;
+/** Convert raw INR to Crores display (clients.rev_* columns) */
+export function formatCr(val: number | string | null | undefined): string {
+  const n = Number(val);
+  if (!val || isNaN(n) || n === 0) return '—';
+  return '₹' + (n / 10_000_000).toFixed(2) + ' Cr';
+}
+
+/** Display value already in Crores (orders.order_value_cr) */
+export function displayCr(val: number | string | null | undefined): string {
+  const n = Number(val);
+  if (!val || isNaN(n) || n === 0) return '—';
+  return '₹' + n.toFixed(2) + ' Cr';
+}
+
+export function formatLakh(val: number | string | null | undefined): string {
+  const n = Number(val);
+  if (!val || isNaN(n) || n === 0) return '—';
+  return '₹' + (n / 100_000).toFixed(1) + ' L';
+}
+
+export function formatDate(val: string | Date | null | undefined): string {
+  if (!val) return '—';
+  try {
+    return new Date(val).toLocaleDateString('en-IN', {
+      day: '2-digit', month: 'short', year: 'numeric'
+    });
+  } catch { return '—'; }
+}
+
+export function visitHealthColor(days: number | null, tier: string): string {
+  if (days === null) return 'var(--neg)';
+  const threshold = tier === 'Key' ? 100 : 200;
+  if (days > threshold) return 'var(--neg)';
+  if (days > threshold * 0.75) return 'var(--warn)';
+  return 'var(--pos)';
+}
+
+export function safeNum(val: unknown): number {
+  const n = Number(val);
+  return isNaN(n) ? 0 : n;
+}
 
 // ── Name helpers ───────────────────────────────────────────────
 

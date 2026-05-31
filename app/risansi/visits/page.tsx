@@ -130,7 +130,7 @@ export default async function VisitsPage({
     // 1. All users (reps) for the calendar rows
     q<Rep[]>(async () => {
       const { rows } = await risansiPool.query<Rep>(
-        `SELECT id, name FROM users ORDER BY name`,
+        `SELECT id, name FROM reps ORDER BY name`,
       );
       return rows;
     }, []),
@@ -145,7 +145,7 @@ export default async function VisitsPage({
         SELECT v.id, v.client_id, v.rep_id,
                v.visit_date::text AS visit_date,
                v.purpose, v.status, v.outcome,
-               c.legal_name AS client_name, c.client_code
+               c.legal_name AS client_name, c.code AS client_code
         FROM visits v
         JOIN clients c ON c.id = v.client_id
         WHERE v.visit_date >= $1::date AND v.visit_date <= $2::date
@@ -176,18 +176,18 @@ export default async function VisitsPage({
         last_visit: string | null; days_since: string | null;
         rep_id: string | null; rep_name: string | null;
       }>(`
-        SELECT c.id, c.client_code, c.legal_name, c.industry, c.zone,
+        SELECT c.id, c.code AS client_code, c.legal_name, c.industry, c.zone,
                MAX(v.visit_date)::text AS last_visit,
                CASE
                  WHEN MAX(v.visit_date) IS NULL THEN NULL
                  ELSE EXTRACT(DAY FROM NOW() - MAX(v.visit_date)::timestamp)::int
                END::text AS days_since,
-               u.id AS rep_id, u.name AS rep_name
+               r.id AS rep_id, r.name AS rep_name
         FROM clients c
         LEFT JOIN visits v ON v.client_id = c.id
-        LEFT JOIN users u ON u.id = c.rep_id
-        WHERE c.status = 'Active'
-        GROUP BY c.id, c.client_code, c.legal_name, c.industry, c.zone, u.id, u.name
+        LEFT JOIN reps r ON r.id = c.primary_rep_id
+        WHERE c.status = 'ACTIVE' AND c.deleted_at IS NULL
+        GROUP BY c.id, c.code, c.legal_name, c.industry, c.zone, r.id, r.name
         HAVING MAX(v.visit_date) IS NULL
             OR MAX(v.visit_date) < (NOW() - INTERVAL '90 days')
         ORDER BY MAX(v.visit_date) ASC NULLS FIRST

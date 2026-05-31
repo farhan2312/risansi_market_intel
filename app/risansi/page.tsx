@@ -130,12 +130,12 @@ export default async function ExecDashboardPage() {
     q<HistRow>(async () => {
       const { rows } = await risansiPool.query<HistRow>(
         `SELECT
-           (COALESCE(SUM(rev_2021_pump),0) + COALESCE(SUM(rev_2021_spare),0))::text AS h2021,
+           COALESCE(SUM(rev_2021), 0)::text AS h2021,
            (COALESCE(SUM(rev_2122_pump),0) + COALESCE(SUM(rev_2122_spare),0))::text AS h2122,
            (COALESCE(SUM(rev_2223_pump),0) + COALESCE(SUM(rev_2223_spare),0))::text AS h2223,
            (COALESCE(SUM(rev_2324_pump),0) + COALESCE(SUM(rev_2324_spare),0))::text AS h2324,
            (COALESCE(SUM(rev_2425_pump),0) + COALESCE(SUM(rev_2425_spare),0))::text AS h2425
-         FROM clients`,
+         FROM clients WHERE deleted_at IS NULL`,
       );
       return rows[0] ?? { h2021: '0', h2122: '0', h2223: '0', h2324: '0', h2425: '0' };
     }, { h2021: '0', h2122: '0', h2223: '0', h2324: '0', h2425: '0' }),
@@ -143,39 +143,41 @@ export default async function ExecDashboardPage() {
     // 5. Revenue by industry segment
     q<SegmentRow[]>(async () => {
       const { rows } = await risansiPool.query<{ industry: string; total: string }>(
-        `SELECT c.industry, COALESCE(SUM(o.order_value),0)::text AS total
-         FROM orders o JOIN clients c ON c.id = o.client_id
-         WHERE o.financial_year = $1
-         GROUP BY c.industry ORDER BY SUM(o.order_value) DESC LIMIT 8`,
-        [fy.code],
+        `SELECT c.industry,
+           (COALESCE(SUM(c.rev_2526_pump),0) + COALESCE(SUM(c.rev_2526_spare),0))::text AS total
+         FROM clients c
+         WHERE c.deleted_at IS NULL AND c.industry IS NOT NULL
+           AND (COALESCE(c.rev_2526_pump,0) + COALESCE(c.rev_2526_spare,0)) > 0
+         GROUP BY c.industry ORDER BY SUM(c.rev_2526_pump + c.rev_2526_spare) DESC LIMIT 8`,
       );
-      return rows.map(r => ({ industry: r.industry, total: Number(r.total) }));
+      return rows.map(r => ({ industry: r.industry, total: Number(r.total) / INR_TO_CR }));
     }, []),
 
     // 6. Domestic / Export split
     q<{ domestic: number; export: number; pump_pct: number }>(async () => {
-      const { rows } = await risansiPool.query<{ market_type: string; cat: string; total: string }>(
-        `SELECT c.market_type, o.product_category AS cat,
-                COALESCE(SUM(o.order_value),0)::text AS total
-         FROM orders o JOIN clients c ON c.id = o.client_id
-         WHERE o.financial_year = $1
-         GROUP BY c.market_type, o.product_category`,
-        [fy.code],
+      const { rows } = await risansiPool.query<{ pump_pct: number; domestic_inr: string; export_inr: string }>(
+        `SELECT
+           CASE WHEN (COALESCE(SUM(rev_2526_pump),0)+COALESCE(SUM(rev_2526_spare),0)) > 0
+                THEN ROUND(COALESCE(SUM(rev_2526_pump),0) * 100.0 /
+                     (COALESCE(SUM(rev_2526_pump),0)+COALESCE(SUM(rev_2526_spare),0)))
+                ELSE 0 END::int AS pump_pct,
+           COALESCE(SUM(CASE WHEN market_type = 'Domestic' THEN rev_2526_pump + rev_2526_spare ELSE 0 END),0)::text AS domestic_inr,
+           COALESCE(SUM(CASE WHEN market_type = 'Export'   THEN rev_2526_pump + rev_2526_spare ELSE 0 END),0)::text AS export_inr
+         FROM clients WHERE deleted_at IS NULL`,
       );
-      const domestic = rows.filter(r => r.market_type === 'Domestic').reduce((s, r) => s + Number(r.total), 0);
-      const exportV  = rows.filter(r => r.market_type === 'Export').reduce((s, r) => s + Number(r.total), 0);
-      const pump     = rows.filter(r => r.cat === 'Pump').reduce((s, r) => s + Number(r.total), 0);
-      const total    = rows.reduce((s, r) => s + Number(r.total), 0) || 1;
-      return { domestic, export: exportV, pump_pct: Math.round((pump / total) * 100) };
+      const r = rows[0];
+      return {
+        domestic:  Number(r?.domestic_inr ?? 0) / INR_TO_CR,
+        export:    Number(r?.export_inr   ?? 0) / INR_TO_CR,
+        pump_pct:  r?.pump_pct ?? 0,
+      };
     }, { domestic: 0, export: 0, pump_pct: 0 }),
 
     // 7. Pipeline funnel
     q<FunnelRow[]>(async () => {
       const { rows } = await risansiPool.query<{ stage: string; cnt: string; val: string }>(
-        `SELECT stage,
-                COUNT(*)::text                            AS cnt,
-                COALESCE(SUM(estimated_value),0)::text   AS val
-         FROM pipeline_opportunities
+        `SELECT stage, COUNT(*)::text AS cnt, COALESCE(SUM(value_cr),0)::text AS val
+         FROM opportunities
          WHERE stage IN ('Suspect','Prospect','Quoted','Negotiating')
          GROUP BY stage`,
       );
@@ -215,9 +217,9 @@ export default async function ExecDashboardPage() {
     q<AtRisk>(async () => {
       const { rows } = await risansiPool.query<{ cnt: string; exposure: string }>(
         `SELECT COUNT(*)::text AS cnt,
-                COALESCE(SUM(COALESCE(rev_2425_pump,0) + COALESCE(rev_2425_spare,0)),0)::text AS exposure
+                COALESCE(SUM(COALESCE(rev_2526_pump,0) + COALESCE(rev_2526_spare,0)),0)::text AS exposure
          FROM clients
-         WHERE status = 'Active'
+         WHERE status = 'ACTIVE' AND deleted_at IS NULL
            AND (last_visit_date < NOW() - INTERVAL '18 months'
                 OR last_visit_date IS NULL)`,
       );
@@ -234,18 +236,19 @@ export default async function ExecDashboardPage() {
         ytd: string; py: string; fy20: string; fy21: string; fy22: string; fy23: string; fy24: string; fy25: string;
       }>(
         `SELECT
-           client_code, legal_name, industry, zone, status,
-           (COALESCE(rev_2526_pump,0) + COALESCE(rev_2526_spare,0))::text AS ytd,
-           (COALESCE(rev_2425_pump,0) + COALESCE(rev_2425_spare,0))::text AS py,
-           (COALESCE(rev_2021_pump,0) + COALESCE(rev_2021_spare,0))::text AS fy20,
-           (COALESCE(rev_2122_pump,0) + COALESCE(rev_2122_spare,0))::text AS fy21,
-           (COALESCE(rev_2223_pump,0) + COALESCE(rev_2223_spare,0))::text AS fy22,
-           (COALESCE(rev_2324_pump,0) + COALESCE(rev_2324_spare,0))::text AS fy23,
-           (COALESCE(rev_2425_pump,0) + COALESCE(rev_2425_spare,0))::text AS fy24,
-           (COALESCE(rev_2526_pump,0) + COALESCE(rev_2526_spare,0))::text AS fy25
-         FROM clients
-         WHERE (COALESCE(rev_2526_pump,0) + COALESCE(rev_2526_spare,0)) > 0
-            OR (COALESCE(rev_2425_pump,0) + COALESCE(rev_2425_spare,0)) > 0
+           c.code AS client_code, c.legal_name, c.industry, c.zone, c.status,
+           (COALESCE(c.rev_2526_pump,0) + COALESCE(c.rev_2526_spare,0))::text AS ytd,
+           (COALESCE(c.rev_2425_pump,0) + COALESCE(c.rev_2425_spare,0))::text AS py,
+           COALESCE(c.rev_2021,0)::text AS fy20,
+           (COALESCE(c.rev_2122_pump,0) + COALESCE(c.rev_2122_spare,0))::text AS fy21,
+           (COALESCE(c.rev_2223_pump,0) + COALESCE(c.rev_2223_spare,0))::text AS fy22,
+           (COALESCE(c.rev_2324_pump,0) + COALESCE(c.rev_2324_spare,0))::text AS fy23,
+           (COALESCE(c.rev_2425_pump,0) + COALESCE(c.rev_2425_spare,0))::text AS fy24,
+           (COALESCE(c.rev_2526_pump,0) + COALESCE(c.rev_2526_spare,0))::text AS fy25
+         FROM clients c
+         WHERE c.deleted_at IS NULL
+           AND ((COALESCE(c.rev_2526_pump,0) + COALESCE(c.rev_2526_spare,0)) > 0
+             OR (COALESCE(c.rev_2425_pump,0) + COALESCE(c.rev_2425_spare,0)) > 0)
          ORDER BY ytd DESC LIMIT 7`,
       );
       return rows.map(r => ({
@@ -270,21 +273,20 @@ export default async function ExecDashboardPage() {
       const { rows } = await risansiPool.query<{
         id: string; rep_name: string; client_name: string;
         visit_date: Date; outcome: string | null; purpose: string;
-        status: string; synced_at: Date | null;
+        status: string;
       }>(
         `SELECT v.id,
-                u.name                AS rep_name,
+                COALESCE(r.name, '—') AS rep_name,
                 c.legal_name          AS client_name,
                 v.visit_date,
                 v.outcome,
                 v.purpose,
-                v.status,
-                v.synced_at
+                v.status
          FROM visits v
          JOIN clients c ON c.id = v.client_id
-         JOIN users   u ON u.id = v.rep_id
+         LEFT JOIN reps r ON r.id = v.rep_id
          WHERE v.status IN ('completed','checked-in')
-         ORDER BY COALESCE(v.checkin_time, v.visit_date::timestamp) DESC
+         ORDER BY v.visit_date DESC, v.check_in_time DESC NULLS LAST
          LIMIT 10`,
       );
       return rows.map(r => ({
@@ -296,7 +298,7 @@ export default async function ExecDashboardPage() {
         outcome:      r.outcome,
         purpose:      r.purpose,
         status:       r.status,
-        synced:       r.synced_at != null,
+        synced:       false,
       }));
     }, []),
   ]);

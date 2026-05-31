@@ -2,7 +2,8 @@ import type { CSSProperties } from 'react';
 import Link from 'next/link';
 import { Topbar, Tag, StatusDot } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentFY, fmtCr } from '@/lib/risansi-utils';
+import { getCurrentFY } from '@/lib/risansi-utils';
+// getCurrentFY kept for potential FY label use
 import { FilterBar } from './FilterBar';
 
 // ── Safe query wrapper ─────────────────────────────────────────
@@ -15,18 +16,15 @@ async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
 
 const PAGE_SIZE = 50;
 
-// Whitelist of sortable columns (outer query aliases)
+// Whitelist of sortable columns
 const SORT_MAP: Record<string, string> = {
-  code:       'client_code',
-  name:       'legal_name',
-  industry:   'industry',
-  zone:       'zone',
-  rep:        'rep_name',
-  last_visit: 'last_visit_date',
-  ytd:        'ytd_revenue',
-  pipeline:   'pipeline_value',
-  status:     'status',
-  tier:       'tier',
+  code:       'c.code',
+  name:       'c.legal_name',
+  industry:   'c.industry',
+  zone:       'c.zone',
+  last_visit: 'c.last_visit_date',
+  status:     'c.status',
+  tier:       'c.tier',
 };
 
 // ── Page ──────────────────────────────────────────────────────
@@ -50,7 +48,7 @@ export default async function ClientListPage({
   const pageNum  = Math.max(1, parseInt(typeof sp.page === 'string' ? sp.page : '1', 10) || 1);
   const offset   = (pageNum - 1) * PAGE_SIZE;
 
-  const sortCol  = SORT_MAP[sortKey] ?? 'ytd_revenue';
+  const sortCol  = SORT_MAP[sortKey] ?? 'c.last_visit_date';
   const fy       = getCurrentFY();
 
   // ── Build parameterized WHERE conditions ───────────────────
@@ -60,7 +58,7 @@ export default async function ClientListPage({
   let idx = 1;
 
   if (q_str) {
-    conds.push(`(c.legal_name ILIKE $${idx} OR c.trade_name ILIKE $${idx} OR c.client_code ILIKE $${idx})`);
+    conds.push(`(c.legal_name ILIKE $${idx} OR c.trade_name ILIKE $${idx} OR c.code ILIKE $${idx} OR c.city ILIKE $${idx})`);
     vals.push(`%${q_str}%`); idx++;
   }
   if (indFilt) {
@@ -84,33 +82,33 @@ export default async function ClientListPage({
     vals.push(catFilt); idx++;
   }
 
-  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+  const baseWhere = `c.deleted_at IS NULL`;
+  const where = conds.length
+    ? `WHERE ${baseWhere} AND ${conds.join(' AND ')}`
+    : `WHERE ${baseWhere}`;
 
   // ── Queries ────────────────────────────────────────────────
 
   interface ClientRow {
     id:                  string;
-    client_code:         string;
+    code:                string;
     legal_name:          string;
     trade_name:          string | null;
     industry:            string;
     zone:                string;
-    route:               string | null;
+    tour_name:           string | null;
     status:              string;
     tier:                string | null;
     business_category:   string | null;
-    ril_pcp:             string | null;
-    total_pcp:           string | null;
+    ril_pcp_count:       number | null;
+    total_others_pcp:    number | null;
     performance_feedback: string | null;
     last_visit_fy:       string | null;
+    last_visit_date:     Date | null;
     action_points:       string | null;
     rep_name:            string | null;
-    last_visit_date:     Date | null;
-    ytd_revenue:         string;
-    pipeline_value:      string;
+    ytd_inr:             string;
   }
-
-  const fyCode = fy.code; // '25-26' — known constant, safe to embed
 
   const [clients, total, industries, zones] = await Promise.all([
     q<ClientRow[]>(async () => {
@@ -119,29 +117,16 @@ export default async function ClientListPage({
       const offIdx = idx + 1;
       const { rows } = await risansiPool.query<ClientRow>(
         `SELECT
-           c.id, c.client_code, c.legal_name, c.trade_name,
-           c.industry, c.zone, c.route, c.status, c.tier,
-           c.business_category, c.ril_pcp, c.total_pcp,
-           c.performance_feedback, c.last_visit_fy,
-           LEFT(c.action_points, 30) AS action_points,
-           u.name AS rep_name,
-           MAX(CASE WHEN v.status IN ('completed','checked-in') THEN v.visit_date ELSE NULL END)
-             AS last_visit_date,
-           COALESCE(SUM(CASE WHEN o.financial_year = '${fyCode}' THEN o.order_value ELSE 0 END), 0)::text
-             AS ytd_revenue,
-           COALESCE(SUM(CASE WHEN po.stage NOT IN ('Won','Lost') THEN po.estimated_value ELSE 0 END), 0)::text
-             AS pipeline_value
+           c.id, c.code, c.legal_name, c.trade_name,
+           c.industry, c.zone, c.tour_name, c.status, c.tier,
+           c.business_category, c.ril_pcp_count, c.total_others_pcp,
+           c.performance_feedback, c.last_visit_fy, c.last_visit_date,
+           LEFT(c.action_points, 80) AS action_points,
+           (COALESCE(c.rev_2526_pump,0) + COALESCE(c.rev_2526_spare,0))::text AS ytd_inr,
+           COALESCE(r.name, c.primary_rep_name, '—') AS rep_name
          FROM clients c
-         LEFT JOIN users u ON u.id = c.rep_id
-         LEFT JOIN orders o ON o.client_id = c.id
-         LEFT JOIN visits v ON v.client_id = c.id
-         LEFT JOIN pipeline_opportunities po ON po.client_id = c.id
+         LEFT JOIN reps r ON c.primary_rep_id = r.id
          ${where}
-         GROUP BY c.id, c.client_code, c.legal_name, c.trade_name,
-                  c.industry, c.zone, c.route, c.status, c.tier,
-                  c.business_category, c.ril_pcp, c.total_pcp,
-                  c.performance_feedback, c.last_visit_fy, c.action_points,
-                  u.name
          ORDER BY ${sortCol} ${orderDir} NULLS LAST
          LIMIT $${limIdx} OFFSET $${offIdx}`,
         mainVals,
@@ -219,9 +204,10 @@ export default async function ClientListPage({
   // ── Status helpers ─────────────────────────────────────────
 
   function statusDotKind(s: string): 'active' | 'inactive' | 'prospect' {
-    if (s === 'Active')     return 'active';
-    if (s === 'Inactive')   return 'inactive';
-    if (s === 'Prospective') return 'prospect';
+    const su = s.toUpperCase();
+    if (su === 'ACTIVE')      return 'active';
+    if (su === 'INACTIVE')    return 'inactive';
+    if (su === 'PROSPECTIVE') return 'prospect';
     return 'inactive';
   }
 
@@ -307,20 +293,19 @@ export default async function ClientListPage({
                 <tbody>
                   {clients.map((c, i) => {
                     const days = daysAgo(c.last_visit_date);
-                    const daysColor = days == null ? 'var(--fg-3)' : days > 90 ? 'var(--neg)' : 'var(--fg-2)';
-                    const ytd = Number(c.ytd_revenue);
-                    const pipeline = Number(c.pipeline_value);
+                    const daysColor = days == null ? 'var(--neg)' : days > 200 ? 'var(--neg)' : days > 100 ? 'var(--warn)' : 'var(--pos)';
+                    const ytd = Number(c.ytd_inr) / 10_000_000;
 
                     return (
                       <tr key={c.id} style={{ borderBottom: i < clients.length - 1 ? '1px solid var(--line)' : 'none' }}>
                         {/* Code */}
                         <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>
-                          {c.client_code}
+                          {c.code}
                         </td>
                         {/* Client name */}
                         <td style={{ ...TD, minWidth: 180 }}>
                           <Link
-                            href={`/risansi/clients/${c.id}`}
+                            href={`/risansi/clients/${c.code}`}
                             style={{ fontWeight: 500, fontSize: 12, color: 'var(--fg)', textDecoration: 'none' }}
                           >
                             {c.legal_name}
@@ -340,7 +325,7 @@ export default async function ClientListPage({
                         {/* Zone / Route */}
                         <td style={{ ...TD, whiteSpace: 'nowrap' }}>
                           <div style={{ fontSize: 12 }}>{c.zone}</div>
-                          {c.route && <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 1 }}>{c.route}</div>}
+                          {c.tour_name && <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 1 }}>{c.tour_name}</div>}
                         </td>
                         {/* Rep */}
                         <td style={{ ...TD, fontSize: 12, color: 'var(--fg-3)' }}>{c.rep_name ?? '—'}</td>
@@ -354,9 +339,9 @@ export default async function ClientListPage({
                         </td>
                         {/* PCP share */}
                         <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: 11, whiteSpace: 'nowrap' }}>
-                          {c.total_pcp && Number(c.total_pcp) > 0
-                            ? <span style={{ color: Number(c.ril_pcp ?? 0) > 0 ? 'var(--pos)' : 'var(--fg-3)' }}>
-                                {c.ril_pcp ?? '0'}/{c.total_pcp}
+                          {(c.ril_pcp_count ?? 0) > 0 || (c.total_others_pcp ?? 0) > 0
+                            ? <span style={{ color: (c.ril_pcp_count ?? 0) > 0 ? 'var(--pos)' : 'var(--fg-3)' }}>
+                                {c.ril_pcp_count ?? '0'}/{(c.ril_pcp_count ?? 0) + (c.total_others_pcp ?? 0)}
                               </span>
                             : <span style={{ color: 'var(--fg-4)' }}>—</span>}
                         </td>
@@ -372,7 +357,7 @@ export default async function ClientListPage({
                         </td>
                         {/* YTD Revenue */}
                         <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12, whiteSpace: 'nowrap' }}>
-                          {ytd > 0 ? fmtCr(ytd) : <span style={{ color: 'var(--fg-4)' }}>—</span>}
+                          {ytd > 0 ? `₹${ytd.toFixed(2)} Cr` : <span style={{ color: 'var(--fg-4)' }}>—</span>}
                         </td>
                         {/* Action points (truncated) */}
                         <td style={{ ...TD, fontSize: 11, color: 'var(--fg-2)', maxWidth: 180 }}>

@@ -26,7 +26,7 @@ interface ApprovedUser   { email: string; display_name: string; status: string; 
 interface ColdAccount    { id: string; legal_name: string; industry: string; zone: string; last_visit: string | null; }
 interface NoContactClient { id: string; legal_name: string; industry: string; zone: string; }
 interface NoOrderClient  { id: string; legal_name: string; industry: string; zone: string; }
-interface StaleOpp       { id: string; legal_name: string; stage: string; estimated_value: number; updated_at: string | null; }
+interface StaleOpp       { id: string; legal_name: string; stage: string; value_cr: number; updated_at: string | null; }
 interface ActivityEntry  { entity_type: string | null; entity_id: string | null; action: string; email: string; created_at: string; }
 
 // ── Page ───────────────────────────────────────────────────────
@@ -52,10 +52,10 @@ export default async function AdminPage() {
     // 1. Pending access requests
     q<AccessRequest[]>(async () => {
       const { rows } = await risansiPool.query<{ email: string; display_name: string; created_at: string }>(
-        `SELECT email, display_name, created_at::text
+        `SELECT email, display_name, requested_at::text AS created_at
          FROM access_requests
          WHERE status = 'Pending'
-         ORDER BY created_at ASC`,
+         ORDER BY requested_at ASC`,
       );
       return rows;
     }, []),
@@ -63,10 +63,10 @@ export default async function AdminPage() {
     // 2. Approved users roster
     q<ApprovedUser[]>(async () => {
       const { rows } = await risansiPool.query<{ email: string; display_name: string; status: string; created_at: string }>(
-        `SELECT email, display_name, status, created_at::text
+        `SELECT email, display_name, status, requested_at::text AS created_at
          FROM access_requests
          WHERE status IN ('Approved', 'Revoked')
-         ORDER BY created_at DESC`,
+         ORDER BY requested_at DESC`,
       );
       return rows;
     }, []),
@@ -78,7 +78,7 @@ export default async function AdminPage() {
                 MAX(v.visit_date)::text AS last_visit
          FROM clients c
          LEFT JOIN visits v ON v.client_id = c.id
-         WHERE c.status = 'Active'
+         WHERE c.status = 'ACTIVE' AND c.deleted_at IS NULL
          GROUP BY c.id, c.legal_name, c.industry, c.zone
          HAVING MAX(v.visit_date) < NOW() - INTERVAL '180 days'
              OR MAX(v.visit_date) IS NULL
@@ -93,8 +93,8 @@ export default async function AdminPage() {
       const { rows } = await risansiPool.query<{ id: string; legal_name: string; industry: string; zone: string }>(
         `SELECT c.id::text, c.legal_name, c.industry, c.zone
          FROM clients c
-         WHERE c.status = 'Active'
-           AND NOT EXISTS (SELECT 1 FROM contacts ct WHERE ct.client_id = c.id)
+         WHERE c.status = 'ACTIVE' AND c.deleted_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM contacts_raw cr WHERE cr.client_code = c.code)
          ORDER BY c.legal_name
          LIMIT 20`,
       );
@@ -106,7 +106,7 @@ export default async function AdminPage() {
       const { rows } = await risansiPool.query<{ id: string; legal_name: string; industry: string; zone: string }>(
         `SELECT c.id::text, c.legal_name, c.industry, c.zone
          FROM clients c
-         WHERE c.status = 'Active'
+         WHERE c.status = 'ACTIVE' AND c.deleted_at IS NULL
            AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.client_id = c.id)
          ORDER BY c.legal_name
          LIMIT 20`,
@@ -118,12 +118,12 @@ export default async function AdminPage() {
     q<StaleOpp[]>(async () => {
       const { rows } = await risansiPool.query<{
         id: string; legal_name: string; stage: string;
-        estimated_value: string; updated_at: string | null;
+        value_cr: string; updated_at: string | null;
       }>(
         `SELECT p.id::text, c.legal_name, p.stage,
-                COALESCE(p.estimated_value, 0)::text AS estimated_value,
+                COALESCE(p.value_cr, 0)::text AS value_cr,
                 p.updated_at::text
-         FROM pipeline_opportunities p
+         FROM opportunities p
          JOIN clients c ON c.id = p.client_id
          WHERE p.stage NOT IN ('Won', 'Lost')
            AND (p.updated_at < NOW() - INTERVAL '60 days' OR p.updated_at IS NULL)
@@ -134,7 +134,7 @@ export default async function AdminPage() {
         id:              r.id,
         legal_name:      r.legal_name,
         stage:           r.stage,
-        estimated_value: Number(r.estimated_value),
+        value_cr: Number(r.value_cr),
         updated_at:      r.updated_at,
       }));
     }, []),
@@ -378,7 +378,7 @@ export default async function AdminPage() {
                 <DQRow
                   key={opp.id}
                   primary={opp.legal_name}
-                  secondary={`${opp.stage}${opp.estimated_value > 0 ? ` · ${fmtCr(opp.estimated_value)}` : ''}`}
+                  secondary={`${opp.stage}${opp.value_cr > 0 ? ` · ${fmtCr(opp.value_cr)}` : ''}`}
                 />
               ))}
               {staleOpps.length > 5 && (

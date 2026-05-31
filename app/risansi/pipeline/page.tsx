@@ -15,9 +15,9 @@ interface OppRow {
   id: string;
   product: string;
   stage: string;
-  estimated_value: number;
+  value_cr: number;
   probability: number | null;
-  expected_close: string | null;
+  expected_close_date: string | null;
   client_name: string;
   client_code: string;
   industry: string;
@@ -60,31 +60,31 @@ export default async function PipelinePage() {
     q<OppRow[]>(async () => {
       const { rows } = await risansiPool.query<{
         id: string; product: string; stage: string;
-        estimated_value: string; probability: number | null;
-        expected_close: string | null;
+        value_cr: string; probability: number | null;
+        expected_close_date: string | null;
         client_name: string; client_code: string; industry: string;
         rep_name: string | null;
       }>(`
         SELECT po.id, po.product, po.stage,
-               po.estimated_value::text AS estimated_value,
+               po.value_cr::text AS value_cr,
                po.probability,
-               po.expected_close::text AS expected_close,
-               c.legal_name AS client_name, c.client_code, c.industry,
-               u.name AS rep_name
-        FROM pipeline_opportunities po
+               po.expected_close_date::text AS expected_close_date,
+               c.legal_name AS client_name, c.code AS client_code, c.industry,
+               r.name AS rep_name
+        FROM opportunities po
         JOIN clients c ON c.id = po.client_id
-        LEFT JOIN users u ON u.id = c.rep_id
+        LEFT JOIN reps r ON r.id = c.primary_rep_id
         WHERE po.stage NOT IN ('Won', 'Lost')
-        ORDER BY po.estimated_value DESC NULLS LAST
+        ORDER BY po.value_cr DESC NULLS LAST
         LIMIT 200
       `);
-      return rows.map(r => ({ ...r, estimated_value: Number(r.estimated_value) }));
+      return rows.map(r => ({ ...r, value_cr: Number(r.value_cr) }));
     }, []),
 
     // 2. Booked YTD — actual orders in current FY
     q<number>(async () => {
       const { rows } = await risansiPool.query<{ booked: string }>(
-        `SELECT COALESCE(SUM(order_value), 0)::text AS booked
+        `SELECT COALESCE(SUM(order_value_cr), 0)::text AS booked
          FROM orders WHERE financial_year = $1`,
         [fy.code],
       );
@@ -107,7 +107,7 @@ export default async function PipelinePage() {
         SELECT c.industry,
                COUNT(*) FILTER (WHERE po.stage = 'Won')::text  AS won,
                COUNT(*) FILTER (WHERE po.stage = 'Lost')::text AS lost
-        FROM pipeline_opportunities po
+        FROM opportunities po
         JOIN clients c ON c.id = po.client_id
         WHERE po.stage IN ('Won', 'Lost')
           AND po.updated_at >= NOW() - INTERVAL '12 months'
@@ -122,14 +122,14 @@ export default async function PipelinePage() {
     // 5. Lost-to competitors — last 12 months (safe: lost_to column may not exist)
     q<LostToRow[]>(async () => {
       const { rows } = await risansiPool.query<{ competitor: string; opp_count: string; value: string }>(`
-        SELECT COALESCE(lost_to, 'Others') AS competitor,
+        SELECT COALESCE(lost_to_competitor, 'Others') AS competitor,
                COUNT(*)::text AS opp_count,
-               COALESCE(SUM(estimated_value), 0)::text AS value
-        FROM pipeline_opportunities
+               COALESCE(SUM(value_cr), 0)::text AS value
+        FROM opportunities
         WHERE stage = 'Lost'
           AND updated_at >= NOW() - INTERVAL '12 months'
-        GROUP BY COALESCE(lost_to, 'Others')
-        ORDER BY SUM(estimated_value) DESC NULLS LAST
+        GROUP BY COALESCE(lost_to_competitor, 'Others')
+        ORDER BY SUM(value_cr) DESC NULLS LAST
         LIMIT 5
       `);
       return rows.map(r => ({ ...r, value: Number(r.value) }));
@@ -138,8 +138,8 @@ export default async function PipelinePage() {
 
   // ── Derived values ─────────────────────────────────────────
 
-  const openTotal    = openOpps.reduce((s, o) => s + o.estimated_value, 0);
-  const weightedOpen = openOpps.reduce((s, o) => s + o.estimated_value * ((o.probability ?? 50) / 100), 0);
+  const openTotal    = openOpps.reduce((s, o) => s + o.value_cr, 0);
+  const weightedOpen = openOpps.reduce((s, o) => s + o.value_cr * ((o.probability ?? 50) / 100), 0);
   const bestCase     = bookedYTD + openTotal;
   const probabilityWeighted = bookedYTD + weightedOpen;
   const target       = annualTarget > 0 ? annualTarget : 320;
@@ -231,7 +231,7 @@ export default async function PipelinePage() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10, marginBottom: 14 }}>
           {STAGES.map(stage => {
             const items = byStage[stage] ?? [];
-            const stageTotal = items.reduce((s, o) => s + o.estimated_value, 0);
+            const stageTotal = items.reduce((s, o) => s + o.value_cr, 0);
             const color = STAGE_COLOR[stage];
             return (
               <div key={stage} style={{
@@ -299,13 +299,13 @@ export default async function PipelinePage() {
                         </span>
                       </td>
                       <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>
-                        {fmtCr(o.estimated_value)}
+                        {fmtCr(o.value_cr)}
                       </td>
                       <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
                         {o.probability != null ? `${o.probability}%` : '—'}
                       </td>
                       <td style={{ ...TD, fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
-                        {o.expected_close ?? '—'}
+                        {o.expected_close_date ?? '—'}
                       </td>
                       <td style={{ ...TD, fontSize: 11, color: 'var(--fg-3)' }}>
                         {o.rep_name ? initials(o.rep_name) : '—'}
@@ -460,11 +460,11 @@ function OppCard({ opp }: { opp: OppRow }) {
       <div style={{ fontSize: 11, color: 'var(--fg-2)', marginBottom: 6 }}>{opp.product}</div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 500 }}>
-          {fmtCr(opp.estimated_value)}
+          {fmtCr(opp.value_cr)}
         </span>
         <span style={{ fontSize: 10, color: 'var(--fg-3)' }}>
           {opp.probability != null ? `${opp.probability}%` : ''}
-          {opp.expected_close ? ` · ${opp.expected_close}` : ''}
+          {opp.expected_close_date ? ` · ${opp.expected_close_date}` : ''}
         </span>
       </div>
     </div>

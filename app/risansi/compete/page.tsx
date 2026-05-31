@@ -99,12 +99,12 @@ export default async function CompetePage() {
                 cib.ril_pcp::text,
                 cib.total_pcp::text,
                 (cib.total_pcp - COALESCE(cib.ril_pcp, 0))::text AS competitor_pcp,
-                u.name AS rep_name
+                r.name AS rep_name
          FROM competitor_installed_base cib
-         JOIN clients c ON c.client_code = cib.client_code
-         LEFT JOIN users u ON u.id = c.rep_id
+         JOIN clients c ON c.code = cib.client_code
+         LEFT JOIN reps r ON r.id = c.primary_rep_id
          WHERE (cib.total_pcp - COALESCE(cib.ril_pcp, 0)) > 0
-           AND c.status = 'Active'
+           AND c.status = 'ACTIVE'
          ORDER BY competitor_pcp DESC
          LIMIT 30`,
       );
@@ -125,7 +125,7 @@ export default async function CompetePage() {
                 COALESCE(SUM(cib.ril_pcp),0)::text   AS ril,
                 COALESCE(SUM(cib.total_pcp),0)::text AS total
          FROM competitor_installed_base cib
-         JOIN clients c ON c.client_code = cib.client_code
+         JOIN clients c ON c.code = cib.client_code
          WHERE c.industry IS NOT NULL
          GROUP BY c.industry
          ORDER BY SUM(cib.total_pcp) DESC
