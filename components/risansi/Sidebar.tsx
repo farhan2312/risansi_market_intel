@@ -42,7 +42,7 @@ const MAIN_NAV: NavItem[] = [
   { id: 'dash',      href: '/risansi',              label: 'Dashboard',    Icon: IcDash },
   { id: 'clients',   href: '/risansi/clients',      label: 'Clients',      Icon: IcClient },
   { id: 'visits',    href: '/risansi/visits',       label: 'Visit Plan',   Icon: IcCal },
-  { id: 'map',       href: '/risansi/map',          label: 'Coverage Map', Icon: IcMap },
+  { id: 'map',       href: '/risansi/visits',       label: 'Coverage Map', Icon: IcMap },
   { id: 'pipeline',  href: '/risansi/pipeline',     label: 'Pipeline',     Icon: IcPipeline },
   { id: 'compete',   href: '/risansi/compete',      label: 'Competitive',  Icon: IcTower, alertKey: 'compete' },
   { id: 'revenue',   href: '/risansi/revenue',      label: 'Revenue',      Icon: IcBag },
@@ -67,7 +67,7 @@ const PATH_TO_ID: [string, string][] = [
   ['/risansi/clients',     'clients'],
   ['/risansi/pipeline',    'pipeline'],
   ['/risansi/revenue',     'revenue'],
-  ['/risansi/visits',      'visits'],
+  ['/risansi/visits',      'visits'],  // map item also resolves here
   ['/risansi/reports',     'reports'],
   ['/risansi/admin',       'admin'],
   ['/risansi/map',         'map'],

@@ -1,4 +1,6 @@
 import type { CSSProperties } from 'react';
+import { headers } from 'next/headers';
+import { redirect } from 'next/navigation';
 import { Topbar, Sparkline, MiniBars, Donut, Tag } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
 import {
@@ -60,6 +62,16 @@ interface AtRisk { count: number; exposure: number; }
 // ── Page ───────────────────────────────────────────────────────
 
 export default async function ExecDashboardPage() {
+  // ── Mobile redirect (must live here, not in layout) ────────
+  // The parent layout wraps all /risansi/* including /risansi/mobile,
+  // so a UA redirect there would loop. This page only renders for
+  // the exact /risansi path.
+  const headersList = await headers();
+  const ua = headersList.get('user-agent') ?? '';
+  if (/Mobile|Android|iPhone|iPad|iPod|Opera Mini|IEMobile/i.test(ua)) {
+    redirect('/risansi/mobile');
+  }
+
   const fy       = getCurrentFY();
   const prevCodes = getPreviousFYCodes(5);           // ['20-21'..'24-25']
   const ytdPct   = fyYtdPct(fy);
