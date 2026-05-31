@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import Link from 'next/link';
 import { Topbar, Tag, StatusDot } from '@/components/risansi';
+import { AddClientDrawer } from '@/components/risansi/AddClientDrawer';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentFY } from '@/lib/risansi-utils';
 // getCurrentFY kept for potential FY label use
@@ -227,13 +228,16 @@ export default async function ClientListPage({
       <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>
 
         {/* ── Page header ─────────────────────────────────────── */}
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
-            Clients
+        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 14 }}>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
+              Clients
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>
+              Client master · {total.toLocaleString('en-IN')} records
+            </div>
           </div>
-          <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>
-            Client master · {total.toLocaleString('en-IN')} records
-          </div>
+          <AddClientDrawer />
         </div>
 
         {/* ── Filter bar ──────────────────────────────────────── */}

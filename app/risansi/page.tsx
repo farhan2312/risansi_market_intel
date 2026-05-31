@@ -4,6 +4,8 @@ import { redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, Sparkline, MiniBars, Donut, Tag } from '@/components/risansi';
+import { ExportPdfButton } from '@/components/risansi/ExportPdfButton';
+import { RefreshButton } from '@/components/risansi/RefreshButton';
 import risansiPool from '@/lib/db-risansi';
 import {
   getCurrentFY, getPreviousFYCodes, fyShortLabel,
@@ -355,7 +357,7 @@ export default async function ExecDashboardPage() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Sticky topbar */}
       <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
-        <Topbar crumbs={['Risansi', 'Executive Dashboard']} primaryAction="New Report" />
+        <Topbar crumbs={['Risansi', 'Executive Dashboard']} primaryAction="Visit Plan" primaryActionHref="/risansi/visits" />
       </div>
 
       {/* Scrollable page body */}
@@ -376,8 +378,8 @@ export default async function ExecDashboardPage() {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <ExportBtn label="Export PDF" />
-            <ExportBtn label="Refresh" />
+            <ExportPdfButton />
+            <RefreshButton />
           </div>
         </div>
 
@@ -577,9 +579,8 @@ export default async function ExecDashboardPage() {
           <div style={PANEL}>
             <div style={PANEL_H}>
               <span style={PANEL_TITLE}>Top Accounts · YTD Revenue</span>
-              <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-                <GhostBtn>All zones</GhostBtn>
-                <GhostBtn>Sort: Revenue ▾</GhostBtn>
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+                <a href="/risansi/clients" style={{ fontSize: 11, color: '#1A5CB8', textDecoration: 'none', fontWeight: 500 }}>View all →</a>
               </div>
             </div>
             <div style={{ padding: 0, overflowX: 'auto' }}>
@@ -631,7 +632,8 @@ export default async function ExecDashboardPage() {
           <div style={PANEL}>
             <div style={PANEL_H}>
               <span style={PANEL_TITLE}>Live Field Activity</span>
-              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <a href="/risansi/visits" style={{ fontSize: 11, color: '#1A5CB8', textDecoration: 'none', fontWeight: 500 }}>View all →</a>
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--pos)', display: 'inline-block', boxShadow: '0 0 0 3px rgba(5,150,105,0.20)' }} />
                 <span style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>real-time</span>
               </div>
@@ -842,14 +844,6 @@ function FunnelBarRow({ stage, count, value, max, color }: {
         {fmtCr(value)}
       </div>
     </div>
-  );
-}
-
-function ExportBtn({ label }: { label: string }) {
-  return (
-    <button style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 11px', fontSize: 12, fontFamily: 'inherit', fontWeight: 500, background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', color: 'var(--fg)', borderRadius: 5, cursor: 'pointer' }}>
-      {label}
-    </button>
   );
 }
 

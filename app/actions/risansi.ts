@@ -460,3 +460,101 @@ export async function submitVisitReport(
   revalidatePath('/risansi/mobile');
   revalidatePath('/risansi/visits');
 }
+
+// ── Client: add new client ─────────────────────────────────────
+
+export async function addClient(formData: FormData): Promise<{ error?: string; id?: string }> {
+  const user = await requireSession();
+
+  const code         = (formData.get('code')          as string | null)?.trim().toUpperCase() ?? '';
+  const legalName    = (formData.get('legal_name')    as string | null)?.trim() ?? '';
+  const industryId   = (formData.get('industry_id')   as string | null)?.trim() || null;
+  const industry     = (formData.get('industry')       as string | null)?.trim() || null;
+  const clientType   = (formData.get('client_type')   as string | null)?.trim() || null;
+  const zone         = (formData.get('zone')           as string | null)?.trim() || null;
+  const route        = (formData.get('route')          as string | null)?.trim() || null;
+  const repId        = (formData.get('rep_id')         as string | null)?.trim() || null;
+  const city         = (formData.get('city')           as string | null)?.trim() || null;
+  const state        = (formData.get('state')          as string | null)?.trim() || null;
+  const pincode      = (formData.get('pincode')        as string | null)?.trim() || null;
+  const address      = (formData.get('address')        as string | null)?.trim() || null;
+  const phone        = (formData.get('phone')          as string | null)?.trim() || null;
+  const email        = (formData.get('email')          as string | null)?.trim() || null;
+  const website      = (formData.get('website')        as string | null)?.trim() || null;
+  const gstin        = (formData.get('gstin')          as string | null)?.trim() || null;
+  const isSugar      = formData.get('is_sugar') === 'true';
+  const tcdKlpd      = parseFloat((formData.get('tcd_klpd') as string | null) ?? '') || null;
+  const tier         = (formData.get('tier')           as string | null)?.trim() || null;
+  const status       = (formData.get('status')         as string | null)?.trim() || 'ACTIVE';
+  const marketType   = (formData.get('market_type')   as string | null)?.trim() || null;
+  const businessCat  = (formData.get('business_category') as string | null)?.trim() || null;
+
+  // Validate required fields
+  if (!code || !/^[A-Z]{4}\d{2}[A-Z]\d{3}$/.test(code)) {
+    return { error: 'Client code must match pattern: 4 letters, 2 digits, 1 letter, 3 digits (e.g. ABCD01E002).' };
+  }
+  if (!legalName || legalName.length < 3) {
+    return { error: 'Legal name must be at least 3 characters.' };
+  }
+  if (!industry) {
+    return { error: 'Industry is required.' };
+  }
+  if (!clientType) {
+    return { error: 'Client type is required.' };
+  }
+
+  // Duplicate check
+  try {
+    const dup = await risansiPool.query<{ id: string }>(
+      `SELECT id FROM clients WHERE code = $1 AND deleted_at IS NULL LIMIT 1`,
+      [code],
+    );
+    if (dup.rows.length > 0) {
+      return { error: `Client code ${code} already exists.` };
+    }
+  } catch { /* ignore if clients table differs */ }
+
+  // Insert
+  let newId: string | null = null;
+  try {
+    const { rows } = await risansiPool.query<{ id: string }>(
+      `INSERT INTO clients
+         (code, legal_name, industry_id, industry, client_type, zone, route, rep_id,
+          city, state, pincode, address, phone, email, website, gstin,
+          is_sugar, tcd_klpd, tier, status, market_type, business_category,
+          created_at, updated_at)
+       VALUES
+         ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,NOW(),NOW())
+       RETURNING id`,
+      [
+        code, legalName, industryId, industry, clientType, zone, route, repId,
+        city, state, pincode, address, phone, email, website, gstin,
+        isSugar, tcdKlpd, tier, status, marketType, businessCat,
+      ],
+    );
+    newId = rows[0]?.id ?? null;
+  } catch {
+    // Fallback: minimal insert (columns may differ)
+    try {
+      const { rows } = await risansiPool.query<{ id: string }>(
+        `INSERT INTO clients (code, legal_name, industry, client_type, zone, status, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,NOW(),NOW())
+         RETURNING id`,
+        [code, legalName, industry, clientType, zone, status],
+      );
+      newId = rows[0]?.id ?? null;
+    } catch (err2) {
+      const msg = err2 instanceof Error ? err2.message : 'Database error';
+      return { error: `Failed to create client: ${msg}` };
+    }
+  }
+
+  if (newId) {
+    await logActivity('client', newId, `created: ${code} · ${legalName}`, user.email!);
+  }
+
+  revalidatePath('/risansi/clients');
+  revalidatePath('/risansi');
+
+  return { id: newId ?? undefined };
+}

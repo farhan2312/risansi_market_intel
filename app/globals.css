@@ -158,3 +158,10 @@ body {
   --font-mono:  'IBM Plex Mono',    ui-monospace, monospace;
   --font-serif: 'Instrument Serif', Georgia, serif;
 }
+
+/* ── Print styles ───────────────────────────────────────────── */
+@media print {
+  aside, header, .no-print { display: none !important; }
+  main { margin: 0 !important; overflow: visible !important; }
+  body { background: #fff !important; }
+}

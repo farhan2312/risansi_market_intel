@@ -85,6 +85,7 @@ export default async function RisansiLayout({ children }: { children: React.Reac
           name:     session.user.name ?? email,
           initials: getInitials(session.user.name ?? email),
           role:     isAdmin ? 'Admin' : 'User',
+          email:    email,
         }}
       />
       <main style={{ flex: 1, overflowY: 'auto', background: '#F4F6FB', minWidth: 0 }}>

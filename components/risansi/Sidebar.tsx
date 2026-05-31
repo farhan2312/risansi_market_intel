@@ -1,10 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import { signOut } from 'next-auth/react';
 import type { CSSProperties } from 'react';
+import { UserMenu } from './UserMenu';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -14,6 +13,7 @@ export interface SidebarUser {
   name: string;
   initials: string;
   role: string;
+  email: string;
 }
 
 export interface SidebarAlerts {
@@ -96,16 +96,15 @@ export function Sidebar({ active, role, user, alerts = {} }: SidebarProps) {
 
   return (
     <aside style={ASIDE}>
-      {/* Brand — white card on navy */}
+      {/* Brand */}
       <div style={LOGO_CARD}>
-        <Image
-          src="/logo.png"
-          alt="Risansi Industries Ltd"
-          width={148}
-          height={44}
-          style={{ objectFit: 'contain' }}
-          priority
-        />
+        <div style={{ width: 32, height: 32, background: '#00B4D8', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 700, color: '#071E47', flexShrink: 0 }}>
+          R
+        </div>
+        <div style={{ marginLeft: 10 }}>
+          <div style={{ color: '#FFFFFF', fontSize: 15, fontWeight: 700, letterSpacing: '-0.01em', lineHeight: 1.1 }}>Risansi</div>
+          <div style={{ color: '#5B7FA8', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.12em', marginTop: 1 }}>Industries Ltd</div>
+        </div>
       </div>
 
       {/* Operate / Field */}
@@ -137,19 +136,7 @@ export function Sidebar({ active, role, user, alerts = {} }: SidebarProps) {
       )}
 
       {/* User */}
-      <div style={USER_WRAP}>
-        <div style={AVATAR}>{user.initials}</div>
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={WHO}>{user.name}</div>
-          <div style={ROLE_LABEL}>{user.role}</div>
-          <button
-            onClick={() => signOut({ callbackUrl: '/api/auth/signin' })}
-            style={SIGNOUT_BTN}
-          >
-            Sign out
-          </button>
-        </div>
-      </div>
+      <UserMenu name={user.name} email={user.email} />
     </aside>
   );
 }
@@ -211,13 +198,9 @@ const ASIDE: CSSProperties = {
 };
 
 const LOGO_CARD: CSSProperties = {
-  background: '#FFFFFF',
-  borderRadius: 8,
-  padding: '10px 14px',
-  margin: '16px 12px 20px 12px',
   display: 'flex',
   alignItems: 'center',
-  justifyContent: 'center',
+  padding: '16px 16px 12px',
 };
 
 const GROUP_LABEL: CSSProperties = {
@@ -260,54 +243,6 @@ const BADGE: CSSProperties = {
   fontFamily: 'var(--font-mono)',
 };
 
-const USER_WRAP: CSSProperties = {
-  marginTop: 'auto',
-  padding: '14px 16px 8px',
-  borderTop: '1px solid rgba(255,255,255,0.12)',
-  display: 'flex',
-  gap: 10,
-  alignItems: 'center',
-};
-
-const AVATAR: CSSProperties = {
-  width: 34,
-  height: 34,
-  borderRadius: '50%',
-  flexShrink: 0,
-  background: 'rgba(26,92,184,0.30)',
-  display: 'grid',
-  placeItems: 'center',
-  fontSize: 13,
-  color: '#fff',
-  fontWeight: 600,
-};
-
-const SIGNOUT_BTN: CSSProperties = {
-  marginTop: 4,
-  display: 'block',
-  fontSize: 11,
-  color: '#00B4D8',
-  background: 'none',
-  border: 'none',
-  padding: 0,
-  cursor: 'pointer',
-  fontFamily: 'inherit',
-  textAlign: 'left',
-};
-
-const WHO: CSSProperties = {
-  fontSize: 13,
-  fontWeight: 500,
-  color: '#FFFFFF',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
-};
-
-const ROLE_LABEL: CSSProperties = {
-  fontSize: 11,
-  color: '#8BA3C7',
-};
 
 // ── Icons ─────────────────────────────────────────────────────
 

@@ -1,0 +1,153 @@
+'use client';
+
+import { useState, useRef, useEffect } from 'react';
+import { signOut } from 'next-auth/react';
+import type { CSSProperties } from 'react';
+
+export function UserMenu({ name, email }: { name: string; email: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  const initials = name
+    ?.split(' ')
+    .map(w => w[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase() || 'A';
+
+  // Close on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  return (
+    <div ref={ref} style={{ marginTop: 'auto', position: 'relative' }}>
+      {/* Popup menu — above the user row */}
+      {open && (
+        <div style={POPUP}>
+          <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#FFFFFF' }}>{name}</div>
+            <div style={{ fontSize: 11, color: '#8BA3C7', marginTop: 2, wordBreak: 'break-all' }}>{email}</div>
+          </div>
+          <div style={{ padding: '6px 8px' }}>
+            <button
+              onClick={() => signOut({ callbackUrl: '/api/auth/signin' })}
+              style={SIGNOUT_BTN}
+            >
+              <svg width={13} height={13} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                <path d="M10 8H3M6 5l-3 3 3 3M11 4V3a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1v-1"/>
+              </svg>
+              Sign out
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* User row — click to toggle */}
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        style={USER_ROW}
+      >
+        <div style={AVATAR}>{initials}</div>
+        <div style={{ minWidth: 0, flex: 1, textAlign: 'left' }}>
+          <div style={WHO}>{name}</div>
+          <div style={ROLE_LABEL}>{email.split('@')[0]}</div>
+        </div>
+        <svg
+          width={12} height={12} viewBox="0 0 16 16" fill="none"
+          stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"
+          style={{
+            flexShrink: 0,
+            color: '#8BA3C7',
+            transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+            transition: 'transform 0.18s',
+          }}
+        >
+          <path d="M4 6.5 8 10.5 12 6.5"/>
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+// ── Styles ────────────────────────────────────────────────────
+
+const POPUP: CSSProperties = {
+  position: 'absolute',
+  bottom: '100%',
+  left: 8,
+  right: 8,
+  background: '#132240',
+  border: '1px solid rgba(255,255,255,0.10)',
+  borderRadius: 8,
+  boxShadow: '0 -8px 32px rgba(0,0,0,0.40)',
+  marginBottom: 6,
+  zIndex: 100,
+  overflow: 'hidden',
+};
+
+const USER_ROW: CSSProperties = {
+  width: '100%',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  padding: '12px 14px 10px',
+  border: 'none',
+  borderTop: '1px solid rgba(255,255,255,0.08)',
+  background: 'transparent',
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+};
+
+const AVATAR: CSSProperties = {
+  width: 32,
+  height: 32,
+  borderRadius: '50%',
+  flexShrink: 0,
+  background: 'rgba(26,92,184,0.35)',
+  display: 'grid',
+  placeItems: 'center',
+  fontSize: 12,
+  color: '#fff',
+  fontWeight: 600,
+};
+
+const SIGNOUT_BTN: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  width: '100%',
+  padding: '8px 10px',
+  background: 'transparent',
+  border: 'none',
+  borderRadius: 5,
+  fontSize: 12,
+  color: '#FF6B6B',
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+  textAlign: 'left',
+};
+
+const WHO: CSSProperties = {
+  fontSize: 12,
+  fontWeight: 500,
+  color: '#FFFFFF',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+
+const ROLE_LABEL: CSSProperties = {
+  fontSize: 10,
+  color: '#8BA3C7',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};

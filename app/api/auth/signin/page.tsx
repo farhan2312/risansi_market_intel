@@ -62,14 +62,23 @@ export default function SignInPage() {
 
         {/* Logo */}
         <div style={{ position: 'relative' }}>
-          <img
-            src="/logo.png"
-            alt="Risansi"
-            style={{ height: '44px', width: 'auto', display: 'block', filter: 'brightness(0) invert(1)' }}
-          />
-          <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 8, letterSpacing: '0.04em' }}>
-            Risansi Industries Ltd
-          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{
+              width: 44, height: 44, background: '#00B4D8', borderRadius: 10,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 24, fontWeight: 700, color: '#071E47', flexShrink: 0,
+            }}>
+              R
+            </div>
+            <div>
+              <div style={{ color: '#FFFFFF', fontSize: 22, fontWeight: 700, letterSpacing: '-0.01em', lineHeight: 1.1 }}>
+                Risansi
+              </div>
+              <div style={{ color: '#8BA3C7', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', marginTop: 2 }}>
+                Industries Ltd
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Tagline */}

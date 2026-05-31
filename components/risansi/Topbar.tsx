@@ -5,10 +5,11 @@ import type { CSSProperties } from 'react';
 export interface TopbarProps {
   crumbs: string[];
   primaryAction?: string;
+  primaryActionHref?: string;
   period?: string;
 }
 
-export function Topbar({ crumbs, primaryAction, period = 'FY 25–26' }: TopbarProps) {
+export function Topbar({ crumbs, primaryAction, primaryActionHref, period = 'FY 25–26' }: TopbarProps) {
   return (
     <header style={TOPBAR}>
       {/* Breadcrumbs */}
@@ -49,7 +50,18 @@ export function Topbar({ crumbs, primaryAction, period = 'FY 25–26' }: TopbarP
       <TbBtn><IcBell /></TbBtn>
 
       {/* Primary action */}
-      {primaryAction && (
+      {primaryAction && primaryActionHref && (
+        <a href={primaryActionHref} style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          fontSize: 12, padding: '5px 10px', borderRadius: 5,
+          cursor: 'pointer', fontFamily: 'inherit', fontWeight: 500,
+          background: '#1A5CB8', color: '#fff',
+          border: '1px solid #1A5CB8', textDecoration: 'none',
+        }}>
+          <IcPlus />{primaryAction}
+        </a>
+      )}
+      {primaryAction && !primaryActionHref && (
         <TbBtn primary>
           <IcPlus />{primaryAction}
         </TbBtn>
