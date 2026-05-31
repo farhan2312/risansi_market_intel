@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react';
 import { notFound } from 'next/navigation';
 import { Topbar, Tag, StatusDot } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
-import { fyShortLabel, fmtCr } from '@/lib/risansi-utils';
+import { fyShortLabel, fmtCr, fmtL } from '@/lib/risansi-utils';
 import { addContact, planVisit, createOpportunity } from '@/app/actions/risansi';
 
 // ── Safe query wrapper ─────────────────────────────────────────
@@ -21,7 +21,7 @@ interface Client {
   state: string | null; lat: string | null; lng: string | null;
   tcd: number | null; klpd: number | null;
   primary_rep_id: string | null; primary_rep_name: string | null; rep_name: string | null;
-  // Revenue columns (INR — divide by 10M for Crores)
+  // Revenue columns (INR — divide by 1L for Lakhs)
   rev_2122_pump: number | null; rev_2122_spare: number | null;
   rev_2223_pump: number | null; rev_2223_spare: number | null;
   rev_2324_pump: number | null; rev_2324_spare: number | null;
@@ -211,8 +211,8 @@ export default async function ClientProfilePage({
 
   // ── Derived values ────────────────────────────────────────
 
-  // Revenue chart data — from rev_* columns on clients (INR ÷ 10M = Crores)
-  const INR_TO_CR = 10_000_000;
+  // Revenue chart data — from rev_* columns on clients (INR ÷ 1L = Lakhs)
+  const INR_TO_L = 100_000;
 
   const REV_COLS: [string, keyof typeof client, keyof typeof client][] = [
     ['21-22', 'rev_2122_pump', 'rev_2122_spare'],
@@ -229,8 +229,8 @@ export default async function ClientProfilePage({
     const pumpInr  = Number((client[pumpCol as keyof typeof client])  ?? 0);
     const spareInr = Number((client[spareCol as keyof typeof client]) ?? 0);
     revByFY[fyCode] = {
-      pump:   pumpInr  / INR_TO_CR,
-      spare:  spareInr / INR_TO_CR,
+      pump:   pumpInr  / INR_TO_L,
+      spare:  spareInr / INR_TO_L,
       orders: 0,
     };
   }
@@ -346,7 +346,7 @@ export default async function ClientProfilePage({
         {/* ── KPI cards ────────────────────────────────────────── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
           <MiniKpi label="Lifetime Revenue"
-            value={fmtCr(lifetimeTotal)}
+            value={fmtL(lifetimeTotal)}
             sub={`${client.since_year ?? '—'} – present · ${lifetimeOrders} orders`} />
           <MiniKpi label="Last Visit"
             value={daysAgo == null ? 'Never' : daysAgo === 0 ? 'Today' : `${daysAgo} days`}
@@ -392,7 +392,7 @@ export default async function ClientProfilePage({
                     </thead>
                     <tbody>
                       <tr style={{ borderBottom: '1px dashed var(--line)' }}>
-                        <td style={{ padding: '6px 8px', fontSize: 11 }}>Pump (₹ Cr)</td>
+                        <td style={{ padding: '6px 8px', fontSize: 11 }}>Pump (₹ L)</td>
                         {chartFYs.map(f => (
                           <td key={f} style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
                             {revByFY[f].pump > 0 ? revByFY[f].pump.toFixed(1) : <span style={{ color: 'var(--fg-4)' }}>—</span>}
@@ -403,7 +403,7 @@ export default async function ClientProfilePage({
                         </td>
                       </tr>
                       <tr style={{ borderBottom: '1px dashed var(--line)' }}>
-                        <td style={{ padding: '6px 8px', fontSize: 11 }}>Spare (₹ Cr)</td>
+                        <td style={{ padding: '6px 8px', fontSize: 11 }}>Spare (₹ L)</td>
                         {chartFYs.map(f => (
                           <td key={f} style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
                             {revByFY[f].spare > 0 ? revByFY[f].spare.toFixed(1) : <span style={{ color: 'var(--fg-4)' }}>—</span>}

@@ -9,7 +9,7 @@ import { RefreshButton } from '@/components/risansi/RefreshButton';
 import risansiPool from '@/lib/db-risansi';
 import {
   getCurrentFY, getPreviousFYCodes, fyShortLabel,
-  fyYtdPct, fyDaysLeft, formatIndianDate, formatTime, fmtCr, initials,
+  fyYtdPct, fyDaysLeft, formatIndianDate, formatTime, fmtCr, fmtL, initials,
   getGreeting,
 } from '@/lib/risansi-utils';
 
@@ -85,7 +85,7 @@ export default async function ExecDashboardPage() {
   const daysLeft  = fyDaysLeft(fy);
   const today     = new Date();
 
-  const INR_TO_CR = 10_000_000;
+  const INR_TO_L = 100_000;
 
   // ── All queries in parallel — replaces 10 sequential awaits ──
   const [
@@ -102,7 +102,7 @@ export default async function ExecDashboardPage() {
     visits,
   ] = await Promise.all([
 
-    // 1. Current FY revenue from clients.rev_2526_* (INR ÷ 10M = Cr)
+    // 1. Current FY revenue from clients.rev_2526_* (INR ÷ 1L = Lakhs)
     q<RevenueSplit>(async () => {
       const { rows } = await risansiPool.query<{ pump: string; spare: string }>(
         `SELECT COALESCE(SUM(rev_2526_pump),0)::text AS pump,
@@ -110,8 +110,8 @@ export default async function ExecDashboardPage() {
          FROM clients`,
       );
       return {
-        pump:  Number(rows[0]?.pump  ?? 0) / INR_TO_CR,
-        spare: Number(rows[0]?.spare ?? 0) / INR_TO_CR,
+        pump:  Number(rows[0]?.pump  ?? 0) / INR_TO_L,
+        spare: Number(rows[0]?.spare ?? 0) / INR_TO_L,
       };
     }, { pump: 0, spare: 0 }),
 
@@ -121,7 +121,7 @@ export default async function ExecDashboardPage() {
         `SELECT (COALESCE(SUM(rev_2425_pump),0) + COALESCE(SUM(rev_2425_spare),0))::text AS total
          FROM clients`,
       );
-      return Number(rows[0]?.total ?? 0) / INR_TO_CR;
+      return Number(rows[0]?.total ?? 0) / INR_TO_L;
     }, 0),
 
     // 3. Annual target
@@ -158,7 +158,7 @@ export default async function ExecDashboardPage() {
            AND (COALESCE(c.rev_2526_pump,0) + COALESCE(c.rev_2526_spare,0)) > 0
          GROUP BY c.industry ORDER BY SUM(c.rev_2526_pump + c.rev_2526_spare) DESC LIMIT 8`,
       );
-      return rows.map(r => ({ industry: r.industry, total: Number(r.total) / INR_TO_CR }));
+      return rows.map(r => ({ industry: r.industry, total: Number(r.total) / INR_TO_L }));
     }, []),
 
     // 6. Domestic / Export split
@@ -175,8 +175,8 @@ export default async function ExecDashboardPage() {
       );
       const r = rows[0];
       return {
-        domestic:  Number(r?.domestic_inr ?? 0) / INR_TO_CR,
-        export:    Number(r?.export_inr   ?? 0) / INR_TO_CR,
+        domestic:  Number(r?.domestic_inr ?? 0) / INR_TO_L,
+        export:    Number(r?.export_inr   ?? 0) / INR_TO_L,
         pump_pct:  r?.pump_pct ?? 0,
       };
     }, { domestic: 0, export: 0, pump_pct: 0 }),
@@ -233,7 +233,7 @@ export default async function ExecDashboardPage() {
       );
       return {
         count:    Number(rows[0]?.cnt      ?? 0),
-        exposure: Number(rows[0]?.exposure ?? 0) / INR_TO_CR,
+        exposure: Number(rows[0]?.exposure ?? 0) / INR_TO_L,
       };
     }, { count: 0, exposure: 0 }),
 
@@ -265,14 +265,14 @@ export default async function ExecDashboardPage() {
         industry:    r.industry,
         zone:        r.zone,
         status:      r.status,
-        ytd:  Number(r.ytd)  / INR_TO_CR,
-        py:   Number(r.py)   / INR_TO_CR,
-        fy20: Number(r.fy20) / INR_TO_CR,
-        fy21: Number(r.fy21) / INR_TO_CR,
-        fy22: Number(r.fy22) / INR_TO_CR,
-        fy23: Number(r.fy23) / INR_TO_CR,
-        fy24: Number(r.fy24) / INR_TO_CR,
-        fy25: Number(r.fy25) / INR_TO_CR,
+        ytd:  Number(r.ytd)  / INR_TO_L,
+        py:   Number(r.py)   / INR_TO_L,
+        fy20: Number(r.fy20) / INR_TO_L,
+        fy21: Number(r.fy21) / INR_TO_L,
+        fy22: Number(r.fy22) / INR_TO_L,
+        fy23: Number(r.fy23) / INR_TO_L,
+        fy24: Number(r.fy24) / INR_TO_L,
+        fy25: Number(r.fy25) / INR_TO_L,
       }));
     }, []),
 
@@ -317,11 +317,11 @@ export default async function ExecDashboardPage() {
 
   // Historical — built from single-query histRow
   const historical: HistoricalFY[] = [
-    { code: '20-21', label: fyShortLabel('20-21'), total: Number(histRow.h2021) / INR_TO_CR },
-    { code: '21-22', label: fyShortLabel('21-22'), total: Number(histRow.h2122) / INR_TO_CR },
-    { code: '22-23', label: fyShortLabel('22-23'), total: Number(histRow.h2223) / INR_TO_CR },
-    { code: '23-24', label: fyShortLabel('23-24'), total: Number(histRow.h2324) / INR_TO_CR },
-    { code: '24-25', label: fyShortLabel('24-25'), total: Number(histRow.h2425) / INR_TO_CR },
+    { code: '20-21', label: fyShortLabel('20-21'), total: Number(histRow.h2021) / INR_TO_L },
+    { code: '21-22', label: fyShortLabel('21-22'), total: Number(histRow.h2122) / INR_TO_L },
+    { code: '22-23', label: fyShortLabel('22-23'), total: Number(histRow.h2223) / INR_TO_L },
+    { code: '23-24', label: fyShortLabel('23-24'), total: Number(histRow.h2324) / INR_TO_L },
+    { code: '24-25', label: fyShortLabel('24-25'), total: Number(histRow.h2425) / INR_TO_L },
   ];
 
   const pipelineTotal    = funnel.reduce((s, r) => s + r.value, 0);
@@ -346,9 +346,11 @@ export default async function ExecDashboardPage() {
   ].filter(d => d.units > 0);
 
   // ── Derived display values ────────────────────────────────────
+  // annTarget is in Crores (from sales_targets); convert to Lakhs for comparison with rev_* totals
+  const annTargetL    = annTarget * 100;
   const bookedDelta   = pyTotal > 0 ? ((totalBooked - pyTotal) / pyTotal) * 100 : 0;
-  const achievedPct   = annTarget > 0 ? (totalBooked / annTarget) * 100 : 0;
-  const isOnTrack     = totalBooked >= (annTarget * ytdPct / 100 * 0.9);
+  const achievedPct   = annTargetL > 0 ? (totalBooked / annTargetL) * 100 : 0;
+  const isOnTrack     = totalBooked >= (annTargetL * ytdPct / 100 * 0.9);
   const histValues    = historical.map(h => h.total);
   const histLabels    = historical.map(h => h.label);
   const funnelMax     = Math.max(...funnel.map(f => f.value), 1);
@@ -402,11 +404,11 @@ export default async function ExecDashboardPage() {
                 <div style={{ flexShrink: 0 }}>
                   <div style={METRIC_LABEL}>Total Booked</div>
                   <div style={METRIC_VAL}>
-                    {fmtCr(totalBooked)}
+                    {fmtL(totalBooked)}
                   </div>
                   {pyTotal > 0 && (
                     <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: bookedDelta >= 0 ? 'var(--pos)' : 'var(--neg)', marginTop: 4 }}>
-                      {bookedDelta >= 0 ? '▲' : '▼'} {fmtCr(Math.abs(totalBooked - pyTotal))} vs PY · {bookedDelta >= 0 ? '+' : ''}{bookedDelta.toFixed(1)}%
+                      {bookedDelta >= 0 ? '▲' : '▼'} {fmtL(Math.abs(totalBooked - pyTotal))} vs PY · {bookedDelta >= 0 ? '+' : ''}{bookedDelta.toFixed(1)}%
                     </div>
                   )}
                 </div>
@@ -430,7 +432,7 @@ export default async function ExecDashboardPage() {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
                 <span>₹0</span>
-                <span style={{ color: 'var(--accent)' }}>↑ {fmtCr(totalBooked)}</span>
+                <span style={{ color: 'var(--accent)' }}>↑ {fmtL(totalBooked)}</span>
                 <span>{fmtCr(annTarget)}</span>
               </div>
             </div>
@@ -462,7 +464,7 @@ export default async function ExecDashboardPage() {
           <SmallMetric
             label="At-Risk Accounts"
             value={String(atRisk.count)}
-            delta={atRisk.exposure > 0 ? `${fmtCr(atRisk.exposure)} exposure` : 'No order > 18 mo'}
+            delta={atRisk.exposure > 0 ? `${fmtL(atRisk.exposure)} exposure` : 'No order > 18 mo'}
             deltaPos={false}
             sub="No order > 18 months"
             spark={[]}
@@ -492,8 +494,8 @@ export default async function ExecDashboardPage() {
               ))}
               {segments.length > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
-                  <StatBlock label="Domestic" value={fmtCr(domExp.domestic)} />
-                  <StatBlock label="Export"   value={fmtCr(domExp.export)} />
+                  <StatBlock label="Domestic" value={fmtL(domExp.domestic)} />
+                  <StatBlock label="Export"   value={fmtL(domExp.export)} />
                   <StatBlock label="Pump : Spare" value={`${domExp.pump_pct} : ${100 - domExp.pump_pct}`} />
                 </div>
               )}
@@ -610,7 +612,7 @@ export default async function ExecDashboardPage() {
                           </td>
                           <td style={TD}><Tag>{acc.industry}</Tag></td>
                           <td style={{ ...TD, color: 'var(--fg-3)' }}>{acc.zone}</td>
-                          <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtCr(acc.ytd)}</td>
+                          <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtL(acc.ytd)}</td>
                           <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: deltaPct >= 0 ? 'var(--pos)' : 'var(--neg)' }}>
                             {acc.py > 0 ? `${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(1)}%` : '—'}
                           </td>
@@ -806,7 +808,7 @@ function SegmentBar({ label, value, total, color }: { label: string; value: numb
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 11 }}>
         <span style={{ color: '#2C3E5A' }}>{label}</span>
         <span style={{ fontFamily: 'var(--font-mono)', color: '#0D1B2A' }}>
-          {fmtCr(value)} <span style={{ color: '#6B7FA3' }}>({pct.toFixed(0)}%)</span>
+          {fmtL(value)} <span style={{ color: '#6B7FA3' }}>({pct.toFixed(0)}%)</span>
         </span>
       </div>
       <div style={{ height: 4, background: '#DDE6F5', borderRadius: 2, overflow: 'hidden' }}>

@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react';
 import { Topbar, Tag, MiniBars } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentFY, fmtCr } from '@/lib/risansi-utils';
+import { getCurrentFY, fmtL } from '@/lib/risansi-utils';
 
 // ── Safe query wrapper ─────────────────────────────────────────
 
@@ -9,7 +9,7 @@ async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
 }
 
-const INR_TO_CR = 10_000_000;
+const INR_TO_L = 100_000;
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -55,9 +55,9 @@ export default async function RevenuePage() {
       );
       const r = rows[0];
       return {
-        ytd:           Number(r?.ytd    ?? 0) / INR_TO_CR,
-        py:            Number(r?.py     ?? 0) / INR_TO_CR,
-        ppy:           Number(r?.ppy    ?? 0) / INR_TO_CR,
+        ytd:           Number(r?.ytd    ?? 0) / INR_TO_L,
+        py:            Number(r?.py     ?? 0) / INR_TO_L,
+        ppy:           Number(r?.ppy    ?? 0) / INR_TO_L,
         activeClients: Number(r?.active ?? 0),
       };
     }, { ytd: 0, py: 0, ppy: 0, activeClients: 0 }),
@@ -78,12 +78,12 @@ export default async function RevenuePage() {
       );
       const r = rows[0] ?? {};
       return [
-        { label: 'FY21', total: Number((r as Record<string, string>).h2021 ?? 0) / INR_TO_CR },
-        { label: 'FY22', total: Number((r as Record<string, string>).h2122 ?? 0) / INR_TO_CR },
-        { label: 'FY23', total: Number((r as Record<string, string>).h2223 ?? 0) / INR_TO_CR },
-        { label: 'FY24', total: Number((r as Record<string, string>).h2324 ?? 0) / INR_TO_CR },
-        { label: 'FY25', total: Number((r as Record<string, string>).h2425 ?? 0) / INR_TO_CR },
-        { label: 'FY26', total: Number((r as Record<string, string>).h2526 ?? 0) / INR_TO_CR },
+        { label: 'FY21', total: Number((r as Record<string, string>).h2021 ?? 0) / INR_TO_L },
+        { label: 'FY22', total: Number((r as Record<string, string>).h2122 ?? 0) / INR_TO_L },
+        { label: 'FY23', total: Number((r as Record<string, string>).h2223 ?? 0) / INR_TO_L },
+        { label: 'FY24', total: Number((r as Record<string, string>).h2324 ?? 0) / INR_TO_L },
+        { label: 'FY25', total: Number((r as Record<string, string>).h2425 ?? 0) / INR_TO_L },
+        { label: 'FY26', total: Number((r as Record<string, string>).h2526 ?? 0) / INR_TO_L },
       ];
     }, []),
 
@@ -102,8 +102,8 @@ export default async function RevenuePage() {
       );
       return rows.map(r => ({
         industry: r.industry,
-        ytd:      Number(r.ytd) / INR_TO_CR,
-        py:       Number(r.py)  / INR_TO_CR,
+        ytd:      Number(r.ytd) / INR_TO_L,
+        py:       Number(r.py)  / INR_TO_L,
       }));
     }, []),
 
@@ -129,8 +129,8 @@ export default async function RevenuePage() {
       return rows.map(r => ({
         zone:    r.zone,
         rep:     r.rep,
-        ytd:     Number(r.ytd)     / INR_TO_CR,
-        py:      Number(r.py)      / INR_TO_CR,
+        ytd:     Number(r.ytd)     / INR_TO_L,
+        py:      Number(r.py)      / INR_TO_L,
         clients: Number(r.clients),
       }));
     }, []),
@@ -159,8 +159,8 @@ export default async function RevenuePage() {
         name:     r.name,
         industry: r.industry,
         zone:     r.zone,
-        ytd:      Number(r.ytd) / INR_TO_CR,
-        py:       Number(r.py)  / INR_TO_CR,
+        ytd:      Number(r.ytd) / INR_TO_L,
+        py:       Number(r.py)  / INR_TO_L,
       }));
     }, []),
 
@@ -180,7 +180,7 @@ export default async function RevenuePage() {
       return rows.map(r => ({
         category:     r.category,
         client_count: Number(r.client_count),
-        ytd:          Number(r.ytd) / INR_TO_CR,
+        ytd:          Number(r.ytd) / INR_TO_L,
       }));
     }, []),
   ]);
@@ -210,7 +210,7 @@ export default async function RevenuePage() {
             Revenue Intelligence
           </div>
           <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>
-            {fy.label} · All figures in ₹ Crores · Source: client master
+            {fy.label} · All figures in ₹ Lakhs · Source: client master
           </div>
         </div>
 
@@ -219,13 +219,13 @@ export default async function RevenuePage() {
 
           <KpiCard
             label={`${fy.label} Revenue`}
-            value={fmtCr(summary.ytd)}
+            value={fmtL(summary.ytd)}
             delta={yoyGrowth !== 0 ? `${yoyGrowth >= 0 ? '+' : ''}${yoyGrowth.toFixed(1)}% vs FY25` : undefined}
             positive={yoyGrowth >= 0}
           />
           <KpiCard
             label="FY 24–25 (PY)"
-            value={fmtCr(summary.py)}
+            value={fmtL(summary.py)}
             delta={pyGrowth !== 0 ? `${pyGrowth >= 0 ? '+' : ''}${pyGrowth.toFixed(1)}% vs FY24` : undefined}
             positive={pyGrowth >= 0}
           />
@@ -238,7 +238,7 @@ export default async function RevenuePage() {
           <KpiCard
             label="Top Industry"
             value={byIndustry[0]?.industry ?? '—'}
-            delta={byIndustry[0] ? fmtCr(byIndustry[0].ytd) : undefined}
+            delta={byIndustry[0] ? fmtL(byIndustry[0].ytd) : undefined}
             positive
           />
         </div>
@@ -250,7 +250,7 @@ export default async function RevenuePage() {
           <div style={PANEL}>
             <div style={PANEL_H}>
               <span style={PANEL_TITLE}>Year-on-Year Revenue Trend</span>
-              <span style={META}>FY21 – FY26 · ₹ Crores</span>
+              <span style={META}>FY21 – FY26 · ₹ Lakhs</span>
             </div>
             <div style={{ padding: '20px 24px' }}>
               {yoyValues.length > 0 ? (
@@ -260,7 +260,7 @@ export default async function RevenuePage() {
                     {yoy.map((row, i) => (
                       <div key={i} style={{ textAlign: 'center' }}>
                         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: i === yoy.length - 1 ? 700 : 400, color: i === yoy.length - 1 ? '#0A3D8F' : 'var(--fg-3)' }}>
-                          {fmtCr(row.total)}
+                          {fmtL(row.total)}
                         </div>
                       </div>
                     ))}
@@ -301,7 +301,7 @@ export default async function RevenuePage() {
                           {row.client_count}
                         </td>
                         <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, color: '#0D1B2A', fontSize: 12 }}>
-                          {fmtCr(row.ytd)}
+                          {fmtL(row.ytd)}
                         </td>
                         <td style={{ ...TD, minWidth: 90 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -325,7 +325,7 @@ export default async function RevenuePage() {
                       {byBizCat.reduce((s, r) => s + r.client_count, 0)}
                     </td>
                     <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 700, color: '#0D1B2A' }}>
-                      {fmtCr(byBizCat.reduce((s, r) => s + r.ytd, 0))}
+                      {fmtL(byBizCat.reduce((s, r) => s + r.ytd, 0))}
                     </td>
                     <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)', textAlign: 'right' }}>
                       100%
@@ -366,7 +366,7 @@ export default async function RevenuePage() {
                             {delta >= 0 ? '▲' : '▼'}{Math.abs(delta).toFixed(0)}%
                           </span>
                         )}
-                        {fmtCr(row.ytd)}
+                        {fmtL(row.ytd)}
                       </span>
                     </div>
                     <div style={{ height: 5, background: '#DDE6F5', borderRadius: 2, overflow: 'hidden' }}>
@@ -408,7 +408,7 @@ export default async function RevenuePage() {
                           </td>
                           <td style={TD}><Tag>{c.industry}</Tag></td>
                           <td style={{ ...TD, color: 'var(--fg-3)' }}>{c.zone}</td>
-                          <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, color: '#0D1B2A' }}>{fmtCr(c.ytd)}</td>
+                          <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, color: '#0D1B2A' }}>{fmtL(c.ytd)}</td>
                           <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: delta != null ? (delta >= 0 ? 'var(--pos)' : 'var(--neg)') : 'var(--fg-3)' }}>
                             {delta != null ? `${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%` : '—'}
                           </td>
@@ -449,8 +449,8 @@ export default async function RevenuePage() {
                         <td style={{ ...TD, fontWeight: 500, color: '#0A3D8F' }}>{row.zone}</td>
                         <td style={TD}>{row.rep}</td>
                         <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)' }}>{row.clients}</td>
-                        <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, color: '#0D1B2A' }}>{fmtCr(row.ytd)}</td>
-                        <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>{fmtCr(row.py)}</td>
+                        <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, color: '#0D1B2A' }}>{fmtL(row.ytd)}</td>
+                        <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>{fmtL(row.py)}</td>
                         <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: delta != null ? (delta >= 0 ? 'var(--pos)' : 'var(--neg)') : 'var(--fg-3)' }}>
                           {delta != null ? `${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%` : '—'}
                         </td>
@@ -483,13 +483,15 @@ export default async function RevenuePage() {
 // ── Business category pill ─────────────────────────────────────
 
 const BIZ_CAT_STYLE: Record<string, { bg: string; color: string }> = {
-  '1 Cr+ per annum':         { bg: '#DBEAFE', color: '#1D4ED8' },  // blue
-  '15-100 Lacs per annum':   { bg: '#CFFAFE', color: '#0E7490' },  // teal
-  '5-15 Lacs per annum':     { bg: '#FEF3C7', color: '#B45309' },  // amber
-  'Below 5 Lacs per annum':  { bg: '#F1F5F9', color: '#64748B' },  // grey
-  'Active — No Revenue FY26':{ bg: '#FEE2E2', color: '#B91C1C' },  // red
-  'New Business':            { bg: '#D1FAE5', color: '#065F46' },  // green
-  'Uncategorised':           { bg: '#F1F5F9', color: '#64748B' },  // grey
+  '10 Lacs+ per annum':          { bg: '#DBEAFE', color: '#0A3D8F' },  // dark blue
+  '5–10 Lacs per annum':         { bg: '#EFF6FF', color: '#1A5CB8' },  // brand blue
+  '1–5 Lacs per annum':          { bg: '#ECFEFF', color: '#0891B2' },  // cyan
+  '10K–1 Lac per annum':         { bg: '#FEF3C7', color: '#D97706' },  // amber
+  'Below 10K per annum':         { bg: '#F1F5F9', color: '#64748B' },  // grey
+  'Active — No FY26 Revenue':    { bg: '#FEE2E2', color: '#B91C1C' },  // red
+  'Prospective':                 { bg: '#D1FAE5', color: '#065F46' },  // green
+  'No Activity':                 { bg: '#F8FAFC', color: '#94A3B8' },  // light grey
+  'Uncategorised':               { bg: '#F1F5F9', color: '#64748B' },  // grey
 };
 
 function BizCatPill({ category }: { category: string }) {

@@ -81,17 +81,36 @@ export function daysSince(dateStr: string): number {
 
 // ── Currency formatting ────────────────────────────────────────
 
-/** ₹12.4 Cr — null-safe */
+/** ₹12.4 Cr — null-safe. For values already in Crores (orders.order_value_cr, sales_targets). */
 export function fmtCr(val: number | null | undefined, decimals = 1): string {
   if (val == null || isNaN(val)) return '—';
   return `₹${val.toFixed(decimals)} Cr`;
 }
 
-/** Convert raw INR to Crores display (clients.rev_* columns) */
-export function formatCr(val: number | string | null | undefined): string {
+/** ₹X.XX L — for values already divided by 100_000 (in Lakhs). */
+export function fmtL(val: number | null | undefined, decimals = 2): string {
+  if (val == null || isNaN(val) || val === 0) return '—';
+  return `₹${val.toFixed(decimals)} L`;
+}
+
+/**
+ * Format raw INR from rev_* columns. Auto-scales:
+ *   < ₹10K → ₹NK
+ *   ₹10K – ₹1Cr → ₹X.XX L
+ *   ≥ ₹1Cr → ₹X.X Cr
+ */
+export function formatRevLakh(val: number | string | null | undefined): string {
   const n = Number(val);
   if (!val || isNaN(n) || n === 0) return '—';
-  return '₹' + (n / 10_000_000).toFixed(2) + ' Cr';
+  const l = n / 100_000;
+  if (l >= 100) return '₹' + (l / 100).toFixed(1) + ' Cr';
+  if (l < 0.1)  return '₹' + Math.round(n / 1000) + 'K';
+  return '₹' + l.toFixed(2) + ' L';
+}
+
+/** Convert raw INR to Lakhs display (clients.rev_* columns) */
+export function formatCr(val: number | string | null | undefined): string {
+  return formatRevLakh(val);
 }
 
 /** Display value already in Crores (orders.order_value_cr) */

@@ -3,7 +3,7 @@ import { Fragment } from 'react';
 import { Topbar, Tag } from '@/components/risansi';
 import AssignVisitDrawer, { AssignVisitRowBtn, type DrawerRep } from '@/components/risansi/AssignVisitDrawer';
 import risansiPool from '@/lib/db-risansi';
-import { fmtCr } from '@/lib/risansi-utils';
+import { fmtL, formatRevLakh } from '@/lib/risansi-utils';
 
 // ── Safe query wrapper ─────────────────────────────────────────
 
@@ -295,7 +295,7 @@ export default async function VisitsPage({
   // Overdue summary
   const keyOverdue      = overdueAccounts.filter(a => a.tier === 'Key').length;
   const stdOverdue      = overdueAccounts.filter(a => a.tier !== 'Key').length;
-  const totalExposureCr = overdueAccounts.reduce((s, a) => s + a.ytd_inr, 0) / 10_000_000;
+  const totalExposureL = overdueAccounts.reduce((s, a) => s + a.ytd_inr, 0) / 100_000;
 
   // ── Render ─────────────────────────────────────────────────
 
@@ -522,11 +522,11 @@ export default async function VisitsPage({
                   <span style={{ color: '#6B7FA3', marginLeft: 5 }}>standard account{stdOverdue !== 1 ? 's' : ''} overdue</span>
                 </div>
               )}
-              {totalExposureCr > 0 && (
+              {totalExposureL > 0 && (
                 <div style={{ fontSize: 12, marginLeft: 'auto' }}>
                   <span style={{ color: '#6B7FA3' }}>Total exposure: </span>
                   <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#0D1B2A' }}>
-                    {fmtCr(totalExposureCr)}
+                    {fmtL(totalExposureL)}
                   </span>
                 </div>
               )}
@@ -586,7 +586,7 @@ export default async function VisitsPage({
                           </td>
                           {/* Revenue */}
                           <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-                            {a.ytd_inr > 0 ? fmtCr(a.ytd_inr / 10_000_000) : '—'}
+                            {a.ytd_inr > 0 ? formatRevLakh(a.ytd_inr) : '—'}
                           </td>
                           {/* Rep */}
                           <td style={{ ...TD, color: '#2C3E5A' }}>{a.rep_name}</td>

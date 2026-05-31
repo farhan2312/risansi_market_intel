@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { Topbar, Tag, StatusDot } from '@/components/risansi';
 import { AddClientDrawer } from '@/components/risansi/AddClientDrawer';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentFY } from '@/lib/risansi-utils';
+import { getCurrentFY, formatRevLakh } from '@/lib/risansi-utils';
 // getCurrentFY kept for potential FY label use
 import { FilterBar } from './FilterBar';
 
@@ -316,7 +316,6 @@ export default async function ClientListPage({
                   {clients.map((c, i) => {
                     const days = daysAgo(c.last_visit_date);
                     const daysColor = days == null ? 'var(--neg)' : days > 200 ? 'var(--neg)' : days > 100 ? 'var(--warn)' : 'var(--pos)';
-                    const ytd = Number(c.ytd_inr) / 10_000_000;
 
                     return (
                       <tr key={c.id} style={{ borderBottom: i < clients.length - 1 ? '1px solid var(--line)' : 'none' }}>
@@ -379,7 +378,7 @@ export default async function ClientListPage({
                         </td>
                         {/* YTD Revenue */}
                         <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12, whiteSpace: 'nowrap' }}>
-                          {ytd > 0 ? `₹${ytd.toFixed(2)} Cr` : <span style={{ color: 'var(--fg-4)' }}>—</span>}
+                          {Number(c.ytd_inr) > 0 ? formatRevLakh(c.ytd_inr) : <span style={{ color: 'var(--fg-4)' }}>—</span>}
                         </td>
                         {/* Action points (truncated) */}
                         <td style={{ ...TD, fontSize: 11, color: 'var(--fg-2)', maxWidth: 180 }}>
