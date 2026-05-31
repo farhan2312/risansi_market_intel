@@ -1,6 +1,8 @@
 import type { CSSProperties } from 'react';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, Sparkline, MiniBars, Donut, Tag } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
 import {
@@ -70,6 +72,9 @@ export default async function ExecDashboardPage() {
   if (/Mobile|Android|iPhone|iPad|iPod|Opera Mini|IEMobile/i.test(ua)) {
     redirect('/risansi/mobile');
   }
+
+  const session     = await getServerSession(authOptions);
+  const displayName = session?.user?.name ?? session?.user?.email ?? 'Admin';
 
   const fy        = getCurrentFY();
   const prevCodes = getPreviousFYCodes(5);   // ['20-21'..'24-25']
@@ -360,7 +365,7 @@ export default async function ExecDashboardPage() {
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 18 }}>
           <div>
             <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
-              Good morning, Anjali.
+              Good morning, {displayName}.
             </div>
             <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>
               {formatIndianDate(today)}

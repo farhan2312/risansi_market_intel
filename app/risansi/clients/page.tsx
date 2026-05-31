@@ -267,20 +267,20 @@ export default async function ClientListPage({
                 <thead>
                   <tr style={{ background: 'var(--bg-elev)' }}>
                     {[
-                      { label: 'Code',         key: 'code'       },
-                      { label: 'Client',       key: 'name'       },
-                      { label: 'Category',     key: ''           },
-                      { label: 'Industry',     key: 'industry'   },
-                      { label: 'Zone / Route', key: 'zone'       },
-                      { label: 'Rep',          key: 'rep'        },
-                      { label: 'Last Visit',   key: 'last_visit' },
-                      { label: 'Last FY',      key: ''           },
-                      { label: 'PCP (RIL/Tot)', key: ''          },
-                      { label: 'Feedback',     key: ''           },
-                      { label: 'YTD Rev',      key: 'ytd'        },
-                      { label: 'Action Points', key: ''          },
-                      { label: 'Status',       key: 'status'     },
-                      { label: 'Tier',         key: 'tier'       },
+                      { label: 'Code',         key: 'code'         },
+                      { label: 'Client',       key: 'name'         },
+                      { label: 'Category',     key: 'category'     },
+                      { label: 'Industry',     key: 'industry'     },
+                      { label: 'Zone / Route', key: 'zone'         },
+                      { label: 'Rep',          key: 'rep'          },
+                      { label: 'Last Visit',   key: 'last_visit'   },
+                      { label: 'Last FY',      key: 'last_fy'      },
+                      { label: 'PCP (RIL/Tot)', key: 'pcp'         },
+                      { label: 'Feedback',     key: 'feedback'     },
+                      { label: 'YTD Rev',      key: 'ytd'          },
+                      { label: 'Action Points', key: 'action_points'},
+                      { label: 'Status',       key: 'status'       },
+                      { label: 'Tier',         key: 'tier'         },
                     ].map(col => (
                       <th key={col.key} style={TH}>
                         <a href={sortUrl(col.key)} style={{ color: 'inherit', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 2 }}>
