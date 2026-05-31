@@ -461,6 +461,97 @@ export async function submitVisitReport(
   revalidatePath('/risansi/visits');
 }
 
+// ── Client: submit new opportunity (from NewOpportunityDrawer) ─
+
+export async function submitOpportunity(formData: FormData) {
+  const user = await requireSession();
+
+  const clientId    = (formData.get('client_id')    as string | null)?.trim() ?? '';
+  const product     = (formData.get('product')       as string | null)?.trim() ?? 'New Opportunity';
+  const productType = (formData.get('product_type')  as string | null)?.trim() ?? 'PCP';
+  const stage       = (formData.get('stage')         as string | null)?.trim() ?? 'Suspect';
+  const valueLakh   = parseFloat((formData.get('value_lakh') as string | null) ?? '0') || 0;
+  const valueCr     = valueLakh > 0 ? valueLakh / 100 : null;  // Lakhs → Crores
+  const probability = parseInt((formData.get('probability') as string | null) ?? '0', 10) || null;
+  const etaText     = (formData.get('eta_text')      as string | null)?.trim() || null;
+  const quoteRef    = (formData.get('quote_ref')     as string | null)?.trim() || null;
+  const notes       = (formData.get('notes')         as string | null)?.trim() || null;
+
+  if (!clientId) throw new Error('Client ID required');
+
+  // Resolve primary rep for this client (non-fatal)
+  let repId: string | null = null;
+  try {
+    const { rows } = await risansiPool.query<{ primary_rep_id: string | null }>(
+      'SELECT primary_rep_id FROM clients WHERE id = $1',
+      [clientId],
+    );
+    repId = rows[0]?.primary_rep_id ?? null;
+  } catch { /* ignore */ }
+
+  // Try full insert into opportunities table (with all spec columns)
+  let newId: string | null = null;
+  try {
+    const { rows } = await risansiPool.query<{ id: string }>(
+      `INSERT INTO opportunities
+         (client_id, rep_id, product, product_type, stage,
+          value_cr, probability, eta_text, quote_ref, notes,
+          auto_created, created_by, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, FALSE, $11, NOW(), NOW())
+       RETURNING id`,
+      [clientId, repId, product, productType, stage,
+       valueCr, probability, etaText, quoteRef, notes,
+       user.email],
+    );
+    newId = rows[0]?.id ?? null;
+  } catch {
+    // Fallback: minimal insert matching query in client profile page
+    try {
+      const { rows } = await risansiPool.query<{ id: string }>(
+        `INSERT INTO opportunities
+           (client_id, product, stage, value_cr, probability, expected_close_date, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+         RETURNING id`,
+        [clientId, product, stage, valueCr, probability, etaText],
+      );
+      newId = rows[0]?.id ?? null;
+    } catch {
+      // Last resort: pipeline_opportunities table
+      try {
+        const { rows } = await risansiPool.query<{ id: string }>(
+          `INSERT INTO pipeline_opportunities
+             (client_id, product, stage, estimated_value, probability, expected_close, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+           RETURNING id`,
+          [clientId, product, stage, valueCr ?? 0, probability ?? 25, etaText],
+        );
+        newId = rows[0]?.id ?? null;
+      } catch (err) {
+        throw new Error('Failed to create opportunity: ' + (err instanceof Error ? err.message : 'database error'));
+      }
+    }
+  }
+
+  // Log stage creation (non-fatal)
+  if (newId) {
+    try {
+      await risansiPool.query(
+        `INSERT INTO opportunity_stage_log
+           (opportunity_id, from_stage, to_stage, notes, changed_by)
+         VALUES ($1, NULL, $2, 'Opportunity created', $3)`,
+        [newId, stage, user.email],
+      );
+    } catch { /* table may not exist */ }
+  }
+
+  const desc = `${product} · ${stage}${valueLakh > 0 ? ` · ₹${valueLakh}L` : ''}`;
+  await logActivity('client', clientId, `opportunity created: ${desc}`, user.email!);
+
+  revalidatePath(`/risansi/clients/${clientId}`);
+  revalidatePath('/risansi/pipeline');
+  revalidatePath('/risansi');
+}
+
 // ── Client: add new client ─────────────────────────────────────
 
 export async function addClient(formData: FormData): Promise<{ error?: string; id?: string }> {

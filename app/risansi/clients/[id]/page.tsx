@@ -3,7 +3,9 @@ import { notFound } from 'next/navigation';
 import { Topbar, Tag, StatusDot } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
 import { fyShortLabel, fmtCr, fmtL } from '@/lib/risansi-utils';
-import { addContact, planVisit, createOpportunity } from '@/app/actions/risansi';
+import { addContact } from '@/app/actions/risansi';
+import { ClientActionButtons, PipelineOppBtn } from '@/components/risansi/ClientActionButtons';
+import type { DrawerRep } from '@/components/risansi/AssignVisitDrawer';
 
 // ── Safe query wrapper ─────────────────────────────────────────
 
@@ -104,7 +106,7 @@ export default async function ClientProfilePage({
 
   // ── Fetch supporting data in parallel ─────────────────────
 
-  const [contacts, revRows, equipment, visits, openOpps, activityLog] = await Promise.all([
+  const [contacts, revRows, equipment, visits, openOpps, activityLog, reps] = await Promise.all([
 
     // 2. Contacts — try contacts_raw first (Excel-imported), fall back to contacts
     (async (): Promise<Contact[]> => {
@@ -204,6 +206,14 @@ export default async function ClientProfilePage({
          ORDER BY created_at DESC
          LIMIT 20`,
         [String(client.id)],
+      );
+      return rows;
+    }, []),
+
+    // 8. Reps for Plan Visit drawer
+    q<DrawerRep[]>(async () => {
+      const { rows } = await risansiPool.query<{ id: string; name: string; route: string | null }>(
+        `SELECT id, name, route FROM reps WHERE deleted_at IS NULL ORDER BY name`,
       );
       return rows;
     }, []),
@@ -333,14 +343,15 @@ export default async function ClientProfilePage({
               {client.rep_name && <><span style={{ margin: '0 8px' }}>·</span>{client.rep_name}{client.tour_name ? ` on ${client.tour_name}` : ''}</>}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-            <form action={planVisit.bind(null, client.id)}>
-              <button type="submit" style={BTN}>Plan Visit</button>
-            </form>
-            <form action={createOpportunity.bind(null, client.id)}>
-              <button type="submit" style={BTN}>New Opportunity</button>
-            </form>
-          </div>
+          <ClientActionButtons
+            clientId={client.id}
+            clientName={client.legal_name}
+            clientCode={client.code}
+            industry={client.industry ?? ''}
+            repId={client.primary_rep_id ?? null}
+            repName={client.rep_name ?? client.primary_rep_name ?? ''}
+            reps={reps}
+          />
         </div>
 
         {/* ── KPI cards ────────────────────────────────────────── */}
@@ -757,11 +768,14 @@ export default async function ClientProfilePage({
             <div style={PANEL}>
               <div style={PANEL_H}>
                 <span style={PANEL_TITLE}>Open Pipeline</span>
-                {pipelineTotal > 0 && (
-                  <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)' }}>
-                    {fmtCr(pipelineTotal)} total
-                  </span>
-                )}
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  {pipelineTotal > 0 && (
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)' }}>
+                      {fmtCr(pipelineTotal)} total
+                    </span>
+                  )}
+                  <PipelineOppBtn />
+                </div>
               </div>
               {openOpps.length === 0 ? (
                 <div style={{ padding: '20px 0', textAlign: 'center', fontSize: 12, color: 'var(--fg-3)' }}>

@@ -3,6 +3,7 @@
 import {
   useState, useEffect, useRef, useTransition, type CSSProperties,
 } from 'react';
+import { useRouter } from 'next/navigation';
 import { assignVisit } from '@/app/actions/risansi';
 
 // ── Types ──────────────────────────────────────────────────────
@@ -27,9 +28,10 @@ interface DrawerPayload {
   clientName?: string;
   clientCode?: string;
   repId?: string;
+  lockClient?: boolean;
 }
 
-const OPEN_EVENT = 'risansi:open-assign-drawer';
+export const OPEN_VISIT_DRAWER = 'risansi:open-assign-drawer';
 
 const PURPOSES = [
   'Routine',
@@ -48,7 +50,7 @@ export function AssignVisitRowBtn({
   return (
     <button
       type="button"
-      onClick={() => window.dispatchEvent(new CustomEvent(OPEN_EVENT, {
+      onClick={() => window.dispatchEvent(new CustomEvent(OPEN_VISIT_DRAWER, {
         detail: { clientId, clientName, clientCode, repId },
       }))}
       style={ROW_BTN}
@@ -60,18 +62,29 @@ export function AssignVisitRowBtn({
 
 // ── Main drawer ────────────────────────────────────────────────
 
-export default function AssignVisitDrawer({ reps }: { reps: DrawerRep[] }) {
+export default function AssignVisitDrawer({
+  reps,
+  hideButton = false,
+  onSuccess,
+}: {
+  reps: DrawerRep[];
+  hideButton?: boolean;
+  onSuccess?: () => void;
+}) {
+  const router = useRouter();
+
   const [open, setOpen]               = useState(false);
   const [isPending, startTransition]  = useTransition();
   const [formKey, setFormKey]         = useState(0);
   const [prefillRepId, setPrefillRepId] = useState('');
 
   // Client search
-  const [query, setQuery]               = useState('');
-  const [results, setResults]           = useState<ClientResult[]>([]);
-  const [showResults, setShowResults]   = useState(false);
+  const [query, setQuery]                   = useState('');
+  const [results, setResults]               = useState<ClientResult[]>([]);
+  const [showResults, setShowResults]       = useState(false);
   const [selectedClient, setSelectedClient] = useState<ClientResult | null>(null);
-  const [searching, setSearching]       = useState(false);
+  const [searching, setSearching]           = useState(false);
+  const [lockClientMode, setLockClientMode] = useState(false);
 
   // Feedback
   const [success, setSuccess] = useState(false);
@@ -79,11 +92,13 @@ export default function AssignVisitDrawer({ reps }: { reps: DrawerRep[] }) {
 
   const searchTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  // ── Listen for row-button open events ─────────────────────
+  // ── Listen for row-button / external open events ──────────
 
   useEffect(() => {
     function handleOpen(e: Event) {
       const p = (e as CustomEvent<DrawerPayload>).detail;
+      const lock = p.lockClient ?? false;
+      setLockClientMode(lock);
       setPrefillRepId(p.repId ?? '');
       if (p.clientId && p.clientName) {
         setSelectedClient({
@@ -103,13 +118,14 @@ export default function AssignVisitDrawer({ reps }: { reps: DrawerRep[] }) {
       setFormKey(k => k + 1);
       setOpen(true);
     }
-    window.addEventListener(OPEN_EVENT, handleOpen);
-    return () => window.removeEventListener(OPEN_EVENT, handleOpen);
+    window.addEventListener(OPEN_VISIT_DRAWER, handleOpen);
+    return () => window.removeEventListener(OPEN_VISIT_DRAWER, handleOpen);
   }, []);
 
-  // ── Client search with debounce ────────────────────────────
+  // ── Client search with debounce (skip when locked) ────────
 
   useEffect(() => {
+    if (lockClientMode) return;
     if (query.length < 2) { setResults([]); setSearching(false); return; }
     clearTimeout(searchTimer.current);
     setSearching(true);
@@ -126,11 +142,12 @@ export default function AssignVisitDrawer({ reps }: { reps: DrawerRep[] }) {
       }
     }, 300);
     return () => clearTimeout(searchTimer.current);
-  }, [query]);
+  }, [query, lockClientMode]);
 
   // ── Helpers ────────────────────────────────────────────────
 
   function openFresh() {
+    setLockClientMode(false);
     setPrefillRepId('');
     setSelectedClient(null);
     setQuery('');
@@ -147,8 +164,8 @@ export default function AssignVisitDrawer({ reps }: { reps: DrawerRep[] }) {
   function nextWorkday(): string {
     const d = new Date();
     d.setDate(d.getDate() + 1);
-    if (d.getDay() === 6) d.setDate(d.getDate() + 2); // Sat → Mon
-    if (d.getDay() === 0) d.setDate(d.getDate() + 1); // Sun → Mon
+    if (d.getDay() === 6) d.setDate(d.getDate() + 2);
+    if (d.getDay() === 0) d.setDate(d.getDate() + 1);
     return d.toISOString().slice(0, 10);
   }
 
@@ -167,7 +184,12 @@ export default function AssignVisitDrawer({ reps }: { reps: DrawerRep[] }) {
       try {
         await assignVisit(fd);
         setSuccess(true);
-        setTimeout(() => { setOpen(false); setSuccess(false); }, 1500);
+        onSuccess?.();
+        setTimeout(() => {
+          setOpen(false);
+          setSuccess(false);
+          router.refresh();
+        }, 1200);
       } catch {
         setError('Failed to schedule visit — please try again.');
       }
@@ -178,10 +200,12 @@ export default function AssignVisitDrawer({ reps }: { reps: DrawerRep[] }) {
 
   return (
     <>
-      {/* Header trigger button */}
-      <button type="button" onClick={openFresh} style={PRIMARY_BTN}>
-        + Assign Visit
-      </button>
+      {/* Header trigger button — hidden when embedded in ClientActionButtons */}
+      {!hideButton && (
+        <button type="button" onClick={openFresh} style={PRIMARY_BTN}>
+          + Assign Visit
+        </button>
+      )}
 
       {/* Backdrop */}
       {open && (
@@ -212,10 +236,12 @@ export default function AssignVisitDrawer({ reps }: { reps: DrawerRep[] }) {
         }}>
           <div>
             <div style={{ fontSize: 15, fontWeight: 700, color: '#0A3D8F', letterSpacing: '-0.01em' }}>
-              Assign Visit
+              Plan Visit
             </div>
             <div style={{ fontSize: 11, color: '#6B7FA3', marginTop: 2 }}>
-              Schedule a planned visit for a rep
+              {lockClientMode
+                ? `Schedule a visit for ${selectedClient?.legal_name ?? 'this client'}`
+                : 'Schedule a planned visit for a rep'}
             </div>
           </div>
           <button type="button" onClick={close} style={CLOSE_BTN}>✕</button>
@@ -231,57 +257,72 @@ export default function AssignVisitDrawer({ reps }: { reps: DrawerRep[] }) {
           {/* 1 · Client */}
           <div>
             <label style={LBL}>Client <Req /></label>
-            <div style={{ position: 'relative' }}>
-              <input
-                type="text"
-                value={query}
-                onChange={e => {
-                  setQuery(e.target.value);
-                  if (selectedClient) setSelectedClient(null);
-                }}
-                onFocus={() => { if (results.length > 0) setShowResults(true); }}
-                onBlur={() => setTimeout(() => setShowResults(false), 180)}
-                placeholder="Search by name, code, or city…"
-                style={{
-                  ...INP,
-                  borderColor: query.length > 1 && !selectedClient ? '#F59E0B' : '#CBD5E1',
-                }}
-                autoComplete="off"
-              />
-              {searching && (
-                <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: '#6B7FA3' }}>
-                  searching…
-                </span>
-              )}
-              {selectedClient && (
-                <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 13, color: '#0E9F6E' }}>
-                  ✓
-                </span>
-              )}
-              {showResults && results.length > 0 && (
-                <div style={DROP}>
-                  {results.map(c => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onMouseDown={() => {
-                        setSelectedClient(c);
-                        setQuery(c.legal_name);
-                        setShowResults(false);
-                      }}
-                      style={DROP_ITEM}
-                    >
-                      <span style={{ fontWeight: 500, fontSize: 13 }}>{c.legal_name}</span>
-                      <span style={{ fontSize: 11, color: '#6B7FA3', marginTop: 2 }}>
-                        {c.code}{c.city ? ` · ${c.city}` : ''}{c.industry ? ` · ${c.industry}` : ''}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            {lockClientMode && selectedClient ? (
+              /* Read-only display when client is pre-filled and locked */
+              <div style={{
+                padding: '10px 12px',
+                background: 'var(--bg-sunk, #F8FAFC)',
+                border: '1px solid #DDE6F5',
+                borderRadius: 6,
+                fontSize: 13,
+                color: '#2C3E5A',
+              }}>
+                {selectedClient.legal_name}
+                {selectedClient.code ? ` · ${selectedClient.code}` : ''}
+              </div>
+            ) : (
+              <div style={{ position: 'relative' }}>
+                <input
+                  type="text"
+                  value={query}
+                  onChange={e => {
+                    setQuery(e.target.value);
+                    if (selectedClient) setSelectedClient(null);
+                  }}
+                  onFocus={() => { if (results.length > 0) setShowResults(true); }}
+                  onBlur={() => setTimeout(() => setShowResults(false), 180)}
+                  placeholder="Search by name, code, or city…"
+                  style={{
+                    ...INP,
+                    borderColor: query.length > 1 && !selectedClient ? '#F59E0B' : '#CBD5E1',
+                  }}
+                  autoComplete="off"
+                />
+                {searching && (
+                  <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: '#6B7FA3' }}>
+                    searching…
+                  </span>
+                )}
+                {selectedClient && (
+                  <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 13, color: '#0E9F6E' }}>
+                    ✓
+                  </span>
+                )}
+                {showResults && results.length > 0 && (
+                  <div style={DROP}>
+                    {results.map(c => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onMouseDown={() => {
+                          setSelectedClient(c);
+                          setQuery(c.legal_name);
+                          setShowResults(false);
+                        }}
+                        style={DROP_ITEM}
+                      >
+                        <span style={{ fontWeight: 500, fontSize: 13 }}>{c.legal_name}</span>
+                        <span style={{ fontSize: 11, color: '#6B7FA3', marginTop: 2 }}>
+                          {c.code}{c.city ? ` · ${c.city}` : ''}{c.industry ? ` · ${c.industry}` : ''}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <input type="hidden" name="client_id" value={selectedClient?.id ?? ''} />
-            {selectedClient && (
+            {!lockClientMode && selectedClient && (
               <div style={{ marginTop: 4, fontSize: 11, color: '#6B7FA3' }}>
                 {selectedClient.code}
                 {selectedClient.city ? ` · ${selectedClient.city}` : ''}
