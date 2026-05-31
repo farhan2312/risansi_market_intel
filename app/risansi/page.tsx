@@ -78,28 +78,31 @@ export default async function ExecDashboardPage() {
   const daysLeft  = fyDaysLeft(fy);
   const today     = new Date();
 
-  // ── 1. Booked revenue this FY (pump + spare) ────────────────
+  // ── 1. Booked revenue this FY from clients.rev_2526_* (INR ÷ 10M = Cr) ──
+  const INR_TO_CR = 10_000_000;
   const revSplit = await q<RevenueSplit>(async () => {
-    const { rows } = await risansiPool.query<{ product_category: string; total: string }>(
-      `SELECT product_category, COALESCE(SUM(order_value),0)::text AS total
-       FROM orders WHERE financial_year = $1
-       GROUP BY product_category`,
-      [fy.code],
+    const { rows } = await risansiPool.query<{ pump: string; spare: string }>(
+      `SELECT COALESCE(SUM(rev_2526_pump),0)::text AS pump,
+              COALESCE(SUM(rev_2526_spare),0)::text AS spare
+       FROM clients`,
+      [],
     );
-    const pump  = Number(rows.find(r => r.product_category === 'Pump')?.total  ?? 0);
-    const spare = Number(rows.find(r => r.product_category === 'Spare')?.total ?? 0);
-    return { pump, spare };
+    return {
+      pump:  Number(rows[0]?.pump  ?? 0) / INR_TO_CR,
+      spare: Number(rows[0]?.spare ?? 0) / INR_TO_CR,
+    };
   }, { pump: 0, spare: 0 });
 
   const totalBooked = revSplit.pump + revSplit.spare;
 
-  // ── 2. Previous-year total (for delta) ──────────────────────
+  // ── 2. Previous-year total from clients.rev_2425_* ──────────
   const pyTotal = await q<number>(async () => {
     const { rows } = await risansiPool.query<{ total: string }>(
-      `SELECT COALESCE(SUM(order_value),0)::text AS total FROM orders WHERE financial_year = $1`,
-      ['24-25'],
+      `SELECT (COALESCE(SUM(rev_2425_pump),0) + COALESCE(SUM(rev_2425_spare),0))::text AS total
+       FROM clients`,
+      [],
     );
-    return Number(rows[0]?.total ?? 0);
+    return Number(rows[0]?.total ?? 0) / INR_TO_CR;
   }, 0);
 
   // ── 3. Annual target ─────────────────────────────────────────
@@ -112,18 +115,31 @@ export default async function ExecDashboardPage() {
     return rows[0] ? Number(rows[0].target_value) : 320;
   }, 320);
 
-  // ── 4. Historical revenue (5 previous FYs for MiniBars) ─────
+  // ── 4. Historical revenue (5 previous FYs for MiniBars from clients table) ─
+  // Map FY code to the corresponding column names on clients table.
+  const FY_COL_MAP: Record<string, [string, string]> = {
+    '20-21': ['rev_2021_pump', 'rev_2021_spare'],
+    '21-22': ['rev_2122_pump', 'rev_2122_spare'],
+    '22-23': ['rev_2223_pump', 'rev_2223_spare'],
+    '23-24': ['rev_2324_pump', 'rev_2324_spare'],
+    '24-25': ['rev_2425_pump', 'rev_2425_spare'],
+  };
   const historical = await q<HistoricalFY[]>(async () => {
-    const { rows } = await risansiPool.query<{ financial_year: string; total: string }>(
-      `SELECT financial_year, COALESCE(SUM(order_value),0)::text AS total
-       FROM orders WHERE financial_year = ANY($1::text[])
-       GROUP BY financial_year ORDER BY financial_year`,
-      [prevCodes],
-    );
-    return prevCodes.map(code => {
-      const row = rows.find(r => r.financial_year === code);
-      return { code, label: fyShortLabel(code), total: Number(row?.total ?? 0) };
-    });
+    const results: HistoricalFY[] = [];
+    for (const code of prevCodes) {
+      const cols = FY_COL_MAP[code];
+      if (!cols) { results.push({ code, label: fyShortLabel(code), total: 0 }); continue; }
+      try {
+        const { rows } = await risansiPool.query<{ total: string }>(
+          `SELECT (COALESCE(SUM(${cols[0]}),0) + COALESCE(SUM(${cols[1]}),0))::text AS total FROM clients`,
+          [],
+        );
+        results.push({ code, label: fyShortLabel(code), total: Number(rows[0]?.total ?? 0) / INR_TO_CR });
+      } catch {
+        results.push({ code, label: fyShortLabel(code), total: 0 });
+      }
+    }
+    return results;
   }, prevCodes.map(code => ({ code, label: fyShortLabel(code), total: 0 })));
 
   // ── 5. Revenue by industry segment ──────────────────────────
@@ -175,79 +191,90 @@ export default async function ExecDashboardPage() {
   const pipelineTotal = funnel.reduce((s, r) => s + r.value, 0);
   const negotiatingCount = funnel.find(r => r.stage === 'Negotiating')?.count ?? 0;
 
-  // ── 7. Market share (PCP equipment assessments) ─────────────
-  const shareRaw = await q<{ supplier: string; units: number }[]>(async () => {
-    const { rows } = await risansiPool.query<{ supplier: string; units: string }>(
-      `SELECT supplier, SUM(quantity)::text AS units
-       FROM equipment_assessment_entries
-       WHERE equipment_type = 'PCP'
-       GROUP BY supplier ORDER BY SUM(quantity) DESC`,
+  // ── 7. Market share from competitor_installed_base ───────────
+  interface CIBTotals { ril: number; roto: number; rotomac: number; netzsch: number; gita: number; psp: number; tushaco: number; total: number; }
+  const cibTotals = await q<CIBTotals>(async () => {
+    const { rows } = await risansiPool.query<{
+      ril: string; roto: string; rotomac: string; netzsch: string;
+      gita: string; psp: string; tushaco: string; total: string;
+    }>(
+      `SELECT
+         COALESCE(SUM(ril_pcp),0)::text     AS ril,
+         COALESCE(SUM(roto_pcp),0)::text    AS roto,
+         COALESCE(SUM(rotomac_pcp),0)::text AS rotomac,
+         COALESCE(SUM(netzsch_pcp),0)::text AS netzsch,
+         COALESCE(SUM(gita_pcp),0)::text    AS gita,
+         COALESCE(SUM(psp_pcp),0)::text     AS psp,
+         COALESCE(SUM(tushaco_pcp),0)::text AS tushaco,
+         COALESCE(SUM(total_pcp),0)::text   AS total
+       FROM competitor_installed_base`,
       [],
     );
-    return rows.map(r => ({ supplier: r.supplier, units: Number(r.units) }));
-  }, []);
+    const r = rows[0];
+    return {
+      ril:     Number(r?.ril     ?? 0), roto:    Number(r?.roto    ?? 0),
+      rotomac: Number(r?.rotomac ?? 0), netzsch: Number(r?.netzsch ?? 0),
+      gita:    Number(r?.gita    ?? 0), psp:     Number(r?.psp     ?? 0),
+      tushaco: Number(r?.tushaco ?? 0), total:   Number(r?.total   ?? 0),
+    };
+  }, { ril: 0, roto: 0, rotomac: 0, netzsch: 0, gita: 0, psp: 0, tushaco: 0, total: 0 });
 
-  const shareTotal = shareRaw.reduce((s, r) => s + r.units, 0) || 1;
-  const rilUnits   = shareRaw.find(r => r.supplier === 'RIL')?.units ?? 0;
+  const shareTotal = Math.max(cibTotals.total, 1);
+  const rilUnits   = cibTotals.ril;
   const rilShare   = (rilUnits / shareTotal) * 100;
 
-  // Consolidate into top-5 + Others
-  const TOP_COMPETITORS = ['RIL', 'Roto', 'Rotomac', 'Gita', 'Sintech'];
-  const shareData: MarketEntry[] = (() => {
-    const named = TOP_COMPETITORS
-      .map(name => {
-        const units = shareRaw.find(r => r.supplier === name)?.units ?? 0;
-        return { supplier: name, units, pct: (units / shareTotal) * 100, color: compColor(name) };
-      })
-      .filter(d => d.units > 0);
-    const accounted = named.reduce((s, d) => s + d.units, 0);
-    const otherUnits = shareTotal - accounted;
-    if (otherUnits > 0) {
-      named.push({ supplier: 'Others', units: otherUnits, pct: (otherUnits / shareTotal) * 100, color: compColor('Others') });
-    }
-    return named;
-  })();
+  const rotoTotal  = cibTotals.roto + cibTotals.rotomac;
+  const namedTotal = rilUnits + rotoTotal + cibTotals.netzsch + cibTotals.gita + cibTotals.psp + cibTotals.tushaco;
+  const othersU    = Math.max(0, cibTotals.total - namedTotal);
 
-  // ── 8. At-risk accounts (no order in 18+ months) ─────────────
+  const shareData: MarketEntry[] = [
+    { supplier: 'RIL',           units: rilUnits,          pct: (rilUnits / shareTotal) * 100,          color: compColor('RIL') },
+    { supplier: 'Roto+Rotomac',  units: rotoTotal,         pct: (rotoTotal / shareTotal) * 100,         color: compColor('Roto') },
+    { supplier: 'Netzsch',       units: cibTotals.netzsch, pct: (cibTotals.netzsch / shareTotal) * 100, color: compColor('Netzsch') },
+    { supplier: 'Gita',          units: cibTotals.gita,    pct: (cibTotals.gita / shareTotal) * 100,    color: compColor('Gita') },
+    { supplier: 'PSP',           units: cibTotals.psp,     pct: (cibTotals.psp / shareTotal) * 100,     color: compColor('PSP') },
+    { supplier: 'Tushaco',       units: cibTotals.tushaco, pct: (cibTotals.tushaco / shareTotal) * 100, color: compColor('Tushaco') },
+    ...(othersU > 0 ? [{ supplier: 'Others', units: othersU, pct: (othersU / shareTotal) * 100, color: compColor('Others') }] : []),
+  ].filter(d => d.units > 0);
+
+  // ── 8. At-risk accounts (last_visit_date > 18 months ago or null) ──────────
   const atRisk = await q<AtRisk>(async () => {
     const { rows } = await risansiPool.query<{ cnt: string; exposure: string }>(
       `SELECT COUNT(*)::text AS cnt,
-              COALESCE(SUM(last_val),0)::text AS exposure
-       FROM (
-         SELECT c.id,
-                MAX(o.order_date) AS last_order,
-                COALESCE(SUM(CASE WHEN o.financial_year = $2 THEN o.order_value END), 0) AS last_val
-         FROM clients c
-         LEFT JOIN orders o ON o.client_id = c.id
-         WHERE c.status = 'Active'
-         GROUP BY c.id
-         HAVING MAX(o.order_date) < NOW() - INTERVAL '18 months'
-             OR MAX(o.order_date) IS NULL
-       ) sub`,
-      [fy.code, '24-25'],
+              COALESCE(SUM(COALESCE(rev_2425_pump,0) + COALESCE(rev_2425_spare,0)),0)::text AS exposure
+       FROM clients
+       WHERE status = 'Active'
+         AND (last_visit_date < NOW() - INTERVAL '18 months'
+              OR last_visit_date IS NULL)`,
+      [],
     );
-    return { count: Number(rows[0]?.cnt ?? 0), exposure: Number(rows[0]?.exposure ?? 0) };
+    return {
+      count:    Number(rows[0]?.cnt      ?? 0),
+      exposure: Number(rows[0]?.exposure ?? 0) / INR_TO_CR,
+    };
   }, { count: 0, exposure: 0 });
 
-  // ── 9. Top 7 accounts by YTD revenue (with 5-yr sparkline) ──
+  // ── 9. Top 7 accounts by YTD revenue (from clients rev_ columns) ───────────
   const topAccounts = await q<TopAccount[]>(async () => {
-    const { rows } = await risansiPool.query<TopAccount>(
+    const { rows } = await risansiPool.query<{
+      client_code: string; legal_name: string; industry: string; zone: string; status: string;
+      ytd: string; py: string; fy20: string; fy21: string; fy22: string; fy23: string; fy24: string; fy25: string;
+    }>(
       `SELECT
-         c.client_code, c.legal_name, c.industry, c.zone, c.status,
-         COALESCE(SUM(CASE WHEN o.financial_year='25-26' THEN o.order_value END),0) AS ytd,
-         COALESCE(SUM(CASE WHEN o.financial_year='24-25' THEN o.order_value END),0) AS py,
-         COALESCE(SUM(CASE WHEN o.financial_year='20-21' THEN o.order_value END),0) AS fy20,
-         COALESCE(SUM(CASE WHEN o.financial_year='21-22' THEN o.order_value END),0) AS fy21,
-         COALESCE(SUM(CASE WHEN o.financial_year='22-23' THEN o.order_value END),0) AS fy22,
-         COALESCE(SUM(CASE WHEN o.financial_year='23-24' THEN o.order_value END),0) AS fy23,
-         COALESCE(SUM(CASE WHEN o.financial_year='24-25' THEN o.order_value END),0) AS fy24,
-         COALESCE(SUM(CASE WHEN o.financial_year='25-26' THEN o.order_value END),0) AS fy25
-       FROM clients c
-       JOIN orders o ON o.client_id = c.id
-       WHERE o.financial_year = ANY($1::text[])
-       GROUP BY c.id, c.client_code, c.legal_name, c.industry, c.zone, c.status
+         client_code, legal_name, industry, zone, status,
+         (COALESCE(rev_2526_pump,0) + COALESCE(rev_2526_spare,0))::text AS ytd,
+         (COALESCE(rev_2425_pump,0) + COALESCE(rev_2425_spare,0))::text AS py,
+         (COALESCE(rev_2021_pump,0) + COALESCE(rev_2021_spare,0))::text AS fy20,
+         (COALESCE(rev_2122_pump,0) + COALESCE(rev_2122_spare,0))::text AS fy21,
+         (COALESCE(rev_2223_pump,0) + COALESCE(rev_2223_spare,0))::text AS fy22,
+         (COALESCE(rev_2324_pump,0) + COALESCE(rev_2324_spare,0))::text AS fy23,
+         (COALESCE(rev_2425_pump,0) + COALESCE(rev_2425_spare,0))::text AS fy24,
+         (COALESCE(rev_2526_pump,0) + COALESCE(rev_2526_spare,0))::text AS fy25
+       FROM clients
+       WHERE (COALESCE(rev_2526_pump,0) + COALESCE(rev_2526_spare,0)) > 0
+          OR (COALESCE(rev_2425_pump,0) + COALESCE(rev_2425_spare,0)) > 0
        ORDER BY ytd DESC LIMIT 7`,
-      [['20-21','21-22','22-23','23-24','24-25','25-26']],
+      [],
     );
     return rows.map(r => ({
       client_code: r.client_code,
@@ -255,14 +282,14 @@ export default async function ExecDashboardPage() {
       industry:    r.industry,
       zone:        r.zone,
       status:      r.status,
-      ytd:  Number(r.ytd),
-      py:   Number(r.py),
-      fy20: Number(r.fy20),
-      fy21: Number(r.fy21),
-      fy22: Number(r.fy22),
-      fy23: Number(r.fy23),
-      fy24: Number(r.fy24),
-      fy25: Number(r.fy25),
+      ytd:  Number(r.ytd)  / INR_TO_CR,
+      py:   Number(r.py)   / INR_TO_CR,
+      fy20: Number(r.fy20) / INR_TO_CR,
+      fy21: Number(r.fy21) / INR_TO_CR,
+      fy22: Number(r.fy22) / INR_TO_CR,
+      fy23: Number(r.fy23) / INR_TO_CR,
+      fy24: Number(r.fy24) / INR_TO_CR,
+      fy25: Number(r.fy25) / INR_TO_CR,
     }));
   }, []);
 

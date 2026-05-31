@@ -21,6 +21,28 @@ interface Client {
   state: string | null; lat: string | null; lng: string | null;
   tcd: number | null; klpd: number | null;
   rep_id: string | null; rep_name: string | null;
+  // Revenue columns (INR — divide by 10M for Crores)
+  rev_2122_pump: number | null; rev_2122_spare: number | null;
+  rev_2223_pump: number | null; rev_2223_spare: number | null;
+  rev_2324_pump: number | null; rev_2324_spare: number | null;
+  rev_2425_pump: number | null; rev_2425_spare: number | null;
+  rev_2526_pump: number | null; rev_2526_spare: number | null;
+  rev_2627_pump: number | null; rev_2627_spare: number | null;
+  // Plan of Action
+  action_points:     string | null;
+  pcp_competitor:    string | null;
+  mgmt_intervention: boolean | string | null;
+  constraints_notes: string | null;
+  expected_pump:     number | null;
+  expected_spare:    number | null;
+  // Field intelligence
+  performance_feedback: string | null;
+  last_visit_summary:   string | null;
+  open_remarks:         string | null;
+  complaint_notes:      string | null;
+  last_visit_fy:        string | null;
+  ril_pcp:              number | null;
+  total_pcp:            number | null;
 }
 
 interface Contact {
@@ -32,6 +54,7 @@ interface RevRow {
   financial_year: string; product_category: string; total: string; order_count: string;
 }
 
+// (equipment_assessment_entries used for detailed field logs)
 interface Equipment {
   id: string; station: string | null; equipment_type: string;
   supplier: string; model: string | null; quantity: number;
@@ -84,18 +107,29 @@ export default async function ClientProfilePage({
       return rows[0] ?? null;
     }, null),
 
-    // 2. Contacts
-    q<Contact[]>(async () => {
-      const { rows } = await risansiPool.query<Contact>(
-        `SELECT id, name, designation, phone, email, is_primary
-         FROM contacts WHERE client_id = $1
-         ORDER BY is_primary DESC, name`,
-        [id],
-      );
-      return rows;
-    }, []),
+    // 2. Contacts — try contacts_raw first (Excel-imported), fall back to contacts
+    (async (): Promise<Contact[]> => {
+      try {
+        const { rows } = await risansiPool.query<Contact>(
+          `SELECT id, name, designation, phone, email, is_primary
+           FROM contacts_raw WHERE client_id = $1
+           ORDER BY is_primary DESC, name`,
+          [id],
+        );
+        if (rows.length > 0) return rows;
+      } catch { /* table may not exist yet */ }
+      return q<Contact[]>(async () => {
+        const { rows } = await risansiPool.query<Contact>(
+          `SELECT id, name, designation, phone, email, is_primary
+           FROM contacts WHERE client_id = $1
+           ORDER BY is_primary DESC, name`,
+          [id],
+        );
+        return rows;
+      }, []);
+    })(),
 
-    // 3. Revenue by FY / category
+    // 3. Revenue by FY / category (orders table — kept for transactional data)
     q<RevRow[]>(async () => {
       const { rows } = await risansiPool.query<RevRow>(
         `SELECT financial_year, product_category,
@@ -109,8 +143,9 @@ export default async function ClientProfilePage({
       return rows;
     }, []),
 
-    // 4. Equipment assessment entries
+    // 4. Competitor installed base (one row per client from master data)
     q<Equipment[]>(async () => {
+      // Kept for field assessment detail logs
       const { rows } = await risansiPool.query<{
         id: string; station: string | null; equipment_type: string;
         supplier: string; model: string | null; quantity: string;
@@ -179,26 +214,63 @@ export default async function ClientProfilePage({
 
   // ── Derived values ────────────────────────────────────────
 
-  // Revenue chart data — pump and spare per FY
-  const revByFY: Record<string, { pump: number; spare: number; orders: number }> = {};
-  for (const fy of revFYs) revByFY[fy] = { pump: 0, spare: 0, orders: 0 };
-  let lifetimePump = 0, lifetimeSpare = 0, lifetimeOrders = 0;
+  // Revenue chart data — from rev_* columns on clients (INR ÷ 10M = Crores)
+  // Fall back to orders table rows if the columns are missing/zero.
+  const INR_TO_CR = 10_000_000;
 
+  const REV_COLS: [string, keyof typeof client, keyof typeof client][] = [
+    ['21-22', 'rev_2122_pump', 'rev_2122_spare'],
+    ['22-23', 'rev_2223_pump', 'rev_2223_spare'],
+    ['23-24', 'rev_2324_pump', 'rev_2324_spare'],
+    ['24-25', 'rev_2425_pump', 'rev_2425_spare'],
+    ['25-26', 'rev_2526_pump', 'rev_2526_spare'],
+    ['26-27', 'rev_2627_pump', 'rev_2627_spare'],
+  ];
+
+  const revByFY: Record<string, { pump: number; spare: number; orders: number }> = {};
+  // Initialise from client rev_ columns
+  for (const [fyCode, pumpCol, spareCol] of REV_COLS) {
+    const pumpInr  = Number((client[pumpCol as keyof typeof client])  ?? 0);
+    const spareInr = Number((client[spareCol as keyof typeof client]) ?? 0);
+    revByFY[fyCode] = {
+      pump:   pumpInr  / INR_TO_CR,
+      spare:  spareInr / INR_TO_CR,
+      orders: 0,
+    };
+  }
+
+  // Also merge orders table rows (transactional entries)
   for (const r of revRows) {
     const total = Number(r.total);
-    if (r.product_category === 'Pump') {
-      lifetimePump += total;
-      if (revByFY[r.financial_year]) revByFY[r.financial_year].pump = total;
-    } else {
-      lifetimeSpare += total;
-      if (revByFY[r.financial_year]) revByFY[r.financial_year].spare = total;
+    if (!revByFY[r.financial_year]) {
+      revByFY[r.financial_year] = { pump: 0, spare: 0, orders: 0 };
     }
-    lifetimeOrders += Number(r.order_count);
+    if (r.product_category === 'Pump') {
+      // Use orders value only if column value is zero (avoids double-counting)
+      if (revByFY[r.financial_year].pump === 0) revByFY[r.financial_year].pump = total;
+    } else {
+      if (revByFY[r.financial_year].spare === 0) revByFY[r.financial_year].spare = total;
+    }
+    revByFY[r.financial_year].orders += Number(r.order_count);
+  }
+
+  // Chart FYs: all 6 from the master data columns
+  const chartFYs = REV_COLS.map(([code]) => code);
+
+  let lifetimePump = 0, lifetimeSpare = 0, lifetimeOrders = 0;
+  for (const { pump, spare, orders } of Object.values(revByFY)) {
+    lifetimePump  += pump;
+    lifetimeSpare += spare;
+    lifetimeOrders += orders;
   }
   const lifetimeTotal = lifetimePump + lifetimeSpare;
 
-  // 5yr CAGR
-  const chartFYs      = revFYs;
+  // Competitor installed base summary (from client master columns)
+  const rilPcp   = Number(client.ril_pcp   ?? 0);
+  const totalPcp = Number(client.total_pcp ?? 0);
+  const compPcp  = Math.max(0, totalPcp - rilPcp);
+
+  // 5yr CAGR (from master data columns)
   const chartTotals   = chartFYs.map(f => (revByFY[f]?.pump ?? 0) + (revByFY[f]?.spare ?? 0));
   const cagr5yr = (() => {
     const nonZero = chartTotals.filter(v => v > 0);
@@ -208,9 +280,9 @@ export default async function ClientProfilePage({
     return ((last / first) ** (1 / years) - 1) * 100;
   })();
 
-  // Equipment KPIs
-  const rilUnits   = equipment.filter(e => e.supplier === 'RIL').reduce((s, e) => s + e.quantity, 0);
-  const totalUnits = equipment.reduce((s, e) => s + e.quantity, 0);
+  // Equipment KPIs — prefer master data columns; fall back to field assessments
+  const rilUnits   = rilPcp   > 0 ? rilPcp   : equipment.filter(e => e.supplier === 'RIL').reduce((s, e) => s + e.quantity, 0);
+  const totalUnits = totalPcp > 0 ? totalPcp : equipment.reduce((s, e) => s + e.quantity, 0);
   const dispOpps   = equipment.filter(e => e.opportunity).length;
 
   // Last visit
@@ -286,9 +358,9 @@ export default async function ClientProfilePage({
             value={daysAgo == null ? 'Never' : daysAgo === 0 ? 'Today' : `${daysAgo} days`}
             sub={daysAgo != null && daysAgo > 90 ? `overdue · ${lastVisit?.rep_name ?? ''}` : lastVisit?.rep_name ?? 'No visits logged'}
             neg={daysAgo != null && daysAgo > 90} />
-          <MiniKpi label="Installed Base"
-            value={totalUnits > 0 ? `${rilUnits} / ${totalUnits} pumps` : '— pumps'}
-            sub={totalUnits > 0 ? `${Math.round((rilUnits / totalUnits) * 100)}% RIL share (assessed)` : 'No assessment data'} />
+          <MiniKpi label="Installed Base · PCP"
+            value={totalUnits > 0 ? `${rilUnits} / ${totalUnits}` : '—'}
+            sub={totalUnits > 0 ? `${Math.round((rilUnits / totalUnits) * 100)}% RIL share` : 'No PCP data'} />
           <MiniKpi label="Open Pipeline"
             value={fmtCr(pipelineTotal)}
             sub={openOpps.length > 0 ? `${openOpps.length} opportunit${openOpps.length === 1 ? 'y' : 'ies'}` : 'No open opportunities'} />
@@ -367,21 +439,51 @@ export default async function ClientProfilePage({
               </div>
             </div>
 
-            {/* Installed Base Register */}
+            {/* Installed Base · PCP Summary */}
             <div style={PANEL}>
               <div style={PANEL_H}>
-                <span style={PANEL_TITLE}>Installed Base Register · {totalUnits} pump{totalUnits !== 1 ? 's' : ''}</span>
-                {dispOpps > 0 && (
+                <span style={PANEL_TITLE}>PCP Installed Base · {totalUnits} pump{totalUnits !== 1 ? 's' : ''}</span>
+                {compPcp > 0 && (
                   <div style={{ marginLeft: 'auto' }}>
-                    <Tag kind="warn">{dispOpps} displacement opp{dispOpps !== 1 ? 's' : ''}</Tag>
+                    <Tag kind="warn">{compPcp} competitor unit{compPcp !== 1 ? 's' : ''}</Tag>
                   </div>
                 )}
               </div>
-              {equipment.length === 0 ? (
-                <div style={{ padding: '24px 0', textAlign: 'center', fontSize: 12, color: 'var(--fg-3)' }}>
-                  No equipment assessments yet
+              {totalPcp > 0 ? (
+                <div style={{ padding: '12px 14px' }}>
+                  {/* RIL vs competitor bar */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                    <div style={{ flex: 1, height: 10, background: 'var(--bg-sunk)', borderRadius: 5, overflow: 'hidden', display: 'flex' }}>
+                      <div style={{ width: `${(rilPcp / totalPcp) * 100}%`, background: 'var(--accent)', height: '100%', borderRadius: '5px 0 0 5px', transition: 'width 0.3s' }} />
+                      <div style={{ flex: 1, background: 'var(--neg)', height: '100%', opacity: 0.35 }} />
+                    </div>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--accent)', minWidth: 40, textAlign: 'right' }}>
+                      {((rilPcp / totalPcp) * 100).toFixed(0)}% RIL
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 24 }}>
+                    <div>
+                      <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.10em' }}>RIL</div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 18, color: 'var(--accent)', fontWeight: 500 }}>{rilPcp}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.10em' }}>Competitors</div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 18, color: 'var(--neg)', fontWeight: 500 }}>{compPcp}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.10em' }}>Total</div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 500 }}>{totalPcp}</div>
+                    </div>
+                    {client.pcp_competitor && (
+                      <div>
+                        <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.10em' }}>Main Competitor</div>
+                        <div style={{ fontSize: 13, fontWeight: 500, marginTop: 4, color: 'var(--neg)' }}>{client.pcp_competitor}</div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              ) : (
+              ) : equipment.length > 0 ? (
+                // Fall back to field assessment detail table
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                     <thead>
@@ -393,39 +495,118 @@ export default async function ClientProfilePage({
                     </thead>
                     <tbody>
                       {equipment.map((e, i) => (
-                        <tr
-                          key={e.id}
-                          style={{
-                            borderBottom: i < equipment.length - 1 ? '1px solid var(--line)' : 'none',
-                            background: e.opportunity ? 'oklch(0.97 0.04 50 / 0.5)' : 'transparent',
-                          }}
-                        >
+                        <tr key={e.id} style={{ borderBottom: i < equipment.length - 1 ? '1px solid var(--line)' : 'none', background: e.opportunity ? 'oklch(0.97 0.04 50 / 0.5)' : 'transparent' }}>
                           <td style={{ ...TD, fontSize: 11, color: 'var(--fg-2)' }}>{e.station ?? '—'}</td>
                           <td style={TD}><Tag>{e.equipment_type}</Tag></td>
-                          <td style={{ ...TD, fontWeight: e.supplier === 'RIL' ? 500 : 400, color: e.supplier === 'RIL' ? 'var(--accent)' : 'inherit' }}>
-                            {e.supplier}
-                          </td>
-                          <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)' }}>
-                            {e.model ?? '—'}
-                          </td>
-                          <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-                            {e.quantity}
-                          </td>
-                          <td style={TD}>
-                            <Tag kind={e.condition === 'Good' ? 'pos' : e.condition === 'End of Life' ? 'neg' : 'warn'} dot>
-                              {e.condition}
-                            </Tag>
-                          </td>
-                          <td style={TD}>
-                            {e.opportunity && <Tag kind="accent">REPLACE</Tag>}
-                          </td>
+                          <td style={{ ...TD, fontWeight: e.supplier === 'RIL' ? 500 : 400, color: e.supplier === 'RIL' ? 'var(--accent)' : 'inherit' }}>{e.supplier}</td>
+                          <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)' }}>{e.model ?? '—'}</td>
+                          <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{e.quantity}</td>
+                          <td style={TD}><Tag kind={e.condition === 'Good' ? 'pos' : e.condition === 'End of Life' ? 'neg' : 'warn'} dot>{e.condition}</Tag></td>
+                          <td style={TD}>{e.opportunity && <Tag kind="accent">REPLACE</Tag>}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
+              ) : (
+                <div style={{ padding: '24px 0', textAlign: 'center', fontSize: 12, color: 'var(--fg-3)' }}>
+                  No PCP data recorded
+                </div>
               )}
             </div>
+
+            {/* Plan of Action */}
+            {(client.action_points || client.expected_pump || client.expected_spare || client.mgmt_intervention) && (
+              <div style={PANEL}>
+                <div style={PANEL_H}>
+                  <span style={PANEL_TITLE}>Plan of Action</span>
+                  {client.mgmt_intervention && (
+                    <div style={{ marginLeft: 'auto' }}>
+                      <Tag kind="warn">Mgmt Intervention</Tag>
+                    </div>
+                  )}
+                </div>
+                <div style={{ padding: '14px' }}>
+                  {client.action_points && (
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.10em', fontWeight: 500, marginBottom: 6 }}>Action Points</div>
+                      <div style={{ fontSize: 13, color: 'var(--fg)', lineHeight: 1.6 }}>{client.action_points}</div>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+                    {client.expected_pump != null && (
+                      <div>
+                        <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.10em' }}>Expected Pump</div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 16, marginTop: 3, color: 'var(--pos)' }}>
+                          ₹{(client.expected_pump / 100_000).toFixed(1)} L
+                        </div>
+                      </div>
+                    )}
+                    {client.expected_spare != null && (
+                      <div>
+                        <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.10em' }}>Expected Spare</div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 16, marginTop: 3, color: 'var(--pos)' }}>
+                          ₹{(client.expected_spare / 100_000).toFixed(1)} L
+                        </div>
+                      </div>
+                    )}
+                    {client.mgmt_intervention && (
+                      <div>
+                        <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.10em' }}>Mgmt Intervention</div>
+                        <div style={{ fontSize: 13, fontWeight: 500, marginTop: 3, color: 'var(--warn)' }}>YES</div>
+                      </div>
+                    )}
+                  </div>
+                  {client.constraints_notes && (
+                    <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+                      <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.10em', fontWeight: 500, marginBottom: 6 }}>Constraints</div>
+                      <div style={{ fontSize: 12, color: 'var(--fg-2)', lineHeight: 1.6 }}>{client.constraints_notes}</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Field Intelligence */}
+            {(client.performance_feedback || client.last_visit_summary || client.open_remarks || client.complaint_notes) && (
+              <div style={PANEL}>
+                <div style={PANEL_H}>
+                  <span style={PANEL_TITLE}>Field Intelligence</span>
+                  {client.performance_feedback && (
+                    <Tag kind={
+                      client.performance_feedback.toLowerCase().includes('good') ? 'pos'
+                      : client.performance_feedback.toLowerCase().includes('poor') ? 'neg'
+                      : 'warn'
+                    }>{client.performance_feedback}</Tag>
+                  )}
+                  {client.last_visit_fy && (
+                    <span style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
+                      Last: FY {client.last_visit_fy}
+                    </span>
+                  )}
+                </div>
+                <div style={{ padding: '14px' }}>
+                  {client.last_visit_summary && (
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.10em', fontWeight: 500, marginBottom: 6 }}>Last Visit Summary</div>
+                      <div style={{ fontSize: 13, color: 'var(--fg)', lineHeight: 1.6 }}>{client.last_visit_summary}</div>
+                    </div>
+                  )}
+                  {client.open_remarks && (
+                    <div style={{ marginBottom: 14, paddingTop: client.last_visit_summary ? 12 : 0, borderTop: client.last_visit_summary ? '1px solid var(--line)' : 'none' }}>
+                      <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.10em', fontWeight: 500, marginBottom: 6 }}>Open Remarks</div>
+                      <div style={{ fontSize: 12, color: 'var(--fg-2)', lineHeight: 1.6 }}>{client.open_remarks}</div>
+                    </div>
+                  )}
+                  {client.complaint_notes && (
+                    <div style={{ paddingTop: (client.last_visit_summary || client.open_remarks) ? 12 : 0, borderTop: (client.last_visit_summary || client.open_remarks) ? '1px solid var(--line)' : 'none' }}>
+                      <div style={{ fontSize: 10, color: 'var(--neg)', textTransform: 'uppercase', letterSpacing: '0.10em', fontWeight: 500, marginBottom: 6 }}>Open Complaints</div>
+                      <div style={{ fontSize: 12, color: 'var(--neg)', lineHeight: 1.6 }}>{client.complaint_notes}</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Visit Timeline */}
             <div style={PANEL}>

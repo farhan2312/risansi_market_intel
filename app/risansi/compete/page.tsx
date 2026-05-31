@@ -12,207 +12,156 @@ async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
 // ── Competitor colour palette ──────────────────────────────────
 
 const COMP_COLORS: Record<string, string> = {
-  RIL:     'oklch(0.62 0.13 50)',
-  Roto:    'oklch(0.50 0.11 155)',
-  Rotomac: 'oklch(0.50 0.10 235)',
-  Gita:    'oklch(0.55 0.11 50)',
-  Sintech: 'oklch(0.55 0.12 20)',
-  PSP:     'oklch(0.55 0.10 280)',
-  Netzsch: 'oklch(0.50 0.09 120)',
-  Tushaco: 'oklch(0.50 0.10 60)',
-  Others:  'var(--fg-3)',
+  RIL:           'oklch(0.62 0.13 50)',
+  'Roto+Rotomac': 'oklch(0.50 0.11 155)',
+  Netzsch:       'oklch(0.50 0.09 120)',
+  Gita:          'oklch(0.55 0.11 50)',
+  PSP:           'oklch(0.55 0.10 280)',
+  Tushaco:       'oklch(0.50 0.10 60)',
+  Others:        'var(--fg-3)',
 };
 function compColor(name: string) { return COMP_COLORS[name] ?? COMP_COLORS.Others; }
 
 // ── Data shapes ────────────────────────────────────────────────
 
-interface SupplierRow {
-  supplier: string;
-  units: number;
-  industries: string[];
+interface MarketTotals {
+  ril_pcp:     number;
+  roto_pcp:    number;
+  rotomac_pcp: number;
+  netzsch_pcp: number;
+  gita_pcp:    number;
+  psp_pcp:     number;
+  tushaco_pcp: number;
+  total_pcp:   number;
 }
-interface DisplacementOpp {
-  client_name: string;
-  station: string | null;
-  supplier: string;
-  model: string | null;
-  condition: string;
-  quantity: number;
-  rep_name: string | null;
+
+interface DisplacementAccount {
+  client_name:    string;
+  zone:           string | null;
+  ril_pcp:        number;
+  total_pcp:      number;
+  competitor_pcp: number;
+  rep_name:       string | null;
 }
-interface SightingRow {
-  client_name: string;
-  station: string | null;
-  supplier: string;
-  model: string | null;
-  equipment_type: string;
-  quantity: number;
-  created_at: Date;
-}
+
 interface IndustryShare {
-  industry: string;
-  ril_units: number;
-  total_units: number;
+  industry:    string;
+  ril_pcp:     number;
+  total_pcp:   number;
 }
 
 // ── Page ───────────────────────────────────────────────────────
 
 export default async function CompetePage() {
 
-  // 1. All equipment by supplier + which industries they appear in
-  const allBySupplier = await q<SupplierRow[]>(async () => {
+  // 1. Aggregate totals across all clients
+  const totals = await q<MarketTotals>(async () => {
     const { rows } = await risansiPool.query<{
-      supplier: string; units: string; industries: string[];
+      ril_pcp: string; roto_pcp: string; rotomac_pcp: string;
+      netzsch_pcp: string; gita_pcp: string; psp_pcp: string;
+      tushaco_pcp: string; total_pcp: string;
     }>(
-      `SELECT e.supplier,
-              SUM(e.quantity)::text                  AS units,
-              ARRAY_AGG(DISTINCT c.industry)         AS industries
-       FROM equipment_assessment_entries e
-       JOIN clients c ON c.id = e.client_id
-       GROUP BY e.supplier
-       ORDER BY SUM(e.quantity) DESC`,
+      `SELECT
+         COALESCE(SUM(ril_pcp),0)::text     AS ril_pcp,
+         COALESCE(SUM(roto_pcp),0)::text    AS roto_pcp,
+         COALESCE(SUM(rotomac_pcp),0)::text AS rotomac_pcp,
+         COALESCE(SUM(netzsch_pcp),0)::text AS netzsch_pcp,
+         COALESCE(SUM(gita_pcp),0)::text    AS gita_pcp,
+         COALESCE(SUM(psp_pcp),0)::text     AS psp_pcp,
+         COALESCE(SUM(tushaco_pcp),0)::text AS tushaco_pcp,
+         COALESCE(SUM(total_pcp),0)::text   AS total_pcp
+       FROM competitor_installed_base`,
       [],
     );
-    return rows.map(r => ({
-      supplier:   r.supplier,
-      units:      Number(r.units),
-      industries: (r.industries ?? []).filter(Boolean),
-    }));
-  }, []);
+    const r = rows[0];
+    return {
+      ril_pcp:     Number(r?.ril_pcp     ?? 0),
+      roto_pcp:    Number(r?.roto_pcp    ?? 0),
+      rotomac_pcp: Number(r?.rotomac_pcp ?? 0),
+      netzsch_pcp: Number(r?.netzsch_pcp ?? 0),
+      gita_pcp:    Number(r?.gita_pcp    ?? 0),
+      psp_pcp:     Number(r?.psp_pcp     ?? 0),
+      tushaco_pcp: Number(r?.tushaco_pcp ?? 0),
+      total_pcp:   Number(r?.total_pcp   ?? 0),
+    };
+  }, { ril_pcp: 0, roto_pcp: 0, rotomac_pcp: 0, netzsch_pcp: 0, gita_pcp: 0, psp_pcp: 0, tushaco_pcp: 0, total_pcp: 0 });
 
-  const totalUnits  = allBySupplier.reduce((s, r) => s + r.units, 0);
-  const rilUnits    = allBySupplier.find(r => r.supplier === 'RIL')?.units ?? 0;
-  const rilShare    = totalUnits > 0 ? (rilUnits / totalUnits) * 100 : 0;
-  const competitors = allBySupplier.filter(r => r.supplier !== 'RIL');
+  const safeTotal = Math.max(totals.total_pcp, 1);
+  const rilShare  = (totals.ril_pcp / safeTotal) * 100;
 
-  // Build donut slices: RIL + top competitors + Others
-  const TOP_N      = 5;
-  const topComps   = competitors.slice(0, TOP_N);
-  const otherUnits = competitors.slice(TOP_N).reduce((s, r) => s + r.units, 0);
-  const safeTotal  = Math.max(totalUnits, 1);
+  // Build donut slices: RIL + competitor groupings + Others
+  const rotoTotal  = totals.roto_pcp + totals.rotomac_pcp;
+  const namedTotal = totals.ril_pcp + rotoTotal + totals.netzsch_pcp + totals.gita_pcp + totals.psp_pcp + totals.tushaco_pcp;
+  const othersUnits = Math.max(0, totals.total_pcp - namedTotal);
+
   const donutSlices = [
-    { supplier: 'RIL',   units: rilUnits,   pct: rilShare,                         color: compColor('RIL') },
-    ...topComps.map(r => ({ supplier: r.supplier, units: r.units, pct: (r.units / safeTotal) * 100, color: compColor(r.supplier) })),
-    ...(otherUnits > 0 ? [{ supplier: 'Others', units: otherUnits, pct: (otherUnits / safeTotal) * 100, color: compColor('Others') }] : []),
-  ].filter(d => d.units > 0);
+    { name: 'RIL',            units: totals.ril_pcp,     color: compColor('RIL') },
+    { name: 'Roto+Rotomac',   units: rotoTotal,           color: compColor('Roto+Rotomac') },
+    { name: 'Netzsch',        units: totals.netzsch_pcp,  color: compColor('Netzsch') },
+    { name: 'Gita',           units: totals.gita_pcp,     color: compColor('Gita') },
+    { name: 'PSP',            units: totals.psp_pcp,      color: compColor('PSP') },
+    { name: 'Tushaco',        units: totals.tushaco_pcp,  color: compColor('Tushaco') },
+    ...(othersUnits > 0 ? [{ name: 'Others', units: othersUnits, color: compColor('Others') }] : []),
+  ].filter(d => d.units > 0).map(d => ({ ...d, pct: (d.units / safeTotal) * 100 }));
 
-  // 2. pp delta — current 90-day window vs prior 90-day window
-  const [shareNow, sharePrev] = await Promise.all([
-    q<number>(async () => {
-      const { rows } = await risansiPool.query<{ ril: string; total: string }>(
-        `SELECT SUM(CASE WHEN supplier = 'RIL' THEN quantity ELSE 0 END)::text AS ril,
-                SUM(quantity)::text AS total
-         FROM equipment_assessment_entries
-         WHERE created_at > NOW() - INTERVAL '90 days'`,
-        [],
-      );
-      const t = Number(rows[0]?.total ?? 0);
-      return t > 0 ? (Number(rows[0]?.ril ?? 0) / t) * 100 : 0;
-    }, 0),
-    q<number>(async () => {
-      const { rows } = await risansiPool.query<{ ril: string; total: string }>(
-        `SELECT SUM(CASE WHEN supplier = 'RIL' THEN quantity ELSE 0 END)::text AS ril,
-                SUM(quantity)::text AS total
-         FROM equipment_assessment_entries
-         WHERE created_at BETWEEN NOW() - INTERVAL '180 days' AND NOW() - INTERVAL '90 days'`,
-        [],
-      );
-      const t = Number(rows[0]?.total ?? 0);
-      return t > 0 ? (Number(rows[0]?.ril ?? 0) / t) * 100 : 0;
-    }, 0),
-  ]);
-  const ppDelta  = shareNow - sharePrev;
-  const hasDelta = sharePrev > 0;
+  const competitors = donutSlices.filter(d => d.name !== 'RIL');
 
-  // 3. Displacement opportunities — non-RIL units with opportunity flag set
-  const displacementOpps = await q<DisplacementOpp[]>(async () => {
+  // 2. Accounts with high competitor penetration — displacement opportunities
+  const displacementAccounts = await q<DisplacementAccount[]>(async () => {
     const { rows } = await risansiPool.query<{
-      client_name: string; station: string | null; supplier: string;
-      model: string | null; condition: string; quantity: string; rep_name: string | null;
+      client_name: string; zone: string | null;
+      ril_pcp: string; total_pcp: string;
+      competitor_pcp: string; rep_name: string | null;
     }>(
-      `SELECT c.legal_name   AS client_name,
-              e.station,
-              e.supplier,
-              e.model,
-              e.condition,
-              e.quantity::text,
-              u.name         AS rep_name
-       FROM equipment_assessment_entries e
-       JOIN clients c ON c.id = e.client_id
+      `SELECT c.legal_name AS client_name, c.zone,
+              cib.ril_pcp::text,
+              cib.total_pcp::text,
+              (cib.total_pcp - COALESCE(cib.ril_pcp, 0))::text AS competitor_pcp,
+              u.name AS rep_name
+       FROM competitor_installed_base cib
+       JOIN clients c ON c.client_code = cib.client_code
        LEFT JOIN users u ON u.id = c.rep_id
-       WHERE e.opportunity = true
-       ORDER BY e.quantity DESC, c.legal_name
-       LIMIT 40`,
-      [],
-    );
-    return rows.map(r => ({
-      client_name: r.client_name,
-      station:     r.station,
-      supplier:    r.supplier,
-      model:       r.model,
-      condition:   r.condition,
-      quantity:    Number(r.quantity),
-      rep_name:    r.rep_name,
-    }));
-  }, []);
-
-  const totalDisplacementUnits = displacementOpps.reduce((s, r) => s + r.quantity, 0);
-
-  // 4. Recent competitor sightings — last 30 days, non-RIL
-  const sightings = await q<SightingRow[]>(async () => {
-    const { rows } = await risansiPool.query<{
-      client_name: string; station: string | null; supplier: string; model: string | null;
-      equipment_type: string; quantity: string; created_at: string;
-    }>(
-      `SELECT c.legal_name  AS client_name,
-              e.station,
-              e.supplier,
-              e.model,
-              e.equipment_type,
-              e.quantity::text,
-              e.created_at::text
-       FROM equipment_assessment_entries e
-       JOIN clients c ON c.id = e.client_id
-       WHERE e.supplier != 'RIL'
-         AND e.created_at > NOW() - INTERVAL '30 days'
-       ORDER BY e.created_at DESC
-       LIMIT 20`,
+       WHERE (cib.total_pcp - COALESCE(cib.ril_pcp, 0)) > 0
+         AND c.status = 'Active'
+       ORDER BY competitor_pcp DESC
+       LIMIT 30`,
       [],
     );
     return rows.map(r => ({
       client_name:    r.client_name,
-      station:        r.station,
-      supplier:       r.supplier,
-      model:          r.model,
-      equipment_type: r.equipment_type,
-      quantity:       Number(r.quantity),
-      created_at:     new Date(r.created_at),
+      zone:           r.zone,
+      ril_pcp:        Number(r.ril_pcp ?? 0),
+      total_pcp:      Number(r.total_pcp ?? 0),
+      competitor_pcp: Number(r.competitor_pcp ?? 0),
+      rep_name:       r.rep_name,
     }));
   }, []);
 
-  // 5. RIL share by industry segment
+  const totalCompetitorUnits = displacementAccounts.reduce((s, r) => s + r.competitor_pcp, 0);
+
+  // 3. RIL share by industry
   const industryShare = await q<IndustryShare[]>(async () => {
     const { rows } = await risansiPool.query<{ industry: string; ril: string; total: string }>(
       `SELECT c.industry,
-              SUM(CASE WHEN e.supplier = 'RIL' THEN e.quantity ELSE 0 END)::text AS ril,
-              SUM(e.quantity)::text AS total
-       FROM equipment_assessment_entries e
-       JOIN clients c ON c.id = e.client_id
+              COALESCE(SUM(cib.ril_pcp),0)::text   AS ril,
+              COALESCE(SUM(cib.total_pcp),0)::text AS total
+       FROM competitor_installed_base cib
+       JOIN clients c ON c.client_code = cib.client_code
        WHERE c.industry IS NOT NULL
        GROUP BY c.industry
-       ORDER BY SUM(e.quantity) DESC
+       ORDER BY SUM(cib.total_pcp) DESC
        LIMIT 8`,
       [],
     );
     return rows.map(r => ({
-      industry:    r.industry,
-      ril_units:   Number(r.ril),
-      total_units: Number(r.total),
+      industry:  r.industry,
+      ril_pcp:   Number(r.ril),
+      total_pcp: Number(r.total),
     }));
   }, []);
 
   const maxCompPct = competitors.length > 0
-    ? Math.max(...competitors.map(c => (c.units / safeTotal) * 100))
+    ? Math.max(...competitors.map(c => c.pct))
     : 1;
 
   // ── Render ───────────────────────────────────────────────────
@@ -230,35 +179,33 @@ export default async function CompetePage() {
             Competitive Intelligence
           </div>
           <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>
-            PCP installed base · equipment assessments from field
-            {totalUnits > 0 && ` · ${totalUnits.toLocaleString()} units across ${allBySupplier.length} supplier${allBySupplier.length !== 1 ? 's' : ''}`}
+            PCP installed base · master data from client files
+            {totals.total_pcp > 0 && ` · ${totals.total_pcp.toLocaleString()} total units tracked`}
           </div>
         </div>
 
         {/* ── KPI row ─────────────────────────────────────────── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 14 }}>
           <KpiCard
-            label="Total Assessed"
-            value={totalUnits > 0 ? totalUnits.toLocaleString() : '—'}
+            label="Total PCP Market"
+            value={totals.total_pcp > 0 ? totals.total_pcp.toLocaleString() : '—'}
             sub="units in installed base"
           />
           <KpiCard
-            label="RIL Units"
-            value={rilUnits > 0 ? rilUnits.toLocaleString() : '—'}
+            label="RIL PCP Units"
+            value={totals.ril_pcp > 0 ? totals.ril_pcp.toLocaleString() : '—'}
             sub="our installed pumps"
             pos
           />
           <KpiCard
             label="RIL Market Share"
-            value={totalUnits > 0 ? `${rilShare.toFixed(1)}%` : '—'}
-            sub={hasDelta ? `vs prev 90-day window` : 'all assessments'}
-            delta={hasDelta ? `${Math.abs(ppDelta).toFixed(1)} pp` : undefined}
-            pos={ppDelta >= 0}
+            value={totals.total_pcp > 0 ? `${rilShare.toFixed(1)}%` : '—'}
+            sub="PCP installed base"
           />
           <KpiCard
-            label="Displacement Opps"
-            value={displacementOpps.length > 0 ? String(displacementOpps.length) : '—'}
-            sub={`${totalDisplacementUnits} units · EOL competitor pumps`}
+            label="Displacement Targets"
+            value={displacementAccounts.length > 0 ? String(displacementAccounts.length) : '—'}
+            sub={`${totalCompetitorUnits} competitor pumps in play`}
           />
         </div>
 
@@ -268,20 +215,13 @@ export default async function CompetePage() {
           {/* Market share donut */}
           <div style={PANEL}>
             <div style={PANEL_H}>
-              <span style={PANEL_TITLE}>Market Share · PCP</span>
-              {hasDelta && (
-                <div style={{ marginLeft: 'auto' }}>
-                  <Tag kind={ppDelta >= 0 ? 'pos' : 'neg'}>
-                    {ppDelta >= 0 ? '+' : ''}{ppDelta.toFixed(1)} pp
-                  </Tag>
-                </div>
-              )}
+              <span style={PANEL_TITLE}>PCP Market Share</span>
             </div>
             <div style={{ padding: 20, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
-              {totalUnits > 0 ? (
+              {totals.total_pcp > 0 ? (
                 <>
                   <Donut
-                    data={donutSlices.map(d => ({ pct: d.pct, color: d.color, name: d.supplier }))}
+                    data={donutSlices.map(d => ({ pct: d.pct, color: d.color, name: d.name }))}
                     size={160}
                     thick={22}
                     center={
@@ -297,14 +237,14 @@ export default async function CompetePage() {
                   />
                   <div style={{ width: '100%' }}>
                     {donutSlices.map((d, i) => (
-                      <div key={d.supplier} style={{
+                      <div key={d.name} style={{
                         display: 'flex', alignItems: 'center', gap: 8,
                         padding: '5px 0',
                         borderBottom: i < donutSlices.length - 1 ? '1px solid var(--line)' : 'none',
                         fontSize: 12,
                       }}>
                         <span style={{ width: 8, height: 8, borderRadius: 2, background: d.color, flexShrink: 0 }} />
-                        <span style={{ flex: 1, fontWeight: d.supplier === 'RIL' ? 600 : 400 }}>{d.supplier}</span>
+                        <span style={{ flex: 1, fontWeight: d.name === 'RIL' ? 600 : 400 }}>{d.name}</span>
                         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--fg-2)' }}>
                           {d.units.toLocaleString()}
                         </span>
@@ -317,8 +257,7 @@ export default async function CompetePage() {
                 </>
               ) : (
                 <div style={{ fontSize: 12, color: 'var(--fg-3)', textAlign: 'center', padding: '48px 0' }}>
-                  No assessment data yet.<br />
-                  <span style={{ fontSize: 11 }}>Record equipment during field visits.</span>
+                  No installed base data yet.
                 </div>
               )}
             </div>
@@ -327,7 +266,7 @@ export default async function CompetePage() {
           {/* Competitor breakdown table */}
           <div style={PANEL}>
             <div style={PANEL_H}>
-              <span style={PANEL_TITLE}>Competitor Breakdown</span>
+              <span style={PANEL_TITLE}>Competitor Breakdown · PCP</span>
               <span style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
                 {competitors.length} competitor{competitors.length !== 1 ? 's' : ''} tracked
               </span>
@@ -340,53 +279,38 @@ export default async function CompetePage() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: 'var(--bg-elev)' }}>
-                    {['Make', 'Units', 'Share', '', 'Industries', 'Change'].map(h => (
+                    {['Make', 'PCP Units', 'Share', '', 'vs RIL'].map(h => (
                       <th key={h} style={TH}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {competitors.map(comp => {
-                    const pct    = (comp.units / safeTotal) * 100;
-                    const barPct = maxCompPct > 0 ? (pct / maxCompPct) * 100 : 0;
+                    const barPct = maxCompPct > 0 ? (comp.pct / maxCompPct) * 100 : 0;
+                    const vsRil = totals.ril_pcp > 0
+                      ? ((comp.units - totals.ril_pcp) / totals.ril_pcp) * 100
+                      : 0;
                     return (
-                      <tr key={comp.supplier} style={{ borderBottom: '1px solid var(--line)' }}>
+                      <tr key={comp.name} style={{ borderBottom: '1px solid var(--line)' }}>
                         <td style={{ padding: '10px 12px', verticalAlign: 'middle' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span style={{
-                              width: 8, height: 8, borderRadius: 2,
-                              background: compColor(comp.supplier),
-                              display: 'inline-block', flexShrink: 0,
-                            }} />
-                            <span style={{ fontWeight: 500 }}>{comp.supplier}</span>
+                            <span style={{ width: 8, height: 8, borderRadius: 2, background: comp.color, display: 'inline-block', flexShrink: 0 }} />
+                            <span style={{ fontWeight: 500 }}>{comp.name}</span>
                           </div>
                         </td>
                         <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
                           {comp.units.toLocaleString()}
                         </td>
                         <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
-                          {pct.toFixed(1)}%
+                          {comp.pct.toFixed(1)}%
                         </td>
                         <td style={{ ...TD, width: 100, paddingLeft: 6, paddingRight: 12 }}>
                           <div style={{ height: 6, background: 'var(--bg-sunk)', borderRadius: 3, overflow: 'hidden' }}>
-                            <div style={{
-                              width: `${barPct}%`, height: '100%',
-                              background: compColor(comp.supplier), borderRadius: 3,
-                            }} />
+                            <div style={{ width: `${barPct}%`, height: '100%', background: comp.color, borderRadius: 3 }} />
                           </div>
                         </td>
-                        <td style={{ ...TD, maxWidth: 220 }}>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-                            {comp.industries.slice(0, 3).map(ind => (
-                              <Tag key={ind}>{ind}</Tag>
-                            ))}
-                            {comp.industries.length > 3 && (
-                              <Tag>+{comp.industries.length - 3}</Tag>
-                            )}
-                          </div>
-                        </td>
-                        <td style={{ ...TD, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-                          —
+                        <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: vsRil > 0 ? 'var(--neg)' : 'var(--pos)' }}>
+                          {totals.ril_pcp > 0 ? `${vsRil > 0 ? '+' : ''}${vsRil.toFixed(0)}%` : '—'}
                         </td>
                       </tr>
                     );
@@ -401,14 +325,14 @@ export default async function CompetePage() {
         {industryShare.length > 0 && (
           <div style={{ ...PANEL, marginBottom: 14 }}>
             <div style={PANEL_H}>
-              <span style={PANEL_TITLE}>RIL Share by Industry</span>
+              <span style={PANEL_TITLE}>RIL Share by Industry Segment</span>
               <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>
-                units assessed · {industryShare.length} segment{industryShare.length !== 1 ? 's' : ''}
+                {industryShare.length} segment{industryShare.length !== 1 ? 's' : ''}
               </span>
             </div>
             <div style={{ padding: '14px 16px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px 28px' }}>
               {industryShare.map(seg => {
-                const pct = seg.total_units > 0 ? (seg.ril_units / seg.total_units) * 100 : 0;
+                const pct = seg.total_pcp > 0 ? (seg.ril_pcp / seg.total_pcp) * 100 : 0;
                 return (
                   <div key={seg.industry}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 5, fontSize: 11 }}>
@@ -423,13 +347,10 @@ export default async function CompetePage() {
                       </span>
                     </div>
                     <div style={{ height: 5, background: 'var(--bg-sunk)', borderRadius: 3, overflow: 'hidden' }}>
-                      <div style={{
-                        width: `${pct}%`, height: '100%', borderRadius: 3,
-                        background: pct >= 50 ? 'var(--pos)' : 'var(--accent)',
-                      }} />
+                      <div style={{ width: `${pct}%`, height: '100%', borderRadius: 3, background: pct >= 50 ? 'var(--pos)' : 'var(--accent)' }} />
                     </div>
                     <div style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', marginTop: 3 }}>
-                      {seg.ril_units}/{seg.total_units} units
+                      {seg.ril_pcp}/{seg.total_pcp} units
                     </div>
                   </div>
                 );
@@ -439,126 +360,70 @@ export default async function CompetePage() {
         )}
 
         {/* ── Displacement opportunities ───────────────────────── */}
-        <div style={{ ...PANEL, marginBottom: 14 }}>
+        <div style={PANEL}>
           <div style={PANEL_H}>
-            <span style={PANEL_TITLE}>Displacement Opportunities</span>
+            <span style={PANEL_TITLE}>Accounts with Competitor Presence</span>
             <span style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
-              competitor EOL units · opportunity flag set
+              active clients · competitor PCP units installed
             </span>
-            {totalDisplacementUnits > 0 && (
+            {totalCompetitorUnits > 0 && (
               <div style={{ marginLeft: 'auto' }}>
-                <Tag kind="warn">{totalDisplacementUnits} units ripe</Tag>
+                <Tag kind="warn">{totalCompetitorUnits} competitor units</Tag>
               </div>
             )}
           </div>
-          {displacementOpps.length === 0 ? (
+          {displacementAccounts.length === 0 ? (
             <div style={{ fontSize: 12, color: 'var(--fg-3)', textAlign: 'center', padding: '40px 0' }}>
-              No displacement opportunities flagged yet
+              No displacement data available
             </div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: 'var(--bg-elev)' }}>
-                    {['Client', 'Station', 'Competitor · Model', 'Condition', 'Qty', 'Rep', ''].map(h => (
+                    {['Client', 'Zone', 'RIL PCP', 'Competitor PCP', 'Total PCP', 'RIL Share', 'Rep'].map(h => (
                       <th key={h} style={TH}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {displacementOpps.map((opp, i) => (
-                    <tr key={i} style={{ borderBottom: '1px solid var(--line)' }}>
-                      <td style={{ padding: '10px 12px', fontWeight: 500, verticalAlign: 'middle' }}>
-                        {opp.client_name}
-                      </td>
-                      <td style={{ ...TD, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-                        {opp.station ?? '—'}
-                      </td>
-                      <td style={TD}>
-                        <span style={{ fontWeight: 500, color: compColor(opp.supplier) }}>{opp.supplier}</span>
-                        {opp.model && <span style={{ color: 'var(--fg-3)' }}> · {opp.model}</span>}
-                      </td>
-                      <td style={TD}>
-                        <Tag kind="neg">{opp.condition}</Tag>
-                      </td>
-                      <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
-                        {opp.quantity}
-                      </td>
-                      <td style={{ ...TD, color: 'var(--fg-3)' }}>
-                        {opp.rep_name ?? '—'}
-                      </td>
-                      <td style={TD}>
-                        <button style={{
-                          padding: '4px 10px', fontSize: 11, fontFamily: 'inherit',
-                          background: 'oklch(0.62 0.13 50)', color: '#fff',
-                          border: 'none', borderRadius: 4, cursor: 'pointer',
-                          fontWeight: 500, whiteSpace: 'nowrap',
-                        }}>
-                          Create opp
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {displacementAccounts.map((acc, i) => {
+                    const share = acc.total_pcp > 0 ? (acc.ril_pcp / acc.total_pcp) * 100 : 0;
+                    return (
+                      <tr key={i} style={{ borderBottom: '1px solid var(--line)' }}>
+                        <td style={{ padding: '10px 12px', fontWeight: 500, verticalAlign: 'middle' }}>
+                          {acc.client_name}
+                        </td>
+                        <td style={{ ...TD, color: 'var(--fg-3)', fontSize: 11 }}>
+                          {acc.zone ?? '—'}
+                        </td>
+                        <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: acc.ril_pcp > 0 ? 'var(--pos)' : 'var(--fg-3)' }}>
+                          {acc.ril_pcp}
+                        </td>
+                        <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--neg)' }}>
+                          {acc.competitor_pcp}
+                        </td>
+                        <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
+                          {acc.total_pcp}
+                        </td>
+                        <td style={TD}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <div style={{ flex: 1, height: 4, background: 'var(--bg-sunk)', borderRadius: 2, overflow: 'hidden', minWidth: 60 }}>
+                              <div style={{ width: `${share}%`, height: '100%', background: share >= 50 ? 'var(--pos)' : share >= 25 ? 'var(--accent)' : 'var(--neg)', borderRadius: 2 }} />
+                            </div>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: share >= 50 ? 'var(--pos)' : 'var(--neg)', minWidth: 34 }}>
+                              {share.toFixed(0)}%
+                            </span>
+                          </div>
+                        </td>
+                        <td style={{ ...TD, color: 'var(--fg-3)', fontSize: 11 }}>
+                          {acc.rep_name ?? '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
-            </div>
-          )}
-        </div>
-
-        {/* ── Recent competitor sightings ──────────────────────── */}
-        <div style={PANEL}>
-          <div style={PANEL_H}>
-            <span style={PANEL_TITLE}>Recent Competitor Sightings</span>
-            <span style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>last 30 days</span>
-            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span style={{
-                width: 6, height: 6, borderRadius: '50%', display: 'inline-block',
-                background: sightings.length > 0 ? 'var(--warn)' : 'var(--fg-3)',
-              }} />
-              <span style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
-                {sightings.length} new entr{sightings.length !== 1 ? 'ies' : 'y'}
-              </span>
-            </div>
-          </div>
-          {sightings.length === 0 ? (
-            <div style={{ fontSize: 12, color: 'var(--fg-3)', textAlign: 'center', padding: '40px 0' }}>
-              No competitor equipment recorded in the last 30 days
-            </div>
-          ) : (
-            <div>
-              {sightings.map((s, i) => (
-                <div key={i} style={{
-                  display: 'flex', alignItems: 'center', padding: '10px 14px', gap: 12,
-                  borderBottom: i < sightings.length - 1 ? '1px solid var(--line)' : 'none',
-                }}>
-                  <div style={{
-                    width: 32, height: 32, borderRadius: 4,
-                    background: 'var(--bg-sunk)', border: '1px solid var(--line)',
-                    display: 'grid', placeItems: 'center',
-                    fontSize: 9, fontWeight: 700, letterSpacing: '0.04em',
-                    color: compColor(s.supplier), flexShrink: 0,
-                  }}>
-                    {s.supplier.slice(0, 3).toUpperCase()}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      <strong style={{ fontWeight: 600, color: compColor(s.supplier) }}>{s.supplier}</strong>
-                      {s.model && <span style={{ color: 'var(--fg-2)', fontWeight: 500 }}> {s.model}</span>}
-                      <span style={{ color: 'var(--fg-3)' }}> spotted at </span>
-                      <strong style={{ fontWeight: 500 }}>{s.client_name}</strong>
-                      {s.station && <span style={{ color: 'var(--fg-3)' }}> · {s.station}</span>}
-                    </div>
-                    <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
-                      {s.equipment_type} · {s.quantity} unit{s.quantity !== 1 ? 's' : ''}
-                    </div>
-                  </div>
-                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <div style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
-                      {s.created_at.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
-                    </div>
-                  </div>
-                </div>
-              ))}
             </div>
           )}
         </div>

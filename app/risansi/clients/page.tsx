@@ -43,8 +43,10 @@ export default async function ClientListPage({
   const zoneFilt = typeof sp.zone    === 'string' ? sp.zone.trim()     : '';
   const tierFilt = typeof sp.tier    === 'string' ? sp.tier.trim()     : '';
   const statFilt = typeof sp.status  === 'string' ? sp.status.trim()   : '';
-  const sortKey  = typeof sp.sort    === 'string' ? sp.sort            : 'ytd';
-  const orderDir = sp.order === 'asc'             ? 'ASC'              : 'DESC';
+  const catFilt  = typeof sp.category === 'string' ? sp.category.trim() : '';
+  // Default: sort by last visit date ascending so most-overdue appear first.
+  const sortKey  = typeof sp.sort    === 'string' ? sp.sort            : 'last_visit';
+  const orderDir = sp.order === 'desc'            ? 'DESC'             : 'ASC';
   const pageNum  = Math.max(1, parseInt(typeof sp.page === 'string' ? sp.page : '1', 10) || 1);
   const offset   = (pageNum - 1) * PAGE_SIZE;
 
@@ -77,25 +79,35 @@ export default async function ClientListPage({
     conds.push(`c.status = $${idx}`);
     vals.push(statFilt); idx++;
   }
+  if (catFilt) {
+    conds.push(`c.business_category = $${idx}`);
+    vals.push(catFilt); idx++;
+  }
 
   const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
 
   // ── Queries ────────────────────────────────────────────────
 
   interface ClientRow {
-    id:              string;
-    client_code:     string;
-    legal_name:      string;
-    trade_name:      string | null;
-    industry:        string;
-    zone:            string;
-    route:           string | null;
-    status:          string;
-    tier:            string | null;
-    rep_name:        string | null;
-    last_visit_date: Date | null;
-    ytd_revenue:     string;
-    pipeline_value:  string;
+    id:                  string;
+    client_code:         string;
+    legal_name:          string;
+    trade_name:          string | null;
+    industry:            string;
+    zone:                string;
+    route:               string | null;
+    status:              string;
+    tier:                string | null;
+    business_category:   string | null;
+    ril_pcp:             string | null;
+    total_pcp:           string | null;
+    performance_feedback: string | null;
+    last_visit_fy:       string | null;
+    action_points:       string | null;
+    rep_name:            string | null;
+    last_visit_date:     Date | null;
+    ytd_revenue:         string;
+    pipeline_value:      string;
   }
 
   const fyCode = fy.code; // '25-26' — known constant, safe to embed
@@ -109,6 +121,9 @@ export default async function ClientListPage({
         `SELECT
            c.id, c.client_code, c.legal_name, c.trade_name,
            c.industry, c.zone, c.route, c.status, c.tier,
+           c.business_category, c.ril_pcp, c.total_pcp,
+           c.performance_feedback, c.last_visit_fy,
+           LEFT(c.action_points, 30) AS action_points,
            u.name AS rep_name,
            MAX(CASE WHEN v.status IN ('completed','checked-in') THEN v.visit_date ELSE NULL END)
              AS last_visit_date,
@@ -123,7 +138,10 @@ export default async function ClientListPage({
          LEFT JOIN pipeline_opportunities po ON po.client_id = c.id
          ${where}
          GROUP BY c.id, c.client_code, c.legal_name, c.trade_name,
-                  c.industry, c.zone, c.route, c.status, c.tier, u.name
+                  c.industry, c.zone, c.route, c.status, c.tier,
+                  c.business_category, c.ril_pcp, c.total_pcp,
+                  c.performance_feedback, c.last_visit_fy, c.action_points,
+                  u.name
          ORDER BY ${sortCol} ${orderDir} NULLS LAST
          LIMIT $${limIdx} OFFSET $${offIdx}`,
         mainVals,
@@ -173,8 +191,9 @@ export default async function ClientListPage({
     if (zoneFilt) base.zone    = zoneFilt;
     if (tierFilt) base.tier    = tierFilt;
     if (statFilt) base.status  = statFilt;
+    if (catFilt)  base.category = catFilt;
     if (sortKey)  base.sort    = sortKey;
-    if (orderDir === 'ASC') base.order = 'asc';
+    if (orderDir === 'DESC') base.order = 'desc';
     base.page = String(pageNum);
     const merged = { ...base, ...Object.fromEntries(
       Object.entries(overrides).map(([k, v]) => [k, v == null ? undefined : String(v)])
@@ -187,13 +206,14 @@ export default async function ClientListPage({
   }
 
   function sortUrl(col: string): string {
-    const newOrder = (sortKey === col && orderDir === 'DESC') ? 'asc' : undefined;
+    // Currently ASC on this col → go DESC. Otherwise → go ASC (default).
+    const newOrder = (sortKey === col && orderDir === 'ASC') ? 'desc' : undefined;
     return buildUrl({ sort: col, order: newOrder, page: 1 });
   }
 
   function sortIndicator(col: string) {
     if (sortKey !== col) return null;
-    return <span style={{ fontSize: 9, marginLeft: 3 }}>{orderDir === 'DESC' ? '▼' : '▲'}</span>;
+    return <span style={{ fontSize: 9, marginLeft: 3 }}>{orderDir === 'ASC' ? '▲' : '▼'}</span>;
   }
 
   // ── Status helpers ─────────────────────────────────────────
@@ -239,6 +259,7 @@ export default async function ClientListPage({
           zone={zoneFilt}
           tier={tierFilt}
           status={statFilt}
+          category={catFilt}
           total={total}
         />
 
@@ -260,16 +281,20 @@ export default async function ClientListPage({
                 <thead>
                   <tr style={{ background: 'var(--bg-elev)' }}>
                     {[
-                      { label: 'Code',       key: 'code'       },
-                      { label: 'Client',     key: 'name'       },
-                      { label: 'Industry',   key: 'industry'   },
-                      { label: 'Zone / Route', key: 'zone'     },
-                      { label: 'Rep',        key: 'rep'        },
-                      { label: 'Last Visit', key: 'last_visit' },
-                      { label: 'YTD Rev',    key: 'ytd'        },
-                      { label: 'Pipeline',   key: 'pipeline'   },
-                      { label: 'Status',     key: 'status'     },
-                      { label: 'Tier',       key: 'tier'       },
+                      { label: 'Code',         key: 'code'       },
+                      { label: 'Client',       key: 'name'       },
+                      { label: 'Category',     key: ''           },
+                      { label: 'Industry',     key: 'industry'   },
+                      { label: 'Zone / Route', key: 'zone'       },
+                      { label: 'Rep',          key: 'rep'        },
+                      { label: 'Last Visit',   key: 'last_visit' },
+                      { label: 'Last FY',      key: ''           },
+                      { label: 'PCP (RIL/Tot)', key: ''          },
+                      { label: 'Feedback',     key: ''           },
+                      { label: 'YTD Rev',      key: 'ytd'        },
+                      { label: 'Action Points', key: ''          },
+                      { label: 'Status',       key: 'status'     },
+                      { label: 'Tier',         key: 'tier'       },
                     ].map(col => (
                       <th key={col.key} style={TH}>
                         <a href={sortUrl(col.key)} style={{ color: 'inherit', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -304,6 +329,12 @@ export default async function ClientListPage({
                             <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 1 }}>{c.trade_name}</div>
                           )}
                         </td>
+                        {/* Business Category */}
+                        <td style={TD}>
+                          {c.business_category
+                            ? <Tag kind={c.business_category === 'Sugar' ? 'accent' : undefined}>{c.business_category}</Tag>
+                            : null}
+                        </td>
                         {/* Industry */}
                         <td style={TD}><Tag>{c.industry}</Tag></td>
                         {/* Zone / Route */}
@@ -317,13 +348,37 @@ export default async function ClientListPage({
                         <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: daysColor, whiteSpace: 'nowrap' }}>
                           {days == null ? 'Never' : days === 0 ? 'Today' : `${days}d ago`}
                         </td>
+                        {/* Last Visit FY */}
+                        <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>
+                          {c.last_visit_fy ? `FY ${c.last_visit_fy}` : '—'}
+                        </td>
+                        {/* PCP share */}
+                        <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: 11, whiteSpace: 'nowrap' }}>
+                          {c.total_pcp && Number(c.total_pcp) > 0
+                            ? <span style={{ color: Number(c.ril_pcp ?? 0) > 0 ? 'var(--pos)' : 'var(--fg-3)' }}>
+                                {c.ril_pcp ?? '0'}/{c.total_pcp}
+                              </span>
+                            : <span style={{ color: 'var(--fg-4)' }}>—</span>}
+                        </td>
+                        {/* Performance feedback */}
+                        <td style={TD}>
+                          {c.performance_feedback
+                            ? <Tag kind={
+                                c.performance_feedback.toLowerCase().includes('good') ? 'pos'
+                                : c.performance_feedback.toLowerCase().includes('poor') ? 'neg'
+                                : 'warn'
+                              }>{c.performance_feedback}</Tag>
+                            : null}
+                        </td>
                         {/* YTD Revenue */}
                         <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12, whiteSpace: 'nowrap' }}>
                           {ytd > 0 ? fmtCr(ytd) : <span style={{ color: 'var(--fg-4)' }}>—</span>}
                         </td>
-                        {/* Pipeline */}
-                        <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12, whiteSpace: 'nowrap' }}>
-                          {pipeline > 0 ? fmtCr(pipeline) : <span style={{ color: 'var(--fg-4)' }}>—</span>}
+                        {/* Action points (truncated) */}
+                        <td style={{ ...TD, fontSize: 11, color: 'var(--fg-2)', maxWidth: 180 }}>
+                          {c.action_points
+                            ? <span title={c.action_points}>{c.action_points}{c.action_points.length >= 30 ? '…' : ''}</span>
+                            : null}
                         </td>
                         {/* Status */}
                         <td style={{ ...TD, whiteSpace: 'nowrap' }}>

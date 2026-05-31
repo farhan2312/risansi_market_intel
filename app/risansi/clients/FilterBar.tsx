@@ -12,6 +12,7 @@ interface FilterBarProps {
   zone:       string;
   tier:       string;
   status:     string;
+  category:   string;
   total:      number;
 }
 
@@ -29,7 +30,7 @@ const FIELD: CSSProperties = {
   cursor: 'pointer',
 };
 
-export function FilterBar({ industries, zones, q: initQ, industry, zone, tier, status, total }: FilterBarProps) {
+export function FilterBar({ industries, zones, q: initQ, industry, zone, tier, status, category, total }: FilterBarProps) {
   const router    = useRouter();
   const pathname  = usePathname();
   const [pending, startTransition] = useTransition();
@@ -105,12 +106,31 @@ export function FilterBar({ industries, zones, q: initQ, industry, zone, tier, s
         {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
       </select>
 
+      {/* Business category toggle */}
+      <div style={{ display: 'flex', background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', borderRadius: 5, overflow: 'hidden' }}>
+        {(['', 'Sugar', 'Non-Sugar'] as const).map((cat) => (
+          <button
+            key={cat || 'all'}
+            onClick={() => updateParam('category', cat)}
+            style={{
+              height: 30, padding: '0 10px', fontSize: 11, fontFamily: 'inherit',
+              cursor: 'pointer', border: 'none', borderRight: '1px solid var(--line-strong)',
+              background: category === cat ? 'var(--accent)' : 'transparent',
+              color:      category === cat ? '#fff'         : 'var(--fg-2)',
+              fontWeight: category === cat ? 500            : 400,
+            }}
+          >
+            {cat || 'All'}
+          </button>
+        ))}
+      </div>
+
       {/* Clear filters */}
-      {(search || industry || zone || tier || status) && (
+      {(search || industry || zone || tier || status || category) && (
         <button
           onClick={() => {
             setSearch('');
-            startTransition(() => router.replace(pathname));
+            startTransition(() => router.replace(pathname));  // clears all params
           }}
           style={{ ...FIELD, padding: '0 10px', color: 'var(--fg-3)', fontSize: 11 }}
         >
