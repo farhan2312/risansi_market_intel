@@ -1,9 +1,9 @@
 import type { CSSProperties } from 'react';
 import { Fragment } from 'react';
 import { Topbar, Tag } from '@/components/risansi';
+import AssignVisitDrawer, { AssignVisitRowBtn, type DrawerRep } from '@/components/risansi/AssignVisitDrawer';
 import risansiPool from '@/lib/db-risansi';
-import { initials } from '@/lib/risansi-utils';
-import { assignVisit } from '@/app/actions/risansi';
+import { fmtCr } from '@/lib/risansi-utils';
 
 // ── Safe query wrapper ─────────────────────────────────────────
 
@@ -13,21 +13,25 @@ async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
 
 // ── Data shapes ────────────────────────────────────────────────
 
-interface Rep {
-  id: string;
-  name: string;
+interface RepRow extends DrawerRep {
+  initials: string | null;
+  zone: string | null;
 }
 
 interface WeekVisit {
   id: string;
-  client_id: string;
-  rep_id: string;
-  visit_date: string;     // YYYY-MM-DD
-  purpose: string | null;
+  visit_date: string;
   status: string;
+  purpose: string | null;
   outcome: string | null;
+  client_id: string;
   client_name: string;
   client_code: string;
+  industry: string | null;
+  city: string | null;
+  tier: string | null;
+  rep_name: string;
+  rep_id: string | null;
 }
 
 interface WeekStats {
@@ -39,41 +43,59 @@ interface WeekStats {
 
 interface OverdueAccount {
   id: string;
-  client_code: string;
+  code: string;
   legal_name: string;
-  industry: string;
-  zone: string | null;
-  last_visit: string | null;      // YYYY-MM-DD or null
-  days_since: number | null;
+  industry: string | null;
+  tier: string | null;
+  state: string | null;
+  city: string | null;
+  last_visit_date: string | null;
+  days_overdue: number | null;
+  rep_name: string;
   rep_id: string | null;
-  rep_name: string | null;
+  tour_name: string | null;
+  ytd_inr: number;
 }
 
-// ── Week helpers ───────────────────────────────────────────────
+// ── Week date helpers ──────────────────────────────────────────
 
-function weekMonday(dateStr?: string): string {
+function weekMonday(s?: string): string {
   let d: Date;
-  if (dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-    const [y, m, day] = dateStr.split('-').map(Number);
+  if (s && /^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const [y, m, day] = s.split('-').map(Number);
     d = new Date(y, m - 1, day);
   } else {
     d = new Date();
   }
-  const dow  = d.getDay(); // 0=Sun
+  const dow  = d.getDay();
   const diff = dow === 0 ? -6 : 1 - dow;
   d.setDate(d.getDate() + diff);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-function addDays(dateStr: string, n: number): string {
-  const [y, m, day] = dateStr.split('-').map(Number);
+function addDays(s: string, n: number): string {
+  const [y, m, day] = s.split('-').map(Number);
   const d = new Date(y, m - 1, day + n);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
+
+function pad(n: number) { return String(n).padStart(2, '0'); }
 
 function todayStr(): string {
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function fmtDate(s: string): string {
+  return new Date(s + 'T00:00:00').toLocaleDateString('en-IN', {
+    day: 'numeric', month: 'short',
+  });
+}
+
+function fmtDateLong(s: string): string {
+  return new Date(s + 'T00:00:00').toLocaleDateString('en-IN', {
+    day: 'numeric', month: 'short', year: 'numeric',
+  });
 }
 
 // ── Constants ──────────────────────────────────────────────────
@@ -81,371 +103,549 @@ function todayStr(): string {
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 const PURPOSE_COLOR: Record<string, string> = {
-  'Routine':              'var(--fg-3)',
-  'Quote Follow-up':      'var(--accent)',
-  'Complaint':            'var(--neg)',
-  'New Opp':              'var(--pos)',
-  'Equipment Assessment': 'var(--info)',
-  'Mgmt Relationship':    'oklch(0.55 0.10 280)',
+  'Routine':                       '#3B82F6',
+  'Quote Follow-up':               '#D97706',
+  'Complaint Resolution':          '#E02424',
+  'New Opportunity':               '#0E9F6E',
+  'Equipment Assessment':          '#7C3AED',
+  'Management Relationship Visit': '#0A3D8F',
 };
-
-const STATUS_BG: Record<string, string> = {
-  'completed':  'oklch(0.97 0.05 145)',
-  'planned':    'var(--bg-paper)',
-  'missed':     'oklch(0.97 0.04 15)',
-  'checked-in': 'var(--accent-soft)',
-  'checked_in': 'var(--accent-soft)',
-};
-
-const PURPOSES = ['Routine', 'Quote Follow-up', 'New Opp', 'Complaint', 'Equipment Assessment', 'Mgmt Relationship'];
 
 // ── Page ───────────────────────────────────────────────────────
 
 export default async function VisitsPage({
   searchParams,
 }: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp    = await searchParams;
-  const wParm = typeof sp.w === 'string' ? sp.w : undefined;
+  const tab   = typeof sp.tab === 'string' ? sp.tab : 'week';
+  const wParm = typeof sp.w   === 'string' ? sp.w   : undefined;
 
   const monday = weekMonday(wParm);
   const sunday = addDays(monday, 6);
   const today  = todayStr();
+  const days   = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
 
-  // 7 date strings for the week
-  const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+  const prevWeek  = addDays(monday, -7);
+  const nextWeek  = addDays(monday,  7);
+  const isThisWk  = monday === weekMonday();
 
-  // Prev / next week links
-  const prevWeek = addDays(monday, -7);
-  const nextWeek = addDays(monday, 7);
-
-  // Human-readable week label
-  const startDisp = new Date(monday + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
-  const endDisp   = new Date(sunday + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  const startDisp = fmtDate(monday);
+  const endDisp   = fmtDateLong(sunday);
   const weekLabel = `${startDisp} – ${endDisp}`;
+
+  // Build tab-preserving URLs
+  const tabParam = (t: string) => t === 'week' ? '' : `&tab=${t}`;
 
   const [reps, weekVisits, stats, overdueAccounts] = await Promise.all([
 
-    // 1. All users (reps) for the calendar rows
-    q<Rep[]>(async () => {
-      const { rows } = await risansiPool.query<Rep>(
-        `SELECT id, name FROM reps ORDER BY name`,
-      );
-      return rows;
+    // Active reps — try with optional columns, fall back to id+name only
+    q<RepRow[]>(async () => {
+      try {
+        const { rows } = await risansiPool.query<RepRow>(
+          `SELECT id, name, initials, zone, route
+           FROM reps WHERE is_active = TRUE ORDER BY name ASC`,
+        );
+        return rows;
+      } catch {
+        const { rows } = await risansiPool.query<{ id: string; name: string }>(
+          `SELECT id, name FROM reps ORDER BY name ASC`,
+        );
+        return rows.map(r => ({ ...r, initials: null, zone: null, route: null }));
+      }
     }, []),
 
-    // 2. Visits for the week
+    // Week visits — spec's exact query (parameterised for week nav)
     q<WeekVisit[]>(async () => {
-      const { rows } = await risansiPool.query<{
-        id: string; client_id: string; rep_id: string;
-        visit_date: string; purpose: string | null; status: string; outcome: string | null;
-        client_name: string; client_code: string;
-      }>(`
-        SELECT v.id, v.client_id, v.rep_id,
-               v.visit_date::text AS visit_date,
-               v.purpose, v.status, v.outcome,
-               c.legal_name AS client_name, c.code AS client_code
+      const { rows } = await risansiPool.query<WeekVisit & { visit_date: string }>(`
+        SELECT
+          v.id,
+          v.visit_date::text          AS visit_date,
+          v.status,
+          v.purpose,
+          v.outcome,
+          c.id                        AS client_id,
+          c.legal_name                AS client_name,
+          c.code                      AS client_code,
+          c.industry,
+          c.city,
+          c.tier,
+          COALESCE(r.name, c.primary_rep_name, '—') AS rep_name,
+          r.id                        AS rep_id
         FROM visits v
-        JOIN clients c ON c.id = v.client_id
-        WHERE v.visit_date >= $1::date AND v.visit_date <= $2::date
-        ORDER BY v.visit_date, c.legal_name
-      `, [monday, sunday]);
+        JOIN   clients c ON c.id = v.client_id
+        LEFT JOIN reps r ON r.id = v.rep_id
+        WHERE v.visit_date >= $1::date
+          AND v.visit_date <  $2::date
+        ORDER BY v.visit_date ASC, v.check_in_time ASC NULLS LAST
+      `, [monday, addDays(monday, 7)]);
       return rows;
     }, []),
 
-    // 3. Week KPI stats
+    // Week KPI stats
     q<WeekStats>(async () => {
       const { rows } = await risansiPool.query<WeekStats>(`
         SELECT
-          COUNT(*) FILTER (WHERE status = 'planned')::text                            AS planned,
-          COUNT(*) FILTER (WHERE status = 'completed')::text                          AS completed,
-          COUNT(*) FILTER (WHERE status = 'missed')::text                             AS missed,
-          COUNT(*) FILTER (WHERE status IN ('checked-in','checked_in'))::text         AS checked_in
+          COUNT(*) FILTER (WHERE status = 'planned')::text                    AS planned,
+          COUNT(*) FILTER (WHERE status = 'completed')::text                  AS completed,
+          COUNT(*) FILTER (WHERE status = 'missed')::text                     AS missed,
+          COUNT(*) FILTER (WHERE status IN ('checked-in','checked_in'))::text AS checked_in
         FROM visits
-        WHERE visit_date >= $1::date AND visit_date <= $2::date
-      `, [monday, sunday]);
+        WHERE visit_date >= $1::date AND visit_date < $2::date
+      `, [monday, addDays(monday, 7)]);
       return rows[0] ?? { planned: '0', completed: '0', missed: '0', checked_in: '0' };
     }, { planned: '0', completed: '0', missed: '0', checked_in: '0' }),
 
-    // 4. Overdue accounts — active clients with no visit in 90+ days
+    // Overdue accounts — tier-based thresholds, try last_visit_date column first
     q<OverdueAccount[]>(async () => {
-      const { rows } = await risansiPool.query<{
-        id: string; client_code: string; legal_name: string;
-        industry: string; zone: string | null;
-        last_visit: string | null; days_since: string | null;
-        rep_id: string | null; rep_name: string | null;
-      }>(`
-        SELECT c.id, c.code AS client_code, c.legal_name, c.industry, c.zone,
-               MAX(v.visit_date)::text AS last_visit,
-               CASE
-                 WHEN MAX(v.visit_date) IS NULL THEN NULL
-                 ELSE EXTRACT(DAY FROM NOW() - MAX(v.visit_date)::timestamp)::int
-               END::text AS days_since,
-               r.id AS rep_id, r.name AS rep_name
-        FROM clients c
-        LEFT JOIN visits v ON v.client_id = c.id
-        LEFT JOIN reps r ON r.id = c.primary_rep_id
-        WHERE c.status = 'ACTIVE' AND c.deleted_at IS NULL
-        GROUP BY c.id, c.code, c.legal_name, c.industry, c.zone, r.id, r.name
-        HAVING MAX(v.visit_date) IS NULL
-            OR MAX(v.visit_date) < (NOW() - INTERVAL '90 days')
-        ORDER BY MAX(v.visit_date) ASC NULLS FIRST
-        LIMIT 10
-      `);
-      return rows.map(r => ({ ...r, days_since: r.days_since != null ? Number(r.days_since) : null }));
+      try {
+        const { rows } = await risansiPool.query<{
+          id: string; code: string; legal_name: string;
+          industry: string | null; tier: string | null;
+          state: string | null; city: string | null;
+          last_visit_date: string | null; days_overdue: string | null;
+          rep_name: string; rep_id: string | null;
+          tour_name: string | null; ytd_inr: string;
+        }>(`
+          SELECT
+            c.id, c.code, c.legal_name, c.industry,
+            c.tier, c.status, c.state, c.city,
+            c.last_visit_date::text AS last_visit_date,
+            (CURRENT_DATE - c.last_visit_date)::int::text AS days_overdue,
+            COALESCE(r.name, c.primary_rep_name, '—') AS rep_name,
+            r.id AS rep_id,
+            c.tour_name,
+            COALESCE(c.rev_2526_pump, 0) + COALESCE(c.rev_2526_spare, 0) AS ytd_inr
+          FROM clients c
+          LEFT JOIN reps r ON c.primary_rep_id = r.id
+          WHERE c.status = 'ACTIVE'
+            AND c.deleted_at IS NULL
+            AND (
+              c.last_visit_date IS NULL
+              OR (c.tier = 'Key'  AND c.last_visit_date < NOW() - INTERVAL '100 days')
+              OR (c.tier != 'Key' AND c.last_visit_date < NOW() - INTERVAL '200 days')
+            )
+          ORDER BY days_overdue DESC NULLS FIRST
+          LIMIT 100
+        `);
+        return rows.map(r => ({
+          ...r,
+          days_overdue: r.days_overdue != null ? Number(r.days_overdue) : null,
+          ytd_inr:      Number(r.ytd_inr ?? 0),
+        }));
+      } catch {
+        // Fallback: compute last visit via join when last_visit_date column absent
+        const { rows } = await risansiPool.query<{
+          id: string; code: string; legal_name: string;
+          industry: string | null; tier: string | null;
+          state: string | null; city: string | null;
+          last_visit_date: string | null; days_overdue: string | null;
+          rep_name: string; rep_id: string | null; ytd_inr: string;
+        }>(`
+          SELECT
+            c.id, c.code, c.legal_name, c.industry,
+            c.tier, c.state, c.city,
+            MAX(v.visit_date)::text AS last_visit_date,
+            EXTRACT(DAY FROM NOW() - MAX(v.visit_date)::timestamp)::int::text AS days_overdue,
+            COALESCE(r.name, c.primary_rep_name, '—') AS rep_name,
+            r.id AS rep_id,
+            COALESCE(c.rev_2526_pump, 0) + COALESCE(c.rev_2526_spare, 0) AS ytd_inr
+          FROM clients c
+          LEFT JOIN visits v ON v.client_id = c.id
+          LEFT JOIN reps r ON c.primary_rep_id = r.id
+          WHERE c.status = 'ACTIVE' AND c.deleted_at IS NULL
+          GROUP BY c.id, c.code, c.legal_name, c.industry, c.tier, c.state, c.city,
+                   c.primary_rep_name, r.name, r.id,
+                   c.rev_2526_pump, c.rev_2526_spare
+          HAVING MAX(v.visit_date) IS NULL
+              OR MAX(v.visit_date) < NOW() - INTERVAL '200 days'
+          ORDER BY days_overdue DESC NULLS FIRST
+          LIMIT 100
+        `);
+        return rows.map(r => ({
+          ...r,
+          tour_name:    null,
+          days_overdue: r.days_overdue != null ? Number(r.days_overdue) : null,
+          ytd_inr:      Number(r.ytd_inr ?? 0),
+        }));
+      }
     }, []),
   ]);
 
-  // ── Derived values ─────────────────────────────────────────
+  // ── Derived stats ──────────────────────────────────────────
 
-  const planned    = Number(stats.planned);
-  const completed  = Number(stats.completed);
-  const missed     = Number(stats.missed);
-  const checkedIn  = Number(stats.checked_in);
-  const total      = planned + completed + missed + checkedIn;
-  const closeable  = completed + missed;
-  const compliance = closeable > 0 ? Math.round((completed / closeable) * 100) : 0;
+  const nPlanned   = Number(stats.planned);
+  const nCompleted = Number(stats.completed);
+  const nMissed    = Number(stats.missed);
+  const nCheckedIn = Number(stats.checked_in);
+  const nTotal     = nPlanned + nCompleted + nMissed + nCheckedIn;
+  const denomComp  = nPlanned + nCompleted + nMissed;
+  const compliance = denomComp > 0 ? Math.round((nCompleted / denomComp) * 100) : 0;
 
-  // Build visit lookup: repId → dateStr → visits[]
+  // Rep × day grid
   const byRepDay: Record<string, Record<string, WeekVisit[]>> = {};
   for (const v of weekVisits) {
-    if (!byRepDay[v.rep_id]) byRepDay[v.rep_id] = {};
-    if (!byRepDay[v.rep_id][v.visit_date]) byRepDay[v.rep_id][v.visit_date] = [];
-    byRepDay[v.rep_id][v.visit_date].push(v);
+    const rid = v.rep_id ?? '__unassigned__';
+    if (!byRepDay[rid]) byRepDay[rid] = {};
+    if (!byRepDay[rid][v.visit_date]) byRepDay[rid][v.visit_date] = [];
+    byRepDay[rid][v.visit_date].push(v);
   }
 
-  const tomorrow = addDays(today, 1);
+  // Overdue summary
+  const keyOverdue      = overdueAccounts.filter(a => a.tier === 'Key').length;
+  const stdOverdue      = overdueAccounts.filter(a => a.tier !== 'Key').length;
+  const totalExposureCr = overdueAccounts.reduce((s, a) => s + a.ytd_inr, 0) / 10_000_000;
 
   // ── Render ─────────────────────────────────────────────────
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+
+      {/* Sticky topbar */}
       <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
-        <Topbar crumbs={['Visit Calendar']} />
+        <Topbar crumbs={['Risansi', 'Visit Plan']} />
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 48px', background: '#F4F7FC' }}>
 
-        {/* Page head */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+        {/* ── Page header ───────────────────────────────────── */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18 }}>
           <div>
-            <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
-              Visit Calendar
+            <div style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.02em', color: '#0D1B2A' }}>
+              Visit Plan
             </div>
-            <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 4, fontFamily: 'var(--font-mono)' }}>
-              {reps.length} rep{reps.length !== 1 ? 's' : ''}
-              {' · '}{total} visit{total !== 1 ? 's' : ''} this week
-              {overdueAccounts.length > 0 && ` · ${overdueAccounts.length} overdue account${overdueAccounts.length !== 1 ? 's' : ''}`}
+            <div style={{ fontSize: 12, color: '#6B7FA3', marginTop: 3, fontFamily: 'var(--font-mono)' }}>
+              Week of {weekLabel}
             </div>
           </div>
-        </div>
-
-        {/* KPI strip */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, marginBottom: 14 }}>
-          <KpiCard label="Visits Scheduled" value={String(total)} sub="this week" />
-          <KpiCard label="Completed" value={String(completed)} sub={`of ${closeable > 0 ? closeable : total} closeable`} pos />
-          <KpiCard label="Missed" value={String(missed)} sub="did not happen" neg={missed > 0} />
-          <KpiCard label="Compliance" value={closeable > 0 ? `${compliance}%` : '—'} sub="completed / closeable" pos={compliance >= 80} neg={compliance > 0 && compliance < 60} />
-          <KpiCard label="At-Risk Accounts" value={String(overdueAccounts.length)} sub="90+ days no visit" neg={overdueAccounts.length > 0} />
-        </div>
-
-        {/* Week navigation */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-          <a href={`/risansi/visits?w=${prevWeek}`} style={NAV_BTN}>← Prev</a>
-          <span style={{ fontSize: 13, fontWeight: 500, fontFamily: 'var(--font-mono)' }}>{weekLabel}</span>
-          <a href={`/risansi/visits?w=${nextWeek}`} style={NAV_BTN}>Next →</a>
-          {monday !== weekMonday() && (
-            <a href="/risansi/visits" style={{ ...NAV_BTN, color: 'var(--accent)' }}>This week</a>
-          )}
-        </div>
-
-        {/* Calendar grid */}
-        {reps.length === 0 ? (
-          <div style={{ ...PANEL, padding: '32px', textAlign: 'center', fontSize: 12, color: 'var(--fg-3)' }}>
-            No reps configured
-          </div>
-        ) : (
-          <div style={{ ...PANEL, overflowX: 'auto', marginBottom: 14 }}>
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: `150px repeat(7, minmax(120px, 1fr))`,
-              minWidth: 1000,
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            {/* Stat chips */}
+            <span style={STAT_CHIP}>
+              {nTotal} visit{nTotal !== 1 ? 's' : ''} planned this week
+            </span>
+            <span style={{
+              ...STAT_CHIP,
+              background: compliance >= 80 ? '#D1FAE5' : compliance >= 60 ? '#FEF3C7' : '#FEE2E2',
+              color:      compliance >= 80 ? '#065F46' : compliance >= 60 ? '#92400E' : '#9B1C1C',
             }}>
-
-              {/* Header row */}
-              <div style={GRID_HEAD_CELL} />
-              {days.map((day, i) => {
-                const isToday = day === today;
-                const d = new Date(day + 'T00:00:00');
-                return (
-                  <div key={day} style={{
-                    ...GRID_HEAD_CELL,
-                    background: isToday ? 'var(--accent-soft)' : undefined,
-                  }}>
-                    <div style={{ fontSize: 10, color: isToday ? 'var(--accent)' : 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                      {DAY_LABELS[i]}
-                    </div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: isToday ? 600 : 400, color: isToday ? 'var(--accent)' : 'var(--fg)', marginTop: 2 }}>
-                      {d.getDate()}
-                    </div>
-                  </div>
-                );
-              })}
-
-              {/* Rep rows */}
-              {reps.map((rep, repIdx) => {
-                const repInitials = initials(rep.name);
-                const isLast = repIdx === reps.length - 1;
-                const rowBorder = isLast ? undefined : '1px solid var(--line)';
-                return (
-                  <Fragment key={rep.id}>
-                    {/* Rep label */}
-                    <div style={{
-                      ...GRID_CELL,
-                      borderBottom: rowBorder,
-                      padding: '10px 12px',
-                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
-                      justifyContent: 'center',
-                    }}>
-                      <div style={{
-                        width: 30, height: 30, borderRadius: 6,
-                        background: 'var(--bg-sunk)', color: 'var(--fg-2)',
-                        display: 'grid', placeItems: 'center',
-                        fontSize: 11, fontWeight: 600,
-                      }}>
-                        {repInitials}
-                      </div>
-                      <div style={{ fontSize: 11, fontWeight: 500, textAlign: 'center', lineHeight: 1.2 }}>
-                        {rep.name.split(' ')[0]}
-                      </div>
-                    </div>
-
-                    {/* Day cells */}
-                    {days.map(day => {
-                      const dayVisits = byRepDay[rep.id]?.[day] ?? [];
-                      const isToday = day === today;
-                      return (
-                        <div key={day} style={{
-                          ...GRID_CELL,
-                          borderBottom: rowBorder,
-                          padding: 6, minHeight: 64,
-                          background: isToday ? 'oklch(0.99 0.01 60)' : undefined,
-                          verticalAlign: 'top',
-                        }}>
-                          {dayVisits.map(v => {
-                            const purposeColor = PURPOSE_COLOR[v.purpose ?? 'Routine'] ?? 'var(--fg-3)';
-                            const statusBg = STATUS_BG[v.status] ?? 'var(--bg-paper)';
-                            return (
-                              <div key={v.id} style={{
-                                background: statusBg,
-                                borderLeft: `2px solid ${purposeColor}`,
-                                borderRadius: 3,
-                                padding: '5px 7px',
-                                marginBottom: 4,
-                                border: '1px solid var(--line)',
-                                borderLeftWidth: 2,
-                                borderLeftColor: purposeColor,
-                              }}>
-                                <div style={{ fontSize: 10, fontWeight: 500, color: 'var(--fg)', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  {v.client_name}
-                                </div>
-                                <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 1 }}>
-                                  {v.purpose ?? 'Visit'}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      );
-                    })}
-                  </Fragment>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Visit purpose legend */}
-        <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
-          {Object.entries(PURPOSE_COLOR).map(([purpose, color]) => (
-            <div key={purpose} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--fg-3)' }}>
-              <div style={{ width: 3, height: 12, background: color, borderRadius: 1 }} />
-              {purpose}
-            </div>
-          ))}
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 10 }}>
-            {[
-              ['Completed', 'oklch(0.97 0.05 145)'],
-              ['Planned',   'var(--bg-paper)'],
-              ['Missed',    'oklch(0.97 0.04 15)'],
-            ].map(([label, bg]) => (
-              <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--fg-3)' }}>
-                <div style={{ width: 10, height: 10, background: bg, border: '1px solid var(--line)', borderRadius: 2 }} />
-                {label}
-              </div>
-            ))}
+              {denomComp > 0 ? `${compliance}% compliance` : '— compliance'}
+            </span>
+            {/* Drawer island — renders + Assign Visit button + drawer */}
+            <AssignVisitDrawer reps={reps} />
           </div>
         </div>
 
-        {/* Overdue accounts */}
-        {overdueAccounts.length > 0 && (
-          <div style={PANEL}>
-            <div style={PANEL_H}>
-              <span style={PANEL_TITLE}>At-Risk Accounts</span>
-              <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--fg-3)' }}>
-                no visit in 90+ days
+        {/* ── Tab bar ──────────────────────────────────────── */}
+        <div style={{ display: 'flex', borderBottom: '2px solid #DDE6F5', marginBottom: 18, gap: 0 }}>
+          <TabLink
+            href={`?tab=week${wParm ? '&w=' + wParm : ''}`}
+            active={tab !== 'overdue'}
+          >
+            Week View
+          </TabLink>
+          <TabLink
+            href={`?tab=overdue${wParm ? '&w=' + wParm : ''}`}
+            active={tab === 'overdue'}
+          >
+            Overdue Accounts
+            {overdueAccounts.length > 0 && (
+              <span style={{ marginLeft: 6, background: '#FEE2E2', color: '#9B1C1C', borderRadius: 10, padding: '1px 7px', fontSize: 10, fontWeight: 700 }}>
+                {overdueAccounts.length}
               </span>
-              <span style={{ marginLeft: 'auto', fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--neg)', fontWeight: 500 }}>{overdueAccounts.length}</span>
+            )}
+          </TabLink>
+        </div>
+
+        {/* ── Tab 1: Week View ─────────────────────────────── */}
+        {tab !== 'overdue' && (
+          <>
+            {/* Week navigation */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <a href={`?tab=week&w=${prevWeek}`} style={NAV_BTN}>← Prev</a>
+              <span style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: '#2C3E5A' }}>{weekLabel}</span>
+              <a href={`?tab=week&w=${nextWeek}`} style={NAV_BTN}>Next →</a>
+              {!isThisWk && (
+                <a href="?tab=week" style={{ ...NAV_BTN, color: '#0A3D8F', borderColor: '#0A3D8F' }}>
+                  This week
+                </a>
+              )}
             </div>
-            <div>
-              {overdueAccounts.map((account, i) => (
-                <div
-                  key={account.id}
-                  style={{
-                    display: 'flex', gap: 12, padding: '14px',
-                    borderBottom: i < overdueAccounts.length - 1 ? '1px solid var(--line)' : 'none',
-                    alignItems: 'flex-start', flexWrap: 'wrap',
-                  }}
-                >
-                  {/* Red left bar */}
-                  <div style={{ width: 4, alignSelf: 'stretch', background: 'var(--neg)', borderRadius: 2, flexShrink: 0 }} />
 
-                  {/* Client info */}
-                  <div style={{ flex: '1 1 200px', minWidth: 0 }}>
-                    <div style={{ fontWeight: 500, fontSize: 12 }}>{account.legal_name}</div>
-                    <div style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', marginTop: 2, lineHeight: 1.5 }}>
-                      {account.client_code}
-                      {account.industry ? ` · ${account.industry}` : ''}
-                      {account.zone ? ` · ${account.zone}` : ''}
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--neg)', fontFamily: 'var(--font-mono)', marginTop: 4 }}>
-                      {account.days_since != null
-                        ? `Last visited ${account.days_since} days ago`
-                        : 'Never visited'}
-                      {account.last_visit ? ` (${new Date(account.last_visit + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })})` : ''}
-                    </div>
-                  </div>
+            {reps.length === 0 ? (
+              <div style={{ ...PANEL, padding: 48, textAlign: 'center', fontSize: 13, color: '#6B7FA3' }}>
+                No active reps configured.
+              </div>
+            ) : weekVisits.length === 0 ? (
+              <div style={{ ...PANEL, padding: 48, textAlign: 'center' }}>
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#2C3E5A', marginBottom: 8 }}>
+                  No visits planned for this week.
+                </div>
+                <div style={{ fontSize: 13, color: '#6B7FA3' }}>
+                  Use + Assign Visit to add visits.
+                </div>
+              </div>
+            ) : (
+              <div style={{ ...PANEL, overflowX: 'auto', marginBottom: 14 }}>
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: `140px repeat(7, minmax(130px, 1fr))`,
+                  minWidth: 1050,
+                }}>
+                  {/* Column headers */}
+                  <div style={HEAD_CELL} />
+                  {days.map((day, i) => {
+                    const isToday = day === today;
+                    const d = new Date(day + 'T00:00:00');
+                    return (
+                      <div key={day} style={{
+                        ...HEAD_CELL,
+                        background: isToday ? '#EBF1FB' : '#F8FAFC',
+                      }}>
+                        <div style={{ fontSize: 9, color: isToday ? '#0A3D8F' : '#6B7FA3', textTransform: 'uppercase', letterSpacing: '0.10em', fontWeight: isToday ? 700 : 500 }}>
+                          {DAY_LABELS[i]}
+                        </div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: isToday ? 700 : 400, color: isToday ? '#0A3D8F' : '#0D1B2A', marginTop: 2 }}>
+                          {d.getDate()}
+                        </div>
+                      </div>
+                    );
+                  })}
 
-                  {/* Assign visit form */}
-                  <form action={assignVisit} style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
-                    <input type="hidden" name="client_id" value={account.id} />
-                    <select name="rep_id" defaultValue={account.rep_id ?? ''} style={FORM_FIELD}>
-                      <option value="">Select rep</option>
-                      {reps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                    </select>
-                    <input type="date" name="visit_date" defaultValue={tomorrow} style={FORM_FIELD} />
-                    <select name="purpose" style={FORM_FIELD}>
-                      {PURPOSES.map(p => <option key={p} value={p}>{p}</option>)}
-                    </select>
-                    <button type="submit" style={BTN}>Assign visit →</button>
-                  </form>
+                  {/* Rep rows */}
+                  {reps.map((rep, repIdx) => {
+                    const abbr = rep.initials
+                      ?? (rep.name.split(' ').filter(Boolean).map(p => p[0]).slice(0, 2).join('').toUpperCase() || '?');
+                    const isLast   = repIdx === reps.length - 1;
+                    const rowLine  = isLast ? 'none' : '1px solid #DDE6F5';
+
+                    return (
+                      <Fragment key={rep.id}>
+                        {/* Rep label cell */}
+                        <div style={{
+                          ...BODY_CELL,
+                          borderBottom: rowLine,
+                          padding: '10px 12px',
+                          display: 'flex', flexDirection: 'column',
+                          alignItems: 'center', justifyContent: 'center', gap: 4,
+                        }}>
+                          <div style={{
+                            width: 32, height: 32, borderRadius: 6,
+                            background: '#EBF1FB', color: '#0A3D8F',
+                            display: 'grid', placeItems: 'center',
+                            fontSize: 11, fontWeight: 700,
+                          }}>
+                            {abbr}
+                          </div>
+                          <div style={{ fontSize: 11, fontWeight: 500, textAlign: 'center', lineHeight: 1.25, color: '#2C3E5A' }}>
+                            {rep.name.split(' ')[0]}
+                          </div>
+                          {rep.route && (
+                            <div style={{ fontSize: 9, color: '#6B7FA3', textAlign: 'center' }}>
+                              {rep.route}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Day cells */}
+                        {days.map(day => {
+                          const dayVisits = byRepDay[rep.id]?.[day] ?? [];
+                          const isToday   = day === today;
+                          return (
+                            <div key={day} style={{
+                              ...BODY_CELL,
+                              borderBottom: rowLine,
+                              padding: 5, minHeight: 72,
+                              background: isToday ? 'rgba(235,241,251,0.45)' : 'transparent',
+                              verticalAlign: 'top',
+                            }}>
+                              {dayVisits.length === 0 ? (
+                                <div style={{ height: '100%', minHeight: 62, border: '1px dashed #E2E8F0', borderRadius: 4, margin: 1 }} />
+                              ) : (
+                                dayVisits.map(v => (
+                                  <VisitCard key={v.id} visit={v} />
+                                ))
+                              )}
+                            </div>
+                          );
+                        })}
+                      </Fragment>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Legend */}
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', marginBottom: 4 }}>
+              <div style={{ fontSize: 10, color: '#6B7FA3', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                Purpose
+              </div>
+              {Object.entries(PURPOSE_COLOR).map(([purpose, color]) => (
+                <div key={purpose} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#2C3E5A' }}>
+                  <div style={{ width: 3, height: 14, background: color, borderRadius: 2, flexShrink: 0 }} />
+                  {purpose}
                 </div>
               ))}
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center' }}>
+                <div style={{ fontSize: 10, color: '#6B7FA3', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Status</div>
+                {[
+                  ['Planned',    '#F3F4F6', '#374151'],
+                  ['Checked-in', '#1A5CB8', '#fff'],
+                  ['Completed',  '#0E9F6E', '#fff'],
+                  ['Missed',     '#E02424', '#fff'],
+                ].map(([label, bg, fg]) => (
+                  <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#2C3E5A' }}>
+                    <div style={{ width: 10, height: 10, background: bg, border: label === 'Planned' ? '1px solid #DDE6F5' : 'none', borderRadius: 2 }} />
+                    <span style={{ color: '#6B7FA3', fontSize: 10 }}>{label}</span>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          </>
         )}
 
+        {/* ── Tab 2: Overdue Accounts ──────────────────────── */}
+        {tab === 'overdue' && (
+          <>
+            {/* Summary strip */}
+            <div style={{ ...PANEL, padding: '12px 16px', marginBottom: 14, display: 'flex', gap: 24, alignItems: 'center', flexWrap: 'wrap' }}>
+              {keyOverdue > 0 && (
+                <div style={{ fontSize: 12 }}>
+                  <span style={{ fontWeight: 700, color: '#E02424', fontFamily: 'var(--font-mono)' }}>{keyOverdue}</span>
+                  <span style={{ color: '#6B7FA3', marginLeft: 5 }}>key account{keyOverdue !== 1 ? 's' : ''} overdue</span>
+                </div>
+              )}
+              {stdOverdue > 0 && (
+                <div style={{ fontSize: 12 }}>
+                  <span style={{ fontWeight: 700, color: '#D97706', fontFamily: 'var(--font-mono)' }}>{stdOverdue}</span>
+                  <span style={{ color: '#6B7FA3', marginLeft: 5 }}>standard account{stdOverdue !== 1 ? 's' : ''} overdue</span>
+                </div>
+              )}
+              {totalExposureCr > 0 && (
+                <div style={{ fontSize: 12, marginLeft: 'auto' }}>
+                  <span style={{ color: '#6B7FA3' }}>Total exposure: </span>
+                  <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#0D1B2A' }}>
+                    {fmtCr(totalExposureCr)}
+                  </span>
+                </div>
+              )}
+              {overdueAccounts.length === 0 && (
+                <div style={{ fontSize: 13, color: '#0E9F6E', fontWeight: 500 }}>
+                  ✓ All accounts are within visit frequency thresholds.
+                </div>
+              )}
+            </div>
+
+            {overdueAccounts.length === 0 ? null : (
+              <div style={{ ...PANEL, overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr>
+                      {['Client', 'Industry', 'State', 'Tier', 'Last Visit', 'Days Overdue', '25–26 Revenue', 'Rep', 'Action'].map(h => (
+                        <th key={h} style={TH}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {overdueAccounts.map((a, i) => {
+                      const last = overdueAccounts.length - 1;
+                      const { color: dColor, label: dLabel } = overdueStyle(a.days_overdue);
+                      return (
+                        <tr key={a.id} style={{ borderBottom: i < last ? '1px solid #EBF1FB' : 'none' }}>
+                          {/* Client */}
+                          <td style={{ padding: '10px 12px', verticalAlign: 'middle' }}>
+                            <div style={{ fontWeight: 600, fontSize: 12, color: '#0D1B2A' }}>{a.legal_name}</div>
+                            <div style={{ fontSize: 10, color: '#6B7FA3', fontFamily: 'var(--font-mono)', marginTop: 1 }}>
+                              {a.code}{a.tour_name ? ` · ${a.tour_name}` : ''}
+                            </div>
+                          </td>
+                          {/* Industry */}
+                          <td style={TD}>
+                            {a.industry
+                              ? <Tag>{a.industry}</Tag>
+                              : <span style={{ color: '#6B7FA3' }}>—</span>
+                            }
+                          </td>
+                          {/* State */}
+                          <td style={{ ...TD, color: '#6B7FA3' }}>{a.state ?? '—'}</td>
+                          {/* Tier */}
+                          <td style={TD}>
+                            {a.tier
+                              ? <Tag kind={a.tier === 'Key' ? 'warn' : undefined}>{a.tier}</Tag>
+                              : <span style={{ color: '#6B7FA3' }}>—</span>
+                            }
+                          </td>
+                          {/* Last Visit */}
+                          <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: '#6B7FA3' }}>
+                            {a.last_visit_date ? fmtDateLong(a.last_visit_date) : '—'}
+                          </td>
+                          {/* Days overdue */}
+                          <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: dColor, fontWeight: a.days_overdue != null && a.days_overdue > 365 ? 700 : 500 }}>
+                            {dLabel}
+                          </td>
+                          {/* Revenue */}
+                          <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+                            {a.ytd_inr > 0 ? fmtCr(a.ytd_inr / 10_000_000) : '—'}
+                          </td>
+                          {/* Rep */}
+                          <td style={{ ...TD, color: '#2C3E5A' }}>{a.rep_name}</td>
+                          {/* Action */}
+                          <td style={{ ...TD, whiteSpace: 'nowrap' }}>
+                            <AssignVisitRowBtn
+                              clientId={a.id}
+                              clientName={a.legal_name}
+                              clientCode={a.code}
+                              repId={a.rep_id ?? undefined}
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+
+      </div>
+    </div>
+  );
+}
+
+// ── Visit card ─────────────────────────────────────────────────
+
+function VisitCard({ visit: v }: { visit: WeekVisit }) {
+  const purposeColor = PURPOSE_COLOR[v.purpose ?? ''] ?? '#94A3B8';
+  const { bg: statusBg, fg: statusFg, cross } = statusStyle(v.status);
+
+  return (
+    <div style={{
+      background: '#fff',
+      border: '1px solid #E2E8F0',
+      borderLeft: `4px solid ${purposeColor}`,
+      borderRadius: 4,
+      padding: '5px 7px',
+      marginBottom: 4,
+      textDecoration: cross ? 'line-through' : 'none',
+    }}>
+      <div style={{
+        fontSize: 11, fontWeight: 600, color: '#0D1B2A',
+        lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      }}>
+        {v.client_name}
+      </div>
+      <div style={{ fontSize: 9, color: '#6B7FA3', marginTop: 1, marginBottom: 4 }}>
+        {v.purpose ?? 'Visit'}
+      </div>
+      <div style={{
+        display: 'inline-block', padding: '1px 5px',
+        borderRadius: 3, fontSize: 9, fontWeight: 700,
+        letterSpacing: '0.03em', background: statusBg, color: statusFg,
+        textTransform: 'uppercase',
+      }}>
+        {v.status.replace(/_/g, '-')}
       </div>
     </div>
   );
@@ -453,67 +653,89 @@ export default async function VisitsPage({
 
 // ── Sub-components ─────────────────────────────────────────────
 
-function KpiCard({ label, value, sub, pos = false, neg = false }: {
-  label: string; value: string; sub?: string; pos?: boolean; neg?: boolean;
+function TabLink({ href, active, children }: {
+  href: string; active: boolean; children: React.ReactNode;
 }) {
-  const valueColor = pos ? 'var(--pos)' : neg ? 'var(--neg)' : 'var(--fg)';
   return (
-    <div style={{ background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', padding: 12 }}>
-      <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.10em', fontWeight: 500 }}>
-        {label}
-      </div>
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 22, marginTop: 4, color: valueColor, lineHeight: 1 }}>
-        {value}
-      </div>
-      {sub && <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 3 }}>{sub}</div>}
-    </div>
+    <a href={href} style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4,
+      padding: '8px 16px', fontSize: 13, textDecoration: 'none',
+      fontWeight: active ? 600 : 400,
+      color: active ? '#0A3D8F' : '#6B7FA3',
+      borderBottom: active ? '2px solid #0A3D8F' : '2px solid transparent',
+      marginBottom: -2,
+      transition: 'color 0.15s',
+    }}>
+      {children}
+    </a>
   );
+}
+
+// ── Style helpers ──────────────────────────────────────────────
+
+function statusStyle(status: string): { bg: string; fg: string; cross: boolean } {
+  switch (status) {
+    case 'completed':
+      return { bg: '#0E9F6E', fg: '#fff', cross: false };
+    case 'checked-in':
+    case 'checked_in':
+      return { bg: '#1A5CB8', fg: '#fff', cross: false };
+    case 'missed':
+      return { bg: '#E02424', fg: '#fff', cross: false };
+    case 'cancelled':
+      return { bg: '#F3F4F6', fg: '#6B7280', cross: true };
+    default: // planned
+      return { bg: '#F3F4F6', fg: '#374151', cross: false };
+  }
+}
+
+function overdueStyle(days: number | null): { color: string; label: string } {
+  if (days == null) return { color: '#E02424', label: 'Never visited' };
+  if (days > 365)   return { color: '#E02424', label: '1yr+' };
+  if (days > 200)   return { color: '#E02424', label: `${days}d` };
+  if (days > 100)   return { color: '#D97706', label: `${days}d` };
+  return { color: '#6B7FA3', label: `${days}d` };
 }
 
 // ── Style constants ────────────────────────────────────────────
 
 const PANEL: CSSProperties = {
-  background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 'var(--radius)',
+  background: '#fff', border: '1px solid #DDE6F5', borderRadius: 8,
 };
 
-const PANEL_H: CSSProperties = {
-  padding: '12px 14px', borderBottom: '1px solid var(--line)',
-  display: 'flex', alignItems: 'center', gap: 8,
+const STAT_CHIP: CSSProperties = {
+  display: 'inline-flex', alignItems: 'center',
+  padding: '5px 12px', fontSize: 12, fontWeight: 500,
+  background: '#EBF1FB', color: '#0A3D8F',
+  borderRadius: 20, whiteSpace: 'nowrap',
 };
 
-const PANEL_TITLE: CSSProperties = { fontSize: 12, fontWeight: 500, letterSpacing: '-0.005em' };
-
-const GRID_HEAD_CELL: CSSProperties = {
+const HEAD_CELL: CSSProperties = {
   padding: '10px 12px',
-  background: 'var(--bg-elev)',
-  borderBottom: '1px solid var(--line)',
-  borderRight: '1px solid var(--line)',
+  background: '#F8FAFC',
+  borderBottom: '2px solid #DDE6F5',
+  borderRight: '1px solid #DDE6F5',
 };
 
-const GRID_CELL: CSSProperties = {
-  borderRight: '1px solid var(--line)',
+const BODY_CELL: CSSProperties = {
+  borderRight: '1px solid #DDE6F5',
 };
 
 const NAV_BTN: CSSProperties = {
   display: 'inline-flex', alignItems: 'center',
   padding: '5px 10px', fontSize: 12, fontFamily: 'inherit',
-  background: 'var(--bg-paper)', border: '1px solid var(--line-strong)',
-  color: 'var(--fg)', borderRadius: 5, textDecoration: 'none',
-  cursor: 'pointer',
+  background: '#fff', border: '1px solid #CBD5E1',
+  color: '#2C3E5A', borderRadius: 5, textDecoration: 'none',
 };
 
-const FORM_FIELD: CSSProperties = {
-  height: 30, padding: '0 8px',
-  fontSize: 12, fontFamily: 'inherit',
-  background: 'var(--bg-paper)',
-  border: '1px solid var(--line-strong)',
-  borderRadius: 5, color: 'var(--fg)', outline: 'none',
+const TH: CSSProperties = {
+  padding: '9px 12px', textAlign: 'left',
+  fontSize: 10, textTransform: 'uppercase',
+  letterSpacing: '0.08em', fontWeight: 700, color: '#6B7FA3',
+  background: '#EBF1FB', borderBottom: '2px solid #DDE6F5',
+  whiteSpace: 'nowrap',
 };
 
-const BTN: CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', gap: 4,
-  padding: '5px 11px', fontSize: 12, fontFamily: 'inherit',
-  fontWeight: 500, background: 'var(--bg-paper)',
-  border: '1px solid var(--line-strong)', color: 'var(--fg)',
-  borderRadius: 5, cursor: 'pointer',
+const TD: CSSProperties = {
+  padding: '10px 12px', verticalAlign: 'middle', fontSize: 12,
 };

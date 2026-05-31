@@ -221,16 +221,27 @@ export async function assignVisit(formData: FormData) {
   const repId     = (formData.get('rep_id')      as string | null)?.trim() || null;
   const visitDate = (formData.get('visit_date')  as string | null)?.trim();
   const purpose   = (formData.get('purpose')     as string | null)?.trim() ?? 'Routine';
+  const notes     = (formData.get('notes')       as string | null)?.trim() || null;
 
   if (!clientId) return;
 
   const date = visitDate ?? new Date().toISOString().slice(0, 10);
 
-  await risansiPool.query(
-    `INSERT INTO visits (client_id, rep_id, visit_date, purpose, status, created_at)
-     VALUES ($1, $2, $3, $4, 'planned', NOW())`,
-    [clientId, repId, date, purpose],
-  );
+  // Try full insert with optional columns; fall back to minimal if schema differs
+  try {
+    await risansiPool.query(
+      `INSERT INTO visits
+         (client_id, rep_id, visit_date, purpose, status, is_planned, summary, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, 'planned', TRUE, $5, NOW(), NOW())`,
+      [clientId, repId, date, purpose, notes],
+    );
+  } catch {
+    await risansiPool.query(
+      `INSERT INTO visits (client_id, rep_id, visit_date, purpose, status, created_at)
+       VALUES ($1, $2, $3, $4, 'planned', NOW())`,
+      [clientId, repId, date, purpose],
+    );
+  }
 
   await logActivity('client', clientId, `visit assigned for ${date} · ${purpose}`, user.email!);
   revalidatePath('/risansi/visits');
