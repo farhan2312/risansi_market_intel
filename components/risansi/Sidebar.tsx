@@ -99,13 +99,7 @@ export function Sidebar({ active, role, user, alerts = {} }: SidebarProps) {
     <aside style={ASIDE}>
       {/* Brand */}
       <div style={LOGO_CARD}>
-        <div style={{ width: 32, height: 32, background: '#00B4D8', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 700, color: '#071E47', flexShrink: 0 }}>
-          R
-        </div>
-        <div style={{ marginLeft: 10 }}>
-          <div style={{ color: '#FFFFFF', fontSize: 15, fontWeight: 700, letterSpacing: '-0.01em', lineHeight: 1.1 }}>Risansi</div>
-          <div style={{ color: '#5B7FA8', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.12em', marginTop: 1 }}>Industries Ltd</div>
-        </div>
+        <img src="/logo.png" alt="Risansi Industries Ltd" style={{ width: '100%', height: '52px', objectFit: 'contain', objectPosition: 'left center', display: 'block' }} />
       </div>
 
       {/* Operate / Field */}
