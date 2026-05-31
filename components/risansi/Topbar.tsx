@@ -17,7 +17,7 @@ export function Topbar({ crumbs, primaryAction, period = 'FY 25–26' }: TopbarP
           <span key={i} style={{ display: 'contents' }}>
             {i > 0 && <IcChevRight />}
             {i === crumbs.length - 1
-              ? <strong style={{ color: '#1A5CB8', fontWeight: 600 }}>{c}</strong>
+              ? <strong style={{ color: '#0A3D8F', fontWeight: 600 }}>{c}</strong>
               : <span style={{ color: 'var(--fg-3)' }}>{c}</span>
             }
           </span>
@@ -82,7 +82,7 @@ function TbBtn({ children, primary }: { children: React.ReactNode; primary?: boo
 const TOPBAR: CSSProperties = {
   height: 52,
   background: '#FFFFFF',
-  borderBottom: '1px solid var(--line)',
+  borderBottom: '1px solid #DDE6F5',
   display: 'flex',
   alignItems: 'center',
   padding: '0 24px',
@@ -103,17 +103,17 @@ const LIVE_WRAP: CSSProperties = {
   alignItems: 'center',
   gap: 6,
   fontSize: 12,
-  color: 'var(--fg-3)',
+  color: '#0E9F6E',
   padding: '5px 10px',
   borderRadius: 5,
 };
 
 const LIVE_DOT: CSSProperties = {
-  width: 6,
-  height: 6,
+  width: 7,
+  height: 7,
   borderRadius: '50%',
-  background: '#059669',
-  boxShadow: '0 0 0 3px rgba(5, 150, 105, 0.20)',
+  background: '#0E9F6E',
+  animation: 'pulse-dot 2s ease-in-out infinite',
   flexShrink: 0,
 };
 
@@ -136,7 +136,7 @@ const SEARCH_INPUT: CSSProperties = {
   outline: 'none',
   flex: 1,
   fontFamily: 'inherit',
-  fontSize: 12,
+  fontSize: 13,
   color: 'var(--fg)',
   minWidth: 0,
 };

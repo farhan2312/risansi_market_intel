@@ -96,14 +96,14 @@ export function Sidebar({ active, role, user, alerts = {} }: SidebarProps) {
 
   return (
     <aside style={ASIDE}>
-      {/* Brand */}
-      <div style={BRAND_WRAP}>
+      {/* Brand — white card on navy */}
+      <div style={LOGO_CARD}>
         <Image
           src="/logo.png"
-          alt="Risansi Industries"
-          width={160}
-          height={50}
-          style={{ objectFit: 'contain', objectPosition: 'left center' }}
+          alt="Risansi Industries Ltd"
+          width={148}
+          height={44}
+          style={{ objectFit: 'contain' }}
           priority
         />
       </div>
@@ -158,7 +158,7 @@ export function Sidebar({ active, role, user, alerts = {} }: SidebarProps) {
 
 function NavGroup({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div style={{ padding: '14px 12px 4px' }}>
+    <div style={{ padding: '0 8px 4px' }}>
       <div style={GROUP_LABEL}>{label}</div>
       {children}
     </div>
@@ -176,8 +176,8 @@ function NavLink({ item, isActive, badge, isAlert }: {
     <Link href={href} style={{ textDecoration: 'none', display: 'block' }}>
       <div style={{
         ...LINK_BASE,
-        color:      isActive ? '#ffffff' : '#8BA4C0',
-        background: isActive ? 'rgba(26,92,184,0.20)' : 'transparent',
+        color:      isActive ? '#FFFFFF' : '#B8C9E8',
+        background: isActive ? '#1A5CB8' : 'transparent',
       }}>
         {isActive && <span style={ACTIVE_BAR} />}
         <Icon />
@@ -185,7 +185,7 @@ function NavLink({ item, isActive, badge, isAlert }: {
         {badge != null && (
           <span style={{
             ...BADGE,
-            background: isAlert ? '#DC2626' : 'rgba(255,255,255,0.10)',
+            background: isAlert ? '#DC2626' : 'rgba(255,255,255,0.12)',
           }}>{badge}</span>
         )}
       </div>
@@ -199,30 +199,34 @@ const ASIDE: CSSProperties = {
   width: 240,
   flexShrink: 0,
   background: '#0A1628',
-  color: '#CBD5E1',
+  color: '#B8C9E8',
   display: 'flex',
   flexDirection: 'column',
-  padding: '18px 0',
+  padding: 0,
+  paddingBottom: 18,
   borderRight: '1px solid rgba(255,255,255,0.06)',
   height: '100%',
   overflowX: 'hidden',
   overflowY: 'auto',
 };
 
-const BRAND_WRAP: CSSProperties = {
-  padding: '10px 16px 14px',
+const LOGO_CARD: CSSProperties = {
+  background: '#FFFFFF',
+  borderRadius: 8,
+  padding: '10px 14px',
+  margin: '16px 12px 20px 12px',
   display: 'flex',
   alignItems: 'center',
-  background: '#071E47',
+  justifyContent: 'center',
 };
 
 const GROUP_LABEL: CSSProperties = {
-  padding: '0 8px 6px',
+  margin: '20px 0 6px 8px',
   fontSize: 10,
   textTransform: 'uppercase',
   letterSpacing: '0.12em',
-  color: '#3D5A7A',
-  fontWeight: 500,
+  color: '#00B4D8',
+  fontWeight: 600,
 };
 
 const LINK_BASE: CSSProperties = {
@@ -231,19 +235,21 @@ const LINK_BASE: CSSProperties = {
   gap: 10,
   padding: '7px 10px',
   borderRadius: 5,
-  fontSize: 13,
+  fontSize: 13.5,
+  fontWeight: 500,
+  letterSpacing: '0.01em',
   position: 'relative',
   cursor: 'pointer',
 };
 
 const ACTIVE_BAR: CSSProperties = {
   position: 'absolute',
-  left: -12,
+  left: -8,
   top: 6,
   bottom: 6,
   width: 3,
   borderRadius: 2,
-  background: '#00A3C4',
+  background: '#00B4D8',
 };
 
 const BADGE: CSSProperties = {
@@ -256,8 +262,8 @@ const BADGE: CSSProperties = {
 
 const USER_WRAP: CSSProperties = {
   marginTop: 'auto',
-  padding: '14px 20px 4px',
-  borderTop: '1px solid rgba(255,255,255,0.06)',
+  padding: '14px 16px 8px',
+  borderTop: '1px solid rgba(255,255,255,0.12)',
   display: 'flex',
   gap: 10,
   alignItems: 'center',
@@ -268,7 +274,7 @@ const AVATAR: CSSProperties = {
   height: 34,
   borderRadius: '50%',
   flexShrink: 0,
-  background: 'rgba(26,92,184,0.25)',
+  background: 'rgba(26,92,184,0.30)',
   display: 'grid',
   placeItems: 'center',
   fontSize: 13,
@@ -280,7 +286,7 @@ const SIGNOUT_BTN: CSSProperties = {
   marginTop: 4,
   display: 'block',
   fontSize: 11,
-  color: '#00A3C4',
+  color: '#00B4D8',
   background: 'none',
   border: 'none',
   padding: 0,
@@ -290,18 +296,17 @@ const SIGNOUT_BTN: CSSProperties = {
 };
 
 const WHO: CSSProperties = {
-  fontSize: 12,
-  color: '#fff',
+  fontSize: 13,
+  fontWeight: 500,
+  color: '#FFFFFF',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
 };
 
 const ROLE_LABEL: CSSProperties = {
-  fontSize: 10,
-  color: '#3D5A7A',
-  textTransform: 'uppercase',
-  letterSpacing: '0.1em',
+  fontSize: 11,
+  color: '#8BA3C7',
 };
 
 // ── Icons ─────────────────────────────────────────────────────

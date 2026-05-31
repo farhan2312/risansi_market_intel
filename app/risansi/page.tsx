@@ -17,15 +17,15 @@ async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
 // ── Competitor colour palette ──────────────────────────────────
 
 const COMP_COLORS: Record<string, string> = {
-  RIL:      '#1A5CB8',
-  Roto:     '#059669',
-  Rotomac:  '#0891B2',
-  Gita:     '#D97706',
+  RIL:      '#0A3D8F',
+  Roto:     '#1A5CB8',
+  Rotomac:  '#1A5CB8',
+  Gita:     '#00B4D8',
   Sintech:  '#DC2626',
-  PSP:      '#7C3AED',
-  Netzsch:  '#6366F1',
+  PSP:      '#D97706',
+  Netzsch:  '#2E7DD1',
   Tushaco:  '#B45309',
-  Others:   'var(--fg-3)',
+  Others:   '#DDE6F5',
 };
 
 function compColor(name: string): string {
@@ -35,10 +35,10 @@ function compColor(name: string): string {
 // ── Funnel stage colours ───────────────────────────────────────
 
 const FUNNEL_COLORS: Record<string, string> = {
-  Suspect:     'var(--fg-3)',
-  Prospect:    'var(--info)',
-  Quoted:      'var(--warn)',
-  Negotiating: 'var(--accent)',
+  Suspect:     '#93C5FD',
+  Prospect:    '#3B82F6',
+  Quoted:      '#1D4ED8',
+  Negotiating: '#D97706',
 };
 
 // ── Data shapes ────────────────────────────────────────────────
@@ -380,7 +380,7 @@ export default async function ExecDashboardPage() {
         <div style={{ display: 'grid', gridTemplateColumns: '2.2fr 1fr 1fr 1fr', gap: 14, marginBottom: 14 }}>
 
           {/* Booked Revenue hero panel */}
-          <div style={PANEL}>
+          <div style={KPI_PANEL}>
             <div style={PANEL_H}>
               <span style={PANEL_TITLE}>FY 25–26 Booked Revenue</span>
               <span style={META}>Updated {formatTime(today)} IST</span>
@@ -510,10 +510,10 @@ export default async function ExecDashboardPage() {
                     thick={20}
                     center={
                       <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 500 }}>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700, color: '#0D1B2A' }}>
                           {rilShare.toFixed(1)}%
                         </div>
-                        <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                        <div style={{ fontSize: 10, color: '#6B7FA3', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
                           RIL Share
                         </div>
                       </div>
@@ -698,6 +698,11 @@ const PANEL: CSSProperties = {
   borderRadius: 'var(--radius)',
 };
 
+const KPI_PANEL: CSSProperties = {
+  ...PANEL,
+  borderLeft: '4px solid #0A3D8F',
+};
+
 const PANEL_H: CSSProperties = {
   padding:      '12px 14px',
   borderBottom: '1px solid var(--line)',
@@ -707,9 +712,11 @@ const PANEL_H: CSSProperties = {
 };
 
 const PANEL_TITLE: CSSProperties = {
-  fontSize:      12,
-  fontWeight:    500,
-  letterSpacing: '-0.005em',
+  fontSize:      11,
+  fontWeight:    700,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  color:         '#0A3D8F',
 };
 
 const META: CSSProperties = {
@@ -721,19 +728,19 @@ const META: CSSProperties = {
 const METRIC_LABEL: CSSProperties = {
   fontSize:       10,
   textTransform:  'uppercase',
-  letterSpacing:  '0.10em',
-  color:          'var(--fg-3)',
-  fontWeight:     500,
+  letterSpacing:  '0.08em',
+  color:          '#6B7FA3',
+  fontWeight:     600,
 };
 
 const METRIC_VAL: CSSProperties = {
   fontFamily:         'var(--font-mono)',
   fontSize:           28,
-  fontWeight:         400,
+  fontWeight:         700,
   letterSpacing:      '-0.02em',
   fontVariantNumeric: 'tabular-nums',
   lineHeight:         1.05,
-  color:              'var(--fg)',
+  color:              '#0D1B2A',
 };
 
 const TH: CSSProperties = {
@@ -742,9 +749,10 @@ const TH: CSSProperties = {
   fontSize:      10,
   textTransform: 'uppercase',
   letterSpacing: '0.08em',
-  fontWeight:    500,
-  color:         'var(--fg-3)',
-  borderBottom:  '1px solid var(--line)',
+  fontWeight:    600,
+  color:         '#6B7FA3',
+  background:    '#EBF1FB',
+  borderBottom:  '2px solid #DDE6F5',
   whiteSpace:    'nowrap',
 };
 
@@ -760,7 +768,7 @@ function SmallMetric({ label, value, unit, delta, deltaPos, sub, spark }: {
   delta?: string; deltaPos?: boolean; sub?: string; spark: number[];
 }) {
   return (
-    <div style={PANEL}>
+    <div style={KPI_PANEL}>
       <div style={{ padding: 14 }}>
         <div style={METRIC_LABEL}>{label}</div>
         <div style={METRIC_VAL}>
@@ -788,13 +796,13 @@ function SegmentBar({ label, value, total, color }: { label: string; value: numb
   return (
     <div style={{ marginBottom: 10 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 11 }}>
-        <span>{label}</span>
-        <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg-2)' }}>
-          {fmtCr(value)} <span style={{ color: 'var(--fg-3)' }}>({pct.toFixed(0)}%)</span>
+        <span style={{ color: '#2C3E5A' }}>{label}</span>
+        <span style={{ fontFamily: 'var(--font-mono)', color: '#0D1B2A' }}>
+          {fmtCr(value)} <span style={{ color: '#6B7FA3' }}>({pct.toFixed(0)}%)</span>
         </span>
       </div>
-      <div style={{ height: 4, background: 'var(--bg-sunk)', borderRadius: 2, overflow: 'hidden' }}>
-        <div style={{ height: '100%', width: `${pct}%`, background: color, borderRadius: 2 }} />
+      <div style={{ height: 4, background: '#DDE6F5', borderRadius: 2, overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${pct}%`, background: '#1A5CB8', borderRadius: 2 }} />
       </div>
     </div>
   );
@@ -815,17 +823,17 @@ function FunnelBarRow({ stage, count, value, max, color }: {
   const pct = max > 0 ? (value / max) * 100 : 0;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px dashed var(--line)' }}>
-      <div style={{ width: 110, fontSize: 11, color, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 500, flexShrink: 0 }}>
+      <div style={{ width: 110, fontSize: 11, color: '#2C3E5A', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 500, flexShrink: 0 }}>
         {stage}
       </div>
       <div style={{ flex: 1 }}>
-        <div style={{ height: 18, background: 'var(--bg-sunk)', borderRadius: 2, overflow: 'hidden' }}>
+        <div style={{ height: 18, background: '#DDE6F5', borderRadius: 2, overflow: 'hidden' }}>
           <div style={{ width: `${pct}%`, height: '100%', background: color, opacity: 0.85, display: 'flex', alignItems: 'center', paddingLeft: 8, color: '#fff', fontSize: 10, fontFamily: 'var(--font-mono)' }}>
             {count > 0 ? `${count} opps` : ''}
           </div>
         </div>
       </div>
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, minWidth: 90, textAlign: 'right' }}>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, minWidth: 90, textAlign: 'right', color: '#0D1B2A' }}>
         {fmtCr(value)}
       </div>
     </div>

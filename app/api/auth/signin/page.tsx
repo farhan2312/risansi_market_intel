@@ -3,7 +3,6 @@
 import { useState, FormEvent } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import Image from 'next/image';
 
 export default function SignInPage() {
   const router   = useRouter();
@@ -63,13 +62,10 @@ export default function SignInPage() {
 
         {/* Logo — dark bg blends into navy panel */}
         <div style={{ position: 'relative' }}>
-          <Image
+          <img
             src="/logo.png"
             alt="Risansi Industries"
-            width={160}
-            height={48}
-            style={{ objectFit: 'contain', objectPosition: 'left center' }}
-            priority
+            style={{ height: '48px', width: 'auto', objectFit: 'contain', objectPosition: 'left center', display: 'block', filter: 'brightness(0) invert(1)' }}
           />
           <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 8, letterSpacing: '0.04em' }}>
             Risansi Industries Ltd
@@ -103,7 +99,7 @@ export default function SignInPage() {
 
       {/* ── Right panel — form ──────────────────────────────── */}
       <div style={{
-        background: '#F4F6FB',
+        background: '#EEF2FA',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -113,27 +109,25 @@ export default function SignInPage() {
           background: '#ffffff',
           border: '1px solid rgba(10,22,40,0.08)',
           borderRadius: 12,
-          padding: '48px 44px',
+          padding: '36px 32px',
           width: '100%',
           maxWidth: 400,
-          boxShadow: '0 4px 32px rgba(10,22,40,0.08)',
+          boxShadow: '0 4px 24px rgba(10,61,143,0.10)',
         }}>
 
-          {/* Logo — blue box with white logo mark */}
+          {/* Logo */}
           <div style={{ marginBottom: 32, display: 'flex', justifyContent: 'center' }}>
             <div style={{
-              background: '#1A5CB8',
-              borderRadius: 8,
-              padding: '10px 20px',
+              background: '#0A3D8F',
+              borderRadius: 10,
+              padding: '14px 24px',
               display: 'inline-flex',
               alignItems: 'center',
             }}>
-              <Image
+              <img
                 src="/logo.png"
-                alt="Risansi Industries"
-                width={120}
-                height={36}
-                style={{ objectFit: 'contain', filter: 'brightness(0) invert(1)' }}
+                alt="Risansi Industries Ltd"
+                style={{ height: '48px', width: 'auto', objectFit: 'contain', display: 'block', filter: 'brightness(0) invert(1)' }}
               />
             </div>
           </div>
