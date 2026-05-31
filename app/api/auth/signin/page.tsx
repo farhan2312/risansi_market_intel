@@ -60,12 +60,12 @@ export default function SignInPage() {
           <line x1="300" y1="0" x2="300" y2="900" stroke="#fff" strokeWidth="1"/>
         </svg>
 
-        {/* Logo — dark bg blends into navy panel */}
+        {/* Logo */}
         <div style={{ position: 'relative' }}>
           <img
             src="/logo.png"
-            alt="Risansi Industries"
-            style={{ height: '48px', width: 'auto', objectFit: 'contain', objectPosition: 'left center', display: 'block', filter: 'brightness(0) invert(1)' }}
+            alt="Risansi"
+            style={{ height: '44px', width: 'auto', display: 'block', filter: 'brightness(0) invert(1)' }}
           />
           <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 8, letterSpacing: '0.04em' }}>
             Risansi Industries Ltd
@@ -116,20 +116,12 @@ export default function SignInPage() {
         }}>
 
           {/* Logo */}
-          <div style={{ marginBottom: 32, display: 'flex', justifyContent: 'center' }}>
-            <div style={{
-              background: '#0A3D8F',
-              borderRadius: 10,
-              padding: '14px 24px',
-              display: 'inline-flex',
-              alignItems: 'center',
-            }}>
-              <img
-                src="/logo.png"
-                alt="Risansi Industries Ltd"
-                style={{ height: '48px', width: 'auto', objectFit: 'contain', display: 'block', filter: 'brightness(0) invert(1)' }}
-              />
-            </div>
+          <div style={{ textAlign: 'center', marginBottom: 28 }}>
+            <img
+              src="/logo.png"
+              alt="Risansi Industries Ltd"
+              style={{ height: '52px', width: 'auto', display: 'inline-block' }}
+            />
           </div>
 
           {/* Heading */}
