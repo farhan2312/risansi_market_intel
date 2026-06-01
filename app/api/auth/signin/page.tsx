@@ -62,7 +62,9 @@ export default function SignInPage() {
 
         {/* Logo */}
         <div style={{ position: 'relative' }}>
-          <img src="/logo.png" alt="Risansi Industries Ltd" style={{ height: '48px', width: 'auto', objectFit: 'contain', display: 'block' }} />
+          <div style={{ background: '#fff', borderRadius: 10, padding: '8px 14px', display: 'inline-flex', alignItems: 'center' }}>
+            <img src="/logo.png" alt="Risansi Industries Ltd" style={{ height: '48px', width: 'auto', objectFit: 'contain', display: 'block' }} />
+          </div>
         </div>
 
         {/* Tagline */}
@@ -110,11 +112,13 @@ export default function SignInPage() {
 
           {/* Logo */}
           <div style={{ textAlign: 'center', marginBottom: 28 }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', background: '#F0F4FA', borderRadius: 10, padding: '8px 16px', border: '1px solid #DDE6F5' }}>
             <img
               src="/logo.png"
               alt="Risansi Industries Ltd"
               style={{ height: '56px', width: 'auto', objectFit: 'contain', display: 'inline-block' }}
             />
+            </div>
           </div>
 
           {/* Heading */}
