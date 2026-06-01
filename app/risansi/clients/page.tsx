@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { Topbar, Tag, StatusDot, MultiSelectFilter, ActiveFilterBar, SortableTH } from '@/components/risansi';
 import { AddClientDrawer } from '@/components/risansi/AddClientDrawer';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentFY, formatRevLakh } from '@/lib/risansi-utils';
+import { formatRev } from '@/lib/risansi-utils';
 import { FilterBar } from './FilterBar';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
@@ -22,7 +22,7 @@ const SORT_MAP: Record<string, string> = {
   status:     'c.status',
   tier:       'c.tier',
   rep:        'r.name',
-  ytd:        '(COALESCE(c.rev_2526_pump,0) + COALESCE(c.rev_2526_spare,0))',
+  ytd:        'COALESCE(c.rev_2526_total, 0)',
 };
 
 export default async function ClientListPage({
@@ -47,7 +47,6 @@ export default async function ClientListPage({
   const repFilts    = typeof sp.rep      === 'string' && sp.rep      ? sp.rep.split(',').filter(Boolean)      : [];
 
   const sortCol  = SORT_MAP[sortKey] ?? 'c.last_visit_date';
-  const fy       = getCurrentFY();
 
   // ── Build parameterised WHERE conditions ──────────────────
 
@@ -103,15 +102,14 @@ export default async function ClientListPage({
     status:               string;
     tier:                 string | null;
     business_category:    string | null;
-    ril_pcp_count:        number | null;
-    total_others_pcp:     number | null;
     performance_feedback: string | null;
     last_visit_fy:        string | null;
     last_visit_date:      Date | null;
     action_points:        string | null;
     rep_name:             string | null;
     rep_initials:         string | null;
-    ytd_inr:              string;
+    ytd_inr:              number;
+    prev_inr:             number;
   }
 
   interface RepOption { rep_name: string; client_count: number; }
@@ -124,10 +122,10 @@ export default async function ClientListPage({
         `SELECT
            c.id, c.code, c.legal_name, c.trade_name,
            c.industry, c.zone, c.tour_name, c.status, c.tier,
-           c.business_category, c.ril_pcp_count, c.total_others_pcp,
+           c.business_category,
            c.performance_feedback, c.last_visit_fy, c.last_visit_date,
            LEFT(c.action_points, 80) AS action_points,
-           (COALESCE(c.rev_2526_pump,0) + COALESCE(c.rev_2526_spare,0))::text AS ytd_inr,
+           COALESCE(c.rev_2526_total, 0)::bigint AS ytd_inr,
            COALESCE(r.name, c.primary_rep_name, '—') AS rep_name,
            COALESCE(r.initials,
              LEFT(COALESCE(c.primary_rep_name,''),1) ||
@@ -325,7 +323,6 @@ export default async function ClientListPage({
                     <SortableTH col="rep"        label="Rep"           currentSort={curSort} currentDir={curDir} />
                     <SortableTH col="last_visit" label="Last Visit"    currentSort={curSort} currentDir={curDir} />
                     <th style={TH}>Last FY</th>
-                    <th style={TH}>PCP (RIL/Tot)</th>
                     <th style={TH}>Feedback</th>
                     <SortableTH col="ytd"        label="YTD Rev"       currentSort={curSort} currentDir={curDir} align="right" />
                     <th style={TH}>Action Points</th>
@@ -385,13 +382,6 @@ export default async function ClientListPage({
                         <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>
                           {c.last_visit_fy ? `FY ${c.last_visit_fy}` : '—'}
                         </td>
-                        <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: 11, whiteSpace: 'nowrap' }}>
-                          {(c.ril_pcp_count ?? 0) > 0 || (c.total_others_pcp ?? 0) > 0
-                            ? <span style={{ color: (c.ril_pcp_count ?? 0) > 0 ? 'var(--pos)' : 'var(--fg-3)' }}>
-                                {c.ril_pcp_count ?? '0'}/{(c.ril_pcp_count ?? 0) + (c.total_others_pcp ?? 0)}
-                              </span>
-                            : <span style={{ color: 'var(--fg-4)' }}>—</span>}
-                        </td>
                         <td style={TD}>
                           {c.performance_feedback
                             ? <Tag kind={
@@ -402,7 +392,7 @@ export default async function ClientListPage({
                             : null}
                         </td>
                         <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12, whiteSpace: 'nowrap' }}>
-                          {Number(c.ytd_inr) > 0 ? formatRevLakh(c.ytd_inr) : <span style={{ color: 'var(--fg-4)' }}>—</span>}
+                          {c.ytd_inr > 0 ? formatRev(c.ytd_inr) : <span style={{ color: 'var(--fg-4)' }}>—</span>}
                         </td>
                         <td style={{ ...TD, fontSize: 11, color: 'var(--fg-2)', maxWidth: 180 }}>
                           {c.action_points

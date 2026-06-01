@@ -3,7 +3,7 @@ import { Fragment } from 'react';
 import { Topbar, Tag, MultiSelectFilter, ActiveFilterBar, SortableTH } from '@/components/risansi';
 import AssignVisitDrawer, { AssignVisitRowBtn, type DrawerRep } from '@/components/risansi/AssignVisitDrawer';
 import risansiPool from '@/lib/db-risansi';
-import { fmtL, formatRevLakh } from '@/lib/risansi-utils';
+import { formatRev } from '@/lib/risansi-utils';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
@@ -43,13 +43,17 @@ interface OverdueAccount {
   legal_name:      string;
   industry:        string | null;
   tier:            string | null;
+  status:          string;
   state:           string | null;
   city:            string | null;
   last_visit_date: string | null;
+  last_visit_fy:   string | null;
   days_overdue:    number | null;
   rep_name:        string;
   rep_id:          string | null;
+  rep_initials:    string | null;
   tour_name:       string | null;
+  visit_count:     number | null;
   ytd_inr:         number;
 }
 
@@ -214,77 +218,47 @@ export default async function VisitsPage({
 
     q<OverdueAccount[]>(async () => {
       const extraConds = overdueConds.length > 0 ? `AND ${overdueConds.join(' AND ')}` : '';
-      try {
-        const { rows } = await risansiPool.query<{
-          id: string; code: string; legal_name: string;
-          industry: string | null; tier: string | null;
-          state: string | null; city: string | null;
-          last_visit_date: string | null; days_overdue: string | null;
-          rep_name: string; rep_id: string | null;
-          tour_name: string | null; ytd_inr: string;
-        }>(`
-          SELECT
-            c.id, c.code, c.legal_name, c.industry,
-            c.tier, c.status, c.state, c.city,
-            c.last_visit_date::text AS last_visit_date,
-            (CURRENT_DATE - c.last_visit_date)::int::text AS days_overdue,
-            COALESCE(r.name, c.primary_rep_name, '—') AS rep_name,
-            r.id AS rep_id,
-            c.tour_name,
-            COALESCE(c.rev_2526_pump, 0) + COALESCE(c.rev_2526_spare, 0) AS ytd_inr
-          FROM clients c
-          LEFT JOIN reps r ON c.primary_rep_id = r.id
-          WHERE c.status = 'ACTIVE'
-            AND c.deleted_at IS NULL
-            AND (
-              c.last_visit_date IS NULL
-              OR (c.tier = 'Key'  AND c.last_visit_date < NOW() - INTERVAL '100 days')
-              OR (c.tier != 'Key' AND c.last_visit_date < NOW() - INTERVAL '200 days')
-            )
-            ${extraConds}
-          ORDER BY ${sortCol} ${orderDir} NULLS ${orderDir === 'DESC' ? 'LAST' : 'FIRST'}
-          LIMIT 100
-        `, overdueVals as string[]);
-        return rows.map(r => ({
-          ...r,
-          days_overdue: r.days_overdue != null ? Number(r.days_overdue) : null,
-          ytd_inr:      Number(r.ytd_inr ?? 0),
-        }));
-      } catch {
-        const { rows } = await risansiPool.query<{
-          id: string; code: string; legal_name: string;
-          industry: string | null; tier: string | null;
-          state: string | null; city: string | null;
-          last_visit_date: string | null; days_overdue: string | null;
-          rep_name: string; rep_id: string | null; ytd_inr: string;
-        }>(`
-          SELECT
-            c.id, c.code, c.legal_name, c.industry,
-            c.tier, c.state, c.city,
-            MAX(v.visit_date)::text AS last_visit_date,
-            EXTRACT(DAY FROM NOW() - MAX(v.visit_date)::timestamp)::int::text AS days_overdue,
-            COALESCE(r.name, c.primary_rep_name, '—') AS rep_name,
-            r.id AS rep_id,
-            COALESCE(c.rev_2526_pump, 0) + COALESCE(c.rev_2526_spare, 0) AS ytd_inr
-          FROM clients c
-          LEFT JOIN visits v ON v.client_id = c.id
-          LEFT JOIN reps r ON c.primary_rep_id = r.id
-          WHERE c.status = 'ACTIVE' AND c.deleted_at IS NULL
-          GROUP BY c.id, c.code, c.legal_name, c.industry, c.tier, c.state, c.city,
-                   c.primary_rep_name, r.name, r.id,
-                   c.rev_2526_pump, c.rev_2526_spare
-          HAVING MAX(v.visit_date) IS NULL
-              OR MAX(v.visit_date) < NOW() - INTERVAL '200 days'
-          ORDER BY days_overdue DESC NULLS FIRST
-          LIMIT 100
-        `);
-        return rows.map(r => ({
-          ...r,
-          tour_name:    null,
-          days_overdue: r.days_overdue != null ? Number(r.days_overdue) : null,
-          ytd_inr:      Number(r.ytd_inr ?? 0),
-        }));
-      }
+      const { rows } = await risansiPool.query<{
+        id: string; code: string; legal_name: string;
+        industry: string | null; tier: string | null; status: string;
+        state: string | null; city: string | null;
+        last_visit_date: string | null; last_visit_fy: string | null;
+        days_overdue: string | null;
+        tour_name: string | null; visit_count: string | null;
+        rep_name: string; rep_initials: string | null;
+        ytd_inr: string;
+      }>(`
+        SELECT
+          c.id, c.code, c.legal_name, c.industry,
+          c.tier, c.status, c.state, c.city,
+          c.last_visit_date, c.last_visit_fy,
+          CURRENT_DATE - c.last_visit_date AS days_overdue,
+          c.tour_name, c.visit_count,
+          COALESCE(r.name, c.primary_rep_name, '—') AS rep_name,
+          COALESCE(r.initials,
+            UPPER(LEFT(COALESCE(c.primary_rep_name,'?'),1)) ||
+            UPPER(LEFT(SPLIT_PART(COALESCE(c.primary_rep_name,'? ?'),' ',2),1))
+          ) AS rep_initials,
+          COALESCE(c.rev_2526_total, 0) AS ytd_inr
+        FROM clients c
+        LEFT JOIN reps r ON c.primary_rep_id = r.id
+        WHERE c.status='ACTIVE' AND c.deleted_at IS NULL
+          AND (
+            c.last_visit_date IS NULL
+            OR (c.tier='Key'  AND c.last_visit_date < NOW() - INTERVAL '100 days')
+            OR (c.tier!='Key' AND c.last_visit_date < NOW() - INTERVAL '200 days')
+          )
+          ${extraConds}
+        ORDER BY ${sortCol} ${orderDir} NULLS FIRST
+        LIMIT 100
+      `, overdueVals as string[]);
+      return rows.map(r => ({
+        ...r,
+        rep_id:       null,
+        days_overdue: r.days_overdue != null ? Number(r.days_overdue) : null,
+        visit_count:  r.visit_count != null ? Number(r.visit_count) : null,
+        ytd_inr:      Number(r.ytd_inr ?? 0),
+      }));
     }, []),
 
     // Rep options for filter
@@ -324,7 +298,7 @@ export default async function VisitsPage({
 
   const keyOverdue     = overdueAccounts.filter(a => a.tier === 'Key').length;
   const stdOverdue     = overdueAccounts.filter(a => a.tier !== 'Key').length;
-  const totalExposureL = overdueAccounts.reduce((s, a) => s + a.ytd_inr, 0) / 100_000;
+  const totalExposureInr = overdueAccounts.reduce((s, a) => s + a.ytd_inr, 0);
 
   const curSort = sortKey;
   const curDir  = orderDir === 'DESC' ? 'desc' : 'asc';
@@ -532,11 +506,11 @@ export default async function VisitsPage({
                   <span style={{ color: '#6B7FA3', marginLeft: 5 }}>standard account{stdOverdue !== 1 ? 's' : ''} overdue</span>
                 </div>
               )}
-              {totalExposureL > 0 && (
+              {totalExposureInr > 0 && (
                 <div style={{ fontSize: 12, marginLeft: 'auto' }}>
                   <span style={{ color: '#6B7FA3' }}>Total exposure: </span>
                   <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#0D1B2A' }}>
-                    {fmtL(totalExposureL)}
+                    {formatRev(totalExposureInr)}
                   </span>
                 </div>
               )}
@@ -584,7 +558,7 @@ export default async function VisitsPage({
                   <tbody>
                     {overdueAccounts.map((a, i) => {
                       const last = overdueAccounts.length - 1;
-                      const { color: dColor, label: dLabel } = overdueStyle(a.days_overdue);
+                      const { color: dColor, label: dLabel, bold: dBold } = overdueStyle(a.days_overdue);
                       return (
                         <tr key={a.id} style={{ borderBottom: i < last ? '1px solid #EBF1FB' : 'none' }}>
                           <td style={{ padding: '10px 12px', verticalAlign: 'middle' }}>
@@ -605,11 +579,11 @@ export default async function VisitsPage({
                           <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: '#6B7FA3' }}>
                             {a.last_visit_date ? fmtDateLong(a.last_visit_date) : '—'}
                           </td>
-                          <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: dColor, fontWeight: a.days_overdue != null && a.days_overdue > 365 ? 700 : 500 }}>
+                          <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: dColor, fontWeight: dBold ? 700 : 500 }}>
                             {dLabel}
                           </td>
                           <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-                            {a.ytd_inr > 0 ? formatRevLakh(a.ytd_inr) : '—'}
+                            {a.ytd_inr > 0 ? formatRev(a.ytd_inr) : '—'}
                           </td>
                           <td style={{ ...TD, color: '#2C3E5A' }}>{a.rep_name}</td>
                           <td style={{ ...TD, whiteSpace: 'nowrap' }}>
@@ -696,12 +670,12 @@ function statusStyle(status: string): { bg: string; fg: string; cross: boolean }
   }
 }
 
-function overdueStyle(days: number | null): { color: string; label: string } {
-  if (days == null) return { color: '#E02424', label: 'Never visited' };
-  if (days > 365)   return { color: '#E02424', label: '1yr+' };
-  if (days > 200)   return { color: '#E02424', label: `${days}d` };
-  if (days > 100)   return { color: '#D97706', label: `${days}d` };
-  return { color: '#6B7FA3', label: `${days}d` };
+function overdueStyle(days: number | null): { color: string; label: string; bold: boolean } {
+  if (days == null) return { color: '#E02424', label: 'Never visited', bold: true };
+  if (days > 365)   return { color: '#E02424', label: '1yr+',          bold: true };
+  if (days > 200)   return { color: '#E02424', label: `${days}d ago`,  bold: false };
+  if (days > 100)   return { color: '#D97706', label: `${days}d ago`,  bold: false };
+  return { color: '#6B7FA3', label: `${days}d ago`, bold: false };
 }
 
 // ── Style constants ────────────────────────────────────────────

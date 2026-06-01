@@ -28,19 +28,16 @@ export default async function CoverageMapPage() {
       const { rows } = await risansiPool.query<{
         id: string; code: string; legal_name: string; industry: string | null;
         state: string | null; city: string | null;
-        lat: string | null; lng: string | null;
         status: string; tier: string | null;
         last_visit_date: string | null;
         days_since: string | null;
-        ril_pcp_count: string | null;
         rep_name: string;
       }>(
         `SELECT
            c.id, c.code, c.legal_name, c.industry,
-           c.state, c.city, c.lat::text, c.lng::text,
+           c.state, c.city,
            c.status, c.tier, c.last_visit_date::text,
            (CURRENT_DATE - c.last_visit_date::date)::text AS days_since,
-           c.ril_pcp_count::text,
            COALESCE(r.name, c.primary_rep_name, '—') AS rep_name
          FROM clients c
          LEFT JOIN reps r ON c.primary_rep_id = r.id
@@ -54,12 +51,9 @@ export default async function CoverageMapPage() {
         industry:        r.industry,
         state:           r.state,
         city:            r.city,
-        lat:             r.lat != null ? Number(r.lat) : null,
-        lng:             r.lng != null ? Number(r.lng) : null,
         tier:            r.tier,
         last_visit_date: r.last_visit_date,
         days_since:      r.days_since != null ? Number(r.days_since) : null,
-        ril_pcp_count:   r.ril_pcp_count != null ? Number(r.ril_pcp_count) : null,
         rep_name:        r.rep_name,
       }));
     }, []),

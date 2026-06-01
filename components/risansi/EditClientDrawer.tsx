@@ -39,6 +39,17 @@ export interface ClientForEdit {
   pcp_competitor?:      string | null;
   mgmt_intervention?:   string | boolean | null;
   constraints_notes?:   string | null;
+  action_target_date_raw: string | null;
+  mgmt_intervention2:     string | null;
+  total_outstanding:      number | null;
+  expected_to_spare:      number | null;
+  expected_to_pump:       number | null;
+  weightage_score:        number | null;
+  competitors_observed:   string | null;
+  open_remarks:           string | null;
+  major_remarks:          string | null;
+  ice_dispersal_by:       string | null;
+  negotiation_by:         string | null;
 }
 
 // ── Props ──────────────────────────────────────────────────────
@@ -371,6 +382,59 @@ export function EditClientDrawer({ client, open, onClose }: Props) {
                 style={{ ...INP, height: 'auto', resize: 'vertical' as const, lineHeight: 1.5 }}
               />
             </Field>
+          </Section>
+
+          {/* ── Field Intelligence (extended) ── */}
+          <Section label="Field Intelligence">
+            <Field label="Action Target Date">
+              <input name="action_target_date_raw" defaultValue={client.action_target_date_raw ?? ''} style={INP} placeholder="e.g. Q3 FY26, Mar 2026" />
+            </Field>
+            <Field label="Mgmt Intervention 2">
+              <input name="mgmt_intervention2" defaultValue={client.mgmt_intervention2 ?? ''} style={INP} placeholder="Secondary intervention note" />
+            </Field>
+            <Row>
+              <Field label="Total Outstanding (₹)">
+                <input name="total_outstanding" type="number" defaultValue={client.total_outstanding ?? ''} style={INP} placeholder="Raw INR amount" />
+              </Field>
+              <Field label="Weightage Score">
+                <input name="weightage_score" type="number" step="0.01" defaultValue={client.weightage_score ?? ''} style={INP} placeholder="0-100" />
+              </Field>
+            </Row>
+            <Row>
+              <Field label="Expected to Pump (₹)">
+                <input name="expected_to_pump" type="number" defaultValue={client.expected_to_pump ?? ''} style={INP} placeholder="Raw INR" />
+              </Field>
+              <Field label="Expected to Spare (₹)">
+                <input name="expected_to_spare" type="number" defaultValue={client.expected_to_spare ?? ''} style={INP} placeholder="Raw INR" />
+              </Field>
+            </Row>
+            <Field label="Competitors Observed">
+              <input name="competitors_observed" defaultValue={client.competitors_observed ?? ''} style={INP} placeholder="Competitor names" />
+            </Field>
+            <Field label="Open Remarks">
+              <textarea
+                name="open_remarks"
+                defaultValue={client.open_remarks ?? ''}
+                rows={2}
+                style={{ ...INP, height: 'auto', resize: 'vertical' as const, lineHeight: 1.5 }}
+              />
+            </Field>
+            <Field label="Major Remarks">
+              <textarea
+                name="major_remarks"
+                defaultValue={client.major_remarks ?? ''}
+                rows={2}
+                style={{ ...INP, height: 'auto', resize: 'vertical' as const, lineHeight: 1.5 }}
+              />
+            </Field>
+            <Row>
+              <Field label="ICE Dispersal By">
+                <input name="ice_dispersal_by" defaultValue={client.ice_dispersal_by ?? ''} style={INP} placeholder="Name / team" />
+              </Field>
+              <Field label="Negotiation By">
+                <input name="negotiation_by" defaultValue={client.negotiation_by ?? ''} style={INP} placeholder="Name / team" />
+              </Field>
+            </Row>
           </Section>
 
           {error && (

@@ -93,37 +93,26 @@ export function fmtL(val: number | null | undefined, decimals = 2): string {
   return `₹${val.toFixed(decimals)} L`;
 }
 
-/**
- * Format raw INR from rev_* columns. Auto-scales:
- *   < ₹10K → ₹NK
- *   ₹10K – ₹1Cr → ₹X.XX L
- *   ≥ ₹1Cr → ₹X.X Cr
- */
-export function formatRevLakh(val: number | string | null | undefined): string {
-  const n = Number(val);
-  if (!val || isNaN(n) || n === 0) return '—';
-  const l = n / 100_000;
-  if (l >= 100) return '₹' + (l / 100).toFixed(1) + ' Cr';
-  if (l < 0.1)  return '₹' + Math.round(n / 1000) + 'K';
-  return '₹' + l.toFixed(2) + ' L';
+export function formatRev(val: number | null | undefined): string {
+  const n = Number(val ?? 0)
+  if (!n) return '—'
+  if (n >= 10_000_000) return '₹' + (n / 10_000_000).toFixed(2) + ' Cr'
+  if (n >= 100_000)    return '₹' + (n / 100_000).toFixed(2) + ' L'
+  if (n >= 1_000)      return '₹' + (n / 1_000).toFixed(1) + 'K'
+  return '₹' + Math.round(n).toLocaleString('en-IN')
 }
 
-/** Convert raw INR to Lakhs display (clients.rev_* columns) */
-export function formatCr(val: number | string | null | undefined): string {
-  return formatRevLakh(val);
+export function revDelta(curr: number | null, prev: number | null): string {
+  const c = Number(curr ?? 0)
+  const p = Number(prev ?? 0)
+  if (!p) return '—'
+  const pct = ((c - p) / p) * 100
+  const sign = pct >= 0 ? '+' : ''
+  return sign + pct.toFixed(1) + '%'
 }
 
-/** Display value already in Crores (orders.order_value_cr) */
-export function displayCr(val: number | string | null | undefined): string {
-  const n = Number(val);
-  if (!val || isNaN(n) || n === 0) return '—';
-  return '₹' + n.toFixed(2) + ' Cr';
-}
-
-export function formatLakh(val: number | string | null | undefined): string {
-  const n = Number(val);
-  if (!val || isNaN(n) || n === 0) return '—';
-  return '₹' + (n / 100_000).toFixed(1) + ' L';
+export function revDeltaPos(curr: number | null, prev: number | null): boolean {
+  return Number(curr ?? 0) >= Number(prev ?? 0)
 }
 
 export function formatDate(val: string | Date | null | undefined): string {

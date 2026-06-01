@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react';
 import { notFound } from 'next/navigation';
 import { Topbar, Tag, StatusDot } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
-import { fyShortLabel, fmtCr, fmtL } from '@/lib/risansi-utils';
+import { fyShortLabel, fmtCr, formatRev } from '@/lib/risansi-utils';
 import { ClientActionButtons, PipelineOppBtn, EditDrawerTrigger } from '@/components/risansi/ClientActionButtons';
 import { AddContactTrigger } from '@/components/risansi/AddContactDrawer';
 import type { DrawerRep } from '@/components/risansi/AssignVisitDrawer';
@@ -22,7 +22,6 @@ interface Client {
   market_type: string | null; client_type: string | null;
   since_year: number | null; address: string | null; city: string | null;
   state: string | null; country: string | null;
-  lat: string | null; lng: string | null;
   tcd: number | null; klpd: number | null;
   capacity_bracket: string | null;
   google_maps_url: string | null;
@@ -50,8 +49,6 @@ interface Client {
   open_remarks:         string | null;
   complaint_notes:      string | null;
   last_visit_fy:        string | null;
-  ril_pcp_count:        number | null;
-  total_others_pcp:     number | null;
 }
 
 interface Contact {
@@ -300,11 +297,6 @@ export default async function ClientProfilePage({
   }
   const lifetimeTotal = lifetimePump + lifetimeSpare;
 
-  // PCP summary from client master columns
-  const rilPcp   = Number(client.ril_pcp_count    ?? 0);
-  const compPcp  = Number(client.total_others_pcp ?? 0);
-  const totalPcp = rilPcp + compPcp;
-
   // 5yr CAGR (from master data columns)
   const chartTotals = chartFYs.map(f => (revByFY[f]?.pump ?? 0) + (revByFY[f]?.spare ?? 0));
   const cagr5yr = (() => {
@@ -315,9 +307,9 @@ export default async function ClientProfilePage({
     return ((last / first) ** (1 / years) - 1) * 100;
   })();
 
-  // Equipment KPIs — prefer master data columns; fall back to field assessments
-  const rilUnits   = rilPcp   > 0 ? rilPcp   : equipment.filter(e => e.supplier === 'RIL').reduce((s, e) => s + e.quantity, 0);
-  const totalUnits = totalPcp > 0 ? totalPcp : equipment.reduce((s, e) => s + e.quantity, 0);
+  // Equipment KPIs — from field assessments
+  const rilUnits   = equipment.filter(e => e.supplier === 'RIL').reduce((s, e) => s + e.quantity, 0);
+  const totalUnits = equipment.reduce((s, e) => s + e.quantity, 0);
 
   // Last visit
   const lastVisit = visits[0] ?? null;
@@ -447,7 +439,7 @@ export default async function ClientProfilePage({
         {/* ── KPI cards ────────────────────────────────────────── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
           <MiniKpi label="Lifetime Revenue"
-            value={fmtL(lifetimeTotal)}
+            value={formatRev(lifetimeTotal * 100_000)}
             sub={`${client.since_year ?? '—'} – present · ${lifetimeOrders} orders`} />
           <MiniKpi label="Last Visit"
             value={daysAgo == null ? 'Never' : daysAgo === 0 ? 'Today' : `${daysAgo} days`}
@@ -538,46 +530,13 @@ export default async function ClientProfilePage({
             <div style={PANEL}>
               <div style={PANEL_H}>
                 <span style={PANEL_TITLE}>PCP Installed Base · {totalUnits} pump{totalUnits !== 1 ? 's' : ''}</span>
-                {compPcp > 0 && (
+                {(totalUnits - rilUnits) > 0 && (
                   <div style={{ marginLeft: 'auto' }}>
-                    <Tag kind="warn">{compPcp} competitor unit{compPcp !== 1 ? 's' : ''}</Tag>
+                    <Tag kind="warn">{totalUnits - rilUnits} competitor unit{(totalUnits - rilUnits) !== 1 ? 's' : ''}</Tag>
                   </div>
                 )}
               </div>
-              {totalPcp > 0 ? (
-                <div style={{ padding: '12px 14px' }}>
-                  {/* RIL vs competitor bar */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-                    <div style={{ flex: 1, height: 10, background: 'var(--bg-sunk)', borderRadius: 5, overflow: 'hidden', display: 'flex' }}>
-                      <div style={{ width: `${(rilPcp / totalPcp) * 100}%`, background: 'var(--accent)', height: '100%', borderRadius: '5px 0 0 5px', transition: 'width 0.3s' }} />
-                      <div style={{ flex: 1, background: 'var(--neg)', height: '100%', opacity: 0.35 }} />
-                    </div>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--accent)', minWidth: 40, textAlign: 'right' }}>
-                      {((rilPcp / totalPcp) * 100).toFixed(0)}% RIL
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', gap: 24 }}>
-                    <div>
-                      <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.10em' }}>RIL</div>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 18, color: 'var(--accent)', fontWeight: 500 }}>{rilPcp}</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.10em' }}>Competitors</div>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 18, color: 'var(--neg)', fontWeight: 500 }}>{compPcp}</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.10em' }}>Total</div>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 500 }}>{totalPcp}</div>
-                    </div>
-                    {client.pcp_competitor && (
-                      <div>
-                        <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.10em' }}>Main Competitor</div>
-                        <div style={{ fontSize: 13, fontWeight: 500, marginTop: 4, color: 'var(--neg)' }}>{client.pcp_competitor}</div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ) : equipment.length > 0 ? (
+              {equipment.length > 0 ? (
                 // Fall back to field assessment detail table
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -633,7 +592,7 @@ export default async function ClientProfilePage({
                       <div>
                         <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.10em' }}>Expected Pump</div>
                         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 16, marginTop: 3, color: 'var(--pos)' }}>
-                          ₹{(client.expected_to_pump / 100_000).toFixed(1)} L
+                          {formatRev(client.expected_to_pump ?? 0)}
                         </div>
                       </div>
                     )}
@@ -641,7 +600,7 @@ export default async function ClientProfilePage({
                       <div>
                         <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.10em' }}>Expected Spare</div>
                         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 16, marginTop: 3, color: 'var(--pos)' }}>
-                          ₹{(client.expected_to_spare / 100_000).toFixed(1)} L
+                          {formatRev(client.expected_to_spare ?? 0)}
                         </div>
                       </div>
                     )}
@@ -824,44 +783,6 @@ export default async function ClientProfilePage({
                 </div>
               )}
             </div>
-
-            {/* Plant location */}
-            {(client.lat && client.lng) ? (
-              <div style={PANEL}>
-                <div style={PANEL_H}>
-                  <span style={PANEL_TITLE}>Plant Location</span>
-                  <div style={{ marginLeft: 'auto' }}>
-                    <a
-                      href={`https://maps.google.com/?q=${client.lat},${client.lng}`}
-                      target="_blank" rel="noreferrer"
-                      style={{ ...BTN, textDecoration: 'none', fontSize: 11, padding: '3px 8px', display: 'inline-flex', alignItems: 'center' }}
-                    >
-                      Open Maps
-                    </a>
-                  </div>
-                </div>
-                <div style={{ position: 'relative' }}>
-                  <div style={{ height: 150, background: 'var(--bg-elev)', overflow: 'hidden', position: 'relative' }}>
-                    <svg width="100%" height="150" viewBox="0 0 300 150" style={{ position: 'absolute', inset: 0 }}>
-                      {[30, 60, 90, 120].map(y => (
-                        <line key={y} x1="0" x2="300" y1={y} y2={y} stroke="var(--line)" strokeDasharray="3 4" />
-                      ))}
-                      {[75, 150, 225].map(x => (
-                        <line key={x} x1={x} x2={x} y1="0" y2="150" stroke="var(--line)" strokeDasharray="3 4" />
-                      ))}
-                      <circle cx="150" cy="75" r="28" fill="var(--accent)" opacity="0.12" />
-                      <circle cx="150" cy="75" r="14" fill="var(--accent)" opacity="0.25" />
-                      <circle cx="150" cy="75" r="5" fill="var(--accent)" />
-                    </svg>
-                  </div>
-                  <div style={{ padding: '10px 14px', fontSize: 11, color: 'var(--fg-3)', borderTop: '1px solid var(--line)', fontFamily: 'var(--font-mono)' }}>
-                    {client.lat}° N, {client.lng}° E
-                    {client.city ? ` · ${client.city}` : ''}
-                    {client.state ? `, ${client.state}` : ''}
-                  </div>
-                </div>
-              </div>
-            ) : null}
 
             {/* Open pipeline */}
             <div style={PANEL}>

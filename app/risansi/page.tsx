@@ -10,7 +10,7 @@ import risansiPool from '@/lib/db-risansi';
 import {
   getCurrentFY, getPreviousFYCodes, fyShortLabel,
   fyYtdPct, fyDaysLeft, formatIndianDate, formatTime, fmtCr, fmtL, initials,
-  getGreeting, formatRevLakh,
+  getGreeting, formatRev,
 } from '@/lib/risansi-utils';
 
 // ── Safe query wrapper ─────────────────────────────────────────
@@ -101,23 +101,22 @@ export default async function ExecDashboardPage() {
     visits,
   ] = await Promise.all([
 
-    // 1. Current FY revenue from clients.rev_2526_* (INR ÷ 1L = Lakhs)
+    // 1. Current FY revenue from clients.rev_2526_total (raw INR ÷ 1L = Lakhs)
     q<RevenueSplit>(async () => {
-      const { rows } = await risansiPool.query<{ pump: string; spare: string }>(
-        `SELECT COALESCE(SUM(rev_2526_pump),0)::text AS pump,
-                COALESCE(SUM(rev_2526_spare),0)::text AS spare
+      const { rows } = await risansiPool.query<{ total: string }>(
+        `SELECT COALESCE(SUM(rev_2526_total),0)::text AS total
          FROM clients`,
       );
       return {
-        pump:  Number(rows[0]?.pump  ?? 0) / INR_TO_L,
-        spare: Number(rows[0]?.spare ?? 0) / INR_TO_L,
+        pump:  Number(rows[0]?.total ?? 0) / INR_TO_L,
+        spare: 0,
       };
     }, { pump: 0, spare: 0 }),
 
-    // 2. Previous-year total from clients.rev_2425_*
+    // 2. Previous-year total from clients.rev_2425_total
     q<number>(async () => {
       const { rows } = await risansiPool.query<{ total: string }>(
-        `SELECT (COALESCE(SUM(rev_2425_pump),0) + COALESCE(SUM(rev_2425_spare),0))::text AS total
+        `SELECT COALESCE(SUM(rev_2425_total),0)::text AS total
          FROM clients`,
       );
       return Number(rows[0]?.total ?? 0) / INR_TO_L;
@@ -151,7 +150,7 @@ export default async function ExecDashboardPage() {
            UNION ALL
            SELECT 'FY24', 7, COALESCE(SUM(rev_2425_total),0)::text FROM clients
            UNION ALL
-           SELECT 'FY25', 8, (COALESCE(SUM(rev_2526_pump),0)+COALESCE(SUM(rev_2526_spare),0))::text FROM clients
+           SELECT 'FY25', 8, COALESCE(SUM(rev_2526_total),0)::text FROM clients
          ) t
          WHERE total_inr::numeric > 0
          ORDER BY ord`,
@@ -164,11 +163,11 @@ export default async function ExecDashboardPage() {
       const { rows } = await risansiPool.query<{ segment: string; ytd_inr: string }>(
         `SELECT
            COALESCE(c.industry, 'Other') AS segment,
-           (COALESCE(SUM(c.rev_2526_pump), 0) + COALESCE(SUM(c.rev_2526_spare), 0))::text AS ytd_inr
+           COALESCE(SUM(c.rev_2526_total), 0)::text AS ytd_inr
          FROM clients c
          WHERE c.deleted_at IS NULL
            AND c.status = 'ACTIVE'
-           AND (c.rev_2526_pump > 0 OR c.rev_2526_spare > 0)
+           AND c.rev_2526_total > 0
          GROUP BY COALESCE(c.industry, 'Other')
          ORDER BY 2::numeric DESC
          LIMIT 8`,
@@ -180,12 +179,9 @@ export default async function ExecDashboardPage() {
     q<{ domestic: number; export: number; pump_pct: number }>(async () => {
       const { rows } = await risansiPool.query<{ pump_pct: number; domestic_inr: string; export_inr: string }>(
         `SELECT
-           CASE WHEN (COALESCE(SUM(rev_2526_pump),0)+COALESCE(SUM(rev_2526_spare),0)) > 0
-                THEN ROUND(COALESCE(SUM(rev_2526_pump),0) * 100.0 /
-                     (COALESCE(SUM(rev_2526_pump),0)+COALESCE(SUM(rev_2526_spare),0)))
-                ELSE 0 END::int AS pump_pct,
-           COALESCE(SUM(CASE WHEN market_type = 'Domestic' THEN rev_2526_pump + rev_2526_spare ELSE 0 END),0)::text AS domestic_inr,
-           COALESCE(SUM(CASE WHEN market_type = 'Export'   THEN rev_2526_pump + rev_2526_spare ELSE 0 END),0)::text AS export_inr
+           0::int AS pump_pct,
+           COALESCE(SUM(CASE WHEN market_type = 'Domestic' THEN rev_2526_total ELSE 0 END),0)::text AS domestic_inr,
+           COALESCE(SUM(CASE WHEN market_type = 'Export'   THEN rev_2526_total ELSE 0 END),0)::text AS export_inr
          FROM clients WHERE deleted_at IS NULL`,
       );
       const r = rows[0];
@@ -270,18 +266,18 @@ export default async function ExecDashboardPage() {
       }>(
         `SELECT
            c.code AS client_code, c.legal_name, c.industry, c.zone, c.status,
-           (COALESCE(c.rev_2526_pump,0) + COALESCE(c.rev_2526_spare,0))::text AS ytd,
-           (COALESCE(c.rev_2425_pump,0) + COALESCE(c.rev_2425_spare,0))::text AS py,
+           COALESCE(c.rev_2526_total,0)::text AS ytd,
+           COALESCE(c.rev_2425_total,0)::text AS py,
            COALESCE(c.rev_2021,0)::text AS fy20,
-           (COALESCE(c.rev_2122_pump,0) + COALESCE(c.rev_2122_spare,0))::text AS fy21,
-           (COALESCE(c.rev_2223_pump,0) + COALESCE(c.rev_2223_spare,0))::text AS fy22,
-           (COALESCE(c.rev_2324_pump,0) + COALESCE(c.rev_2324_spare,0))::text AS fy23,
-           (COALESCE(c.rev_2425_pump,0) + COALESCE(c.rev_2425_spare,0))::text AS fy24,
-           (COALESCE(c.rev_2526_pump,0) + COALESCE(c.rev_2526_spare,0))::text AS fy25
+           COALESCE(c.rev_2122_total,0)::text AS fy21,
+           COALESCE(c.rev_2223_total,0)::text AS fy22,
+           COALESCE(c.rev_2324_total,0)::text AS fy23,
+           COALESCE(c.rev_2425_total,0)::text AS fy24,
+           COALESCE(c.rev_2526_total,0)::text AS fy25
          FROM clients c
          WHERE c.deleted_at IS NULL
-           AND ((COALESCE(c.rev_2526_pump,0) + COALESCE(c.rev_2526_spare,0)) > 0
-             OR (COALESCE(c.rev_2425_pump,0) + COALESCE(c.rev_2425_spare,0)) > 0)
+           AND (COALESCE(c.rev_2526_total,0) > 0
+             OR COALESCE(c.rev_2425_total,0) > 0)
          ORDER BY ytd DESC LIMIT 7`,
       );
       return rows.map(r => ({
@@ -368,7 +364,7 @@ export default async function ExecDashboardPage() {
   // annTarget is in Crores; convert to Lakhs to compare with rev_* totals (in Lakhs)
   const annTargetL  = annTarget * 100;
   // fmtFromL: format a value-in-Lakhs using auto-scaling (same unit as totalBooked)
-  const fmtFromL    = (lakhs: number) => formatRevLakh(Math.round(lakhs * INR_TO_L));
+  const fmtFromL    = (lakhs: number) => formatRev(Math.round(lakhs * INR_TO_L));
   const bookedDelta = pyTotal > 0 ? ((totalBooked - pyTotal) / pyTotal) * 100 : 0;
   const achievedPct = annTargetL > 0 ? (totalBooked / annTargetL) * 100 : 0;
   const isOnTrack   = totalBooked >= (annTargetL * ytdPct / 100 * 0.9);
@@ -849,7 +845,7 @@ function SegmentBar({ label, value, total, color }: { label: string; value: numb
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 11 }}>
         <span style={{ color: '#2C3E5A' }}>{label}</span>
         <span style={{ fontFamily: 'var(--font-mono)', color: '#0D1B2A' }}>
-          {formatRevLakh(Math.round(value * 100_000))} <span style={{ color: '#6B7FA3' }}>({pct.toFixed(0)}%)</span>
+          {formatRev(Math.round(value * 100_000))} <span style={{ color: '#6B7FA3' }}>({pct.toFixed(0)}%)</span>
         </span>
       </div>
       <div style={{ height: 4, background: '#DDE6F5', borderRadius: 2, overflow: 'hidden' }}>

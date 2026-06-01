@@ -32,8 +32,8 @@ const SORT_MAP: Record<string, string> = {
   name:     'c.legal_name',
   industry: 'c.industry',
   zone:     'c.zone',
-  ytd:      '(COALESCE(c.rev_2526_pump,0) + COALESCE(c.rev_2526_spare,0))',
-  py:       '(COALESCE(c.rev_2425_pump,0) + COALESCE(c.rev_2425_spare,0))',
+  ytd:      'COALESCE(c.rev_2526_total,0)',
+  py:       'COALESCE(c.rev_2425_total,0)',
 };
 
 export default async function RevenuePage({
@@ -51,10 +51,10 @@ export default async function RevenuePage({
   // Sort
   const sortKey  = typeof sp.sort === 'string' ? sp.sort : 'ytd';
   const orderDir = sp.dir === 'asc' ? 'ASC' : 'DESC';
-  const sortCol  = SORT_MAP[sortKey] ?? '(COALESCE(c.rev_2526_pump,0) + COALESCE(c.rev_2526_spare,0))';
+  const sortCol  = SORT_MAP[sortKey] ?? 'COALESCE(c.rev_2526_total,0)';
 
   // Build WHERE for top clients
-  const clientConds: string[] = ['c.deleted_at IS NULL', '(COALESCE(c.rev_2526_pump,0) + COALESCE(c.rev_2526_spare,0)) > 0'];
+  const clientConds: string[] = ['c.deleted_at IS NULL', 'COALESCE(c.rev_2526_total,0) > 0'];
   const clientVals: (string | string[])[] = [];
   let idx = 1;
 
@@ -77,9 +77,9 @@ export default async function RevenuePage({
         ytd: string; py: string; ppy: string; active: string;
       }>(
         `SELECT
-           (COALESCE(SUM(rev_2526_pump),0) + COALESCE(SUM(rev_2526_spare),0))::text AS ytd,
-           (COALESCE(SUM(rev_2425_pump),0) + COALESCE(SUM(rev_2425_spare),0))::text AS py,
-           (COALESCE(SUM(rev_2324_pump),0) + COALESCE(SUM(rev_2324_spare),0))::text AS ppy,
+           COALESCE(SUM(rev_2526_total),0)::text AS ytd,
+           COALESCE(SUM(rev_2425_total),0)::text AS py,
+           COALESCE(SUM(rev_2324_total),0)::text AS ppy,
            COUNT(*) FILTER (WHERE status = 'ACTIVE' AND deleted_at IS NULL)::text AS active
          FROM clients
          WHERE deleted_at IS NULL`,
@@ -100,11 +100,11 @@ export default async function RevenuePage({
       }>(
         `SELECT
            COALESCE(SUM(rev_2021), 0)::text AS h2021,
-           (COALESCE(SUM(rev_2122_pump),0) + COALESCE(SUM(rev_2122_spare),0))::text AS h2122,
-           (COALESCE(SUM(rev_2223_pump),0) + COALESCE(SUM(rev_2223_spare),0))::text AS h2223,
-           (COALESCE(SUM(rev_2324_pump),0) + COALESCE(SUM(rev_2324_spare),0))::text AS h2324,
-           (COALESCE(SUM(rev_2425_pump),0) + COALESCE(SUM(rev_2425_spare),0))::text AS h2425,
-           (COALESCE(SUM(rev_2526_pump),0) + COALESCE(SUM(rev_2526_spare),0))::text AS h2526
+           COALESCE(SUM(rev_2122_total),0)::text AS h2122,
+           COALESCE(SUM(rev_2223_total),0)::text AS h2223,
+           COALESCE(SUM(rev_2324_total),0)::text AS h2324,
+           COALESCE(SUM(rev_2425_total),0)::text AS h2425,
+           COALESCE(SUM(rev_2526_total),0)::text AS h2526
          FROM clients WHERE deleted_at IS NULL`,
       );
       const r = rows[0] ?? {};
@@ -123,12 +123,12 @@ export default async function RevenuePage({
       const { rows } = await risansiPool.query<{ industry: string; ytd: string; py: string }>(
         `SELECT
            COALESCE(c.industry, 'Unknown') AS industry,
-           (COALESCE(SUM(c.rev_2526_pump),0) + COALESCE(SUM(c.rev_2526_spare),0))::text AS ytd,
-           (COALESCE(SUM(c.rev_2425_pump),0) + COALESCE(SUM(c.rev_2425_spare),0))::text AS py
+           COALESCE(SUM(c.rev_2526_total),0)::text AS ytd,
+           COALESCE(SUM(c.rev_2425_total),0)::text AS py
          FROM clients c
          WHERE c.deleted_at IS NULL
          GROUP BY COALESCE(c.industry, 'Unknown')
-         ORDER BY SUM(COALESCE(c.rev_2526_pump,0) + COALESCE(c.rev_2526_spare,0)) DESC
+         ORDER BY SUM(COALESCE(c.rev_2526_total,0)) DESC
          LIMIT 12`,
       );
       return rows.map(r => ({
@@ -146,14 +146,14 @@ export default async function RevenuePage({
         `SELECT
            COALESCE(c.zone, '—') AS zone,
            COALESCE(r.name, 'Unassigned') AS rep,
-           (COALESCE(SUM(c.rev_2526_pump),0) + COALESCE(SUM(c.rev_2526_spare),0))::text AS ytd,
-           (COALESCE(SUM(c.rev_2425_pump),0) + COALESCE(SUM(c.rev_2425_spare),0))::text AS py,
+           COALESCE(SUM(c.rev_2526_total),0)::text AS ytd,
+           COALESCE(SUM(c.rev_2425_total),0)::text AS py,
            COUNT(c.id)::text AS clients
          FROM clients c
          LEFT JOIN reps r ON r.id = c.rep_id
          WHERE c.deleted_at IS NULL
          GROUP BY COALESCE(c.zone, '—'), COALESCE(r.name, 'Unassigned')
-         ORDER BY SUM(COALESCE(c.rev_2526_pump,0) + COALESCE(c.rev_2526_spare,0)) DESC
+         ORDER BY SUM(COALESCE(c.rev_2526_total,0)) DESC
          LIMIT 15`,
       );
       return rows.map(r => ({
@@ -176,8 +176,8 @@ export default async function RevenuePage({
            c.legal_name AS name,
            COALESCE(c.industry, '—') AS industry,
            COALESCE(c.zone, '—') AS zone,
-           (COALESCE(c.rev_2526_pump,0) + COALESCE(c.rev_2526_spare,0))::text AS ytd,
-           (COALESCE(c.rev_2425_pump,0) + COALESCE(c.rev_2425_spare,0))::text AS py
+           COALESCE(c.rev_2526_total,0)::text AS ytd,
+           COALESCE(c.rev_2425_total,0)::text AS py
          FROM clients c
          ${clientWhere}
          ORDER BY ${sortCol} ${orderDir} NULLS LAST
@@ -200,11 +200,11 @@ export default async function RevenuePage({
         `SELECT
            COALESCE(business_category, 'Uncategorised') AS category,
            COUNT(*)::text AS client_count,
-           (COALESCE(SUM(rev_2526_pump),0) + COALESCE(SUM(rev_2526_spare),0))::text AS ytd
+           COALESCE(SUM(rev_2526_total),0)::text AS ytd
          FROM clients
          WHERE deleted_at IS NULL AND status = 'ACTIVE'
          GROUP BY business_category
-         ORDER BY SUM(COALESCE(rev_2526_pump,0) + COALESCE(rev_2526_spare,0)) DESC
+         ORDER BY SUM(COALESCE(rev_2526_total,0)) DESC
          LIMIT 8`,
       );
       return rows.map(r => ({

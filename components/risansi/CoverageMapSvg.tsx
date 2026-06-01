@@ -11,12 +11,9 @@ export interface ClientPin {
   industry:         string | null;
   city:             string | null;
   state:            string | null;
-  lat:              number | null;
-  lng:              number | null;
   tier:             string | null;
   last_visit_date:  string | null;   // ISO date string
   days_since:       number | null;
-  ril_pcp_count:    number | null;
   rep_name:         string;
 }
 
@@ -52,12 +49,6 @@ function jitter(seed: number): number {
 }
 
 function getPos(client: ClientPin, index: number): [number, number] {
-  if (client.lat != null && client.lng != null) {
-    // Real coordinates — India bounds: lat 8–37°N, lng 68–97°E → SVG 700×580
-    const x = ((client.lng - 68) / (97 - 68)) * 560 + 70;
-    const y = ((37 - client.lat) / (37 - 8)) * 460 + 60;
-    return [x, y];
-  }
   const base = STATE_POS[client.state ?? ''] ?? [300, 250];
   return [
     base[0] + jitter(index * 7 + 3),
@@ -188,11 +179,6 @@ export function CoverageMapSvg({ clients }: { clients: ClientPin[] }) {
           {tooltip.client.rep_name && tooltip.client.rep_name !== '—' && (
             <div style={{ marginTop: 4, fontSize: 10, color: '#6B7FA3' }}>
               Rep: {tooltip.client.rep_name}
-            </div>
-          )}
-          {(tooltip.client.ril_pcp_count ?? 0) > 0 && (
-            <div style={{ marginTop: 2, fontSize: 10, color: '#6B7FA3' }}>
-              RIL PCP: {tooltip.client.ril_pcp_count}
             </div>
           )}
         </div>

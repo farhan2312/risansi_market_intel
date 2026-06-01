@@ -177,9 +177,20 @@ export async function updateClient(clientId: number, formData: FormData): Promis
         pcp_competitor       = $26,
         mgmt_intervention    = $27,
         constraints_notes    = $28,
-        updated_by           = $29,
+        action_target_date_raw = $29,
+        mgmt_intervention2     = $30,
+        total_outstanding      = $31,
+        expected_to_spare      = $32,
+        expected_to_pump       = $33,
+        weightage_score        = $34,
+        competitors_observed   = $35,
+        open_remarks           = $36,
+        major_remarks          = $37,
+        ice_dispersal_by       = $38,
+        negotiation_by         = $39,
+        updated_by             = $40,
         updated_at           = NOW()
-      WHERE id = $30`,
+      WHERE id = $41`,
       [
         (formData.get('legal_name')          as string)?.trim() ?? '',
         (formData.get('trade_name')          as string | null)?.trim() || null,
@@ -209,6 +220,17 @@ export async function updateClient(clientId: number, formData: FormData): Promis
         (formData.get('pcp_competitor')      as string | null)?.trim() || null,
         (formData.get('mgmt_intervention')   as string | null)?.trim() || null,
         (formData.get('constraints_notes')   as string | null)?.trim() || null,
+        (formData.get('action_target_date_raw') as string | null)?.trim() || null,
+        (formData.get('mgmt_intervention2')     as string | null)?.trim() || null,
+        formData.get('total_outstanding') ? parseFloat(formData.get('total_outstanding') as string) : null,
+        formData.get('expected_to_spare')   ? parseFloat(formData.get('expected_to_spare') as string) : null,
+        formData.get('expected_to_pump')    ? parseFloat(formData.get('expected_to_pump') as string) : null,
+        formData.get('weightage_score')     ? parseFloat(formData.get('weightage_score') as string) : null,
+        (formData.get('competitors_observed') as string | null)?.trim() || null,
+        (formData.get('open_remarks')       as string | null)?.trim() || null,
+        (formData.get('major_remarks')      as string | null)?.trim() || null,
+        (formData.get('ice_dispersal_by')   as string | null)?.trim() || null,
+        (formData.get('negotiation_by')     as string | null)?.trim() || null,
         user.email ?? 'system',
         clientId,
       ],
@@ -289,10 +311,6 @@ export async function planVisit(clientId: string, formData: FormData) {
       'SELECT id FROM reps WHERE is_active = TRUE LIMIT 1',
     );
     resolvedRepId = anyRep.rows[0]?.id ?? null;
-  }
-
-  if (!resolvedRepId) {
-    throw new Error('No rep available — please assign a rep to this client first');
   }
 
   await risansiPool.query(
@@ -414,12 +432,34 @@ export async function createPipelineOpportunity(formData: FormData) {
 
   if (!clientId) return;
 
-  await risansiPool.query(
-    `INSERT INTO pipeline_opportunities
-       (client_id, product, stage, estimated_value, probability, expected_close, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`,
-    [clientId, product, stage, value, prob, eta],
+  // Resolve rep for this client
+  let repId: number | null = null;
+  try {
+    const { rows: repRows } = await risansiPool.query<{ primary_rep_id: number | null }>(
+      'SELECT primary_rep_id FROM clients WHERE id = $1', [clientId],
+    );
+    repId = repRows[0]?.primary_rep_id ?? null;
+  } catch { /* ignore */ }
+
+  const { rows: oppRows } = await risansiPool.query<{ id: string }>(
+    `INSERT INTO opportunities
+       (client_id, rep_id, product, stage, value_cr, probability, eta_text, auto_created, created_by, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, $8, NOW(), NOW())
+     RETURNING id`,
+    [clientId, repId, product, stage, value, prob, eta, user.email],
   );
+
+  // Log stage creation
+  const newOppId = oppRows[0]?.id ?? null;
+  if (newOppId) {
+    try {
+      await risansiPool.query(
+        `INSERT INTO opportunity_stage_log (opportunity_id, from_stage, to_stage, notes, changed_by)
+         VALUES ($1, NULL, $2, 'Created via pipeline', $3)`,
+        [newOppId, stage, user.email],
+      );
+    } catch { /* table may not exist */ }
+  }
 
   await logActivity('pipeline', clientId, `created opportunity: ${product} · ${stage} · ₹${value} Cr`, user.email!);
   revalidatePath('/risansi/pipeline');
@@ -434,7 +474,7 @@ export async function updateOpportunityStage(id: string, formData: FormData) {
   const stage = (formData.get('stage') as string | null)?.trim() ?? 'Suspect';
 
   await risansiPool.query(
-    `UPDATE pipeline_opportunities SET stage = $1, updated_at = NOW() WHERE id = $2`,
+    `UPDATE opportunities SET stage = $1, updated_at = NOW() WHERE id = $2`,
     [stage, id],
   );
 
@@ -452,8 +492,8 @@ export async function updateOpportunityValue(id: string, formData: FormData) {
   const prob  = parseInt((formData.get('probability')       as string | null) ?? '25', 10) || 25;
 
   await risansiPool.query(
-    `UPDATE pipeline_opportunities
-     SET estimated_value = $1, probability = $2, updated_at = NOW()
+    `UPDATE opportunities
+     SET value_cr = $1, probability = $2, updated_at = NOW()
      WHERE id = $3`,
     [value, prob, id],
   );
@@ -698,9 +738,9 @@ export async function submitVisitReport(
   if (data.createOpportunity && clientId && data.opportunityProduct) {
     try {
       await risansiPool.query(
-        `INSERT INTO pipeline_opportunities
-           (client_id, product, stage, estimated_value, probability, expected_close, created_at, updated_at)
-         VALUES ($1, $2, 'Suspect', $3, 25, NULL, NOW(), NOW())`,
+        `INSERT INTO opportunities
+           (client_id, product, stage, value_cr, probability, auto_created, created_at, updated_at)
+         VALUES ($1, $2, 'Suspect', $3, 25, TRUE, NOW(), NOW())`,
         [clientId, data.opportunityProduct, data.opportunityValue || 0],
       );
     } catch { /* ignore */ }
@@ -766,20 +806,8 @@ export async function submitOpportunity(formData: FormData) {
         [clientId, product, stage, valueCr, probability, etaText],
       );
       newId = rows[0]?.id ?? null;
-    } catch {
-      // Last resort: pipeline_opportunities table
-      try {
-        const { rows } = await risansiPool.query<{ id: string }>(
-          `INSERT INTO pipeline_opportunities
-             (client_id, product, stage, estimated_value, probability, expected_close, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-           RETURNING id`,
-          [clientId, product, stage, valueCr ?? 0, probability ?? 25, etaText],
-        );
-        newId = rows[0]?.id ?? null;
-      } catch (err) {
-        throw new Error('Failed to create opportunity: ' + (err instanceof Error ? err.message : 'database error'));
-      }
+    } catch (err) {
+      throw new Error('Failed to create opportunity: ' + (err instanceof Error ? err.message : 'database error'));
     }
   }
 
