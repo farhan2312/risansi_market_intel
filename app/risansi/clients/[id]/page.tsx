@@ -16,39 +16,61 @@ async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
 // ── Data shapes ────────────────────────────────────────────────
 
 interface Client {
+  // Core identity
   id: string; code: string; legal_name: string; trade_name: string | null;
-  group_name: string | null;
-  industry: string; zone: string; tour_name: string | null; status: string; tier: string | null;
+  group_name: string | null; business_category: string | null;
+  industry: string | null; zone: string; tour_name: string | null;
+  status: string; tier: string | null;
   market_type: string | null; client_type: string | null;
-  since_year: number | null; address: string | null; city: string | null;
+  is_sugar: boolean; is_tender: boolean;
+  // Location
+  since_year: string | number | null; address: string | null; city: string | null;
   state: string | null; country: string | null;
+  capacity_bracket: string | null; google_maps_url: string | null;
   tcd: number | null; klpd: number | null;
-  capacity_bracket: string | null;
-  google_maps_url: string | null;
-  primary_rep_id: string | null; primary_rep_name: string | null; rep_name: string | null;
-  rep_zone: string | null; rep_route: string | null;
+  // Reps (DB columns + joined)
+  primary_rep_id: string | null; primary_rep_name: string | null;
   secondary_rep_id: string | null; secondary_rep_name: string | null;
+  rep_name: string | null; rep_initials: string | null;
+  rep_zone: string | null; rep_route: string | null; rep_email: string | null;
   secondary_rep_joined: string | null; secondary_rep_zone: string | null; secondary_rep_route: string | null;
-  // Revenue columns (INR — divide by 1L for Lakhs)
-  rev_2122_pump: number | null; rev_2122_spare: number | null;
-  rev_2223_pump: number | null; rev_2223_spare: number | null;
-  rev_2324_pump: number | null; rev_2324_spare: number | null;
-  rev_2425_pump: number | null; rev_2425_spare: number | null;
-  rev_2526_pump: number | null; rev_2526_spare: number | null;
-  rev_2627_pump: number | null; rev_2627_spare: number | null;
-  // Plan of Action
-  action_points:      string | null;
-  pcp_competitor:     string | null;
-  mgmt_intervention:  boolean | string | null;
-  constraints_notes:  string | null;
-  expected_to_pump:   number | null;
-  expected_to_spare:  number | null;
+  sec_rep_name: string | null; sec_rep_zone: string | null; sec_rep_initials: string | null;
+  // Visit tracking
+  last_visit_fy: string | null; last_visit_month: string | null;
+  last_visit_date: string | null; planned_visit_2627: string | null;
+  visit_count: number | null;
+  // Revenue — pump/spare split (raw INR)
+  rev_2122_pump: number | null; rev_2122_spare: number | null; rev_2122_total: number | null;
+  rev_2223_pump: number | null; rev_2223_spare: number | null; rev_2223_total: number | null;
+  rev_2324_pump: number | null; rev_2324_spare: number | null; rev_2324_total: number | null;
+  rev_2425_pump: number | null; rev_2425_spare: number | null; rev_2425_total: number | null;
+  rev_2526_pump: number | null; rev_2526_spare: number | null; rev_2526_total: number | null;
+  rev_2627_pump: number | null; rev_2627_spare: number | null; rev_2627_april: number | null;
+  rev_1819: number | null; rev_1920: number | null; rev_2021: number | null;
+  rev_5yr_total: number | null; rev_5yr_avg: number | null;
+  // Sales intelligence / plan of action
+  action_points:          string | null;
+  action_target_date_raw: string | null;
+  pcp_competitor:         string | null;
+  mgmt_intervention:      string | boolean | null;
+  mgmt_intervention2:     string | null;
+  constraints_notes:      string | null;
+  expected_to_pump:       number | null;
+  expected_to_spare:      number | null;
+  total_outstanding:      number | null;
+  weightage_score:        number | null;
+  competitors_observed:   string | null;
+  ice_dispersal_by:       string | null;
+  negotiation_by:         string | null;
   // Field intelligence
   performance_feedback: string | null;
   last_visit_summary:   string | null;
   open_remarks:         string | null;
+  major_remarks:        string | null;
   complaint_notes:      string | null;
-  last_visit_fy:        string | null;
+  // System
+  created_by: string | null; created_at: string | null;
+  updated_at: string | null; deleted_at: string | null;
 }
 
 interface Contact {
