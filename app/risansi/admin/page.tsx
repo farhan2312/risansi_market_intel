@@ -94,7 +94,7 @@ export default async function AdminPage() {
         `SELECT c.id::text, c.legal_name, c.industry, c.zone
          FROM clients c
          WHERE c.status = 'ACTIVE' AND c.deleted_at IS NULL
-           AND NOT EXISTS (SELECT 1 FROM contacts_raw cr WHERE cr.client_code = c.code)
+           AND NOT EXISTS (SELECT 1 FROM contacts ct WHERE ct.client_id = c.id)
          ORDER BY c.legal_name
          LIMIT 20`,
       );

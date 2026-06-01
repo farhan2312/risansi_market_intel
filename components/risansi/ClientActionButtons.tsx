@@ -4,7 +4,6 @@ import { useState, useEffect, type CSSProperties } from 'react';
 import AssignVisitDrawer, { OPEN_VISIT_DRAWER, type DrawerRep } from './AssignVisitDrawer';
 import { NewOpportunityDrawer } from './NewOpportunityDrawer';
 import { EditClientDrawer, type ClientForEdit } from './EditClientDrawer';
-import { AddContactDrawer, OPEN_ADD_CONTACT_DRAWER } from './AddContactDrawer';
 import { Toast } from './Toast';
 
 // ── Event names ────────────────────────────────────────────────
@@ -45,23 +44,19 @@ interface Props {
 export function ClientActionButtons({
   clientId, clientName, clientCode, industry, repId, repName, reps, clientData,
 }: Props) {
-  const [isOppOpen,     setIsOppOpen]     = useState(false);
-  const [isEditOpen,    setIsEditOpen]    = useState(false);
-  const [isContactOpen, setIsContactOpen] = useState(false);
+  const [isOppOpen,  setIsOppOpen]  = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   // Listen for the open-opp-drawer event (dispatched by PipelineOppBtn)
   useEffect(() => {
-    function handleOppOpen()     { setIsOppOpen(true); }
-    function handleEditOpen()    { setIsEditOpen(true); }
-    function handleContactOpen() { setIsContactOpen(true); }
-    window.addEventListener(OPEN_OPP_DRAWER,           handleOppOpen);
-    window.addEventListener(OPEN_EDIT_DRAWER,          handleEditOpen);
-    window.addEventListener(OPEN_ADD_CONTACT_DRAWER,   handleContactOpen);
+    function handleOppOpen()  { setIsOppOpen(true); }
+    function handleEditOpen() { setIsEditOpen(true); }
+    window.addEventListener(OPEN_OPP_DRAWER,  handleOppOpen);
+    window.addEventListener(OPEN_EDIT_DRAWER, handleEditOpen);
     return () => {
-      window.removeEventListener(OPEN_OPP_DRAWER,          handleOppOpen);
-      window.removeEventListener(OPEN_EDIT_DRAWER,         handleEditOpen);
-      window.removeEventListener(OPEN_ADD_CONTACT_DRAWER,  handleContactOpen);
+      window.removeEventListener(OPEN_OPP_DRAWER,  handleOppOpen);
+      window.removeEventListener(OPEN_EDIT_DRAWER, handleEditOpen);
     };
   }, []);
 
@@ -108,14 +103,6 @@ export function ClientActionButtons({
         client={clientData}
         open={isEditOpen}
         onClose={() => setIsEditOpen(false)}
-      />
-
-      {/* Add contact drawer */}
-      <AddContactDrawer
-        clientId={clientId}
-        clientCode={clientCode}
-        open={isContactOpen}
-        onClose={() => setIsContactOpen(false)}
       />
 
       {toast && (

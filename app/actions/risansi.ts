@@ -59,45 +59,35 @@ export async function requestAccess(_formData: FormData) {
 export async function addContact(formData: FormData): Promise<void> {
   const user = await requireSession();
 
-  const clientId    = parseInt(formData.get('client_id') as string);
-  if (!clientId) throw new Error('Client ID required');
+  const clientId  = parseInt(formData.get('client_id') as string);
+  const name      = (formData.get('name') as string | null)?.trim() ?? '';
+  const isPrimary = formData.get('is_primary') === 'true';
 
-  const name        = (formData.get('name')        as string | null)?.trim() ?? '';
+  if (isNaN(clientId) || clientId <= 0) throw new Error('Invalid client ID');
+  if (!name || name.length < 2) throw new Error('Contact name is required (min 2 characters)');
+
   const designation = (formData.get('designation') as string | null)?.trim() || null;
   const phone       = (formData.get('phone')       as string | null)?.trim() || null;
-  const whatsapp    = (formData.get('whatsapp')    as string | null)?.trim() || null;
   const email       = (formData.get('email')       as string | null)?.trim() || null;
+  const whatsapp    = (formData.get('whatsapp')    as string | null)?.trim() || null;
   const notes       = (formData.get('notes')       as string | null)?.trim() || null;
-  const isPrimary   = formData.get('is_primary') === 'true';
 
-  if (!name) throw new Error('Name is required');
-
-  // Unset any existing primary contact first
+  // Clear existing primary first
   if (isPrimary) {
-    try {
-      await risansiPool.query(
-        'UPDATE contacts SET is_primary = FALSE WHERE client_id = $1',
-        [clientId],
-      );
-    } catch { /* ignore — contacts table may not exist yet */ }
+    await risansiPool.query(
+      `UPDATE contacts SET is_primary = FALSE WHERE client_id = $1`,
+      [clientId],
+    );
   }
 
-  try {
-    await risansiPool.query(
-      `INSERT INTO contacts
-         (client_id, name, designation, phone, whatsapp,
-          email, notes, is_primary, added_by, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW())`,
-      [clientId, name, designation, phone, whatsapp, email, notes, isPrimary, user.email ?? 'system'],
-    );
-  } catch {
-    // Fallback: without newer columns
-    await risansiPool.query(
-      `INSERT INTO contacts (client_id, name, designation, phone, email, is_primary, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,NOW())`,
-      [clientId, name, designation, phone, email, isPrimary],
-    );
-  }
+  await risansiPool.query(
+    `INSERT INTO contacts
+       (client_id, name, designation, is_primary,
+        phone, email, whatsapp, notes,
+        added_by, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW())`,
+    [clientId, name, designation, isPrimary, phone, email, whatsapp, notes, user.email ?? 'system'],
+  );
 
   await logActivity('client', String(clientId), `Contact Added: ${name}${designation ? ` (${designation})` : ''}`, user.email!);
   revalidatePath(`/risansi/clients/${clientId}`);

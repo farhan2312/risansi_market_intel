@@ -4,7 +4,7 @@ import { Topbar, Tag, StatusDot } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
 import { fyShortLabel, fmtCr, formatRev } from '@/lib/risansi-utils';
 import { ClientActionButtons, PipelineOppBtn, EditDrawerTrigger } from '@/components/risansi/ClientActionButtons';
-import { AddContactTrigger } from '@/components/risansi/AddContactDrawer';
+import { AddContactButton } from '@/components/risansi/AddContactButton';
 import type { DrawerRep } from '@/components/risansi/AssignVisitDrawer';
 
 // ── Safe query wrapper ─────────────────────────────────────────
@@ -52,10 +52,16 @@ interface Client {
 }
 
 interface Contact {
-  name: string; designation: string | null;
-  phone: string | null; whatsapp: string | null; email: string | null;
-  notes: string | null; is_primary: boolean;
-  source: 'live' | 'excel';
+  id: number;
+  name: string;
+  designation: string | null;
+  is_primary: boolean;
+  phone: string | null;
+  email: string | null;
+  whatsapp: string | null;
+  notes: string | null;
+  added_by: string | null;
+  created_at: Date;
 }
 
 interface RevRow {
@@ -121,40 +127,18 @@ export default async function ClientProfilePage({
 
   const [contacts, revRows, equipment, visits, openOpps, activityLog, reps] = await Promise.all([
 
-    // 2. Contacts — UNION live contacts + Excel imports
+    // 2. Contacts — single source of truth
     q<Contact[]>(async () => {
-      // Try full UNION first
-      try {
-        const { rows } = await risansiPool.query<Contact>(
-          `(SELECT name, designation, phone,
-                   NULL::text AS whatsapp, email, NULL::text AS notes,
-                   is_primary, 'live'::text AS source
-            FROM contacts WHERE client_id = $1::bigint)
-           UNION ALL
-           (SELECT name, designation, phone,
-                   NULL::text AS whatsapp, email, NULL::text AS notes,
-                   is_primary, 'excel'::text AS source
-            FROM contacts_raw WHERE client_code = $2)
-           ORDER BY is_primary DESC, source ASC, name ASC`,
-          [client.id, client.code],
-        );
-        return rows;
-      } catch {
-        // Fallback: contacts_raw only
-        try {
-          const { rows } = await risansiPool.query<Contact>(
-            `SELECT name, designation, phone,
-                    NULL::text AS whatsapp, email, NULL::text AS notes,
-                    is_primary, 'excel'::text AS source
-             FROM contacts_raw WHERE client_code = $1
-             ORDER BY is_primary DESC, name ASC`,
-            [client.code],
-          );
-          return rows;
-        } catch {
-          return [];
-        }
-      }
+      const { rows } = await risansiPool.query<Contact>(
+        `SELECT id, name, designation, is_primary,
+                phone, email, whatsapp, notes,
+                added_by, created_at
+         FROM contacts
+         WHERE client_id = $1
+         ORDER BY is_primary DESC, created_at ASC`,
+        [client.id],
+      );
+      return rows;
     }, []),
 
     // 3. Revenue by FY / category (order_value_cr is already in Crores)
@@ -716,66 +700,117 @@ export default async function ClientProfilePage({
 
             {/* Contacts */}
             <div style={PANEL}>
-              <div style={PANEL_H}>
-                <span style={PANEL_TITLE}>Contacts</span>
-                <div style={{ marginLeft: 'auto' }}>
-                  <AddContactTrigger />
+              <div style={{
+                ...PANEL_H,
+                justifyContent: 'space-between',
+                borderBottom: contacts.length > 0 ? '1px solid var(--line)' : 'none',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={PANEL_TITLE}>Contacts</span>
+                  {contacts.length > 0 && (
+                    <span style={{
+                      background: 'var(--bg-sunk)', color: 'var(--fg-3)',
+                      borderRadius: 10, padding: '1px 7px',
+                      fontSize: 11, fontWeight: 600,
+                    }}>
+                      {contacts.length}
+                    </span>
+                  )}
                 </div>
+                <AddContactButton clientId={Number(client.id)} clientCode={client.code} />
               </div>
+
               {contacts.length === 0 ? (
-                <div style={{ padding: '20px 0', textAlign: 'center', fontSize: 12, color: 'var(--fg-3)' }}>
-                  No contacts on record
+                <div style={{ padding: '28px 16px', textAlign: 'center', color: 'var(--fg-3)', fontSize: 13 }}>
+                  <div style={{ fontSize: 28, marginBottom: 8 }}>👤</div>
+                  No contacts recorded yet.
+                  <br />
+                  <span style={{ fontSize: 12 }}>Click + Add Contact to add the first contact.</span>
                 </div>
               ) : (
                 <div>
                   {contacts.map((c, i) => (
                     <div
-                      key={`${c.name}-${i}`}
+                      key={c.id}
                       style={{
-                        display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-                        padding: '10px 14px',
+                        padding: '12px 16px',
                         borderBottom: i < contacts.length - 1 ? '1px solid var(--line)' : 'none',
+                        display: 'flex', gap: 12, alignItems: 'flex-start',
                       }}
                     >
+                      {/* Avatar */}
+                      <div style={{
+                        width: 36, height: 36, borderRadius: 8, flexShrink: 0,
+                        background: c.is_primary ? '#0A3D8F' : 'var(--bg-sunk)',
+                        color: c.is_primary ? '#fff' : 'var(--fg-2)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-mono)',
+                      }}>
+                        {c.name.split(' ').map((w: string) => w[0] || '').join('').slice(0, 2).toUpperCase() || '?'}
+                      </div>
+
+                      {/* Info */}
                       <div style={{ flex: 1, minWidth: 0 }}>
+                        {/* Name row */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                          <span style={{ fontWeight: 500, fontSize: 12 }}>{c.name}</span>
-                          {c.is_primary && <Tag kind="accent">PRIMARY</Tag>}
-                          {c.source === 'excel' && (
+                          <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--fg)' }}>{c.name}</span>
+                          {c.is_primary && (
                             <span style={{
-                              fontSize: 10, padding: '1px 5px',
-                              background: '#F1F5F9', border: '1px solid #CBD5E1',
-                              borderRadius: 3, color: '#6B7FA3', fontFamily: 'var(--font-mono)',
-                            }}>Excel</span>
+                              fontSize: 10, fontWeight: 600,
+                              background: 'rgba(26,92,184,0.08)',
+                              color: '#1A5CB8',
+                              border: '1px solid rgba(26,92,184,0.2)',
+                              borderRadius: 10, padding: '1px 7px',
+                              textTransform: 'uppercase', letterSpacing: '0.06em',
+                            }}>
+                              Primary
+                            </span>
+                          )}
+                          {c.added_by === 'excel_import' && (
+                            <span style={{
+                              fontSize: 10, background: 'var(--bg-sunk)',
+                              color: 'var(--fg-3)', borderRadius: 4, padding: '1px 5px',
+                            }}>
+                              Imported
+                            </span>
                           )}
                         </div>
+
+                        {/* Designation */}
                         {c.designation && (
-                          <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 1 }}>{c.designation}</div>
+                          <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 2 }}>
+                            {c.designation}
+                          </div>
                         )}
-                        <div style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', marginTop: 4 }}>
-                          {[c.phone, c.email].filter(Boolean).join('  ·  ')}
+
+                        {/* Contact links */}
+                        <div style={{ display: 'flex', gap: 14, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                          {c.phone && (
+                            <a href={`tel:${c.phone}`} style={CONTACT_LINK}>
+                              📞 {c.phone}
+                            </a>
+                          )}
+                          {c.email && (
+                            <a href={`mailto:${c.email}`} style={CONTACT_LINK}>
+                              ✉ {c.email}
+                            </a>
+                          )}
+                          {c.whatsapp && (
+                            <a
+                              href={`https://wa.me/${c.whatsapp.replace(/\D/g, '')}`}
+                              target="_blank" rel="noopener noreferrer"
+                              style={{ ...CONTACT_LINK, color: '#25D366' }}
+                            >
+                              💬 WhatsApp
+                            </a>
+                          )}
                         </div>
-                      </div>
-                      {/* Action buttons */}
-                      <div style={{ display: 'flex', gap: 4, flexShrink: 0, marginLeft: 8 }}>
-                        {c.phone && (
-                          <a href={`tel:${c.phone}`} style={ICON_BTN} title="Call">
-                            <PhoneIcon />
-                          </a>
-                        )}
-                        {(c.whatsapp ?? c.phone) && (
-                          <a
-                            href={`https://wa.me/${(c.whatsapp ?? c.phone)!.replace(/[^0-9]/g, '')}`}
-                            target="_blank" rel="noreferrer"
-                            style={ICON_BTN} title="WhatsApp"
-                          >
-                            <WaIcon />
-                          </a>
-                        )}
-                        {c.email && (
-                          <a href={`mailto:${c.email}`} style={ICON_BTN} title="Email">
-                            <MailIcon />
-                          </a>
+
+                        {/* Notes */}
+                        {c.notes && (
+                          <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 5, fontStyle: 'italic', lineHeight: 1.4 }}>
+                            {c.notes}
+                          </div>
                         )}
                       </div>
                     </div>
@@ -963,33 +998,6 @@ function RevenueChart({
   );
 }
 
-// ── Icon SVGs (inline) ─────────────────────────────────────────
-
-function PhoneIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 2.5h3l1 3-2 1c.5 1.5 2 3 3.5 3.5l1-2 3 1V12c0 .8-.7 1.5-1.5 1.5C7 13.5 2.5 9 2.5 4 2.5 3.2 3.2 2.5 4 2.5z"/>
-    </svg>
-  );
-}
-
-function WaIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="8" cy="8" r="6"/>
-    </svg>
-  );
-}
-
-function MailIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="3" width="12" height="10" rx="1"/>
-      <path d="M2 4l6 5 6-5"/>
-    </svg>
-  );
-}
-
 // ── Style constants ────────────────────────────────────────────
 
 const PANEL: CSSProperties = {
@@ -1016,18 +1024,9 @@ const REV_TH: CSSProperties = {
   fontFamily: 'var(--font-mono)', color: 'var(--fg-3)', fontWeight: 400,
 };
 
-const BTN: CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', gap: 5,
-  padding: '6px 11px', fontSize: 12, fontFamily: 'inherit',
-  fontWeight: 500, background: 'var(--bg-paper)',
-  border: '1px solid var(--line-strong)', color: 'var(--fg)',
-  borderRadius: 5, cursor: 'pointer',
-};
 
-const ICON_BTN: CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-  width: 28, height: 28,
-  background: 'transparent', border: '1px solid var(--line)',
-  color: 'var(--fg-3)', borderRadius: 5, cursor: 'pointer',
-  textDecoration: 'none',
+const CONTACT_LINK: CSSProperties = {
+  fontSize: 12, color: '#1A5CB8',
+  textDecoration: 'none', display: 'flex',
+  alignItems: 'center', gap: 4,
 };

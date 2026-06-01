@@ -12,7 +12,8 @@ export { SortableTH }         from './SortableTH';
 export { useSortableTable }   from './useSortableTable';
 export { RepSelector }        from './RepSelector';
 export { EditClientDrawer }   from './EditClientDrawer';
-export { AddContactDrawer, AddContactTrigger } from './AddContactDrawer';
+export { AddContactDrawer } from './AddContactDrawer';
+export { AddContactButton } from './AddContactButton';
 export type { ClientForEdit } from './EditClientDrawer';
 
 export type { SidebarProps, SidebarRole, SidebarUser, SidebarAlerts } from './Sidebar';
