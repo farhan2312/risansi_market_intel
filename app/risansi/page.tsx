@@ -10,7 +10,7 @@ import risansiPool from '@/lib/db-risansi';
 import {
   getCurrentFY, getPreviousFYCodes, fyShortLabel,
   fyYtdPct, fyDaysLeft, formatIndianDate, formatTime, fmtCr, fmtL, initials,
-  getGreeting,
+  getGreeting, formatRevLakh,
 } from '@/lib/risansi-utils';
 
 // ── Safe query wrapper ─────────────────────────────────────────
@@ -50,11 +50,10 @@ const FUNNEL_COLORS: Record<string, string> = {
 
 interface RevenueSplit { pump: number; spare: number; }
 interface HistoricalFY { code: string; label: string; total: number; }
-interface SegmentRow   { industry: string; total: number; }
+interface SegmentRow   { segment: string; ytd_inr: number; }
 interface FunnelRow    { stage: string; count: number; value: number; }
 interface MarketEntry  { supplier: string; units: number; pct: number; color: string; }
 interface CIBTotals    { ril: number; roto: number; rotomac: number; netzsch: number; gita: number; psp: number; tushaco: number; total: number; }
-interface HistRow      { h2021: string; h2122: string; h2223: string; h2324: string; h2425: string; }
 interface TopAccount {
   client_code: string; legal_name: string; industry: string; zone: string; status: string;
   ytd: number; py: number;
@@ -92,7 +91,7 @@ export default async function ExecDashboardPage() {
     revSplit,
     pyTotal,
     annTarget,
-    histRow,
+    historical,
     segments,
     domExp,
     funnel,
@@ -134,31 +133,47 @@ export default async function ExecDashboardPage() {
       return rows[0] ? Number(rows[0].target_value) : 320;
     }, 320),
 
-    // 4. Historical revenue — single query for all 5 prior FYs (replaces 5 sequential queries)
-    q<HistRow>(async () => {
-      const { rows } = await risansiPool.query<HistRow>(
-        `SELECT
-           COALESCE(SUM(rev_2021), 0)::text AS h2021,
-           (COALESCE(SUM(rev_2122_pump),0) + COALESCE(SUM(rev_2122_spare),0))::text AS h2122,
-           (COALESCE(SUM(rev_2223_pump),0) + COALESCE(SUM(rev_2223_spare),0))::text AS h2223,
-           (COALESCE(SUM(rev_2324_pump),0) + COALESCE(SUM(rev_2324_spare),0))::text AS h2324,
-           (COALESCE(SUM(rev_2425_pump),0) + COALESCE(SUM(rev_2425_spare),0))::text AS h2425
-         FROM clients WHERE deleted_at IS NULL`,
+    // 4. Historical revenue — all FYs via UNION ALL, zeros filtered out
+    q<HistoricalFY[]>(async () => {
+      const { rows } = await risansiPool.query<{ fy: string; ord: number; total_inr: string }>(
+        `SELECT fy, ord, total_inr FROM (
+           SELECT 'FY18' AS fy, 1 AS ord, COALESCE(SUM(rev_1819),0)::text AS total_inr FROM clients
+           UNION ALL
+           SELECT 'FY19', 2, COALESCE(SUM(rev_1920),0)::text FROM clients
+           UNION ALL
+           SELECT 'FY20', 3, COALESCE(SUM(rev_2021),0)::text FROM clients
+           UNION ALL
+           SELECT 'FY21', 4, COALESCE(SUM(rev_2122_total),0)::text FROM clients
+           UNION ALL
+           SELECT 'FY22', 5, COALESCE(SUM(rev_2223_total),0)::text FROM clients
+           UNION ALL
+           SELECT 'FY23', 6, COALESCE(SUM(rev_2324_total),0)::text FROM clients
+           UNION ALL
+           SELECT 'FY24', 7, COALESCE(SUM(rev_2425_total),0)::text FROM clients
+           UNION ALL
+           SELECT 'FY25', 8, (COALESCE(SUM(rev_2526_pump),0)+COALESCE(SUM(rev_2526_spare),0))::text FROM clients
+         ) t
+         WHERE total_inr::numeric > 0
+         ORDER BY ord`,
       );
-      return rows[0] ?? { h2021: '0', h2122: '0', h2223: '0', h2324: '0', h2425: '0' };
-    }, { h2021: '0', h2122: '0', h2223: '0', h2324: '0', h2425: '0' }),
+      return rows.map(r => ({ code: r.fy, label: r.fy, total: Number(r.total_inr) / INR_TO_L }));
+    }, []),
 
     // 5. Revenue by industry segment
     q<SegmentRow[]>(async () => {
-      const { rows } = await risansiPool.query<{ industry: string; total: string }>(
-        `SELECT c.industry,
-           (COALESCE(SUM(c.rev_2526_pump),0) + COALESCE(SUM(c.rev_2526_spare),0))::text AS total
+      const { rows } = await risansiPool.query<{ segment: string; ytd_inr: string }>(
+        `SELECT
+           COALESCE(c.industry, 'Other') AS segment,
+           (COALESCE(SUM(c.rev_2526_pump), 0) + COALESCE(SUM(c.rev_2526_spare), 0))::text AS ytd_inr
          FROM clients c
-         WHERE c.deleted_at IS NULL AND c.industry IS NOT NULL
-           AND (COALESCE(c.rev_2526_pump,0) + COALESCE(c.rev_2526_spare,0)) > 0
-         GROUP BY c.industry ORDER BY SUM(c.rev_2526_pump + c.rev_2526_spare) DESC LIMIT 8`,
+         WHERE c.deleted_at IS NULL
+           AND c.status = 'ACTIVE'
+           AND (c.rev_2526_pump > 0 OR c.rev_2526_spare > 0)
+         GROUP BY COALESCE(c.industry, 'Other')
+         ORDER BY 2::numeric DESC
+         LIMIT 8`,
       );
-      return rows.map(r => ({ industry: r.industry, total: Number(r.total) / INR_TO_L }));
+      return rows.map(r => ({ segment: r.segment, ytd_inr: Number(r.ytd_inr) / INR_TO_L }));
     }, []),
 
     // 6. Domestic / Export split
@@ -221,15 +236,25 @@ export default async function ExecDashboardPage() {
       };
     }, { ril: 0, roto: 0, rotomac: 0, netzsch: 0, gita: 0, psp: 0, tushaco: 0, total: 0 }),
 
-    // 9. At-risk accounts (no visit 18+ months or null)
+    // 9. At-risk: previously active clients with no visit in 18+ months
     q<AtRisk>(async () => {
       const { rows } = await risansiPool.query<{ cnt: string; exposure: string }>(
         `SELECT COUNT(*)::text AS cnt,
-                COALESCE(SUM(COALESCE(rev_2526_pump,0) + COALESCE(rev_2526_spare,0)),0)::text AS exposure
+                COALESCE(SUM(
+                  COALESCE(rev_2526_total,0) + COALESCE(rev_2425_total,0)
+                ), 0)::text AS exposure
          FROM clients
-         WHERE status = 'ACTIVE' AND deleted_at IS NULL
-           AND (last_visit_date < NOW() - INTERVAL '18 months'
-                OR last_visit_date IS NULL)`,
+         WHERE status = 'ACTIVE'
+           AND deleted_at IS NULL
+           AND (
+             COALESCE(rev_2425_total,0) > 0 OR
+             COALESCE(rev_2324_total,0) > 0 OR
+             COALESCE(rev_2223_total,0) > 0
+           )
+           AND (
+             last_visit_date IS NULL OR
+             last_visit_date < CURRENT_DATE - INTERVAL '18 months'
+           )`,
       );
       return {
         count:    Number(rows[0]?.cnt      ?? 0),
@@ -294,6 +319,7 @@ export default async function ExecDashboardPage() {
          JOIN clients c ON c.id = v.client_id
          LEFT JOIN reps r ON r.id = v.rep_id
          WHERE v.status IN ('completed','checked-in')
+           AND v.visit_date >= CURRENT_DATE - INTERVAL '7 days'
          ORDER BY v.visit_date DESC, v.check_in_time DESC NULLS LAST
          LIMIT 10`,
       );
@@ -315,14 +341,7 @@ export default async function ExecDashboardPage() {
 
   const totalBooked = revSplit.pump + revSplit.spare;
 
-  // Historical — built from single-query histRow
-  const historical: HistoricalFY[] = [
-    { code: '20-21', label: fyShortLabel('20-21'), total: Number(histRow.h2021) / INR_TO_L },
-    { code: '21-22', label: fyShortLabel('21-22'), total: Number(histRow.h2122) / INR_TO_L },
-    { code: '22-23', label: fyShortLabel('22-23'), total: Number(histRow.h2223) / INR_TO_L },
-    { code: '23-24', label: fyShortLabel('23-24'), total: Number(histRow.h2324) / INR_TO_L },
-    { code: '24-25', label: fyShortLabel('24-25'), total: Number(histRow.h2425) / INR_TO_L },
-  ];
+  // historical is returned directly from query 4 (zeros filtered, all FYs)
 
   const pipelineTotal    = funnel.reduce((s, r) => s + r.value, 0);
   const negotiatingCount = funnel.find(r => r.stage === 'Negotiating')?.count ?? 0;
@@ -346,14 +365,16 @@ export default async function ExecDashboardPage() {
   ].filter(d => d.units > 0);
 
   // ── Derived display values ────────────────────────────────────
-  // annTarget is in Crores (from sales_targets); convert to Lakhs for comparison with rev_* totals
-  const annTargetL    = annTarget * 100;
-  const bookedDelta   = pyTotal > 0 ? ((totalBooked - pyTotal) / pyTotal) * 100 : 0;
-  const achievedPct   = annTargetL > 0 ? (totalBooked / annTargetL) * 100 : 0;
-  const isOnTrack     = totalBooked >= (annTargetL * ytdPct / 100 * 0.9);
-  const histValues    = historical.map(h => h.total);
-  const histLabels    = historical.map(h => h.label);
-  const funnelMax     = Math.max(...funnel.map(f => f.value), 1);
+  // annTarget is in Crores; convert to Lakhs to compare with rev_* totals (in Lakhs)
+  const annTargetL  = annTarget * 100;
+  // fmtFromL: format a value-in-Lakhs using auto-scaling (same unit as totalBooked)
+  const fmtFromL    = (lakhs: number) => formatRevLakh(Math.round(lakhs * INR_TO_L));
+  const bookedDelta = pyTotal > 0 ? ((totalBooked - pyTotal) / pyTotal) * 100 : 0;
+  const achievedPct = annTargetL > 0 ? (totalBooked / annTargetL) * 100 : 0;
+  const isOnTrack   = totalBooked >= (annTargetL * ytdPct / 100 * 0.9);
+  const histValues  = historical.map(h => h.total);
+  const histLabels  = historical.map(h => h.label);
+  const funnelMax   = Math.max(...funnel.map(f => f.value), 1);
 
   // ── Render ───────────────────────────────────────────────────
   return (
@@ -387,10 +408,10 @@ export default async function ExecDashboardPage() {
         </div>
 
         {/* ── Hero metrics row ────────────────────────────────── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '2.2fr 1fr 1fr 1fr', gap: 14, marginBottom: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
 
           {/* Booked Revenue hero panel */}
-          <div style={KPI_PANEL}>
+          <div style={{ ...KPI_PANEL, minHeight: 140 }}>
             <div style={PANEL_H}>
               <span style={PANEL_TITLE}>FY 25–26 Booked Revenue</span>
               <span style={META}>Updated {formatTime(today)} IST</span>
@@ -403,26 +424,30 @@ export default async function ExecDashboardPage() {
                 {/* Total booked metric */}
                 <div style={{ flexShrink: 0 }}>
                   <div style={METRIC_LABEL}>Total Booked</div>
-                  <div style={METRIC_VAL}>
-                    {fmtL(totalBooked)}
-                  </div>
+                  <div style={METRIC_VAL}>{fmtFromL(totalBooked)}</div>
                   {pyTotal > 0 && (
                     <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: bookedDelta >= 0 ? 'var(--pos)' : 'var(--neg)', marginTop: 4 }}>
-                      {bookedDelta >= 0 ? '▲' : '▼'} {fmtL(Math.abs(totalBooked - pyTotal))} vs PY · {bookedDelta >= 0 ? '+' : ''}{bookedDelta.toFixed(1)}%
+                      {bookedDelta >= 0 ? '▲' : '▼'} {fmtFromL(Math.abs(totalBooked - pyTotal))} vs PY · {bookedDelta >= 0 ? '+' : ''}{bookedDelta.toFixed(1)}%
                     </div>
                   )}
                 </div>
                 {/* Target metric */}
                 <div style={{ flexShrink: 0 }}>
                   <div style={METRIC_LABEL}>Annual Target</div>
-                  <div style={METRIC_VAL}>{fmtCr(annTarget)}</div>
+                  <div style={METRIC_VAL}>{fmtFromL(annTargetL)}</div>
                   <div style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', marginTop: 4 }}>
                     {achievedPct.toFixed(1)}% achieved · {ytdPct}% YTD
                   </div>
                 </div>
-                {/* Mini bars */}
+                {/* YoY mini bars — current year highlighted in brand blue */}
                 <div style={{ flex: 1 }}>
-                  <MiniBars values={histValues.length ? histValues : [0]} labels={histLabels} width={280} height={70} />
+                  <MiniBars
+                    values={histValues.length ? histValues : [0]}
+                    labels={histLabels}
+                    color="#0A3D8F"
+                    dimColor="#93C5FD"
+                    width={280} height={70}
+                  />
                 </div>
               </div>
 
@@ -432,8 +457,8 @@ export default async function ExecDashboardPage() {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
                 <span>₹0</span>
-                <span style={{ color: 'var(--accent)' }}>↑ {fmtL(totalBooked)}</span>
-                <span>{fmtCr(annTarget)}</span>
+                <span style={{ color: 'var(--accent)' }}>↑ {fmtFromL(totalBooked)}</span>
+                <span>{fmtFromL(annTargetL)}</span>
               </div>
             </div>
           </div>
@@ -441,11 +466,11 @@ export default async function ExecDashboardPage() {
           {/* Pipeline small metric */}
           <SmallMetric
             label="Pipeline"
-            value={`${(pipelineTotal / 1).toFixed(0)}`}
-            unit="Cr"
-            delta={`${negotiatingCount} in negotiation`}
-            deltaPos
-            sub="Open opportunities"
+            value={pipelineTotal > 0 ? fmtCr(pipelineTotal) : '—'}
+            delta={pipelineTotal > 0 ? `${negotiatingCount} in negotiation` : 'No open opportunities'}
+            deltaPos={pipelineTotal > 0}
+            sub={pipelineTotal > 0 ? 'Open opportunities' : 'Add via Pipeline →'}
+            subHref={pipelineTotal === 0 ? '/risansi/pipeline' : undefined}
             spark={[]}
           />
 
@@ -464,9 +489,9 @@ export default async function ExecDashboardPage() {
           <SmallMetric
             label="At-Risk Accounts"
             value={String(atRisk.count)}
-            delta={atRisk.exposure > 0 ? `${fmtL(atRisk.exposure)} exposure` : 'No order > 18 mo'}
-            deltaPos={false}
-            sub="No order > 18 months"
+            delta={atRisk.exposure > 0 ? `${fmtFromL(atRisk.exposure)} revenue at risk` : 'None — all recently visited'}
+            deltaPos={atRisk.count === 0}
+            sub="Had revenue · no visit 18 mo+"
             spark={[]}
           />
         </div>
@@ -485,9 +510,9 @@ export default async function ExecDashboardPage() {
               )}
               {segments.slice(0, 6).map((seg, i) => (
                 <SegmentBar
-                  key={seg.industry}
-                  label={seg.industry}
-                  value={seg.total}
+                  key={seg.segment}
+                  label={seg.segment}
+                  value={seg.ytd_inr}
                   total={totalBooked || 1}
                   color={SEGMENT_COLORS[i] ?? 'var(--fg-3)'}
                 />
@@ -558,19 +583,28 @@ export default async function ExecDashboardPage() {
               </div>
             </div>
             <div style={{ padding: '8px 14px' }}>
-              {funnel.every(f => f.count === 0) && (
-                <div style={{ fontSize: 12, color: 'var(--fg-3)', textAlign: 'center', padding: '24px 0' }}>No pipeline data</div>
+              {funnel.every(f => f.count === 0) ? (
+                <div style={{ textAlign: 'center', padding: '36px 16px' }}>
+                  <div style={{ fontSize: 13, color: 'var(--fg-3)', marginBottom: 12 }}>No pipeline data yet</div>
+                  <a
+                    href="/risansi/pipeline"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', fontSize: 12, fontWeight: 600, background: '#0A3D8F', color: '#fff', borderRadius: 6, textDecoration: 'none' }}
+                  >
+                    + Add Opportunity
+                  </a>
+                </div>
+              ) : (
+                funnel.map(row => (
+                  <FunnelBarRow
+                    key={row.stage}
+                    stage={row.stage}
+                    count={row.count}
+                    value={row.value}
+                    max={funnelMax}
+                    color={FUNNEL_COLORS[row.stage] ?? 'var(--fg-3)'}
+                  />
+                ))
               )}
-              {funnel.map(row => (
-                <FunnelBarRow
-                  key={row.stage}
-                  stage={row.stage}
-                  count={row.count}
-                  value={row.value}
-                  max={funnelMax}
-                  color={FUNNEL_COLORS[row.stage] ?? 'var(--fg-3)'}
-                />
-              ))}
             </div>
           </div>
         </div>
@@ -643,8 +677,11 @@ export default async function ExecDashboardPage() {
             </div>
             <div style={{ padding: 0 }}>
               {visits.length === 0 && (
-                <div style={{ fontSize: 12, color: 'var(--fg-3)', textAlign: 'center', padding: '32px 0' }}>
-                  No visit activity today
+                <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+                  <div style={{ fontSize: 24, marginBottom: 10 }}>📅</div>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--fg-2)', marginBottom: 6 }}>No field activity this week</div>
+                  <div style={{ fontSize: 11, color: 'var(--fg-3)', marginBottom: 16 }}>Visits will appear here in real-time as reps check in</div>
+                  <a href="/risansi/visits" style={{ fontSize: 11, color: '#1A5CB8', textDecoration: 'none', fontWeight: 500 }}>View visit history →</a>
                 </div>
               )}
               {visits.map((v, i) => {
@@ -773,12 +810,12 @@ const TD: CSSProperties = {
 
 // ── Small server-side sub-components ──────────────────────────
 
-function SmallMetric({ label, value, unit, delta, deltaPos, sub, spark }: {
+function SmallMetric({ label, value, unit, delta, deltaPos, sub, subHref, spark }: {
   label: string; value: string; unit?: string;
-  delta?: string; deltaPos?: boolean; sub?: string; spark: number[];
+  delta?: string; deltaPos?: boolean; sub?: string; subHref?: string; spark: number[];
 }) {
   return (
-    <div style={KPI_PANEL}>
+    <div style={{ ...KPI_PANEL, minHeight: 140 }}>
       <div style={{ padding: 14 }}>
         <div style={METRIC_LABEL}>{label}</div>
         <div style={METRIC_VAL}>
@@ -791,7 +828,11 @@ function SmallMetric({ label, value, unit, delta, deltaPos, sub, spark }: {
           </div>
         )}
         <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ fontSize: 11, color: 'var(--fg-3)' }}>{sub}</div>
+          {subHref ? (
+            <a href={subHref} style={{ fontSize: 11, color: '#1A5CB8', textDecoration: 'none', fontWeight: 500 }}>{sub}</a>
+          ) : (
+            <div style={{ fontSize: 11, color: 'var(--fg-3)' }}>{sub}</div>
+          )}
           {spark.length > 0 && (
             <Sparkline values={spark} width={70} height={22} color={deltaPos ? 'var(--pos)' : 'var(--neg)'} />
           )}
@@ -808,11 +849,11 @@ function SegmentBar({ label, value, total, color }: { label: string; value: numb
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 11 }}>
         <span style={{ color: '#2C3E5A' }}>{label}</span>
         <span style={{ fontFamily: 'var(--font-mono)', color: '#0D1B2A' }}>
-          {fmtL(value)} <span style={{ color: '#6B7FA3' }}>({pct.toFixed(0)}%)</span>
+          {formatRevLakh(Math.round(value * 100_000))} <span style={{ color: '#6B7FA3' }}>({pct.toFixed(0)}%)</span>
         </span>
       </div>
       <div style={{ height: 4, background: '#DDE6F5', borderRadius: 2, overflow: 'hidden' }}>
-        <div style={{ height: '100%', width: `${pct}%`, background: '#1A5CB8', borderRadius: 2 }} />
+        <div style={{ height: '100%', width: `${pct}%`, background: color, borderRadius: 2 }} />
       </div>
     </div>
   );

@@ -1,18 +1,20 @@
 export interface MiniBarsProps {
-  values: number[];
-  labels?: string[];
-  width?:  number;
-  height?: number;
-  color?:  string;
-  target?: number | null;
+  values:    number[];
+  labels?:   string[];
+  width?:    number;
+  height?:   number;
+  color?:    string;
+  dimColor?: string;   // colour for non-current bars (default: var(--fg-2) at 0.4 opacity)
+  target?:   number | null;
 }
 
 export function MiniBars({
   values,
   labels,
-  width  = 220,
-  height = 80,
-  color  = 'var(--accent)',
+  width    = 220,
+  height   = 80,
+  color    = 'var(--accent)',
+  dimColor,
   target,
 }: MiniBarsProps) {
   const hasLabels = labels && labels.length > 0;
@@ -47,8 +49,8 @@ export function MiniBars({
               x={x} y={y}
               width={bw} height={h}
               rx={1.5}
-              fill={isLast ? color : 'var(--fg-2)'}
-              opacity={isLast ? 1 : 0.4}
+              fill={isLast ? color : (dimColor ?? 'var(--fg-2)')}
+              opacity={isLast ? 1 : (dimColor ? 1 : 0.4)}
             />
             {hasLabels && (
               <text
