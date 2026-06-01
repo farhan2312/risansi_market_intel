@@ -273,10 +273,32 @@ export async function planVisit(clientId: string, formData: FormData) {
 
   const date = visitDate ?? new Date().toISOString().slice(0, 10);
 
+  // Resolve rep_id — use selected rep, fall back to client's primary rep, then any active rep
+  let resolvedRepId: number | null = repId ? parseInt(repId) : null;
+
+  if (!resolvedRepId) {
+    const clientData = await risansiPool.query<{ primary_rep_id: number | null }>(
+      'SELECT primary_rep_id FROM clients WHERE id = $1',
+      [clientId],
+    );
+    resolvedRepId = clientData.rows[0]?.primary_rep_id ?? null;
+  }
+
+  if (!resolvedRepId) {
+    const anyRep = await risansiPool.query<{ id: number }>(
+      'SELECT id FROM reps WHERE is_active = TRUE LIMIT 1',
+    );
+    resolvedRepId = anyRep.rows[0]?.id ?? null;
+  }
+
+  if (!resolvedRepId) {
+    throw new Error('No rep available — please assign a rep to this client first');
+  }
+
   await risansiPool.query(
     `INSERT INTO visits (client_id, rep_id, visit_date, purpose, status, created_at)
      VALUES ($1, $2, $3, $4, 'planned', NOW())`,
-    [clientId, repId, date, purpose],
+    [clientId, resolvedRepId, date, purpose],
   );
 
   await logActivity('client', clientId, `planned visit on ${date} · ${purpose}`, user.email!);
@@ -286,24 +308,68 @@ export async function planVisit(clientId: string, formData: FormData) {
 // ── Client: create opportunity ─────────────────────────────────
 
 export async function createOpportunity(clientId: string, formData: FormData) {
-  const user = await requireSession();
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) redirect('/api/auth/signin');
 
   const product  = (formData.get('product')  as string | null)?.trim() ?? 'New Opportunity';
   const stage    = (formData.get('stage')    as string | null)?.trim() ?? 'Suspect';
-  const value    = parseFloat((formData.get('estimated_value') as string | null) ?? '0') || 0;
-  const prob     = parseInt((formData.get('probability') as string | null) ?? '25', 10) || 25;
-  const eta      = (formData.get('expected_close') as string | null)?.trim() ?? null;
+  const valueCr  = parseFloat((formData.get('estimated_value') as string | null) ?? '') || null;
+  const prob     = formData.get('probability') ? parseInt(formData.get('probability') as string) : null;
+  const eta      = (formData.get('eta_text') as string | null)?.trim() ||
+                   (formData.get('expected_close') as string | null)?.trim() || null;
 
-  await risansiPool.query(
-    `INSERT INTO pipeline_opportunities
-       (client_id, product, stage, estimated_value, probability, expected_close, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`,
-    [clientId, product, stage, value, prob, eta],
+  // Resolve rep — fall back to client's primary rep
+  const clientData = await risansiPool.query<{ primary_rep_id: number | null }>(
+    'SELECT primary_rep_id FROM clients WHERE id = $1',
+    [clientId],
+  );
+  const resolvedRepId = clientData.rows[0]?.primary_rep_id ?? null;
+
+  const { rows } = await risansiPool.query<{ id: string }>(
+    `INSERT INTO opportunities (
+      client_id, rep_id,
+      product, product_type, stage,
+      value_cr, probability,
+      eta_text, quote_ref, notes,
+      auto_created, created_by,
+      created_at, updated_at
+    ) VALUES (
+      $1, $2, $3, $4, $5,
+      $6, $7, $8, $9, $10,
+      FALSE, $11, NOW(), NOW()
+    ) RETURNING id`,
+    [
+      clientId,
+      resolvedRepId,
+      product,
+      formData.get('product_type') || 'PCP',
+      stage,
+      valueCr,
+      prob,
+      eta,
+      formData.get('quote_ref') || null,
+      formData.get('notes') || null,
+      session.user.email,
+    ],
   );
 
-  await logActivity('client', clientId, `created opportunity: ${product} · ${stage} · ₹${value} Cr`, user.email!);
+  const newId = rows[0]?.id ?? null;
+
+  // Log stage creation
+  if (newId) {
+    try {
+      await risansiPool.query(
+        `INSERT INTO opportunity_stage_log
+           (opportunity_id, from_stage, to_stage, notes, changed_by)
+         VALUES ($1, NULL, $2, 'Created via client page', $3)`,
+        [newId, stage, session.user.email],
+      );
+    } catch { /* table may not exist */ }
+  }
+
+  await logActivity('client', clientId, `created opportunity: ${product} · ${stage}${valueCr ? ` · ₹${valueCr} Cr` : ''}`, session.user.email);
   revalidatePath(`/risansi/clients/${clientId}`);
-  revalidatePath('/risansi'); // refresh exec dashboard pipeline
+  revalidatePath('/risansi');
 }
 
 // ── Client: update tier ────────────────────────────────────────
