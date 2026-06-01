@@ -192,10 +192,10 @@ export function getGreeting(): string {
   // IST = UTC + 5:30
   const ist  = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
   const hour = ist.getUTCHours();
-  if (hour >= 5  && hour < 12) return 'Good morning';
-  if (hour >= 12 && hour < 17) return 'Good afternoon';
-  if (hour >= 17 && hour < 21) return 'Good evening';
-  return 'Good evening';
+  if (hour >= 5  && hour < 12) return 'Good Morning';
+  if (hour >= 12 && hour < 17) return 'Good Afternoon';
+  if (hour >= 17 && hour < 21) return 'Good Evening';
+  return 'Good Evening';
 }
 
 // ── Industry normalisation ─────────────────────────────────────

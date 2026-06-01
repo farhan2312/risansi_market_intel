@@ -247,7 +247,7 @@ export default async function RevenuePage({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
-        <Topbar crumbs={['Risansi', 'Revenue']} period={fy.label} />
+        <Topbar crumbs={['Risansi', 'Revenue']} />
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>

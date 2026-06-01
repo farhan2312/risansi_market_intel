@@ -6,10 +6,9 @@ export interface TopbarProps {
   crumbs: string[];
   primaryAction?: string;
   primaryActionHref?: string;
-  period?: string;
 }
 
-export function Topbar({ crumbs, primaryAction, primaryActionHref, period = 'FY 25–26' }: TopbarProps) {
+export function Topbar({ crumbs, primaryAction, primaryActionHref }: TopbarProps) {
   return (
     <header style={TOPBAR}>
       {/* Breadcrumbs */}
@@ -25,26 +24,11 @@ export function Topbar({ crumbs, primaryAction, primaryActionHref, period = 'FY 
         ))}
       </nav>
 
-      {/* Live indicator */}
+      {/* Live indicator — pushed right by marginLeft: auto */}
       <div style={LIVE_WRAP}>
         <span style={LIVE_DOT} />
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>Live · synced 2s ago</span>
       </div>
-
-      {/* Search */}
-      <div style={SEARCH_WRAP}>
-        <IcSearch />
-        <input
-          placeholder="Search clients, codes, contacts…"
-          style={SEARCH_INPUT}
-        />
-        <kbd style={KBD}>⌘K</kbd>
-      </div>
-
-      {/* Period */}
-      <TbBtn>
-        <IcCal />{period}<IcChevDown />
-      </TbBtn>
 
       {/* Bell */}
       <TbBtn><IcBell /></TbBtn>
@@ -111,6 +95,7 @@ const CRUMBS: CSSProperties = {
 };
 
 const LIVE_WRAP: CSSProperties = {
+  marginLeft: 'auto',
   display: 'flex',
   alignItems: 'center',
   gap: 6,
@@ -129,73 +114,14 @@ const LIVE_DOT: CSSProperties = {
   flexShrink: 0,
 };
 
-const SEARCH_WRAP: CSSProperties = {
-  marginLeft: 'auto',
-  flex: '0 1 340px',
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-  padding: '6px 10px',
-  background: 'var(--bg)',
-  border: '1px solid var(--line)',
-  borderRadius: 5,
-  color: 'var(--fg-3)',
-};
-
-const SEARCH_INPUT: CSSProperties = {
-  border: 0,
-  background: 'transparent',
-  outline: 'none',
-  flex: 1,
-  fontFamily: 'inherit',
-  fontSize: 13,
-  color: 'var(--fg)',
-  minWidth: 0,
-};
-
-const KBD: CSSProperties = {
-  fontFamily: 'var(--font-mono)',
-  fontSize: 10,
-  padding: '1px 4px',
-  background: 'var(--bg-elev)',
-  border: '1px solid var(--line)',
-  borderRadius: 3,
-  color: 'var(--fg-3)',
-  flexShrink: 0,
-};
-
 // ── Icons ─────────────────────────────────────────────────────
 
-function IcSearch() {
-  return (
-    <svg width={13} height={13} viewBox="0 0 16 16" fill="none"
-         stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="7" cy="7" r="5"/><path d="M14 14l-3.5-3.5"/>
-    </svg>
-  );
-}
 function IcChevRight() {
   return (
     <svg width={11} height={11} viewBox="0 0 16 16" fill="none"
          stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"
          style={{ opacity: 0.4 }}>
       <path d="M6 4l4 4-4 4"/>
-    </svg>
-  );
-}
-function IcChevDown() {
-  return (
-    <svg width={11} height={11} viewBox="0 0 16 16" fill="none"
-         stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 6.5 8 10.5 12 6.5"/>
-    </svg>
-  );
-}
-function IcCal() {
-  return (
-    <svg width={13} height={13} viewBox="0 0 16 16" fill="none"
-         stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="3" width="12" height="11" rx="1"/><path d="M2 6h12M5 2v3M11 2v3"/>
     </svg>
   );
 }

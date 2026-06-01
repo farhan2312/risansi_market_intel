@@ -161,7 +161,34 @@ body {
 
 /* ── Print styles ───────────────────────────────────────────── */
 @media print {
-  aside, header, .no-print { display: none !important; }
-  main { margin: 0 !important; overflow: visible !important; }
-  body { background: #fff !important; }
+  aside,
+  header,
+  nav,
+  button,
+  .no-print,
+  [data-print-hide] {
+    display: none !important;
+  }
+
+  body {
+    background: white !important;
+  }
+
+  main {
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+
+  [class*="panel"],
+  [style*="border-radius"] {
+    border: 1px solid #ddd !important;
+    box-shadow: none !important;
+    break-inside: avoid;
+  }
+
+  @page {
+    size: A4 landscape;
+    margin: 15mm;
+  }
 }

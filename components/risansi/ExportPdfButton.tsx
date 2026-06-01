@@ -1,29 +1,29 @@
 'use client';
 
 export function ExportPdfButton() {
+  function handleExport() {
+    const originalTitle  = document.title;
+    document.title = `Risansi-Dashboard-${new Date().toISOString().slice(0, 10)}`;
+    window.print();
+    setTimeout(() => { document.title = originalTitle; }, 1000);
+  }
+
   return (
     <button
-      onClick={() => window.print()}
+      onClick={handleExport}
       style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 6,
-        padding: '6px 11px',
-        fontSize: 12,
-        fontFamily: 'inherit',
-        fontWeight: 500,
-        background: 'var(--bg-paper)',
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        padding: '6px 11px', fontSize: 12, fontFamily: 'inherit',
+        fontWeight: 500, background: 'var(--bg-paper)',
         border: '1px solid var(--line-strong)',
-        color: 'var(--fg)',
-        borderRadius: 5,
-        cursor: 'pointer',
+        color: 'var(--fg)', borderRadius: 5, cursor: 'pointer',
       }}
     >
-      <svg width={12} height={12} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-        <path d="M4 10H3a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1h-1"/>
-        <rect x="4" y="11" width="8" height="4" rx="0.5"/>
-        <path d="M4 6V2h8v4"/>
-        <circle cx="12" cy="8" r="0.5" fill="currentColor" stroke="none"/>
+      <svg width={12} height={12} viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+        <polyline points="6 9 6 2 18 2 18 9" />
+        <path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2" />
+        <rect x="6" y="14" width="12" height="8" />
       </svg>
       Export PDF
     </button>

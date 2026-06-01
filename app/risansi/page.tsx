@@ -67,7 +67,11 @@ interface AtRisk { count: number; exposure: number; }
 
 // ── Page ───────────────────────────────────────────────────────
 
-export default async function ExecDashboardPage() {
+export default async function ExecDashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ fy?: string }>;
+}) {
   // ── Mobile redirect (must live here, not in layout) ────────
   const headersList = await headers();
   const ua = headersList.get('user-agent') ?? '';
@@ -86,6 +90,21 @@ export default async function ExecDashboardPage() {
 
   const INR_TO_L = 100_000;
 
+  // ── FY selection — validated against allowlist, never raw user input in SQL ──
+  const FY_COLS = {
+    '25-26': { pump: 'rev_2526_pump', spare: 'rev_2526_spare', total: 'rev_2526_total', prev: 'rev_2425_total' },
+    '24-25': { pump: 'rev_2425_pump', spare: 'rev_2425_spare', total: 'rev_2425_total', prev: 'rev_2324_total' },
+    '23-24': { pump: 'rev_2324_pump', spare: 'rev_2324_spare', total: 'rev_2324_total', prev: 'rev_2223_total' },
+    '22-23': { pump: 'rev_2223_pump', spare: 'rev_2223_spare', total: 'rev_2223_total', prev: 'rev_2122_total' },
+  } as const;
+  type FYKey = keyof typeof FY_COLS;
+
+  const sp      = await searchParams;
+  const rawFy   = sp.fy ?? '25-26';
+  const safeFy: FYKey = (rawFy in FY_COLS) ? rawFy as FYKey : '25-26';
+  const cols    = FY_COLS[safeFy];
+  const fyLabel = `FY ${safeFy.replace('-', '–')}`;
+
   // ── All queries in parallel — replaces 10 sequential awaits ──
   const [
     revSplit,
@@ -101,36 +120,39 @@ export default async function ExecDashboardPage() {
     visits,
   ] = await Promise.all([
 
-    // 1. Current FY revenue from clients.rev_2526_total (raw INR ÷ 1L = Lakhs)
+    // 1. Selected-FY revenue: total + pump/spare breakdown
     q<RevenueSplit>(async () => {
-      const { rows } = await risansiPool.query<{ total: string }>(
-        `SELECT COALESCE(SUM(rev_2526_total),0)::text AS total
-         FROM clients`,
+      const { rows } = await risansiPool.query<{ total_inr: string; pump_inr: string; spare_inr: string }>(
+        `SELECT
+           COALESCE(SUM(${cols.total}),0)::text AS total_inr,
+           COALESCE(SUM(${cols.pump}),0)::text  AS pump_inr,
+           COALESCE(SUM(${cols.spare}),0)::text AS spare_inr
+         FROM clients WHERE deleted_at IS NULL`,
       );
       return {
-        pump:  Number(rows[0]?.total ?? 0) / INR_TO_L,
-        spare: 0,
+        pump:  Number(rows[0]?.pump_inr  ?? 0) / INR_TO_L,
+        spare: Number(rows[0]?.spare_inr ?? 0) / INR_TO_L,
       };
     }, { pump: 0, spare: 0 }),
 
-    // 2. Previous-year total from clients.rev_2425_total
+    // 2. Previous-year total (the FY before the selected one)
     q<number>(async () => {
       const { rows } = await risansiPool.query<{ total: string }>(
-        `SELECT COALESCE(SUM(rev_2425_total),0)::text AS total
-         FROM clients`,
+        `SELECT COALESCE(SUM(${cols.prev}),0)::text AS total
+         FROM clients WHERE deleted_at IS NULL`,
       );
       return Number(rows[0]?.total ?? 0) / INR_TO_L;
     }, 0),
 
-    // 3. Annual target
+    // 3. Annual target (Crores) — fallback 32 Cr = ₹32 Cr
     q<number>(async () => {
       const { rows } = await risansiPool.query<{ target_value: string }>(
         `SELECT target_value::text FROM sales_targets
          WHERE financial_year = $1 AND target_type = 'national' LIMIT 1`,
-        [fy.code],
+        [safeFy],
       );
-      return rows[0] ? Number(rows[0].target_value) : 320;
-    }, 320),
+      return rows[0] ? Number(rows[0].target_value) : 32;
+    }, 32),
 
     // 4. Historical revenue — all FYs via UNION ALL, zeros filtered out
     q<HistoricalFY[]>(async () => {
@@ -163,11 +185,11 @@ export default async function ExecDashboardPage() {
       const { rows } = await risansiPool.query<{ segment: string; ytd_inr: string }>(
         `SELECT
            COALESCE(c.industry, 'Other') AS segment,
-           COALESCE(SUM(c.rev_2526_total), 0)::text AS ytd_inr
+           COALESCE(SUM(c.${cols.total}), 0)::text AS ytd_inr
          FROM clients c
          WHERE c.deleted_at IS NULL
            AND c.status = 'ACTIVE'
-           AND c.rev_2526_total > 0
+           AND c.${cols.total} > 0
          GROUP BY COALESCE(c.industry, 'Other')
          ORDER BY 2::numeric DESC
          LIMIT 8`,
@@ -176,21 +198,19 @@ export default async function ExecDashboardPage() {
     }, []),
 
     // 6. Domestic / Export split
-    q<{ domestic: number; export: number; pump_pct: number }>(async () => {
-      const { rows } = await risansiPool.query<{ pump_pct: number; domestic_inr: string; export_inr: string }>(
+    q<{ domestic: number; export: number }>(async () => {
+      const { rows } = await risansiPool.query<{ domestic_inr: string; export_inr: string }>(
         `SELECT
-           0::int AS pump_pct,
-           COALESCE(SUM(CASE WHEN market_type = 'Domestic' THEN rev_2526_total ELSE 0 END),0)::text AS domestic_inr,
-           COALESCE(SUM(CASE WHEN market_type = 'Export'   THEN rev_2526_total ELSE 0 END),0)::text AS export_inr
+           COALESCE(SUM(CASE WHEN market_type = 'Domestic' THEN ${cols.total} ELSE 0 END),0)::text AS domestic_inr,
+           COALESCE(SUM(CASE WHEN market_type = 'Export'   THEN ${cols.total} ELSE 0 END),0)::text AS export_inr
          FROM clients WHERE deleted_at IS NULL`,
       );
       const r = rows[0];
       return {
-        domestic:  Number(r?.domestic_inr ?? 0) / INR_TO_L,
-        export:    Number(r?.export_inr   ?? 0) / INR_TO_L,
-        pump_pct:  r?.pump_pct ?? 0,
+        domestic: Number(r?.domestic_inr ?? 0) / INR_TO_L,
+        export:   Number(r?.export_inr   ?? 0) / INR_TO_L,
       };
-    }, { domestic: 0, export: 0, pump_pct: 0 }),
+    }, { domestic: 0, export: 0 }),
 
     // 7. Pipeline funnel
     q<FunnelRow[]>(async () => {
@@ -237,7 +257,7 @@ export default async function ExecDashboardPage() {
       const { rows } = await risansiPool.query<{ cnt: string; exposure: string }>(
         `SELECT COUNT(*)::text AS cnt,
                 COALESCE(SUM(
-                  COALESCE(rev_2526_total,0) + COALESCE(rev_2425_total,0)
+                  COALESCE(${cols.total},0) + COALESCE(${cols.prev},0)
                 ), 0)::text AS exposure
          FROM clients
          WHERE status = 'ACTIVE'
@@ -266,8 +286,8 @@ export default async function ExecDashboardPage() {
       }>(
         `SELECT
            c.code AS client_code, c.legal_name, c.industry, c.zone, c.status,
-           COALESCE(c.rev_2526_total,0)::text AS ytd,
-           COALESCE(c.rev_2425_total,0)::text AS py,
+           COALESCE(c.${cols.total},0)::text AS ytd,
+           COALESCE(c.${cols.prev},0)::text AS py,
            COALESCE(c.rev_2021,0)::text AS fy20,
            COALESCE(c.rev_2122_total,0)::text AS fy21,
            COALESCE(c.rev_2223_total,0)::text AS fy22,
@@ -276,8 +296,8 @@ export default async function ExecDashboardPage() {
            COALESCE(c.rev_2526_total,0)::text AS fy25
          FROM clients c
          WHERE c.deleted_at IS NULL
-           AND (COALESCE(c.rev_2526_total,0) > 0
-             OR COALESCE(c.rev_2425_total,0) > 0)
+           AND (COALESCE(c.${cols.total},0) > 0
+             OR COALESCE(c.${cols.prev},0) > 0)
          ORDER BY ytd DESC LIMIT 7`,
       );
       return rows.map(r => ({
@@ -336,6 +356,8 @@ export default async function ExecDashboardPage() {
   // ── Derived values ────────────────────────────────────────────
 
   const totalBooked = revSplit.pump + revSplit.spare;
+  const pumpPct  = totalBooked > 0 ? Math.round((revSplit.pump  / totalBooked) * 100) : 0;
+  const sparePct = totalBooked > 0 ? Math.round((revSplit.spare / totalBooked) * 100) : 0;
 
   // historical is returned directly from query 4 (zeros filtered, all FYs)
 
@@ -397,67 +419,83 @@ export default async function ExecDashboardPage() {
               {visits.length > 0 && ` · ${visits.filter(v => v.status === 'checked-in').length} reps active today`}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <ExportPdfButton />
             <RefreshButton />
           </div>
         </div>
 
-        {/* ── Hero metrics row ────────────────────────────────── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
-
-          {/* Booked Revenue hero panel */}
-          <div style={{ ...KPI_PANEL, minHeight: 140 }}>
+        {/* ── Hero metrics row 1: full-width Revenue card ─────── */}
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ ...KPI_PANEL }}>
             <div style={PANEL_H}>
-              <span style={PANEL_TITLE}>FY 25–26 Booked Revenue</span>
+              <span style={PANEL_TITLE}>{fyLabel} Booked Revenue</span>
               <span style={META}>Updated {formatTime(today)} IST</span>
               <div style={{ marginLeft: 'auto' }}>
                 <Tag kind={isOnTrack ? 'pos' : 'warn'} dot>{isOnTrack ? 'On Track' : 'Behind'}</Tag>
               </div>
             </div>
-            <div style={{ padding: 14 }}>
-              <div style={{ display: 'flex', gap: 32, alignItems: 'flex-end' }}>
-                {/* Total booked metric */}
-                <div style={{ flexShrink: 0 }}>
-                  <div style={METRIC_LABEL}>Total Booked</div>
-                  <div style={METRIC_VAL}>{fmtFromL(totalBooked)}</div>
-                  {pyTotal > 0 && (
-                    <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: bookedDelta >= 0 ? 'var(--pos)' : 'var(--neg)', marginTop: 4 }}>
-                      {bookedDelta >= 0 ? '▲' : '▼'} {fmtFromL(Math.abs(totalBooked - pyTotal))} vs PY · {bookedDelta >= 0 ? '+' : ''}{bookedDelta.toFixed(1)}%
+            <div style={{ padding: 14, display: 'grid', gridTemplateColumns: '1fr 300px', gap: 28, alignItems: 'center' }}>
+              {/* Left: KPI numbers + progress bar + dom/exp/pump:spare */}
+              <div>
+                <div style={{ display: 'flex', gap: 32, alignItems: 'flex-end' }}>
+                  {/* Total booked metric */}
+                  <div style={{ flexShrink: 0 }}>
+                    <div style={METRIC_LABEL}>Total Booked</div>
+                    <div style={METRIC_VAL}>{fmtFromL(totalBooked)}</div>
+                    {pyTotal > 0 && (
+                      <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: bookedDelta >= 0 ? 'var(--pos)' : 'var(--neg)', marginTop: 4 }}>
+                        {bookedDelta >= 0 ? '▲' : '▼'} {fmtFromL(Math.abs(totalBooked - pyTotal))} vs PY · {bookedDelta >= 0 ? '+' : ''}{bookedDelta.toFixed(1)}%
+                      </div>
+                    )}
+                  </div>
+                  {/* Target metric */}
+                  <div style={{ flexShrink: 0 }}>
+                    <div style={METRIC_LABEL}>Annual Target</div>
+                    <div style={METRIC_VAL}>{fmtFromL(annTargetL)}</div>
+                    <div style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', marginTop: 4 }}>
+                      {achievedPct.toFixed(1)}% achieved · {ytdPct}% YTD
                     </div>
-                  )}
-                </div>
-                {/* Target metric */}
-                <div style={{ flexShrink: 0 }}>
-                  <div style={METRIC_LABEL}>Annual Target</div>
-                  <div style={METRIC_VAL}>{fmtFromL(annTargetL)}</div>
-                  <div style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', marginTop: 4 }}>
-                    {achievedPct.toFixed(1)}% achieved · {ytdPct}% YTD
                   </div>
                 </div>
-                {/* YoY mini bars — current year highlighted in brand blue */}
-                <div style={{ flex: 1 }}>
-                  <MiniBars
-                    values={histValues.length ? histValues : [0]}
-                    labels={histLabels}
-                    color="#0A3D8F"
-                    dimColor="#93C5FD"
-                    width={280} height={70}
-                  />
+
+                {/* Progress bar */}
+                <div style={{ marginTop: 14, height: 6, background: 'var(--bg-sunk)', borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${Math.min(achievedPct, 100)}%`, background: 'var(--accent)', borderRadius: 3 }} />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
+                  <span>₹0</span>
+                  <span style={{ color: 'var(--accent)' }}>↑ {fmtFromL(totalBooked)}</span>
+                  <span>{fmtFromL(annTargetL)}</span>
+                </div>
+
+                {/* Dom / Exp / Pump:Spare stats */}
+                <div style={{ display: 'flex', gap: 28, marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+                  <StatBlock label="Domestic" value={fmtL(domExp.domestic)} />
+                  <StatBlock label="Export"   value={fmtL(domExp.export)} />
+                  <StatBlock label="Pump : Spare" value={`${pumpPct} : ${sparePct}`} />
                 </div>
               </div>
 
-              {/* Progress bar */}
-              <div style={{ marginTop: 14, height: 6, background: 'var(--bg-sunk)', borderRadius: 3, overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${Math.min(achievedPct, 100)}%`, background: 'var(--accent)', borderRadius: 3 }} />
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
-                <span>₹0</span>
-                <span style={{ color: 'var(--accent)' }}>↑ {fmtFromL(totalBooked)}</span>
-                <span>{fmtFromL(annTargetL)}</span>
+              {/* Right: YoY mini bars */}
+              <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#6B7FA3', fontWeight: 600, marginBottom: 8 }}>
+                  Year-on-Year Revenue
+                </div>
+                <MiniBars
+                  values={histValues.length ? histValues : [0]}
+                  labels={histLabels}
+                  color="#0A3D8F"
+                  dimColor="#93C5FD"
+                  width={280} height={90}
+                />
               </div>
             </div>
           </div>
+        </div>
+
+        {/* ── Hero metrics row 2: Pipeline · Market · At-Risk ─── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
 
           {/* Pipeline small metric */}
           <SmallMetric
@@ -498,7 +536,7 @@ export default async function ExecDashboardPage() {
           {/* Revenue mix */}
           <div style={PANEL}>
             <div style={PANEL_H}>
-              <span style={PANEL_TITLE}>Revenue Mix · {fy.label}</span>
+              <span style={PANEL_TITLE}>Revenue Mix · {fyLabel}</span>
             </div>
             <div style={{ padding: 14 }}>
               {segments.length === 0 && (
@@ -517,7 +555,7 @@ export default async function ExecDashboardPage() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
                   <StatBlock label="Domestic" value={fmtL(domExp.domestic)} />
                   <StatBlock label="Export"   value={fmtL(domExp.export)} />
-                  <StatBlock label="Pump : Spare" value={`${domExp.pump_pct} : ${100 - domExp.pump_pct}`} />
+                  <StatBlock label="Pump : Spare" value={`${pumpPct} : ${sparePct}`} />
                 </div>
               )}
             </div>
@@ -573,7 +611,7 @@ export default async function ExecDashboardPage() {
           {/* Pipeline funnel */}
           <div style={PANEL}>
             <div style={PANEL_H}>
-              <span style={PANEL_TITLE}>Pipeline Funnel · {fy.label}</span>
+              <span style={PANEL_TITLE}>Pipeline Funnel · {fyLabel}</span>
               <div style={{ marginLeft: 'auto' }}>
                 <Tag>{fmtCr(pipelineTotal)} open</Tag>
               </div>
