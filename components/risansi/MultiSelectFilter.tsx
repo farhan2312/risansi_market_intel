@@ -5,12 +5,18 @@ import { useRouter, usePathname } from 'next/navigation';
 
 // ── Types ──────────────────────────────────────────────────────
 
+type OptionItem = string | { value: string; label: string; count?: number };
+
 interface Props {
-  param:    string;      // URL search param key  (e.g. 'industry')
-  label:    string;      // Button label
-  options:  string[];    // All available options
-  selected: string[];    // Currently selected (parsed server-side from searchParams)
+  param:    string;        // URL search param key  (e.g. 'industry')
+  label:    string;        // Button label
+  options:  OptionItem[];  // All available options (string or {value,label,count})
+  selected: string[];      // Currently selected (parsed server-side from searchParams)
 }
+
+function optValue(o: OptionItem): string { return typeof o === 'string' ? o : o.value; }
+function optLabel(o: OptionItem): string { return typeof o === 'string' ? o : o.label; }
+function optCount(o: OptionItem): number | undefined { return typeof o === 'string' ? undefined : o.count; }
 
 // ── Component ──────────────────────────────────────────────────
 
@@ -103,10 +109,13 @@ export function MultiSelectFilter({ param, label, options, selected }: Props) {
           overflowY: 'auto',
         }}>
           {options.map(opt => {
-            const checked = selected.includes(opt);
+            const val     = optValue(opt);
+            const lbl     = optLabel(opt);
+            const cnt     = optCount(opt);
+            const checked = selected.includes(val);
             return (
               <label
-                key={opt}
+                key={val}
                 style={{
                   display:    'flex',
                   alignItems: 'center',
@@ -121,10 +130,13 @@ export function MultiSelectFilter({ param, label, options, selected }: Props) {
                 <input
                   type="checkbox"
                   checked={checked}
-                  onChange={() => toggle(opt)}
+                  onChange={() => toggle(val)}
                   style={{ accentColor: '#0A3D8F', flexShrink: 0 }}
                 />
-                <span style={{ color: '#0D1B2A' }}>{opt}</span>
+                <span style={{ color: '#0D1B2A', flex: 1 }}>{lbl}</span>
+                {cnt != null && (
+                  <span style={{ fontSize: 10, color: '#6B7FA3', fontFamily: 'var(--font-mono)' }}>{cnt}</span>
+                )}
               </label>
             );
           })}

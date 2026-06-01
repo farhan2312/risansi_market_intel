@@ -76,7 +76,7 @@ export default async function ClientListPage({
     vals.push(statFilts); idx++;
   }
   if (repFilts.length > 0) {
-    conds.push(`r.name = ANY($${idx}::text[])`);
+    conds.push(`(c.primary_rep_name = ANY($${idx}::text[]) OR r.name = ANY($${idx}::text[]))`);
     vals.push(repFilts); idx++;
   }
   if (sugarFilt === 'true') {
@@ -110,10 +110,12 @@ export default async function ClientListPage({
     last_visit_date:      Date | null;
     action_points:        string | null;
     rep_name:             string | null;
+    rep_initials:         string | null;
     ytd_inr:              string;
   }
 
-  const [clients, total, industries, zones, tiers, repNames] = await Promise.all([
+  interface RepOption { rep_name: string; client_count: number; }
+  const [clients, total, industries, zones, tiers, repOptions] = await Promise.all([
     q<ClientRow[]>(async () => {
       const mainVals: (string | number | string[])[] = [...vals, PAGE_SIZE, offset];
       const limIdx = idx;
@@ -126,7 +128,11 @@ export default async function ClientListPage({
            c.performance_feedback, c.last_visit_fy, c.last_visit_date,
            LEFT(c.action_points, 80) AS action_points,
            (COALESCE(c.rev_2526_pump,0) + COALESCE(c.rev_2526_spare,0))::text AS ytd_inr,
-           COALESCE(r.name, c.primary_rep_name, '—') AS rep_name
+           COALESCE(r.name, c.primary_rep_name, '—') AS rep_name,
+           COALESCE(r.initials,
+             LEFT(COALESCE(c.primary_rep_name,''),1) ||
+             COALESCE(LEFT(SPLIT_PART(COALESCE(c.primary_rep_name,''), ' ', 2), 1), '')
+           ) AS rep_initials
          FROM clients c
          LEFT JOIN reps r ON c.primary_rep_id = r.id
          ${where}
@@ -170,11 +176,21 @@ export default async function ClientListPage({
       return rows.map(r => r.tier);
     }, []),
 
-    q<string[]>(async () => {
-      const { rows } = await risansiPool.query<{ name: string }>(
-        `SELECT DISTINCT name FROM reps WHERE deleted_at IS NULL ORDER BY name`,
+    q<RepOption[]>(async () => {
+      const { rows } = await risansiPool.query<RepOption>(
+        `SELECT
+           COALESCE(r.name, c.primary_rep_name) AS rep_name,
+           COUNT(*)::int AS client_count
+         FROM clients c
+         LEFT JOIN reps r ON c.primary_rep_id = r.id
+         WHERE c.deleted_at IS NULL
+           AND (c.primary_rep_name IS NOT NULL OR r.name IS NOT NULL)
+         GROUP BY COALESCE(r.name, c.primary_rep_name)
+         HAVING COALESCE(r.name, c.primary_rep_name) IS NOT NULL
+         ORDER BY client_count DESC
+         LIMIT 30`,
       );
-      return rows.map(r => r.name);
+      return rows;
     }, []),
   ]);
 
@@ -206,6 +222,20 @@ export default async function ClientListPage({
       if (v != null && v !== '') p.set(k, v);
     }
     return `/risansi/clients?${p.toString()}`;
+  }
+
+  function repColor(name: string): string {
+    const colors = [
+      '#0A3D8F','#1A5CB8','#2E7DD1','#00B4D8',
+      '#0E9F6E','#D97706','#7C3AED','#DB2777',
+      '#059669','#DC2626','#2563EB','#9333EA',
+    ];
+    if (!name || name === '—') return '#6B7FA3';
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+      hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return colors[Math.abs(hash) % colors.length];
   }
 
   function statusDotKind(s: string): 'active' | 'inactive' | 'prospect' {
@@ -258,7 +288,7 @@ export default async function ClientListPage({
           <MultiSelectFilter param="zone"     label="Zone"      options={zones}           selected={zoneFilts} />
           <MultiSelectFilter param="tier"     label="Tier"      options={tiers}           selected={tierFilts} />
           <MultiSelectFilter param="status"   label="Status"    options={STATUS_OPTIONS}  selected={statFilts} />
-          <MultiSelectFilter param="rep"      label="Rep"       options={repNames}        selected={repFilts}  />
+          <MultiSelectFilter param="rep"      label="Rep"       options={repOptions.map(r => ({ value: r.rep_name, label: r.rep_name, count: r.client_count }))} selected={repFilts}  />
         </div>
 
         {/* ── Active filter pills ──────────────────────────────── */}
@@ -334,7 +364,21 @@ export default async function ClientListPage({
                           <div style={{ fontSize: 12 }}>{c.zone}</div>
                           {c.tour_name && <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 1 }}>{c.tour_name}</div>}
                         </td>
-                        <td style={{ ...TD, fontSize: 12, color: 'var(--fg-3)' }}>{c.rep_name ?? '—'}</td>
+                        <td style={TD}>
+                          <div
+                            title={c.rep_name ?? '—'}
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                              width: 28, height: 28, borderRadius: 6,
+                              background: repColor(c.rep_name ?? ''),
+                              color: '#fff', fontSize: 11, fontWeight: 700,
+                              cursor: 'default', fontFamily: 'var(--font-mono)',
+                              letterSpacing: '0.02em',
+                            }}
+                          >
+                            {c.rep_initials || '—'}
+                          </div>
+                        </td>
                         <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: daysColor, whiteSpace: 'nowrap' }}>
                           {days == null ? 'Never' : days === 0 ? 'Today' : `${days}d ago`}
                         </td>
