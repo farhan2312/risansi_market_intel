@@ -40,8 +40,10 @@ interface OverdueRow {
 }
 
 interface MapClient {
-  id: string; legal_name: string; state: string | null;
-  last_visit_date: string | null; tier: string | null; rep_name: string | null;
+  id: string; code: string; legal_name: string;
+  industry: string | null; city: string | null; state: string | null;
+  last_visit_date: string | null; days_since: number | null;
+  tier: string | null; rep_name: string | null;
 }
 
 interface StatsRow {
@@ -156,8 +158,10 @@ export default async function FieldActivityPage({
       const params  = (isRep && repId) ? [repId] : [];
       const { rows } = await risansiPool.query<MapClient>(
         `SELECT
-           c.id::text, c.legal_name, c.state,
+           c.id::text, c.code, c.legal_name,
+           c.industry, c.city, c.state,
            c.last_visit_date::text,
+           EXTRACT(DAY FROM NOW() - c.last_visit_date)::int AS days_since,
            c.tier,
            COALESCE(r.name, c.primary_rep_name) AS rep_name
          FROM clients c
@@ -426,11 +430,15 @@ export default async function FieldActivityPage({
 
             <CoverageMapSvg clients={mapClients.map(c => ({
               id:              c.id,
+              code:            c.code,
               legal_name:      c.legal_name,
+              industry:        c.industry,
+              city:            c.city,
               state:           c.state,
               last_visit_date: c.last_visit_date,
+              days_since:      c.days_since,
               tier:            c.tier,
-              rep_name:        c.rep_name,
+              rep_name:        c.rep_name ?? '',
             }))} />
           </div>
         )}
