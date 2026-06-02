@@ -31,12 +31,12 @@ export const authOptions: AuthOptions = {
 
         // Check access_requests for approved users
         const res = await risansiPool.query<{
-          email: string; display_name: string; password_hash: string | null;
+          user_email: string; display_name: string; password_hash: string | null;
           status: string; role: string;
         }>(
-          `SELECT email, display_name, password_hash, status, role
+          `SELECT user_email, display_name, password_hash, status, role
            FROM access_requests
-           WHERE email = $1 AND status = 'Approved'
+           WHERE user_email = $1 AND status = 'Approved'
            LIMIT 1`,
           [email],
         );
@@ -49,8 +49,8 @@ export const authOptions: AuthOptions = {
         if (!valid) return null;
 
         return {
-          id:    row.email,
-          email: row.email,
+          id:    row.user_email,
+          email: row.user_email,
           name:  row.display_name,
         };
       },
