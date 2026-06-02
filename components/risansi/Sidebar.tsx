@@ -41,39 +41,26 @@ interface NavItem {
   isAlert?: boolean;
 }
 
-// Rep: My Dashboard, Client 360, Field Activity, My Pipeline
-const REP_NAV: NavItem[] = [
-  { id: 'dash',     href: '/risansi',            label: 'My Dashboard',   Icon: IcDash },
-  { id: 'client360',href: '/risansi/clients',    label: 'Client 360',     Icon: IcClient },
-  { id: 'field',    href: '/risansi/field',      label: 'Field Activity', Icon: IcMap },
-  { id: 'pipeline', href: '/risansi/pipeline',   label: 'My Pipeline',    Icon: IcPipeline },
+// GROUP 1 — Sales (all roles)
+const SALES_NAV: NavItem[] = [
+  { id: 'dash',      href: '/risansi',          label: 'Dashboard',      Icon: IcDash },
+  { id: 'client360', href: '/risansi/clients',  label: 'Client 360',     Icon: IcClient },
+  { id: 'field',     href: '/risansi/field',    label: 'Field Activity', Icon: IcMap },
+  { id: 'pipeline',  href: '/risansi/pipeline', label: 'Pipeline',       Icon: IcPipeline },
+  { id: 'compete',   href: '/risansi/compete',  label: 'Competitive',    Icon: IcTower, alertKey: 'compete' },
 ];
 
-// Manager: same as Rep + Competitive
-const MANAGER_NAV: NavItem[] = [
-  { id: 'dash',     href: '/risansi',            label: 'Dashboard',      Icon: IcDash },
-  { id: 'client360',href: '/risansi/clients',    label: 'Client 360',     Icon: IcClient },
-  { id: 'field',    href: '/risansi/field',      label: 'Field Activity', Icon: IcMap },
-  { id: 'pipeline', href: '/risansi/pipeline',   label: 'Pipeline',       Icon: IcPipeline },
-  { id: 'compete',  href: '/risansi/compete',    label: 'Competitive',    Icon: IcTower, alertKey: 'compete' },
-];
-
-// Admin / Sysadmin: same as Manager (same main nav)
-const ADMIN_MAIN_NAV: NavItem[] = [
-  { id: 'dash',     href: '/risansi',            label: 'Dashboard',      Icon: IcDash },
-  { id: 'client360',href: '/risansi/clients',    label: 'Client 360',     Icon: IcClient },
-  { id: 'field',    href: '/risansi/field',      label: 'Field Activity', Icon: IcMap },
-  { id: 'pipeline', href: '/risansi/pipeline',   label: 'Pipeline',       Icon: IcPipeline },
-  { id: 'compete',  href: '/risansi/compete',    label: 'Competitive',    Icon: IcTower, alertKey: 'compete' },
-];
-
-// Admin section (only for admin/sysadmin)
+// GROUP 2 — Admin (admin / sysadmin only)
 const ADMIN_NAV: NavItem[] = [
-  { id: 'clients-admin', href: '/risansi/admin/clients', label: 'Client Master',   Icon: IcList },
-  { id: 'revenue-admin', href: '/risansi/admin/revenue', label: 'Revenue Upload',  Icon: IcBag },
-  { id: 'reps-admin',    href: '/risansi/admin/reps',    label: 'Reps & Routes',   Icon: IcUser },
-  { id: 'access',        href: '/admin',                 label: 'Access Approval', Icon: IcKey, isAlert: true },
+  { id: 'clients-admin', href: '/risansi/admin/clients', label: 'Client Master',  Icon: IcList },
+  { id: 'revenue-admin', href: '/risansi/admin/revenue', label: 'Revenue Upload', Icon: IcBag },
+  { id: 'reps-admin',    href: '/risansi/admin/reps',    label: 'Reps & Routes',  Icon: IcUser },
 ];
+
+// GROUP 3 — System Admin (sysadmin only)
+const SYSADMIN_ITEM: NavItem = {
+  id: 'access', href: '/admin', label: 'Access Approval', Icon: IcKey, isAlert: true,
+};
 
 // Path → id mapping for URL-based active derivation
 const PATH_TO_ID: [string, string][] = [
@@ -101,8 +88,8 @@ export function Sidebar({ active, role, user, alerts = {}, pendingCount = 0 }: S
   const pathname = usePathname();
   const resolvedActive = active ?? deriveActive(pathname);
 
-  const isAdmin = role === 'admin' || role === 'sysadmin';
-  const mainItems = role === 'rep' ? REP_NAV : isAdmin ? ADMIN_MAIN_NAV : MANAGER_NAV;
+  const isAdmin    = role === 'admin' || role === 'sysadmin';
+  const isSysAdmin = role === 'sysadmin';
 
   return (
     <aside style={ASIDE}>
@@ -113,9 +100,9 @@ export function Sidebar({ active, role, user, alerts = {}, pendingCount = 0 }: S
         </div>
       </div>
 
-      {/* Sales group */}
+      {/* GROUP 1: Sales — all roles */}
       <NavGroup label="Sales">
-        {mainItems.map((item) => (
+        {SALES_NAV.map((item) => (
           <NavLink
             key={item.id}
             item={item}
@@ -125,7 +112,7 @@ export function Sidebar({ active, role, user, alerts = {}, pendingCount = 0 }: S
         ))}
       </NavGroup>
 
-      {/* Admin group — admin/sysadmin only */}
+      {/* GROUP 2: Admin — admin / sysadmin only */}
       {isAdmin && (
         <NavGroup label="Admin">
           {ADMIN_NAV.map((item) => (
@@ -133,23 +120,36 @@ export function Sidebar({ active, role, user, alerts = {}, pendingCount = 0 }: S
               key={item.id}
               item={item}
               isActive={item.id === resolvedActive}
-              badge={
-                item.id === 'access'
-                  ? (pendingCount > 0 ? pendingCount : undefined)
-                  : item.alertKey ? alerts[item.alertKey] : undefined
-              }
             />
           ))}
         </NavGroup>
       )}
 
-      {/* Intelligence group (future) */}
-      <NavGroup label="Intelligence">
-        <NavLink
-          item={{ id: 'reports', href: '/risansi/reports', label: 'Reports', Icon: IcNote }}
-          isActive={'reports' === resolvedActive}
-        />
-      </NavGroup>
+      {/* GROUP 3: System Admin — sysadmin only */}
+      {isSysAdmin && (
+        <div style={{
+          borderTop: '1px solid rgba(255,255,255,0.08)',
+          marginTop: 12,
+          paddingTop: 12,
+        }}>
+          <div style={{
+            fontSize: 10, fontWeight: 600,
+            color: '#00B4D8',
+            textTransform: 'uppercase' as const,
+            letterSpacing: '0.12em',
+            padding: '0 0 6px 16px',
+          }}>
+            System Admin
+          </div>
+          <div style={{ padding: '0 8px 4px' }}>
+            <NavLink
+              item={SYSADMIN_ITEM}
+              isActive={resolvedActive === 'access'}
+              badge={pendingCount > 0 ? pendingCount : undefined}
+            />
+          </div>
+        </div>
+      )}
 
       {/* User */}
       <UserMenu name={user.name} email={user.email} />
@@ -251,5 +251,4 @@ function IcTower()    { return ic(<><path d="M2 14V8l6-5 6 5v6"/><circle cx="8" 
 function IcBag()      { return ic(<><path d="M3 6h10l-1 8H4z"/><path d="M6 6V4a2 2 0 0 1 4 0v2"/></>)(); }
 function IcList()     { return ic(<><path d="M3 4h10M3 8h10M3 12h6"/></>)(); }
 function IcUser()     { return ic(<><circle cx="8" cy="6" r="3"/><path d="M2 14c0-3 2.7-5 6-5s6 2 6 5"/></>)(); }
-function IcNote()     { return ic(<><path d="M3 2h7l3 3v9H3z"/><path d="M10 2v3h3M5 8h6M5 11h4"/></>)(); }
 function IcKey()      { return ic(<><circle cx="6.5" cy="9.5" r="3.5"/><path d="M10 6l4-4M12 4l2 2M10 8l1.5-1.5"/></>)(); }

@@ -1,13 +1,12 @@
 import type { CSSProperties } from 'react';
 import Link from 'next/link';
 import { Topbar, Tag, StatusDot, MultiSelectFilter, ActiveFilterBar, SortableTH } from '@/components/risansi';
-import { AddClientDrawer } from '@/components/risansi/AddClientDrawer';
 import risansiPool from '@/lib/db-risansi';
 import { formatRev } from '@/lib/risansi-utils';
 import { FilterBar } from './FilterBar';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
-  try { return await fn(); } catch { return fallback; }
+  try { return await fn(); } catch (err) { console.error('[clients/page]', err); return fallback; }
 }
 
 const PAGE_SIZE = 50;
@@ -259,22 +258,19 @@ export default async function ClientListPage({
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Sticky topbar */}
       <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
-        <Topbar crumbs={['Risansi', 'Clients']} primaryAction="New Client" />
+        <Topbar crumbs={['Risansi', 'Clients']} />
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>
 
         {/* ── Page header ─────────────────────────────────────── */}
-        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 14 }}>
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
-              Clients
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>
-              Client master · {total.toLocaleString('en-IN')} records
-            </div>
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
+            Clients
           </div>
-          <AddClientDrawer />
+          <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>
+            Client master · {total.toLocaleString('en-IN')} records
+          </div>
         </div>
 
         {/* ── Search + Sugar toggle row ────────────────────────── */}
