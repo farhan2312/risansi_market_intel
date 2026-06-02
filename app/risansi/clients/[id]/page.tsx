@@ -33,10 +33,10 @@ interface Client {
   // Reps (DB columns + joined)
   primary_rep_id: string | null; primary_rep_name: string | null;
   secondary_rep_id: string | null; secondary_rep_name: string | null;
-  rep_name: string | null; rep_initials: string | null;
+  rep_name: string | null;
   rep_zone: string | null; rep_route: string | null; rep_email: string | null;
   secondary_rep_joined: string | null; secondary_rep_zone: string | null; secondary_rep_route: string | null;
-  sec_rep_name: string | null; sec_rep_zone: string | null; sec_rep_initials: string | null;
+  sec_rep_name: string | null; sec_rep_zone: string | null;
   // Visit tracking
   last_visit_fy: string | null; last_visit_month: string | null;
   last_visit_date: string | null; planned_visit_2627: string | null;

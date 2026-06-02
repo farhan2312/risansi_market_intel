@@ -28,7 +28,7 @@ interface VisitFeedRow {
   action_points: string | null;
   client_id: string; legal_name: string; code: string; industry: string | null;
   city: string | null; tier: string | null;
-  rep_name: string; rep_initials: string;
+  rep_name: string;
 }
 
 interface OverdueRow {
@@ -36,7 +36,7 @@ interface OverdueRow {
   industry: string | null; tier: string | null; status: string;
   state: string | null; city: string | null;
   last_visit_date: string | null; days_overdue: number | null;
-  rep_name: string; rep_initials: string | null; ytd_inr: number;
+  rep_name: string; ytd_inr: number;
 }
 
 interface MapClient {
@@ -108,8 +108,7 @@ export default async function FieldActivityPage({
            c.industry,
            c.city,
            c.tier,
-           COALESCE(r.name, '—')       AS rep_name,
-           COALESCE(r.initials, COALESCE(LEFT(r.name,1),'?')) AS rep_initials
+           COALESCE(r.name, '—')       AS rep_name
          FROM visits v
          JOIN clients c ON c.id = v.client_id
          LEFT JOIN reps r ON r.id = v.rep_id
@@ -134,7 +133,6 @@ export default async function FieldActivityPage({
              9999
            ) AS days_overdue,
            COALESCE(r.name, c.primary_rep_name, '—') AS rep_name,
-           COALESCE(r.initials, LEFT(COALESCE(r.name,''),1)) AS rep_initials,
            COALESCE(c.rev_2526_total, 0)::bigint AS ytd_inr
          FROM clients c
          LEFT JOIN reps r ON c.primary_rep_id = r.id
@@ -266,16 +264,6 @@ export default async function FieldActivityPage({
                   <div key={v.id} style={FEED_CARD}>
                     {/* Header row */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                      {/* Rep badge */}
-                      <div style={{
-                        width: 30, height: 30, borderRadius: 6,
-                        background: '#1A5CB8', color: '#fff',
-                        display: 'grid', placeItems: 'center',
-                        fontSize: 11, fontWeight: 700, flexShrink: 0,
-                        fontFamily: 'var(--font-mono)',
-                      }}>
-                        {v.rep_initials}
-                      </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <Link href={`/risansi/clients/${v.code}`}
@@ -366,20 +354,8 @@ export default async function FieldActivityPage({
                         </td>
                         <td style={TD}>{acc.industry ?? '—'}</td>
                         <td style={{ ...TD, color: 'var(--fg-3)' }}>{acc.state ?? '—'}</td>
-                        <td style={TD}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            {acc.rep_initials && (
-                              <div style={{
-                                width: 24, height: 24, borderRadius: 4,
-                                background: '#1A5CB8', color: '#fff',
-                                display: 'grid', placeItems: 'center',
-                                fontSize: 9, fontWeight: 700,
-                              }}>
-                                {acc.rep_initials}
-                              </div>
-                            )}
-                            <span>{acc.rep_name}</span>
-                          </div>
+                        <td style={{ ...TD, fontSize: 12, color: 'var(--fg-2)' }}>
+                          {acc.rep_name || '—'}
                         </td>
                         <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)' }}>
                           {acc.last_visit_date ?? 'Never'}

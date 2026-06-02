@@ -107,7 +107,6 @@ export default async function ClientListPage({
     last_visit_date:      Date | null;
     action_points:        string | null;
     rep_name:             string | null;
-    rep_initials:         string | null;
     ytd_inr:              number;
     prev_inr:             number;
   }
@@ -126,11 +125,7 @@ export default async function ClientListPage({
            c.performance_feedback, c.last_visit_fy, c.last_visit_date,
            LEFT(c.action_points, 80) AS action_points,
            COALESCE(c.rev_2526_total, 0)::bigint AS ytd_inr,
-           COALESCE(r.name, c.primary_rep_name, '—') AS rep_name,
-           COALESCE(r.initials,
-             LEFT(COALESCE(c.primary_rep_name,''),1) ||
-             COALESCE(LEFT(SPLIT_PART(COALESCE(c.primary_rep_name,''), ' ', 2), 1), '')
-           ) AS rep_initials
+           COALESCE(r.name, c.primary_rep_name, '—') AS rep_name
          FROM clients c
          LEFT JOIN reps r ON c.primary_rep_id = r.id
          ${where}
@@ -220,20 +215,6 @@ export default async function ClientListPage({
       if (v != null && v !== '') p.set(k, v);
     }
     return `/risansi/admin/clients?${p.toString()}`;
-  }
-
-  function repColor(name: string): string {
-    const colors = [
-      '#0A3D8F','#1A5CB8','#2E7DD1','#00B4D8',
-      '#0E9F6E','#D97706','#7C3AED','#DB2777',
-      '#059669','#DC2626','#2563EB','#9333EA',
-    ];
-    if (!name || name === '—') return '#6B7FA3';
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) {
-      hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    return colors[Math.abs(hash) % colors.length];
   }
 
   function statusDotKind(s: string): 'active' | 'inactive' | 'prospect' {
@@ -361,20 +342,14 @@ export default async function ClientListPage({
                           <div style={{ fontSize: 12 }}>{c.zone}</div>
                           {c.tour_name && <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 1 }}>{c.tour_name}</div>}
                         </td>
-                        <td style={TD}>
-                          <div
-                            title={c.rep_name ?? '—'}
-                            style={{
-                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                              width: 28, height: 28, borderRadius: 6,
-                              background: repColor(c.rep_name ?? ''),
-                              color: '#fff', fontSize: 11, fontWeight: 700,
-                              cursor: 'default', fontFamily: 'var(--font-mono)',
-                              letterSpacing: '0.02em',
-                            }}
-                          >
-                            {c.rep_initials || '—'}
-                          </div>
+                        <td style={{ padding: '0 12px' }}>
+                          <span style={{
+                            fontSize: 12,
+                            color: 'var(--fg-2)',
+                            fontWeight: 500,
+                          }}>
+                            {c.rep_name || '—'}
+                          </span>
                         </td>
                         <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: daysColor, whiteSpace: 'nowrap' }}>
                           {days == null ? 'Never' : days === 0 ? 'Today' : `${days}d ago`}

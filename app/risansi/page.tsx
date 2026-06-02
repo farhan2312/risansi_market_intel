@@ -9,7 +9,7 @@ import { RefreshButton } from '@/components/risansi/RefreshButton';
 import risansiPool from '@/lib/db-risansi';
 import {
   getCurrentFY, getPreviousFYCodes, fyShortLabel,
-  fyYtdPct, fyDaysLeft, formatIndianDate, formatTime, fmtCr, fmtL, initials,
+  fyYtdPct, fyDaysLeft, formatIndianDate, formatTime, fmtCr, fmtL,
   getGreeting, formatRev,
 } from '@/lib/risansi-utils';
 
@@ -60,7 +60,7 @@ interface TopAccount {
   fy20: number; fy21: number; fy22: number; fy23: number; fy24: number; fy25: number;
 }
 interface VisitEntry {
-  id: string; rep_name: string; rep_initials: string; client_name: string;
+  id: string; rep_name: string; client_name: string;
   visit_date: Date; outcome: string | null; purpose: string; status: string; synced: boolean;
 }
 interface AtRisk { count: number; exposure: number; }
@@ -173,7 +173,7 @@ export default async function ExecDashboardPage({
           [repId],
         );
         return rows.map(r => ({
-          id: r.id, rep_name: r.rep_name, rep_initials: initials(r.rep_name),
+          id: r.id, rep_name: r.rep_name,
           client_name: r.client_name, visit_date: new Date(r.visit_date),
           outcome: r.outcome, purpose: r.purpose, status: r.status, synced: false,
         }));
@@ -564,7 +564,6 @@ export default async function ExecDashboardPage({
       return rows.map(r => ({
         id:           r.id,
         rep_name:     r.rep_name,
-        rep_initials: initials(r.rep_name),
         client_name:  r.client_name,
         visit_date:   new Date(r.visit_date),
         outcome:      r.outcome,
@@ -945,9 +944,6 @@ export default async function ExecDashboardPage({
                 const outcomeKind = v.outcome?.toLowerCase().includes('positive') ? 'pos' : 'warn';
                 return (
                   <div key={v.id} style={{ display: 'flex', alignItems: 'flex-start', padding: '10px 14px', borderBottom: i < visits.length - 1 ? '1px solid var(--line)' : 'none', gap: 10 }}>
-                    <div style={{ width: 26, height: 26, borderRadius: 4, background: 'var(--bg-sunk)', display: 'grid', placeItems: 'center', fontSize: 10, fontWeight: 600, color: 'var(--fg-2)', flexShrink: 0 }}>
-                      {v.rep_initials}
-                    </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 12 }}>
                         <strong style={{ fontWeight: 500 }}>{v.rep_name.split(' ')[0]}</strong>

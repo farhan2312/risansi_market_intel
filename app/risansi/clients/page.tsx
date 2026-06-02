@@ -98,7 +98,6 @@ export default async function ClientListPage({
     zone:            string | null;
     tour_name:       string | null;
     rep_name:        string | null;
-    rep_initials:    string | null;
   }
 
   interface RepOption { rep_name: string; client_count: number; }
@@ -116,12 +115,7 @@ export default async function ClientListPage({
              c.last_visit_date,
              c.zone,
              c.tour_name,
-             COALESCE(r.name, c.primary_rep_name, '—') AS rep_name,
-             COALESCE(
-               r.initials,
-               LEFT(COALESCE(c.primary_rep_name, ''), 1) ||
-               COALESCE(LEFT(SPLIT_PART(COALESCE(c.primary_rep_name, ''), ' ', 2), 1), '')
-             ) AS rep_initials
+             COALESCE(r.name, c.primary_rep_name, '—') AS rep_name
            FROM clients c
            LEFT JOIN reps r ON c.primary_rep_id = r.id
            WHERE ${whereClause}
@@ -228,18 +222,6 @@ export default async function ClientListPage({
       if (v != null && v !== '') p.set(k, v);
     }
     return `/risansi/clients?${p.toString()}`;
-  }
-
-  function repColor(name: string): string {
-    const colors = [
-      '#0A3D8F','#1A5CB8','#2E7DD1','#00B4D8',
-      '#0E9F6E','#D97706','#7C3AED','#DB2777',
-      '#059669','#DC2626','#2563EB','#9333EA',
-    ];
-    if (!name || name === '—') return '#6B7FA3';
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    return colors[Math.abs(hash) % colors.length];
   }
 
   function statusDotKind(s: string): 'active' | 'inactive' | 'prospect' {
@@ -386,21 +368,15 @@ export default async function ClientListPage({
                           )}
                         </td>
 
-                        {/* Rep avatar */}
-                        <td style={TD}>
-                          <div
-                            title={c.rep_name ?? '—'}
-                            style={{
-                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                              width: 28, height: 28, borderRadius: 6,
-                              background: repColor(c.rep_name ?? ''),
-                              color: '#fff', fontSize: 11, fontWeight: 700,
-                              cursor: 'default', fontFamily: 'var(--font-mono)',
-                              letterSpacing: '0.02em',
-                            }}
-                          >
-                            {c.rep_initials || '—'}
-                          </div>
+                        {/* Rep */}
+                        <td style={{ padding: '0 12px' }}>
+                          <span style={{
+                            fontSize: 12,
+                            color: 'var(--fg-2)',
+                            fontWeight: 500,
+                          }}>
+                            {c.rep_name || '—'}
+                          </span>
                         </td>
 
                         {/* Last visit */}

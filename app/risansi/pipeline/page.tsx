@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react';
 import { Topbar, Tag, MultiSelectFilter, ActiveFilterBar, SortableTH } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentFY, fmtCr, initials } from '@/lib/risansi-utils';
+import { getCurrentFY, fmtCr } from '@/lib/risansi-utils';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
@@ -389,7 +389,7 @@ export default async function PipelinePage({
                         {o.expected_close_date ?? '—'}
                       </td>
                       <td style={{ ...TD, fontSize: 11, color: 'var(--fg-3)' }}>
-                        {o.rep_name ? initials(o.rep_name) : '—'}
+                        {o.rep_name || '—'}
                       </td>
                     </tr>
                   ))}
@@ -533,7 +533,7 @@ function OppCard({ opp }: { opp: OppRow }) {
     }}>
       <div style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
         <span>{opp.client_code}</span>
-        <span>{opp.rep_name ? initials(opp.rep_name) : '—'}</span>
+        <span>{opp.rep_name || '—'}</span>
       </div>
       <div style={{ fontSize: 12, fontWeight: 500, lineHeight: 1.3, marginBottom: 4 }}>{opp.client_name}</div>
       <div style={{ fontSize: 11, color: 'var(--fg-2)', marginBottom: 6 }}>{opp.product}</div>

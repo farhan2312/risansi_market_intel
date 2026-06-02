@@ -38,13 +38,11 @@ interface VisitCalRow {
   tier: string | null;
   rep_id: string;
   rep_name: string;
-  rep_initials: string;
 }
 
 interface RepRow {
   id: string;
   name: string;
-  initials: string;
   zone: string | null;
   route: string | null;
 }
@@ -60,7 +58,6 @@ interface OverdueRow {
   last_visit_date: string | null;
   days_overdue: number | null;
   rep_name: string;
-  rep_initials: string | null;
 }
 
 // ── Purpose → colour map ───────────────────────────────────────
@@ -191,8 +188,7 @@ export default async function VisitCalendarPage({
            c.city,
            c.tier,
            r.id::text                 AS rep_id,
-           COALESCE(r.name,    '—')   AS rep_name,
-           COALESCE(r.initials, '?')  AS rep_initials
+           COALESCE(r.name,    '—')   AS rep_name
          FROM visits v
          JOIN clients c ON c.id = v.client_id
          LEFT JOIN reps r ON r.id = v.rep_id
@@ -213,7 +209,6 @@ export default async function VisitCalendarPage({
         `SELECT
            id::text,
            name,
-           COALESCE(initials, '?') AS initials,
            zone,
            route
          FROM reps
@@ -242,8 +237,7 @@ export default async function VisitCalendarPage({
              EXTRACT(DAY FROM NOW() - c.last_visit_date)::int,
              9999
            )                                                  AS days_overdue,
-           COALESCE(r.name, c.primary_rep_name, '—')          AS rep_name,
-           COALESCE(r.initials, LEFT(COALESCE(r.name,''),1))   AS rep_initials
+           COALESCE(r.name, c.primary_rep_name, '—')          AS rep_name
          FROM clients c
          LEFT JOIN reps r ON c.primary_rep_id = r.id
          WHERE c.status = 'ACTIVE'
@@ -405,15 +399,6 @@ export default async function VisitCalendarPage({
                         background: 'var(--bg-paper)',
                       }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <div style={{
-                            width: 28, height: 28, borderRadius: 6, flexShrink: 0,
-                            background: '#1A5CB8', color: '#fff',
-                            fontSize: 10, fontWeight: 700,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontFamily: 'var(--font-mono)',
-                          }}>
-                            {rep.initials}
-                          </div>
                           <div style={{ minWidth: 0 }}>
                             <div style={{
                               fontSize: 12, fontWeight: 600, color: 'var(--fg)',
@@ -554,20 +539,8 @@ export default async function VisitCalendarPage({
                           <td style={{ ...TD, fontFamily: 'var(--font-mono)', color: dColor, fontWeight: dWeight }}>
                             {dLabel}
                           </td>
-                          <td style={TD}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              {acc.rep_initials && (
-                                <div style={{
-                                  width: 22, height: 22, borderRadius: 4,
-                                  background: '#1A5CB8', color: '#fff',
-                                  display: 'grid', placeItems: 'center',
-                                  fontSize: 9, fontWeight: 700,
-                                }}>
-                                  {acc.rep_initials}
-                                </div>
-                              )}
-                              <span style={{ fontSize: 11 }}>{acc.rep_name}</span>
-                            </div>
+                          <td style={{ ...TD, fontSize: 12, color: 'var(--fg-2)' }}>
+                            {acc.rep_name || '—'}
                           </td>
                           <td style={TD}>
                             {/* Dispatches OPEN_VISIT_DRAWER event — picked up by AssignVisitButton's drawer */}
