@@ -22,14 +22,6 @@ export const authOptions: AuthOptions = {
         const email = credentials?.email?.toLowerCase().trim() ?? '';
         const pass  = credentials?.password ?? '';
 
-        // Sysadmin bypass via env vars
-        const adminEmail = (process.env.ADMIN_EMAIL ?? 'admin@risansi.com').toLowerCase();
-        const adminPass  = process.env.ADMIN_PASSWORD ?? 'risansi2026';
-        if (email === adminEmail && pass === adminPass) {
-          return { id: '1', email: adminEmail, name: 'Admin' };
-        }
-
-        // Check access_requests for approved users
         const res = await risansiPool.query<{
           user_email: string; display_name: string; password_hash: string | null;
           status: string; role: string;
@@ -61,24 +53,23 @@ export const authOptions: AuthOptions = {
       if (user || token.email) {
         const email = (token.email ?? '').toLowerCase().trim();
 
-        // Sysadmin check — no DB query needed
-        const adminEmails = (process.env.ADMIN_EMAILS ?? process.env.ADMIN_EMAIL ?? 'admin@risansi.com')
-          .split(',').map(e => e.trim().toLowerCase());
-
-        if (adminEmails.includes(email)) {
-          token.risansiAccess = 'Approved';
-          token.role          = 'sysadmin';
-          return token;
-        }
-
-        // Everyone else — look up in access_requests
         try {
-          const res = await risansiPool.query<{ status: string; role: string }>(
-            `SELECT status, role FROM access_requests WHERE user_email = $1 LIMIT 1`,
+          const res = await risansiPool.query<{ status: string; role: string; display_name: string }>(
+            `SELECT status, role, display_name
+             FROM access_requests
+             WHERE user_email = $1
+             LIMIT 1`,
             [email],
           );
-          token.risansiAccess = res.rows[0]?.status ?? 'Pending';
-          token.role          = res.rows[0]?.role   ?? 'rep';
+
+          if (res.rows[0]) {
+            token.risansiAccess = res.rows[0].status;
+            token.role          = res.rows[0].role;
+            token.name          = res.rows[0].display_name;
+          } else {
+            token.risansiAccess = 'Pending';
+            token.role          = 'rep';
+          }
         } catch (err) {
           console.error('JWT DB lookup error:', err);
           token.risansiAccess = 'Pending';

@@ -20,10 +20,9 @@ interface UserRow {
 
 export default async function AdminPage() {
   const session = await getServerSession(authOptions);
-  const adminEmails = (process.env.ADMIN_EMAILS ?? process.env.ADMIN_EMAIL ?? 'admin@risansi.com')
-    .split(',').map(e => e.trim().toLowerCase());
+  const role    = session?.user?.role ?? '';
 
-  if (!session?.user?.email || !adminEmails.includes(session.user.email.toLowerCase())) {
+  if (!session?.user?.email || !['admin', 'sysadmin'].includes(role)) {
     redirect('/api/auth/signin');
   }
 

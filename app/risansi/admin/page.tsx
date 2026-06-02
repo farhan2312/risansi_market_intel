@@ -17,8 +17,6 @@ async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
 }
 
-const VALID_ADMIN = process.env.ADMIN_EMAIL ?? 'admin@risansi.com';
-
 // ── Data shapes ────────────────────────────────────────────────
 
 interface AccessRequest  { email: string; display_name: string; created_at: string; }
@@ -33,8 +31,9 @@ interface ActivityEntry  { entity_type: string | null; entity_id: string | null;
 
 export default async function AdminPage() {
   const session = await getServerSession(authOptions);
+  const role    = session?.user?.role ?? '';
 
-  if (!session?.user?.email || session.user.email !== VALID_ADMIN) {
+  if (!session?.user?.email || !['admin', 'sysadmin'].includes(role)) {
     redirect('/risansi');
   }
 
@@ -52,7 +51,7 @@ export default async function AdminPage() {
     // 1. Pending access requests
     q<AccessRequest[]>(async () => {
       const { rows } = await risansiPool.query<{ email: string; display_name: string; created_at: string }>(
-        `SELECT email, display_name, requested_at::text AS created_at
+        `SELECT user_email AS email, display_name, requested_at::text AS created_at
          FROM access_requests
          WHERE status = 'Pending'
          ORDER BY requested_at ASC`,
@@ -63,7 +62,7 @@ export default async function AdminPage() {
     // 2. Approved users roster
     q<ApprovedUser[]>(async () => {
       const { rows } = await risansiPool.query<{ email: string; display_name: string; status: string; created_at: string }>(
-        `SELECT email, display_name, status, requested_at::text AS created_at
+        `SELECT user_email AS email, display_name, status, requested_at::text AS created_at
          FROM access_requests
          WHERE status IN ('Approved', 'Revoked')
          ORDER BY requested_at DESC`,
