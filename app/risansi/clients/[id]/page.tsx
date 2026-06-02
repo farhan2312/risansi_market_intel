@@ -498,38 +498,38 @@ export default async function ClientProfilePage({
                     </thead>
                     <tbody>
                       <tr style={{ borderBottom: '1px dashed var(--line)' }}>
-                        <td style={{ padding: '6px 8px', fontSize: 11 }}>Pump (₹ L)</td>
+                        <td style={{ padding: '6px 8px', fontSize: 12 }}>Pump (₹ L)</td>
                         {chartFYs.map(f => (
-                          <td key={f} style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+                          <td key={f} style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
                             {revByFY[f].pump > 0 ? revByFY[f].pump.toFixed(1) : <span style={{ color: 'var(--fg-4)' }}>—</span>}
                           </td>
                         ))}
-                        <td style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 500, fontSize: 11 }}>
+                        <td style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 500, fontSize: 12 }}>
                           {lifetimePump.toFixed(1)}
                         </td>
                       </tr>
                       <tr style={{ borderBottom: '1px dashed var(--line)' }}>
-                        <td style={{ padding: '6px 8px', fontSize: 11 }}>Spare (₹ L)</td>
+                        <td style={{ padding: '6px 8px', fontSize: 12 }}>Spare (₹ L)</td>
                         {chartFYs.map(f => (
-                          <td key={f} style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+                          <td key={f} style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
                             {revByFY[f].spare > 0 ? revByFY[f].spare.toFixed(1) : <span style={{ color: 'var(--fg-4)' }}>—</span>}
                           </td>
                         ))}
-                        <td style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 500, fontSize: 11 }}>
+                        <td style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 500, fontSize: 12 }}>
                           {lifetimeSpare.toFixed(1)}
                         </td>
                       </tr>
                       <tr style={{ background: 'var(--bg-elev)' }}>
-                        <td style={{ padding: '6px 8px', fontSize: 11, fontWeight: 500 }}>Total</td>
+                        <td style={{ padding: '6px 8px', fontSize: 12, fontWeight: 600 }}>Total</td>
                         {chartFYs.map(f => {
                           const t = (revByFY[f].pump + revByFY[f].spare);
                           return (
-                            <td key={f} style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 500, fontSize: 11 }}>
+                            <td key={f} style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 12 }}>
                               {t > 0 ? t.toFixed(1) : <span style={{ color: 'var(--fg-4)' }}>—</span>}
                             </td>
                           );
                         })}
-                        <td style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 11 }}>
+                        <td style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 12 }}>
                           {lifetimeTotal.toFixed(1)}
                         </td>
                       </tr>
@@ -986,7 +986,7 @@ function RevenueChart({
         return (
           <g key={p}>
             <line x1={padL} x2={totalW + padL} y1={y} y2={y} stroke="var(--line)" strokeDasharray="2 3" />
-            <text x={padL - 4} y={y + 3} textAnchor="end" fontSize="9" fill="var(--fg-3)" fontFamily="var(--font-mono)">
+            <text x={padL - 4} y={y + 3} textAnchor="end" fontSize="10" fill="var(--fg-3)" fontFamily="var(--font-mono)">
               {label}
             </text>
           </g>
@@ -1005,11 +1005,11 @@ function RevenueChart({
             {sh > 0 && <rect x={x} y={height - ph - sh} width={bw} height={sh} rx={1.5} fill="#00A3C4" />}
             {ph > 0 && <rect x={x} y={height - ph} width={bw} height={ph} rx={1.5} fill="var(--accent)" />}
             {total > 0 && (
-              <text x={x + bw / 2} y={height - ph - sh - 4} textAnchor="middle" fontSize="9" fill="var(--fg-2)" fontFamily="var(--font-mono)">
+              <text x={x + bw / 2} y={height - ph - sh - 4} textAnchor="middle" fontSize="10" fill="var(--fg-2)" fontFamily="var(--font-mono)">
                 {total.toFixed(1)}
               </text>
             )}
-            <text x={x + bw / 2} y={height + 13} textAnchor="middle" fontSize="10" fill="var(--fg-3)" fontFamily="var(--font-mono)">
+            <text x={x + bw / 2} y={height + 13} textAnchor="middle" fontSize="11" fill="var(--fg-3)" fontFamily="var(--font-mono)">
               {fyShortLabel(fyKey)}
             </text>
           </g>
@@ -1018,10 +1018,10 @@ function RevenueChart({
 
       {/* Legend */}
       <g transform={`translate(${padL}, ${height + 24})`}>
-        <rect width="8" height="8" rx="1" fill="var(--accent)" />
-        <text x="12" y="8" fontSize="10" fill="var(--fg-2)" fontFamily="var(--font-mono)">Pump</text>
-        <rect x="50" width="8" height="8" rx="1" fill="#00A3C4" />
-        <text x="62" y="8" fontSize="10" fill="var(--fg-2)" fontFamily="var(--font-mono)">Spare</text>
+        <rect width="10" height="10" rx="1" fill="var(--accent)" />
+        <text x="14" y="9" fontSize="11" fill="var(--fg-2)" fontFamily="var(--font-mono)">Pump</text>
+        <rect x="54" width="10" height="10" rx="1" fill="#00A3C4" />
+        <text x="68" y="9" fontSize="11" fill="var(--fg-2)" fontFamily="var(--font-mono)">Spare</text>
       </g>
     </svg>
   );
@@ -1049,7 +1049,7 @@ const TH: CSSProperties = {
 const TD: CSSProperties = { padding: '10px 12px', verticalAlign: 'middle' };
 
 const REV_TH: CSSProperties = {
-  padding: '6px 8px', textAlign: 'right', fontSize: 10,
+  padding: '6px 8px', textAlign: 'right', fontSize: 11,
   fontFamily: 'var(--font-mono)', color: 'var(--fg-3)', fontWeight: 400,
 };
 
