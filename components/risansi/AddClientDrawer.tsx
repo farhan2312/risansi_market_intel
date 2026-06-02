@@ -4,10 +4,6 @@ import { useState, useEffect, useTransition, type CSSProperties } from 'react';
 import { addClient } from '@/app/actions/risansi';
 import { RepSelector } from './RepSelector';
 
-// ── Types ──────────────────────────────────────────────────────
-
-interface Industry { id: string; name: string; is_sugar: boolean; }
-
 const CLIENT_TYPES = ['Sugar Mill', 'Distillery', 'OEM', 'Dealer', 'End User', 'EPC', 'Other'];
 const ZONES        = ['North', 'South', 'East', 'West', 'Central', 'Export'];
 const TIERS        = ['A', 'B', 'C', 'D'];
@@ -22,7 +18,7 @@ export function AddClientDrawer() {
   const [isPending, startTransition] = useTransition();
 
   // Data from APIs
-  const [industries, setIndustries] = useState<Industry[]>([]);
+  const [industries, setIndustries] = useState<string[]>([]);
 
   // Form-level feedback
   const [error, setError]    = useState('');
@@ -153,15 +149,11 @@ export function AddClientDrawer() {
                   required
                   style={INP}
                   value={selectedIndustry}
-                  onChange={e => {
-                    setSelectedIndustry(e.target.value);
-                    const ind = industries.find(i => i.name === e.target.value);
-                    setIsSugar(ind?.is_sugar ?? false);
-                  }}
+                  onChange={e => setSelectedIndustry(e.target.value)}
                 >
                   <option value="">Select industry…</option>
                   {industries.length > 0
-                    ? industries.map(i => <option key={i.id} value={i.name}>{i.name}</option>)
+                    ? industries.map(ind => <option key={ind} value={ind}>{ind}</option>)
                     : CLIENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)
                   }
                 </select>

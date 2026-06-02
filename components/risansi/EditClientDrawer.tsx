@@ -78,7 +78,7 @@ export function EditClientDrawer({ client, open, onClose }: Props) {
   const [error, setError]              = useState('');
   const [success, setSuccess]          = useState(false);
   const [toast, setToast]              = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  const [industries, setIndustries]    = useState<Array<{ id: string; name: string; is_sugar: boolean }>>([]);
+  const [industries, setIndustries]    = useState<string[]>([]);
   const [isSugar, setIsSugar]          = useState<boolean>(Boolean(client.is_sugar));
   const [selIndustry, setSelIndustry]  = useState(client.industry ?? '');
 
@@ -203,15 +203,11 @@ export function EditClientDrawer({ client, open, onClose }: Props) {
                   required
                   style={INP}
                   value={selIndustry}
-                  onChange={e => {
-                    setSelIndustry(e.target.value);
-                    const ind = industries.find(i => i.name === e.target.value);
-                    if (ind) setIsSugar(ind.is_sugar);
-                  }}
+                  onChange={e => setSelIndustry(e.target.value)}
                 >
                   <option value="">Select industry…</option>
                   {industries.length > 0
-                    ? industries.map(i => <option key={i.id} value={i.name}>{i.name}</option>)
+                    ? industries.map(ind => <option key={ind} value={ind}>{ind}</option>)
                     : client.industry
                     ? <option value={client.industry}>{client.industry}</option>
                     : null
