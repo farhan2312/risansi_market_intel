@@ -64,7 +64,7 @@ export function RevenueUploadClient({ existingCodes }: { existingCodes: Set<stri
           pump_value:  pump,
           spare_value: spare,
           total_value: total,
-          status: found ? 'found' : 'not_found',
+          status: (found ? 'found' : 'not_found') as ParsedRow['status'],
         };
       }).filter(r => r.client_code);
 
