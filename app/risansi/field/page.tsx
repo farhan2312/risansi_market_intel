@@ -5,6 +5,7 @@ import { Topbar, Tag } from '@/components/risansi';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 import { IndiaMapWrapper } from '@/components/risansi/IndiaMapWrapper';
+import { ClientCoverageList } from '@/components/risansi/ClientCoverageList';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
@@ -41,6 +42,7 @@ interface OverdueRow {
 interface MapClient {
   id: string; code: string; legal_name: string;
   industry: string | null; city: string | null; state: string | null;
+  country: string | null;
   last_visit_date: string | null; days_since: number | null;
   tier: string | null; rep_name: string | null;
 }
@@ -154,14 +156,15 @@ export default async function FieldActivityPage({
       const { rows } = await risansiPool.query<MapClient>(
         `SELECT
            c.id::text, c.code, c.legal_name,
-           c.industry, c.city, c.state,
+           c.industry, c.city, c.state, c.country,
            c.last_visit_date::text,
            EXTRACT(DAY FROM NOW() - c.last_visit_date)::int AS days_since,
            c.tier,
            COALESCE(r.name, c.primary_rep_name) AS rep_name
          FROM clients c
          LEFT JOIN reps r ON c.primary_rep_id = r.id
-         WHERE c.status = 'ACTIVE' AND c.deleted_at IS NULL ${repCond}`,
+         WHERE c.status = 'ACTIVE' AND c.deleted_at IS NULL ${repCond}
+         ORDER BY c.last_visit_date ASC NULLS FIRST`,
         params,
       );
       return rows;
@@ -196,6 +199,19 @@ export default async function FieldActivityPage({
       };
     }, { total_active: 0, visited_fy: 0, overdue: 0, never_visited: 0 }),
   ]);
+
+  const INDIAN_STATES = new Set([
+    'Andhra Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
+    'Delhi', 'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh',
+    'Jammu And Kashmir', 'Jharkhand', 'Karnataka', 'Kerala',
+    'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya',
+    'Mizoram', 'Nagaland', 'Odisha', 'Puducherry', 'Punjab',
+    'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura',
+    'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
+    'Dadra & Nagar Haveli',
+  ]);
+  const indiaMapClients = mapClients.filter(c => c.state && INDIAN_STATES.has(c.state));
+  const intlMapClients  = mapClients.filter(c => !c.state || !INDIAN_STATES.has(c.state));
 
   function tabHref(t: string) { return `/risansi/field?tab=${t}`; }
 
@@ -381,15 +397,34 @@ export default async function FieldActivityPage({
 
         {/* ── Tab: Map ───────────────────────────────────────────── */}
         {tab === 'map' && (
-          <IndiaMapWrapper clients={mapClients.map(c => ({
-            id:              c.id,
-            legal_name:      c.legal_name,
-            city:            c.city,
-            state:           c.state,
-            last_visit_date: c.last_visit_date,
-            tier:            c.tier,
-            rep_name:        c.rep_name ?? '',
-          }))} />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 16, alignItems: 'start' }}>
+            {/* Left: India map + international panel */}
+            <div>
+              <IndiaMapWrapper clients={indiaMapClients.map(c => ({
+                id:              c.id,
+                legal_name:      c.legal_name,
+                city:            c.city,
+                state:           c.state,
+                last_visit_date: c.last_visit_date,
+                tier:            c.tier,
+                rep_name:        c.rep_name ?? '',
+              }))} />
+              <InternationalPanel clients={intlMapClients} />
+            </div>
+            {/* Right: scrollable client list */}
+            <ClientCoverageList clients={mapClients.map(c => ({
+              id:              c.id,
+              code:            c.code,
+              legal_name:      c.legal_name,
+              city:            c.city,
+              state:           c.state,
+              country:         c.country,
+              industry:        c.industry,
+              tier:            c.tier,
+              last_visit_date: c.last_visit_date,
+              rep_name:        c.rep_name,
+            }))} />
+          </div>
         )}
 
       </div>
@@ -398,6 +433,69 @@ export default async function FieldActivityPage({
 }
 
 // ── Sub-components ─────────────────────────────────────────────
+
+function InternationalPanel({ clients }: { clients: MapClient[] }) {
+  if (clients.length === 0) return null;
+
+  const grouped: Record<string, MapClient[]> = {};
+  clients.forEach(c => {
+    const region = c.state || c.country || 'Unknown';
+    if (!grouped[region]) grouped[region] = [];
+    grouped[region].push(c);
+  });
+
+  const now = Date.now();
+
+  return (
+    <div style={{
+      marginTop: 12, background: 'var(--bg-paper)',
+      border: '1px solid var(--line)', borderRadius: 'var(--radius)', overflow: 'hidden',
+    }}>
+      <div style={{
+        padding: '10px 14px', borderBottom: '1px solid var(--line)',
+        display: 'flex', alignItems: 'center', gap: 8,
+      }}>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#0A3D8F' }}>
+          International Clients
+        </span>
+        <span style={{ fontSize: 12, color: 'var(--fg-3)', marginLeft: 'auto' }}>
+          {clients.length} clients · {Object.keys(grouped).length} regions
+        </span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1, background: 'var(--line)' }}>
+        {Object.entries(grouped)
+          .sort((a, b) => b[1].length - a[1].length)
+          .map(([region, regionClients]) => (
+            <div key={region} style={{ padding: '10px 14px', background: 'var(--bg-paper)' }}>
+              <div style={{
+                fontSize: 11, fontWeight: 600, color: '#0A3D8F',
+                textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6,
+              }}>
+                {region} ({regionClients.length})
+              </div>
+              {regionClients.slice(0, 4).map(c => {
+                const days = c.last_visit_date
+                  ? Math.floor((now - new Date(c.last_visit_date).getTime()) / 86_400_000)
+                  : null;
+                const dot = days === null ? '#DC2626' : days <= 90 ? '#0E9F6E' : '#D97706';
+                return (
+                  <div key={c.id} style={{ fontSize: 11, color: 'var(--fg-2)', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <div style={{ width: 5, height: 5, borderRadius: '50%', background: dot, flexShrink: 0 }} />
+                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.legal_name}</span>
+                  </div>
+                );
+              })}
+              {regionClients.length > 4 && (
+                <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 2 }}>
+                  +{regionClients.length - 4} more
+                </div>
+              )}
+            </div>
+          ))}
+      </div>
+    </div>
+  );
+}
 
 function StatCard({ label, value, color }: { label: string; value: number; color?: string }) {
   return (
