@@ -27,6 +27,7 @@ export interface SidebarProps {
   role: SidebarRole;
   user: SidebarUser;
   alerts?: SidebarAlerts;
+  pendingCount?: number;
 }
 
 // ── Nav item definitions ───────────────────────────────────────
@@ -37,6 +38,7 @@ interface NavItem {
   label: string;
   Icon: () => React.JSX.Element;
   alertKey?: keyof SidebarAlerts;
+  isAlert?: boolean;
 }
 
 // Rep: My Dashboard, Client 360, Field Activity, My Pipeline
@@ -67,13 +69,15 @@ const ADMIN_MAIN_NAV: NavItem[] = [
 
 // Admin section (only for admin/sysadmin)
 const ADMIN_NAV: NavItem[] = [
-  { id: 'clients-admin', href: '/risansi/admin/clients', label: 'Client Master',  Icon: IcList },
-  { id: 'revenue-admin', href: '/risansi/admin/revenue', label: 'Revenue Upload', Icon: IcBag },
-  { id: 'reps-admin',    href: '/risansi/admin/reps',    label: 'Reps & Routes',  Icon: IcUser },
+  { id: 'clients-admin', href: '/risansi/admin/clients', label: 'Client Master',   Icon: IcList },
+  { id: 'revenue-admin', href: '/risansi/admin/revenue', label: 'Revenue Upload',  Icon: IcBag },
+  { id: 'reps-admin',    href: '/risansi/admin/reps',    label: 'Reps & Routes',   Icon: IcUser },
+  { id: 'access',        href: '/admin',                 label: 'Access Approval', Icon: IcKey, isAlert: true },
 ];
 
 // Path → id mapping for URL-based active derivation
 const PATH_TO_ID: [string, string][] = [
+  ['/admin',                    'access'],
   ['/risansi/admin/clients',    'clients-admin'],
   ['/risansi/admin/revenue',    'revenue-admin'],
   ['/risansi/admin/reps',       'reps-admin'],
@@ -93,7 +97,7 @@ function deriveActive(pathname: string): string {
 
 // ── Component ─────────────────────────────────────────────────
 
-export function Sidebar({ active, role, user, alerts = {} }: SidebarProps) {
+export function Sidebar({ active, role, user, alerts = {}, pendingCount = 0 }: SidebarProps) {
   const pathname = usePathname();
   const resolvedActive = active ?? deriveActive(pathname);
 
@@ -117,7 +121,6 @@ export function Sidebar({ active, role, user, alerts = {} }: SidebarProps) {
             item={item}
             isActive={item.id === resolvedActive}
             badge={item.alertKey ? alerts[item.alertKey] : undefined}
-            isAlert={false}
           />
         ))}
       </NavGroup>
@@ -130,8 +133,11 @@ export function Sidebar({ active, role, user, alerts = {} }: SidebarProps) {
               key={item.id}
               item={item}
               isActive={item.id === resolvedActive}
-              badge={item.alertKey ? alerts[item.alertKey] : undefined}
-              isAlert={false}
+              badge={
+                item.id === 'access'
+                  ? (pendingCount > 0 ? pendingCount : undefined)
+                  : item.alertKey ? alerts[item.alertKey] : undefined
+              }
             />
           ))}
         </NavGroup>
@@ -142,7 +148,6 @@ export function Sidebar({ active, role, user, alerts = {} }: SidebarProps) {
         <NavLink
           item={{ id: 'reports', href: '/risansi/reports', label: 'Reports', Icon: IcNote }}
           isActive={'reports' === resolvedActive}
-          isAlert={false}
         />
       </NavGroup>
 
@@ -163,11 +168,10 @@ function NavGroup({ label, children }: { label: string; children: React.ReactNod
   );
 }
 
-function NavLink({ item, isActive, badge, isAlert }: {
+function NavLink({ item, isActive, badge }: {
   item: NavItem;
   isActive: boolean;
   badge?: number;
-  isAlert: boolean;
 }) {
   const { href, label, Icon } = item;
   return (
@@ -183,7 +187,7 @@ function NavLink({ item, isActive, badge, isAlert }: {
         {badge != null && (
           <span style={{
             ...BADGE,
-            background: isAlert ? '#DC2626' : 'rgba(255,255,255,0.12)',
+            background: item.isAlert ? '#DC2626' : 'rgba(255,255,255,0.12)',
           }}>{badge}</span>
         )}
       </div>
@@ -248,3 +252,4 @@ function IcBag()      { return ic(<><path d="M3 6h10l-1 8H4z"/><path d="M6 6V4a2
 function IcList()     { return ic(<><path d="M3 4h10M3 8h10M3 12h6"/></>)(); }
 function IcUser()     { return ic(<><circle cx="8" cy="6" r="3"/><path d="M2 14c0-3 2.7-5 6-5s6 2 6 5"/></>)(); }
 function IcNote()     { return ic(<><path d="M3 2h7l3 3v9H3z"/><path d="M10 2v3h3M5 8h6M5 11h4"/></>)(); }
+function IcKey()      { return ic(<><circle cx="6.5" cy="9.5" r="3.5"/><path d="M10 6l4-4M12 4l2 2M10 8l1.5-1.5"/></>)(); }

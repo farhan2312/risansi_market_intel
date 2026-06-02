@@ -6,6 +6,7 @@ import { cache } from 'react';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Sidebar } from '@/components/risansi';
 import type { SidebarRole } from '@/components/risansi/Sidebar';
+import risansiPool from '@/lib/db-risansi';
 
 const getSession = cache(() => getServerSession(authOptions));
 
@@ -61,6 +62,17 @@ export default async function RisansiLayout({ children }: { children: React.Reac
   const role        = session.user.role ?? 'rep';
   const fontClasses = `${ibmPlexSans.variable} ${ibmPlexMono.variable} ${instrumentSerif.variable}`;
 
+  // Pending access requests count — only fetched for admin/sysadmin
+  let pendingCount = 0;
+  if (['admin', 'sysadmin'].includes(role)) {
+    try {
+      const res = await risansiPool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM access_requests WHERE status = 'Pending'`,
+      );
+      pendingCount = parseInt(res.rows[0]?.count ?? '0', 10);
+    } catch { /* non-fatal */ }
+  }
+
   return (
     <div
       className={fontClasses}
@@ -77,6 +89,7 @@ export default async function RisansiLayout({ children }: { children: React.Reac
     >
       <Sidebar
         role={toSidebarRole(role)}
+        pendingCount={pendingCount}
         user={{
           name:     session.user.name ?? email,
           initials: getInitials(session.user.name ?? email),

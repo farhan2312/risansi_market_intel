@@ -30,10 +30,11 @@ export async function approveUser(formData: FormData) {
 
   await risansiPool.query(
     `UPDATE access_requests SET
-       status      = 'Approved',
-       role        = $1,
-       reviewed_at = NOW(),
-       reviewed_by = $2
+       status        = 'Approved',
+       role          = $1,
+       approved_role = $1,
+       reviewed_at   = NOW(),
+       reviewed_by   = $2
      WHERE id = $3`,
     [safeRole, admin.email, id],
   );

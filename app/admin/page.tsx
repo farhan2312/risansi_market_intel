@@ -10,7 +10,8 @@ async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
 }
 
 interface PendingRow {
-  id: number; email: string; display_name: string; role: string; requested_at: string;
+  id: number; email: string; display_name: string;
+  requested_role: string; requested_at: string;
 }
 interface UserRow {
   id: number; email: string; display_name: string; role: string;
@@ -29,7 +30,8 @@ export default async function AdminPage() {
   const [pending, users] = await Promise.all([
     q<PendingRow[]>(async () => {
       const { rows } = await risansiPool.query<PendingRow>(
-        `SELECT id, email, display_name, COALESCE(role,'rep') AS role,
+        `SELECT id, user_email AS email, display_name,
+                COALESCE(role,'rep') AS requested_role,
                 requested_at::text AS requested_at
          FROM access_requests
          WHERE status = 'Pending'
@@ -39,7 +41,8 @@ export default async function AdminPage() {
     }, []),
     q<UserRow[]>(async () => {
       const { rows } = await risansiPool.query<UserRow>(
-        `SELECT id, email, display_name, COALESCE(role,'rep') AS role,
+        `SELECT id, user_email AS email, display_name,
+                COALESCE(role,'rep') AS role,
                 status, requested_at::text AS requested_at,
                 reviewed_at::text AS reviewed_at
          FROM access_requests
@@ -112,7 +115,7 @@ export default async function AdminPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: '#F4F6FB' }}>
-                  {['Name', 'Email', 'Requested Role', 'Requested At', 'Actions'].map(h => (
+                  {['Name', 'Email', 'Requested', 'Requested At', 'Assign Role', 'Actions'].map(h => (
                     <th key={h} style={TH}>{h}</th>
                   ))}
                 </tr>
@@ -120,35 +123,52 @@ export default async function AdminPage() {
               <tbody>
                 {pending.map(req => (
                   <tr key={req.id} style={{ borderBottom: '1px solid #EBF1FB' }}>
+                    {/* Name */}
                     <td style={{ padding: '12px 14px', fontWeight: 500 }}>{req.display_name}</td>
+
+                    {/* Email */}
                     <td style={{ padding: '12px 14px', color: '#6B7F96', fontFamily: 'monospace', fontSize: 12 }}>
                       {req.email}
                     </td>
+
+                    {/* Requested — read-only badge */}
                     <td style={{ padding: '12px 14px' }}>
-                      <RoleBadge role={req.role} />
+                      <RoleBadge role={req.requested_role} />
                     </td>
+
+                    {/* Requested At */}
                     <td style={{ padding: '12px 14px', color: '#6B7F96', fontSize: 12, whiteSpace: 'nowrap' }}>
                       {req.requested_at
                         ? new Date(req.requested_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
                         : '—'}
                     </td>
+
+                    {/* Assign Role — form lives here, button associates via form attr */}
+                    <td style={{ padding: '12px 14px' }}>
+                      <form id={`af-${req.id}`} action={approveUser}>
+                        <input type="hidden" name="id" value={req.id} />
+                        <select name="role" defaultValue={req.requested_role} style={ROLE_SELECT}>
+                          <option value="rep"     title="Can view clients, log visits, manage own pipeline">Field Rep</option>
+                          <option value="manager" title="Can assign visits to team, view all reps">Sales Manager</option>
+                          <option value="admin"   title="Full access + revenue upload + client master">Admin (Full Access)</option>
+                        </select>
+                      </form>
+                    </td>
+
+                    {/* Actions */}
                     <td style={{ padding: '12px 14px' }}>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <form action={approveUser} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                          <input type="hidden" name="id" value={req.id} />
-                          <select name="role" defaultValue={req.role} style={ROLE_SELECT}>
-                            <option value="rep">Rep</option>
-                            <option value="manager">Manager</option>
-                            <option value="admin">Admin</option>
-                          </select>
-                          <button type="submit" style={{ ...BTN, background: '#059669', color: '#fff' }}>
-                            Approve
-                          </button>
-                        </form>
+                        <button
+                          type="submit"
+                          form={`af-${req.id}`}
+                          style={{ ...BTN, background: '#059669', color: '#fff' }}
+                        >
+                          ✓ Approve
+                        </button>
                         <form action={rejectUser}>
                           <input type="hidden" name="id" value={req.id} />
                           <button type="submit" style={{ ...BTN, background: 'transparent', color: '#DC2626', border: '1px solid rgba(220,38,38,0.3)' }}>
-                            Reject
+                            ✗ Reject
                           </button>
                         </form>
                       </div>
@@ -209,9 +229,9 @@ export default async function AdminPage() {
                         <form action={reapproveUser} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                           <input type="hidden" name="id" value={u.id} />
                           <select name="role" defaultValue={u.role} style={ROLE_SELECT}>
-                            <option value="rep">Rep</option>
-                            <option value="manager">Manager</option>
-                            <option value="admin">Admin</option>
+                            <option value="rep"     title="Can view clients, log visits, manage own pipeline">Field Rep</option>
+                            <option value="manager" title="Can assign visits to team, view all reps">Sales Manager</option>
+                            <option value="admin"   title="Full access + revenue upload + client master">Admin (Full Access)</option>
                           </select>
                           <button type="submit" style={{ ...BTN, background: '#1A5CB8', color: '#fff' }}>
                             Re-approve
@@ -231,6 +251,13 @@ export default async function AdminPage() {
   );
 }
 
+const ROLE_LABELS: Record<string, string> = {
+  rep:      'Field Rep',
+  manager:  'Sales Manager',
+  admin:    'Admin',
+  sysadmin: 'Sysadmin',
+};
+
 function RoleBadge({ role }: { role: string }) {
   const colors: Record<string, { bg: string; color: string }> = {
     sysadmin: { bg: '#EDE9FE', color: '#5B21B6' },
@@ -244,9 +271,8 @@ function RoleBadge({ role }: { role: string }) {
       padding: '2px 8px', borderRadius: 4,
       fontSize: 11, fontWeight: 500,
       background: c.bg, color: c.color,
-      textTransform: 'capitalize',
     }}>
-      {role}
+      {ROLE_LABELS[role] ?? role}
     </span>
   );
 }
@@ -291,7 +317,7 @@ const BTN: CSSProperties = {
   cursor: 'pointer', whiteSpace: 'nowrap',
 };
 const ROLE_SELECT: CSSProperties = {
-  padding: '4px 8px', fontSize: 12, fontFamily: 'inherit',
-  border: '1px solid #DDE6F5', borderRadius: 5,
+  width: 130, padding: '5px 8px', fontSize: 12, fontFamily: 'inherit',
+  border: '1px solid #CBD5E1', borderRadius: 6,
   background: '#F4F6FB', color: '#0D1B2E', cursor: 'pointer',
 };

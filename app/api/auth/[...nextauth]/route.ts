@@ -58,31 +58,38 @@ export const authOptions: AuthOptions = {
   ],
   callbacks: {
     async jwt({ token, user }) {
-      if (user) {
-        // Check if sysadmin via ADMIN_EMAILS env var
+      if (user || token.email) {
+        const email = (token.email ?? '').toLowerCase().trim();
+
+        // Sysadmin check — no DB query needed
         const adminEmails = (process.env.ADMIN_EMAILS ?? process.env.ADMIN_EMAIL ?? 'admin@risansi.com')
           .split(',').map(e => e.trim().toLowerCase());
 
-        if (adminEmails.includes(token.email?.toLowerCase() ?? '')) {
-          token.role = 'sysadmin';
+        if (adminEmails.includes(email)) {
           token.risansiAccess = 'Approved';
-        } else {
-          // Look up role from access_requests
+          token.role          = 'sysadmin';
+          return token;
+        }
+
+        // Everyone else — look up in access_requests
+        try {
           const res = await risansiPool.query<{ status: string; role: string }>(
             `SELECT status, role FROM access_requests WHERE user_email = $1 LIMIT 1`,
-            [token.email],
+            [email],
           );
           token.risansiAccess = res.rows[0]?.status ?? 'Pending';
           token.role          = res.rows[0]?.role   ?? 'rep';
+        } catch (err) {
+          console.error('JWT DB lookup error:', err);
+          token.risansiAccess = 'Pending';
+          token.role          = 'rep';
         }
       }
       return token;
     },
     async session({ session, token }) {
-      if (session.user) {
-        session.user.risansiAccess = (token.risansiAccess as string) ?? 'Pending';
-        session.user.role          = (token.role          as string) ?? 'rep';
-      }
+      session.user.risansiAccess = token.risansiAccess as string;
+      session.user.role          = token.role          as string;
       return session;
     },
   },
