@@ -37,12 +37,13 @@ interface Props {
   repName:     string;
   reps:        DrawerRep[];
   clientData:  ClientForEdit;
+  canEdit?:    boolean;
 }
 
 // ── Component ──────────────────────────────────────────────────
 
 export function ClientActionButtons({
-  clientId, clientName, clientCode, industry, repId, repName, reps, clientData,
+  clientId, clientName, clientCode, industry, repId, repName, reps, clientData, canEdit = false,
 }: Props) {
   const [isOppOpen,  setIsOppOpen]  = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -79,9 +80,11 @@ export function ClientActionButtons({
         <button type="button" onClick={() => setIsOppOpen(true)} style={BTN}>
           + New Opportunity
         </button>
-        <button type="button" onClick={() => setIsEditOpen(true)} style={{ ...BTN, background: '#0A3D8F', color: '#fff', border: '1px solid #0A3D8F' }}>
-          Edit Record
-        </button>
+        {canEdit && (
+          <button type="button" onClick={() => setIsEditOpen(true)} style={{ ...BTN, background: '#0A3D8F', color: '#fff', border: '1px solid #0A3D8F' }}>
+            Edit Record
+          </button>
+        )}
       </div>
 
       {/* Visit drawer */}

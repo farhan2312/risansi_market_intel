@@ -81,6 +81,228 @@ export default async function ExecDashboardPage({
 
   const session     = await getServerSession(authOptions);
   const displayName = session?.user?.name ?? session?.user?.email ?? 'Admin';
+  const role        = session?.user?.role ?? '';
+  const isRep       = role === 'rep';
+
+  // ── Rep-specific dashboard (early return) ──────────────────────
+  if (isRep) {
+    const email = session?.user?.email ?? '';
+    const today = new Date();
+
+    const repRow = await q<{ id: string } | null>(async () => {
+      const { rows } = await risansiPool.query<{ id: string }>(
+        'SELECT id::text AS id FROM reps WHERE email = $1 LIMIT 1',
+        [email],
+      );
+      return rows[0] ?? null;
+    }, null);
+    const repId = repRow?.id ?? null;
+
+    const [myVisitsCount, myOverdueCount, myPipelineValue, myClientsCount, myRecentVisits, myOverdueClients] = await Promise.all([
+
+      // My visits this week
+      q<number>(async () => {
+        if (!repId) return 0;
+        const { rows } = await risansiPool.query<{ cnt: string }>(
+          `SELECT COUNT(*)::text AS cnt FROM visits
+           WHERE rep_id = $1
+             AND visit_date >= CURRENT_DATE - INTERVAL '7 days'
+             AND status IN ('completed','checked-in')`,
+          [repId],
+        );
+        return Number(rows[0]?.cnt ?? 0);
+      }, 0),
+
+      // My overdue clients (no visit 90+ days)
+      q<number>(async () => {
+        if (!repId) return 0;
+        const { rows } = await risansiPool.query<{ cnt: string }>(
+          `SELECT COUNT(*)::text AS cnt FROM clients
+           WHERE primary_rep_id = $1
+             AND status = 'ACTIVE' AND deleted_at IS NULL
+             AND (last_visit_date IS NULL OR last_visit_date < CURRENT_DATE - INTERVAL '90 days')`,
+          [repId],
+        );
+        return Number(rows[0]?.cnt ?? 0);
+      }, 0),
+
+      // My pipeline value (Crores)
+      q<number>(async () => {
+        if (!repId) return 0;
+        const { rows } = await risansiPool.query<{ total: string }>(
+          `SELECT COALESCE(SUM(o.value_cr),0)::text AS total
+           FROM opportunities o
+           JOIN clients c ON c.id = o.client_id
+           WHERE c.primary_rep_id = $1
+             AND o.stage NOT IN ('Won','Lost')`,
+          [repId],
+        );
+        return Number(rows[0]?.total ?? 0);
+      }, 0),
+
+      // My active client count
+      q<number>(async () => {
+        if (!repId) return 0;
+        const { rows } = await risansiPool.query<{ cnt: string }>(
+          `SELECT COUNT(*)::text AS cnt FROM clients
+           WHERE primary_rep_id = $1
+             AND status = 'ACTIVE' AND deleted_at IS NULL`,
+          [repId],
+        );
+        return Number(rows[0]?.cnt ?? 0);
+      }, 0),
+
+      // My recent visits (last 10)
+      q<VisitEntry[]>(async () => {
+        if (!repId) return [];
+        const { rows } = await risansiPool.query<{
+          id: string; rep_name: string; client_name: string;
+          visit_date: Date; outcome: string | null; purpose: string; status: string;
+        }>(
+          `SELECT v.id,
+                  COALESCE(r.name, '—') AS rep_name,
+                  c.legal_name          AS client_name,
+                  v.visit_date, v.outcome, v.purpose, v.status
+           FROM visits v
+           JOIN clients c ON c.id = v.client_id
+           LEFT JOIN reps r ON r.id = v.rep_id
+           WHERE v.rep_id = $1
+             AND v.status IN ('completed','checked-in')
+           ORDER BY v.visit_date DESC
+           LIMIT 10`,
+          [repId],
+        );
+        return rows.map(r => ({
+          id: r.id, rep_name: r.rep_name, rep_initials: initials(r.rep_name),
+          client_name: r.client_name, visit_date: new Date(r.visit_date),
+          outcome: r.outcome, purpose: r.purpose, status: r.status, synced: false,
+        }));
+      }, []),
+
+      // My overdue clients list
+      q<{ id: string; code: string; legal_name: string; days_overdue: number }[]>(async () => {
+        if (!repId) return [];
+        const { rows } = await risansiPool.query<{
+          id: string; code: string; legal_name: string; days_overdue: number;
+        }>(
+          `SELECT c.id::text AS id, c.code, c.legal_name,
+                  COALESCE(EXTRACT(DAY FROM NOW() - c.last_visit_date)::int, 999) AS days_overdue
+           FROM clients c
+           WHERE c.primary_rep_id = $1
+             AND c.status = 'ACTIVE' AND c.deleted_at IS NULL
+             AND (c.last_visit_date IS NULL OR c.last_visit_date < CURRENT_DATE - INTERVAL '90 days')
+           ORDER BY 4 DESC
+           LIMIT 20`,
+          [repId],
+        );
+        return rows;
+      }, []),
+    ]);
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
+          <Topbar crumbs={['Risansi', 'My Dashboard']} primaryAction="Log Visit" primaryActionHref="/risansi/field" />
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>
+
+          {/* Greeting */}
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
+              {getGreeting()}, {displayName}.
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>
+              {formatIndianDate(today)}
+              {!repId && ' · Rep profile not linked — contact admin to sync your account'}
+            </div>
+          </div>
+
+          {/* 4 KPI cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+            <RepKpi label="Visits This Week" value={String(myVisitsCount)}  sub="Last 7 days" />
+            <RepKpi label="Overdue Clients"  value={String(myOverdueCount)} sub="No visit 90+ days" neg={myOverdueCount > 0} />
+            <RepKpi label="My Pipeline"      value={fmtCr(myPipelineValue)} sub="Open opportunities" />
+            <RepKpi label="My Clients"       value={String(myClientsCount)} sub="Active accounts" />
+          </div>
+
+          {/* Two panels */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+
+            {/* Recent visits */}
+            <div style={PANEL}>
+              <div style={PANEL_H}>
+                <span style={PANEL_TITLE}>My Recent Visits</span>
+                <div style={{ marginLeft: 'auto' }}>
+                  <a href="/risansi/field" style={{ fontSize: 11, color: '#1A5CB8', textDecoration: 'none', fontWeight: 500 }}>View all →</a>
+                </div>
+              </div>
+              <div>
+                {myRecentVisits.length === 0 ? (
+                  <div style={{ padding: '40px 20px', textAlign: 'center', fontSize: 12, color: 'var(--fg-3)' }}>
+                    No visits logged yet
+                  </div>
+                ) : (
+                  myRecentVisits.map((v, i) => {
+                    const oKind: 'pos' | 'warn' = v.outcome?.toLowerCase().includes('positive') ? 'pos' : 'warn';
+                    return (
+                      <div key={v.id} style={{ display: 'flex', alignItems: 'flex-start', padding: '10px 14px', borderBottom: i < myRecentVisits.length - 1 ? '1px solid var(--line)' : 'none', gap: 10 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 500 }}>{v.client_name}</div>
+                          {v.purpose && <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 2 }}>{v.purpose}</div>}
+                          {v.outcome && <div style={{ marginTop: 4 }}><Tag kind={oKind}>{v.outcome}</Tag></div>}
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', flexShrink: 0 }}>
+                          {formatTime(v.visit_date)}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Overdue clients */}
+            <div style={PANEL}>
+              <div style={PANEL_H}>
+                <span style={PANEL_TITLE}>Overdue Clients</span>
+                {myOverdueCount > 0 && (
+                  <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--neg)', fontFamily: 'var(--font-mono)' }}>
+                    {myOverdueCount} need{myOverdueCount === 1 ? 's' : ''} a visit
+                  </span>
+                )}
+              </div>
+              <div>
+                {myOverdueClients.length === 0 ? (
+                  <div style={{ padding: '40px 20px', textAlign: 'center', fontSize: 12, color: 'var(--pos)' }}>
+                    All clients visited recently
+                  </div>
+                ) : (
+                  myOverdueClients.map((c, i) => (
+                    <div key={c.id} style={{ display: 'flex', alignItems: 'center', padding: '10px 14px', borderBottom: i < myOverdueClients.length - 1 ? '1px solid var(--line)' : 'none', gap: 10 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <a href={`/risansi/clients/${c.code}`} style={{ fontSize: 12, fontWeight: 500, color: 'inherit', textDecoration: 'none' }}>
+                          {c.legal_name}
+                        </a>
+                        <div style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', marginTop: 1 }}>{c.code}</div>
+                      </div>
+                      <span style={{
+                        fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600,
+                        color: c.days_overdue >= 365 ? 'var(--neg)' : c.days_overdue >= 180 ? '#D97706' : '#B45309',
+                      }}>
+                        {c.days_overdue >= 999 ? 'Never' : `${c.days_overdue}d`}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const fy        = getCurrentFY();
   const prevCodes = getPreviousFYCodes(5);   // ['20-21'..'24-25']
@@ -930,5 +1152,17 @@ function GhostBtn({ children }: { children: React.ReactNode }) {
     <button style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', fontSize: 11, fontFamily: 'inherit', background: 'transparent', border: '1px solid transparent', color: 'var(--fg-2)', borderRadius: 5, cursor: 'pointer' }}>
       {children}
     </button>
+  );
+}
+
+function RepKpi({ label, value, sub, neg = false }: { label: string; value: string; sub: string; neg?: boolean }) {
+  return (
+    <div style={{ ...KPI_PANEL, minHeight: 110 }}>
+      <div style={{ padding: 14 }}>
+        <div style={METRIC_LABEL}>{label}</div>
+        <div style={{ ...METRIC_VAL, fontSize: 32 }}>{value}</div>
+        <div style={{ fontSize: 11, color: neg ? 'var(--neg)' : 'var(--fg-3)', marginTop: 4 }}>{sub}</div>
+      </div>
+    </div>
   );
 }

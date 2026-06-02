@@ -1,9 +1,6 @@
 import NextAuth, { type AuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
-import type { RisansiAccessStatus } from '@/types/risansi';
-
-const VALID_EMAIL    = process.env.ADMIN_EMAIL    ?? 'admin@risansi.com';
-const VALID_PASSWORD = process.env.ADMIN_PASSWORD ?? 'risansi2026';
+import risansiPool from '@/lib/db-risansi';
 
 export const authOptions: AuthOptions = {
   secret: process.env.NEXTAUTH_SECRET ?? 'risansi-dev-secret-2026',
@@ -22,33 +19,69 @@ export const authOptions: AuthOptions = {
         password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials) {
-        console.log('LOGIN ATTEMPT:', {
-          inputEmail:   credentials?.email,
-          inputPassword: credentials?.password,
-          envEmail:     process.env.ADMIN_EMAIL,
-          envPassword:  process.env.ADMIN_PASSWORD,
-        });
+        const email = credentials?.email?.toLowerCase().trim() ?? '';
+        const pass  = credentials?.password ?? '';
 
-        if (
-          credentials?.email    === VALID_EMAIL &&
-          credentials?.password === VALID_PASSWORD
-        ) {
-          return { id: '1', email: VALID_EMAIL, name: 'Admin' };
+        // Sysadmin bypass via env vars
+        const adminEmail = (process.env.ADMIN_EMAIL ?? 'admin@risansi.com').toLowerCase();
+        const adminPass  = process.env.ADMIN_PASSWORD ?? 'risansi2026';
+        if (email === adminEmail && pass === adminPass) {
+          return { id: '1', email: adminEmail, name: 'Admin' };
         }
-        return null;
+
+        // Check access_requests for approved users
+        const res = await risansiPool.query<{
+          email: string; display_name: string; password_hash: string | null;
+          status: string; role: string;
+        }>(
+          `SELECT email, display_name, password_hash, status, role
+           FROM access_requests
+           WHERE email = $1 AND status = 'Approved'
+           LIMIT 1`,
+          [email],
+        );
+
+        const row = res.rows[0];
+        if (!row || !row.password_hash) return null;
+
+        const bcrypt = await import('bcryptjs');
+        const valid  = await bcrypt.compare(pass, row.password_hash);
+        if (!valid) return null;
+
+        return {
+          id:    row.email,
+          email: row.email,
+          name:  row.display_name,
+        };
       },
     }),
   ],
   callbacks: {
-    async jwt({ token }) {
-      if (token.email === VALID_EMAIL) {
-        token.risansiAccess = 'Approved' as RisansiAccessStatus;
+    async jwt({ token, user }) {
+      if (user) {
+        // Check if sysadmin via ADMIN_EMAILS env var
+        const adminEmails = (process.env.ADMIN_EMAILS ?? process.env.ADMIN_EMAIL ?? 'admin@risansi.com')
+          .split(',').map(e => e.trim().toLowerCase());
+
+        if (adminEmails.includes(token.email?.toLowerCase() ?? '')) {
+          token.role = 'sysadmin';
+          token.risansiAccess = 'Approved';
+        } else {
+          // Look up role from access_requests
+          const res = await risansiPool.query<{ status: string; role: string }>(
+            `SELECT status, role FROM access_requests WHERE email = $1 LIMIT 1`,
+            [token.email],
+          );
+          token.risansiAccess = res.rows[0]?.status ?? 'Pending';
+          token.role          = res.rows[0]?.role   ?? 'rep';
+        }
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
-        session.user.risansiAccess = (token.risansiAccess as RisansiAccessStatus | null) ?? null;
+        session.user.risansiAccess = (token.risansiAccess as string) ?? 'Pending';
+        session.user.role          = (token.role          as string) ?? 'rep';
       }
       return session;
     },

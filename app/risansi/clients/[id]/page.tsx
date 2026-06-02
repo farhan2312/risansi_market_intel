@@ -1,5 +1,7 @@
 import type { CSSProperties } from 'react';
 import { notFound } from 'next/navigation';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, Tag, StatusDot } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
 import { fyShortLabel, fmtCr, formatRev } from '@/lib/risansi-utils';
@@ -120,6 +122,10 @@ export default async function ClientProfilePage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params;
+
+  const session  = await getServerSession(authOptions);
+  const role     = session?.user?.role ?? '';
+  const canEdit  = ['admin', 'sysadmin'].includes(role);
 
   // ── Dual-key client fetch (numeric id OR code string) ─────
   const isNumeric = /^\d+$/.test(id);
@@ -392,7 +398,7 @@ export default async function ClientProfilePage({
                 ) : (
                   <span style={{ fontSize: 12, color: 'var(--neg)' }}>Unassigned</span>
                 )}
-                <EditDrawerTrigger />
+                {canEdit && <EditDrawerTrigger />}
               </div>
 
               {/* Secondary rep (only if set) */}
@@ -439,6 +445,7 @@ export default async function ClientProfilePage({
             repName={client.rep_name ?? client.primary_rep_name ?? ''}
             reps={reps}
             clientData={client}
+            canEdit={canEdit}
           />
         </div>
 
@@ -739,7 +746,7 @@ export default async function ClientProfilePage({
                     </span>
                   )}
                 </div>
-                <AddContactButton clientId={Number(client.id)} clientCode={client.code} />
+                {canEdit && <AddContactButton clientId={Number(client.id)} clientCode={client.code} />}
               </div>
 
               {contacts.length === 0 ? (

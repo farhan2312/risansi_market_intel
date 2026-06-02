@@ -235,9 +235,16 @@ export default function SignInPage() {
             </button>
           </form>
 
+          <p style={{ textAlign: 'center', marginTop: 16, marginBottom: 0, fontSize: 13, color: '#6B7F96' }}>
+            New to Risansi?{' '}
+            <a href="/api/auth/signup" style={{ color: '#1A5CB8', textDecoration: 'none', fontWeight: 500 }}>
+              Request access
+            </a>
+          </p>
+
           <p style={{
             fontSize: 11, color: '#A8BAC8',
-            textAlign: 'center', marginTop: 28, marginBottom: 0,
+            textAlign: 'center', marginTop: 16, marginBottom: 0,
           }}>
             Risansi Industries Ltd · Internal use only
           </p>
