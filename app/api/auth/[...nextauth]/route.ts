@@ -69,7 +69,7 @@ export const authOptions: AuthOptions = {
         } else {
           // Look up role from access_requests
           const res = await risansiPool.query<{ status: string; role: string }>(
-            `SELECT status, role FROM access_requests WHERE email = $1 LIMIT 1`,
+            `SELECT status, role FROM access_requests WHERE user_email = $1 LIMIT 1`,
             [token.email],
           );
           token.risansiAccess = res.rows[0]?.status ?? 'Pending';

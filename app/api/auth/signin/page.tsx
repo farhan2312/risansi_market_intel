@@ -2,10 +2,8 @@
 
 import { useState, FormEvent } from 'react';
 import { signIn } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
 
 export default function SignInPage() {
-  const router   = useRouter();
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
   const [error,    setError]    = useState('');
@@ -16,18 +14,25 @@ export default function SignInPage() {
     setError('');
     setLoading(true);
 
-    const result = await signIn('credentials', {
-      email,
-      password,
-      redirect: false,
-    });
+    try {
+      const result = await signIn('credentials', {
+        email,
+        password,
+        redirect: false,
+      });
 
-    setLoading(false);
+      if (result?.error) {
+        setError('Invalid email or password. Please try again.');
+        setLoading(false);
+        return;
+      }
 
-    if (result?.error) {
-      setError('Invalid email or password.');
-    } else {
-      router.push('/risansi');
+      if (result?.ok) {
+        window.location.href = '/risansi';
+      }
+    } catch {
+      setError('Something went wrong. Please try again.');
+      setLoading(false);
     }
   }
 
@@ -202,12 +207,14 @@ export default function SignInPage() {
 
             {error && (
               <div style={{
-                padding: '8px 12px',
-                background: '#FEE2E2',
-                border: '1px solid rgba(220,38,38,0.20)',
-                borderRadius: 5,
-                fontSize: 12,
+                padding: '10px 12px',
+                background: '#FDE8E8',
+                border: '1px solid #F87171',
+                borderLeft: '3px solid #E02424',
+                borderRadius: 6,
                 color: '#9B1C1C',
+                fontSize: 13,
+                marginBottom: 12,
               }}>
                 {error}
               </div>
@@ -222,13 +229,14 @@ export default function SignInPage() {
                 fontSize: 13,
                 fontFamily: 'inherit',
                 fontWeight: 500,
-                background: loading ? '#4A7FC1' : '#1A5CB8',
+                background: '#1A5CB8',
                 color: '#ffffff',
                 border: 'none',
                 borderRadius: 6,
                 cursor: loading ? 'not-allowed' : 'pointer',
                 letterSpacing: '-0.005em',
-                transition: 'background 0.15s',
+                opacity: loading ? 0.7 : 1,
+                transition: 'opacity 0.15s',
               }}
             >
               {loading ? 'Signing in…' : 'Sign in'}
