@@ -8,7 +8,7 @@ import { ExportPdfButton } from '@/components/risansi/ExportPdfButton';
 import { RefreshButton } from '@/components/risansi/RefreshButton';
 import risansiPool from '@/lib/db-risansi';
 import {
-  getCurrentFY, getPreviousFYCodes, fyShortLabel,
+  getCurrentFY, fyShortLabel,
   fyYtdPct, fyDaysLeft, formatIndianDate, formatTime, fmtCr, fmtL,
   getGreeting, formatRev,
 } from '@/lib/risansi-utils';
@@ -57,7 +57,6 @@ interface CIBTotals    { ril: number; roto: number; rotomac: number; netzsch: nu
 interface TopAccount {
   client_code: string; legal_name: string; industry: string; zone: string; status: string;
   ytd: number; py: number;
-  fy20: number; fy21: number; fy22: number; fy23: number; fy24: number; fy25: number;
 }
 interface VisitEntry {
   id: string; rep_name: string; client_name: string;
@@ -304,28 +303,13 @@ export default async function ExecDashboardPage({
     );
   }
 
-  const fy        = getCurrentFY();
-  const prevCodes = getPreviousFYCodes(5);   // ['20-21'..'24-25']
-  const ytdPct    = fyYtdPct(fy);
-  const daysLeft  = fyDaysLeft(fy);
-  const today     = new Date();
+  const fy       = getCurrentFY();
+  const ytdPct   = fyYtdPct(fy);
+  const daysLeft = fyDaysLeft(fy);
+  const today    = new Date();
 
   const INR_TO_L = 100_000;
-
-  // ── FY selection — validated against allowlist, never raw user input in SQL ──
-  const FY_COLS = {
-    '25-26': { pump: 'rev_2526_pump', spare: 'rev_2526_spare', total: 'rev_2526_total', prev: 'rev_2425_total' },
-    '24-25': { pump: 'rev_2425_pump', spare: 'rev_2425_spare', total: 'rev_2425_total', prev: 'rev_2324_total' },
-    '23-24': { pump: 'rev_2324_pump', spare: 'rev_2324_spare', total: 'rev_2324_total', prev: 'rev_2223_total' },
-    '22-23': { pump: 'rev_2223_pump', spare: 'rev_2223_spare', total: 'rev_2223_total', prev: 'rev_2122_total' },
-  } as const;
-  type FYKey = keyof typeof FY_COLS;
-
-  const sp      = await searchParams;
-  const rawFy   = sp.fy ?? '25-26';
-  const safeFy: FYKey = (rawFy in FY_COLS) ? rawFy as FYKey : '25-26';
-  const cols    = FY_COLS[safeFy];
-  const fyLabel = `FY ${safeFy.replace('-', '–')}`;
+  const fyLabel  = 'FY 25–26';
 
   // ── All queries in parallel — replaces 10 sequential awaits ──
   const [
@@ -342,14 +326,15 @@ export default async function ExecDashboardPage({
     visits,
   ] = await Promise.all([
 
-    // 1. Selected-FY revenue: total + pump/spare breakdown
+    // 1. Current FY revenue: total + pump/spare breakdown
     q<RevenueSplit>(async () => {
       const { rows } = await risansiPool.query<{ total_inr: string; pump_inr: string; spare_inr: string }>(
         `SELECT
-           COALESCE(SUM(${cols.total}),0)::text AS total_inr,
-           COALESCE(SUM(${cols.pump}),0)::text  AS pump_inr,
-           COALESCE(SUM(${cols.spare}),0)::text AS spare_inr
-         FROM clients WHERE deleted_at IS NULL`,
+           COALESCE(SUM(total_value),0)::text AS total_inr,
+           COALESCE(SUM(pump_value), 0)::text AS pump_inr,
+           COALESCE(SUM(spare_value),0)::text AS spare_inr
+         FROM client_revenue_monthly
+         WHERE month >= '2025-04-01' AND month < '2026-04-01'`,
       );
       return {
         pump:  Number(rows[0]?.pump_inr  ?? 0) / INR_TO_L,
@@ -357,47 +342,56 @@ export default async function ExecDashboardPage({
       };
     }, { pump: 0, spare: 0 }),
 
-    // 2. Previous-year total (the FY before the selected one)
+    // 2. Previous FY total (24-25)
     q<number>(async () => {
       const { rows } = await risansiPool.query<{ total: string }>(
-        `SELECT COALESCE(SUM(${cols.prev}),0)::text AS total
-         FROM clients WHERE deleted_at IS NULL`,
+        `SELECT COALESCE(SUM(total_value),0)::text AS total
+         FROM client_revenue_monthly
+         WHERE month >= '2024-04-01' AND month < '2025-04-01'`,
       );
       return Number(rows[0]?.total ?? 0) / INR_TO_L;
     }, 0),
 
-    // 3. Annual target (Crores) — fallback 32 Cr = ₹32 Cr
+    // 3. Annual target (Crores) — from reps table, fallback 32 Cr
     q<number>(async () => {
-      const { rows } = await risansiPool.query<{ target_value: string }>(
-        `SELECT target_value::text FROM sales_targets
-         WHERE financial_year = $1 AND target_type = 'national' LIMIT 1`,
-        [safeFy],
+      const { rows } = await risansiPool.query<{ total_target_cr: string }>(
+        `SELECT COALESCE(SUM(target_cr), 32)::text AS total_target_cr
+         FROM reps WHERE is_active = TRUE`,
       );
-      return rows[0] ? Number(rows[0].target_value) : 32;
+      return Number(rows[0]?.total_target_cr ?? 32);
     }, 32),
 
-    // 4. Historical revenue — all FYs via UNION ALL, zeros filtered out
+    // 4. Historical YoY revenue from client_revenue_monthly
     q<HistoricalFY[]>(async () => {
-      const { rows } = await risansiPool.query<{ fy: string; ord: number; total_inr: string }>(
-        `SELECT fy, ord, total_inr FROM (
-           SELECT 'FY18' AS fy, 1 AS ord, COALESCE(SUM(rev_1819),0)::text AS total_inr FROM clients
-           UNION ALL
-           SELECT 'FY19', 2, COALESCE(SUM(rev_1920),0)::text FROM clients
-           UNION ALL
-           SELECT 'FY20', 3, COALESCE(SUM(rev_2021),0)::text FROM clients
-           UNION ALL
-           SELECT 'FY21', 4, COALESCE(SUM(rev_2122_total),0)::text FROM clients
-           UNION ALL
-           SELECT 'FY22', 5, COALESCE(SUM(rev_2223_total),0)::text FROM clients
-           UNION ALL
-           SELECT 'FY23', 6, COALESCE(SUM(rev_2324_total),0)::text FROM clients
-           UNION ALL
-           SELECT 'FY24', 7, COALESCE(SUM(rev_2425_total),0)::text FROM clients
-           UNION ALL
-           SELECT 'FY25', 8, COALESCE(SUM(rev_2526_total),0)::text FROM clients
+      const { rows } = await risansiPool.query<{ fy: string; ord: string; total_inr: string }>(
+        `SELECT fy_label AS fy, fy_order AS ord, COALESCE(SUM(total_value),0)::text AS total_inr
+         FROM (
+           SELECT
+             CASE
+               WHEN month >= '2020-04-01' AND month < '2021-04-01' THEN 'FY20'
+               WHEN month >= '2021-04-01' AND month < '2022-04-01' THEN 'FY21'
+               WHEN month >= '2022-04-01' AND month < '2023-04-01' THEN 'FY22'
+               WHEN month >= '2023-04-01' AND month < '2024-04-01' THEN 'FY23'
+               WHEN month >= '2024-04-01' AND month < '2025-04-01' THEN 'FY24'
+               WHEN month >= '2025-04-01' AND month < '2026-04-01' THEN 'FY25'
+               ELSE NULL
+             END AS fy_label,
+             CASE
+               WHEN month >= '2020-04-01' AND month < '2021-04-01' THEN 1
+               WHEN month >= '2021-04-01' AND month < '2022-04-01' THEN 2
+               WHEN month >= '2022-04-01' AND month < '2023-04-01' THEN 3
+               WHEN month >= '2023-04-01' AND month < '2024-04-01' THEN 4
+               WHEN month >= '2024-04-01' AND month < '2025-04-01' THEN 5
+               WHEN month >= '2025-04-01' AND month < '2026-04-01' THEN 6
+               ELSE NULL
+             END AS fy_order,
+             total_value
+           FROM client_revenue_monthly
          ) t
-         WHERE total_inr::numeric > 0
-         ORDER BY ord`,
+         WHERE fy_label IS NOT NULL
+         GROUP BY fy_label, fy_order
+         HAVING SUM(total_value) > 0
+         ORDER BY fy_order ASC`,
       );
       return rows.map(r => ({ code: r.fy, label: r.fy, total: Number(r.total_inr) / INR_TO_L }));
     }, []),
@@ -407,11 +401,11 @@ export default async function ExecDashboardPage({
       const { rows } = await risansiPool.query<{ segment: string; ytd_inr: string }>(
         `SELECT
            COALESCE(c.industry, 'Other') AS segment,
-           COALESCE(SUM(c.${cols.total}), 0)::text AS ytd_inr
-         FROM clients c
-         WHERE c.deleted_at IS NULL
-           AND c.status = 'ACTIVE'
-           AND c.${cols.total} > 0
+           COALESCE(SUM(crm.total_value), 0)::text AS ytd_inr
+         FROM client_revenue_monthly crm
+         JOIN clients c ON crm.client_id = c.id
+         WHERE crm.month >= '2025-04-01' AND crm.month < '2026-04-01'
+           AND c.deleted_at IS NULL
          GROUP BY COALESCE(c.industry, 'Other')
          ORDER BY 2::numeric DESC
          LIMIT 8`,
@@ -423,9 +417,12 @@ export default async function ExecDashboardPage({
     q<{ domestic: number; export: number }>(async () => {
       const { rows } = await risansiPool.query<{ domestic_inr: string; export_inr: string }>(
         `SELECT
-           COALESCE(SUM(CASE WHEN market_type = 'Domestic' THEN ${cols.total} ELSE 0 END),0)::text AS domestic_inr,
-           COALESCE(SUM(CASE WHEN market_type = 'Export'   THEN ${cols.total} ELSE 0 END),0)::text AS export_inr
-         FROM clients WHERE deleted_at IS NULL`,
+           COALESCE(SUM(CASE WHEN c.market_type = 'Domestic' THEN crm.total_value ELSE 0 END),0)::text AS domestic_inr,
+           COALESCE(SUM(CASE WHEN c.market_type = 'Export'   THEN crm.total_value ELSE 0 END),0)::text AS export_inr
+         FROM client_revenue_monthly crm
+         JOIN clients c ON crm.client_id = c.id
+         WHERE crm.month >= '2025-04-01' AND crm.month < '2026-04-01'
+           AND c.deleted_at IS NULL`,
       );
       const r = rows[0];
       return {
@@ -474,25 +471,20 @@ export default async function ExecDashboardPage({
       };
     }, { ril: 0, roto: 0, rotomac: 0, netzsch: 0, gita: 0, psp: 0, tushaco: 0, total: 0 }),
 
-    // 9. At-risk: previously active clients with no visit in 18+ months
+    // 9. At-risk: had revenue, no visit 18+ months
     q<AtRisk>(async () => {
       const { rows } = await risansiPool.query<{ cnt: string; exposure: string }>(
-        `SELECT COUNT(*)::text AS cnt,
-                COALESCE(SUM(
-                  COALESCE(${cols.total},0) + COALESCE(${cols.prev},0)
-                ), 0)::text AS exposure
-         FROM clients
-         WHERE status = 'ACTIVE'
-           AND deleted_at IS NULL
-           AND (
-             COALESCE(rev_2425_total,0) > 0 OR
-             COALESCE(rev_2324_total,0) > 0 OR
-             COALESCE(rev_2223_total,0) > 0
-           )
-           AND (
-             last_visit_date IS NULL OR
-             last_visit_date < CURRENT_DATE - INTERVAL '18 months'
-           )`,
+        `SELECT
+           COUNT(DISTINCT c.id)::text AS cnt,
+           COALESCE(SUM(crm.total_value), 0)::text AS exposure
+         FROM clients c
+         LEFT JOIN client_revenue_monthly crm
+           ON crm.client_id = c.id
+           AND crm.month >= '2024-04-01' AND crm.month < '2026-04-01'
+         WHERE c.status = 'ACTIVE'
+           AND c.deleted_at IS NULL
+           AND (c.last_visit_date IS NULL OR c.last_visit_date < CURRENT_DATE - INTERVAL '18 months')
+           AND EXISTS (SELECT 1 FROM client_revenue_monthly r2 WHERE r2.client_id = c.id)`,
       );
       return {
         count:    Number(rows[0]?.cnt      ?? 0),
@@ -500,27 +492,38 @@ export default async function ExecDashboardPage({
       };
     }, { count: 0, exposure: 0 }),
 
-    // 10. Top 7 accounts by YTD revenue
+    // 10. Top 7 accounts by FY25-26 revenue
     q<TopAccount[]>(async () => {
       const { rows } = await risansiPool.query<{
         client_code: string; legal_name: string; industry: string; zone: string; status: string;
-        ytd: string; py: string; fy20: string; fy21: string; fy22: string; fy23: string; fy24: string; fy25: string;
+        ytd: string; py: string;
       }>(
         `SELECT
-           c.code AS client_code, c.legal_name, c.industry, c.zone, c.status,
-           COALESCE(c.${cols.total},0)::text AS ytd,
-           COALESCE(c.${cols.prev},0)::text AS py,
-           COALESCE(c.rev_2021,0)::text AS fy20,
-           COALESCE(c.rev_2122_total,0)::text AS fy21,
-           COALESCE(c.rev_2223_total,0)::text AS fy22,
-           COALESCE(c.rev_2324_total,0)::text AS fy23,
-           COALESCE(c.rev_2425_total,0)::text AS fy24,
-           COALESCE(c.rev_2526_total,0)::text AS fy25
+           c.code AS client_code,
+           c.legal_name,
+           COALESCE(c.industry, '—') AS industry,
+           COALESCE(c.zone, '—')     AS zone,
+           c.status,
+           COALESCE(curr.total_inr, 0)::text AS ytd,
+           COALESCE(prev.total_inr, 0)::text AS py
          FROM clients c
+         LEFT JOIN (
+           SELECT client_id, SUM(total_value) AS total_inr
+           FROM client_revenue_monthly
+           WHERE month >= '2025-04-01' AND month < '2026-04-01'
+           GROUP BY client_id
+         ) curr ON curr.client_id = c.id
+         LEFT JOIN (
+           SELECT client_id, SUM(total_value) AS total_inr
+           FROM client_revenue_monthly
+           WHERE month >= '2024-04-01' AND month < '2025-04-01'
+           GROUP BY client_id
+         ) prev ON prev.client_id = c.id
          WHERE c.deleted_at IS NULL
-           AND (COALESCE(c.${cols.total},0) > 0
-             OR COALESCE(c.${cols.prev},0) > 0)
-         ORDER BY ytd DESC LIMIT 7`,
+           AND c.status = 'ACTIVE'
+           AND COALESCE(curr.total_inr, 0) > 0
+         ORDER BY curr.total_inr DESC NULLS LAST
+         LIMIT 7`,
       );
       return rows.map(r => ({
         client_code: r.client_code,
@@ -528,14 +531,8 @@ export default async function ExecDashboardPage({
         industry:    r.industry,
         zone:        r.zone,
         status:      r.status,
-        ytd:  Number(r.ytd)  / INR_TO_L,
-        py:   Number(r.py)   / INR_TO_L,
-        fy20: Number(r.fy20) / INR_TO_L,
-        fy21: Number(r.fy21) / INR_TO_L,
-        fy22: Number(r.fy22) / INR_TO_L,
-        fy23: Number(r.fy23) / INR_TO_L,
-        fy24: Number(r.fy24) / INR_TO_L,
-        fy25: Number(r.fy25) / INR_TO_L,
+        ytd: Number(r.ytd) / INR_TO_L,
+        py:  Number(r.py)  / INR_TO_L,
       }));
     }, []),
 
@@ -882,7 +879,7 @@ export default async function ExecDashboardPage({
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead>
                     <tr style={{ background: 'var(--bg-elev)' }}>
-                      {['Account', 'Industry', 'Zone', 'YTD Rev', 'vs PY', '5-yr', 'Status'].map(h => (
+                      {['Account', 'Industry', 'Zone', 'YTD Rev', 'vs PY', 'Status'].map(h => (
                         <th key={h} style={TH}>{h}</th>
                       ))}
                     </tr>
@@ -890,7 +887,6 @@ export default async function ExecDashboardPage({
                   <tbody>
                     {topAccounts.map(acc => {
                       const deltaPct = acc.py > 0 ? ((acc.ytd - acc.py) / acc.py) * 100 : 0;
-                      const trend = [acc.fy20, acc.fy21, acc.fy22, acc.fy23, acc.fy24, acc.fy25].filter(v => v > 0);
                       return (
                         <tr key={acc.client_code} style={{ borderBottom: '1px solid var(--line)', cursor: 'pointer' }}>
                           <td style={{ padding: '10px 12px', verticalAlign: 'middle' }}>
@@ -904,9 +900,6 @@ export default async function ExecDashboardPage({
                           <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtL(acc.ytd)}</td>
                           <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: deltaPct >= 0 ? 'var(--pos)' : 'var(--neg)' }}>
                             {acc.py > 0 ? `${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(1)}%` : '—'}
-                          </td>
-                          <td style={TD}>
-                            <Sparkline values={trend.length ? trend : [0]} width={70} height={20} color="var(--accent)" />
                           </td>
                           <td style={TD}>
                             <Tag kind="pos" dot>{acc.status}</Tag>

@@ -9,7 +9,7 @@ export async function GET() {
       risansiPool.query('SELECT COUNT(*) as count FROM orders'),
     ])
     const sample = await risansiPool.query(
-      'SELECT code, legal_name, status, rev_2526_total FROM clients LIMIT 5'
+      'SELECT code, legal_name, status FROM clients LIMIT 5'
     )
     return NextResponse.json({
       counts: {

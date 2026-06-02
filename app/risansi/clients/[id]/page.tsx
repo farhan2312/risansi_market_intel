@@ -41,15 +41,6 @@ interface Client {
   last_visit_fy: string | null; last_visit_month: string | null;
   last_visit_date: string | null; planned_visit_2627: string | null;
   visit_count: number | null;
-  // Revenue — pump/spare split (raw INR)
-  rev_2122_pump: number | null; rev_2122_spare: number | null; rev_2122_total: number | null;
-  rev_2223_pump: number | null; rev_2223_spare: number | null; rev_2223_total: number | null;
-  rev_2324_pump: number | null; rev_2324_spare: number | null; rev_2324_total: number | null;
-  rev_2425_pump: number | null; rev_2425_spare: number | null; rev_2425_total: number | null;
-  rev_2526_pump: number | null; rev_2526_spare: number | null; rev_2526_total: number | null;
-  rev_2627_pump: number | null; rev_2627_spare: number | null; rev_2627_april: number | null;
-  rev_1819: number | null; rev_1920: number | null; rev_2021: number | null;
-  rev_5yr_total: number | null; rev_5yr_avg: number | null;
   // Sales intelligence / plan of action
   action_points:          string | null;
   action_target_date_raw: string | null;
@@ -90,6 +81,10 @@ interface Contact {
 
 interface RevRow {
   financial_year: string; product_category: string; total: string; order_count: string;
+}
+
+interface ClientRevFY {
+  fy: string; pump_inr: string; spare_inr: string; total_inr: string;
 }
 
 interface Equipment {
@@ -153,7 +148,7 @@ export default async function ClientProfilePage({
 
   // ── Fetch supporting data in parallel ─────────────────────
 
-  const [contacts, revRows, equipment, visits, openOpps, activityLog, reps] = await Promise.all([
+  const [contacts, revRows, clientRevByFY, equipment, visits, openOpps, activityLog, reps] = await Promise.all([
 
     // 2. Contacts — single source of truth
     q<Contact[]>(async () => {
@@ -169,7 +164,7 @@ export default async function ClientProfilePage({
       return rows;
     }, []),
 
-    // 3. Revenue by FY / category (order_value_cr is already in Crores)
+    // 3. Revenue by FY / category (orders table — for order count)
     q<RevRow[]>(async () => {
       const { rows } = await risansiPool.query<RevRow>(
         `SELECT financial_year, product_category,
@@ -178,6 +173,36 @@ export default async function ClientProfilePage({
          FROM orders WHERE client_id = $1
          GROUP BY financial_year, product_category
          ORDER BY financial_year`,
+        [client.id],
+      );
+      return rows;
+    }, []),
+
+    // 3b. Revenue by FY from client_revenue_monthly (authoritative values)
+    q<ClientRevFY[]>(async () => {
+      const { rows } = await risansiPool.query<ClientRevFY>(
+        `SELECT
+           LPAD((EXTRACT(YEAR FROM month)::int % 100)::text, 2, '0') || '-' ||
+           LPAD(((EXTRACT(YEAR FROM month)::int + 1) % 100)::text, 2, '0') AS fy,
+           COALESCE(SUM(pump_value),  0)::text AS pump_inr,
+           COALESCE(SUM(spare_value), 0)::text AS spare_inr,
+           COALESCE(SUM(total_value), 0)::text AS total_inr
+         FROM client_revenue_monthly
+         WHERE client_id = $1
+           AND EXTRACT(MONTH FROM month) >= 4
+         GROUP BY 1
+         UNION ALL
+         SELECT
+           LPAD(((EXTRACT(YEAR FROM month)::int - 1) % 100)::text, 2, '0') || '-' ||
+           LPAD((EXTRACT(YEAR FROM month)::int % 100)::text, 2, '0') AS fy,
+           COALESCE(SUM(pump_value),  0)::text AS pump_inr,
+           COALESCE(SUM(spare_value), 0)::text AS spare_inr,
+           COALESCE(SUM(total_value), 0)::text AS total_inr
+         FROM client_revenue_monthly
+         WHERE client_id = $1
+           AND EXTRACT(MONTH FROM month) < 4
+         GROUP BY 1
+         ORDER BY fy ASC`,
         [client.id],
       );
       return rows;
@@ -260,46 +285,30 @@ export default async function ClientProfilePage({
 
   // ── Derived values ────────────────────────────────────────
 
-  // Revenue chart data — from rev_* columns on clients (INR ÷ 1L = Lakhs)
+  // Revenue chart data — from client_revenue_monthly (INR ÷ 1L = Lakhs)
   const INR_TO_L = 100_000;
 
-  const REV_COLS: [string, keyof typeof client, keyof typeof client][] = [
-    ['21-22', 'rev_2122_pump', 'rev_2122_spare'],
-    ['22-23', 'rev_2223_pump', 'rev_2223_spare'],
-    ['23-24', 'rev_2324_pump', 'rev_2324_spare'],
-    ['24-25', 'rev_2425_pump', 'rev_2425_spare'],
-    ['25-26', 'rev_2526_pump', 'rev_2526_spare'],
-    ['26-27', 'rev_2627_pump', 'rev_2627_spare'],
-  ];
-
   const revByFY: Record<string, { pump: number; spare: number; orders: number }> = {};
-  // Initialise from client rev_ columns
-  for (const [fyCode, pumpCol, spareCol] of REV_COLS) {
-    const pumpInr  = Number((client[pumpCol as keyof typeof client])  ?? 0);
-    const spareInr = Number((client[spareCol as keyof typeof client]) ?? 0);
-    revByFY[fyCode] = {
-      pump:   pumpInr  / INR_TO_L,
-      spare:  spareInr / INR_TO_L,
+
+  // Build from client_revenue_monthly (authoritative)
+  for (const r of clientRevByFY) {
+    revByFY[r.fy] = {
+      pump:   Number(r.pump_inr)  / INR_TO_L,
+      spare:  Number(r.spare_inr) / INR_TO_L,
       orders: 0,
     };
   }
 
-  // Merge orders table rows (already in Crores — no conversion needed)
+  // Merge order counts from orders table
   for (const r of revRows) {
-    const total = Number(r.total);
     if (!revByFY[r.financial_year]) {
       revByFY[r.financial_year] = { pump: 0, spare: 0, orders: 0 };
-    }
-    if (r.product_category === 'Pump') {
-      if (revByFY[r.financial_year].pump === 0) revByFY[r.financial_year].pump = total;
-    } else {
-      if (revByFY[r.financial_year].spare === 0) revByFY[r.financial_year].spare = total;
     }
     revByFY[r.financial_year].orders += Number(r.order_count);
   }
 
-  // Chart FYs: all 6 from the master data columns
-  const chartFYs = REV_COLS.map(([code]) => code);
+  // Chart FYs: all FYs with data, sorted
+  const chartFYs = Object.keys(revByFY).sort();
 
   let lifetimePump = 0, lifetimeSpare = 0, lifetimeOrders = 0;
   for (const { pump, spare, orders } of Object.values(revByFY)) {

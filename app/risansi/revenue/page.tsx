@@ -32,8 +32,8 @@ const SORT_MAP: Record<string, string> = {
   name:     'c.legal_name',
   industry: 'c.industry',
   zone:     'c.zone',
-  ytd:      'COALESCE(c.rev_2526_total,0)',
-  py:       'COALESCE(c.rev_2425_total,0)',
+  ytd:      'ytd_inr',
+  py:       'py_inr',
 };
 
 export default async function RevenuePage({
@@ -51,10 +51,10 @@ export default async function RevenuePage({
   // Sort
   const sortKey  = typeof sp.sort === 'string' ? sp.sort : 'ytd';
   const orderDir = sp.dir === 'asc' ? 'ASC' : 'DESC';
-  const sortCol  = SORT_MAP[sortKey] ?? 'COALESCE(c.rev_2526_total,0)';
+  const sortCol  = SORT_MAP[sortKey] ?? 'ytd_inr';
 
   // Build WHERE for top clients
-  const clientConds: string[] = ['c.deleted_at IS NULL', 'COALESCE(c.rev_2526_total,0) > 0'];
+  const clientConds: string[] = ['c.deleted_at IS NULL'];
   const clientVals: (string | string[])[] = [];
   let idx = 1;
 
@@ -77,9 +77,12 @@ export default async function RevenuePage({
         ytd: string; py: string; ppy: string; active: string;
       }>(
         `SELECT
-           COALESCE(SUM(rev_2526_total),0)::text AS ytd,
-           COALESCE(SUM(rev_2425_total),0)::text AS py,
-           COALESCE(SUM(rev_2324_total),0)::text AS ppy,
+           (SELECT COALESCE(SUM(total_value),0) FROM client_revenue_monthly
+            WHERE month >= '2025-04-01' AND month < '2026-04-01')::text AS ytd,
+           (SELECT COALESCE(SUM(total_value),0) FROM client_revenue_monthly
+            WHERE month >= '2024-04-01' AND month < '2025-04-01')::text AS py,
+           (SELECT COALESCE(SUM(total_value),0) FROM client_revenue_monthly
+            WHERE month >= '2023-04-01' AND month < '2024-04-01')::text AS ppy,
            COUNT(*) FILTER (WHERE status = 'ACTIVE' AND deleted_at IS NULL)::text AS active
          FROM clients
          WHERE deleted_at IS NULL`,
@@ -95,27 +98,33 @@ export default async function RevenuePage({
 
     // 2. YoY trend
     q<YoYRow[]>(async () => {
-      const { rows } = await risansiPool.query<{
-        h2021: string; h2122: string; h2223: string; h2324: string; h2425: string; h2526: string;
-      }>(
-        `SELECT
-           COALESCE(SUM(rev_2021), 0)::text AS h2021,
-           COALESCE(SUM(rev_2122_total),0)::text AS h2122,
-           COALESCE(SUM(rev_2223_total),0)::text AS h2223,
-           COALESCE(SUM(rev_2324_total),0)::text AS h2324,
-           COALESCE(SUM(rev_2425_total),0)::text AS h2425,
-           COALESCE(SUM(rev_2526_total),0)::text AS h2526
-         FROM clients WHERE deleted_at IS NULL`,
+      const { rows } = await risansiPool.query<{ fy_label: string; total_inr: string }>(
+        `SELECT fy_label, COALESCE(SUM(total_value),0)::text AS total_inr
+         FROM (
+           SELECT
+             CASE
+               WHEN month >= '2021-04-01' AND month < '2022-04-01' THEN 'FY21'
+               WHEN month >= '2022-04-01' AND month < '2023-04-01' THEN 'FY22'
+               WHEN month >= '2023-04-01' AND month < '2024-04-01' THEN 'FY23'
+               WHEN month >= '2024-04-01' AND month < '2025-04-01' THEN 'FY24'
+               WHEN month >= '2025-04-01' AND month < '2026-04-01' THEN 'FY25'
+               ELSE NULL
+             END AS fy_label,
+             CASE
+               WHEN month >= '2021-04-01' AND month < '2022-04-01' THEN 1
+               WHEN month >= '2022-04-01' AND month < '2023-04-01' THEN 2
+               WHEN month >= '2023-04-01' AND month < '2024-04-01' THEN 3
+               WHEN month >= '2024-04-01' AND month < '2025-04-01' THEN 4
+               WHEN month >= '2025-04-01' AND month < '2026-04-01' THEN 5
+               ELSE NULL
+             END AS fy_order,
+             total_value
+           FROM client_revenue_monthly
+         ) t WHERE fy_label IS NOT NULL
+         GROUP BY fy_label, fy_order
+         ORDER BY fy_order ASC`,
       );
-      const r = rows[0] ?? {};
-      return [
-        { label: 'FY21', total: Number((r as Record<string, string>).h2021 ?? 0) / INR_TO_L },
-        { label: 'FY22', total: Number((r as Record<string, string>).h2122 ?? 0) / INR_TO_L },
-        { label: 'FY23', total: Number((r as Record<string, string>).h2223 ?? 0) / INR_TO_L },
-        { label: 'FY24', total: Number((r as Record<string, string>).h2324 ?? 0) / INR_TO_L },
-        { label: 'FY25', total: Number((r as Record<string, string>).h2425 ?? 0) / INR_TO_L },
-        { label: 'FY26', total: Number((r as Record<string, string>).h2526 ?? 0) / INR_TO_L },
-      ];
+      return rows.map(r => ({ label: r.fy_label, total: Number(r.total_inr) / INR_TO_L }));
     }, []),
 
     // 3. By industry
@@ -123,12 +132,13 @@ export default async function RevenuePage({
       const { rows } = await risansiPool.query<{ industry: string; ytd: string; py: string }>(
         `SELECT
            COALESCE(c.industry, 'Unknown') AS industry,
-           COALESCE(SUM(c.rev_2526_total),0)::text AS ytd,
-           COALESCE(SUM(c.rev_2425_total),0)::text AS py
-         FROM clients c
+           COALESCE(SUM(CASE WHEN crm.month >= '2025-04-01' AND crm.month < '2026-04-01' THEN crm.total_value ELSE 0 END),0)::text AS ytd,
+           COALESCE(SUM(CASE WHEN crm.month >= '2024-04-01' AND crm.month < '2025-04-01' THEN crm.total_value ELSE 0 END),0)::text AS py
+         FROM client_revenue_monthly crm
+         JOIN clients c ON crm.client_id = c.id
          WHERE c.deleted_at IS NULL
          GROUP BY COALESCE(c.industry, 'Unknown')
-         ORDER BY SUM(COALESCE(c.rev_2526_total,0)) DESC
+         ORDER BY SUM(CASE WHEN crm.month >= '2025-04-01' AND crm.month < '2026-04-01' THEN crm.total_value ELSE 0 END) DESC
          LIMIT 12`,
       );
       return rows.map(r => ({
@@ -145,15 +155,16 @@ export default async function RevenuePage({
       }>(
         `SELECT
            COALESCE(c.zone, '—') AS zone,
-           COALESCE(r.name, 'Unassigned') AS rep,
-           COALESCE(SUM(c.rev_2526_total),0)::text AS ytd,
-           COALESCE(SUM(c.rev_2425_total),0)::text AS py,
-           COUNT(c.id)::text AS clients
-         FROM clients c
-         LEFT JOIN reps r ON r.id = c.rep_id
+           COALESCE(r.name, c.primary_rep_name, 'Unassigned') AS rep,
+           COALESCE(SUM(CASE WHEN crm.month >= '2025-04-01' AND crm.month < '2026-04-01' THEN crm.total_value ELSE 0 END),0)::text AS ytd,
+           COALESCE(SUM(CASE WHEN crm.month >= '2024-04-01' AND crm.month < '2025-04-01' THEN crm.total_value ELSE 0 END),0)::text AS py,
+           COUNT(DISTINCT c.id)::text AS clients
+         FROM client_revenue_monthly crm
+         JOIN clients c ON crm.client_id = c.id
+         LEFT JOIN reps r ON c.primary_rep_id = r.id
          WHERE c.deleted_at IS NULL
-         GROUP BY COALESCE(c.zone, '—'), COALESCE(r.name, 'Unassigned')
-         ORDER BY SUM(COALESCE(c.rev_2526_total,0)) DESC
+         GROUP BY COALESCE(c.zone, '—'), COALESCE(r.name, c.primary_rep_name, 'Unassigned')
+         ORDER BY SUM(CASE WHEN crm.month >= '2025-04-01' AND crm.month < '2026-04-01' THEN crm.total_value ELSE 0 END) DESC
          LIMIT 15`,
       );
       return rows.map(r => ({
@@ -169,16 +180,28 @@ export default async function RevenuePage({
     q<TopClient[]>(async () => {
       const { rows } = await risansiPool.query<{
         code: string; name: string; industry: string; zone: string;
-        ytd: string; py: string;
+        ytd_inr: string; py_inr: string;
       }>(
         `SELECT
            c.code,
            c.legal_name AS name,
            COALESCE(c.industry, '—') AS industry,
            COALESCE(c.zone, '—') AS zone,
-           COALESCE(c.rev_2526_total,0)::text AS ytd,
-           COALESCE(c.rev_2425_total,0)::text AS py
+           COALESCE(curr.total_inr, 0)::text AS ytd_inr,
+           COALESCE(prev.total_inr, 0)::text AS py_inr
          FROM clients c
+         LEFT JOIN (
+           SELECT client_id, SUM(total_value) AS total_inr
+           FROM client_revenue_monthly
+           WHERE month >= '2025-04-01' AND month < '2026-04-01'
+           GROUP BY client_id
+         ) curr ON curr.client_id = c.id
+         LEFT JOIN (
+           SELECT client_id, SUM(total_value) AS total_inr
+           FROM client_revenue_monthly
+           WHERE month >= '2024-04-01' AND month < '2025-04-01'
+           GROUP BY client_id
+         ) prev ON prev.client_id = c.id
          ${clientWhere}
          ORDER BY ${sortCol} ${orderDir} NULLS LAST
          LIMIT 20`,
@@ -189,8 +212,8 @@ export default async function RevenuePage({
         name:     r.name,
         industry: r.industry,
         zone:     r.zone,
-        ytd:      Number(r.ytd) / INR_TO_L,
-        py:       Number(r.py)  / INR_TO_L,
+        ytd:      Number(r.ytd_inr) / INR_TO_L,
+        py:       Number(r.py_inr)  / INR_TO_L,
       }));
     }, []),
 
@@ -198,13 +221,16 @@ export default async function RevenuePage({
     q<BizCatRow[]>(async () => {
       const { rows } = await risansiPool.query<{ category: string; client_count: string; ytd: string }>(
         `SELECT
-           COALESCE(business_category, 'Uncategorised') AS category,
-           COUNT(*)::text AS client_count,
-           COALESCE(SUM(rev_2526_total),0)::text AS ytd
-         FROM clients
-         WHERE deleted_at IS NULL AND status = 'ACTIVE'
-         GROUP BY business_category
-         ORDER BY SUM(COALESCE(rev_2526_total,0)) DESC
+           COALESCE(c.business_category, 'Uncategorised') AS category,
+           COUNT(DISTINCT c.id)::text AS client_count,
+           COALESCE(SUM(crm.total_value),0)::text AS ytd
+         FROM clients c
+         LEFT JOIN client_revenue_monthly crm
+           ON crm.client_id = c.id
+           AND crm.month >= '2025-04-01' AND crm.month < '2026-04-01'
+         WHERE c.deleted_at IS NULL AND c.status = 'ACTIVE'
+         GROUP BY c.business_category
+         ORDER BY SUM(crm.total_value) DESC NULLS LAST
          LIMIT 8`,
       );
       return rows.map(r => ({

@@ -22,7 +22,7 @@ const SORT_MAP: Record<string, string> = {
   status:     'c.status',
   tier:       'c.tier',
   rep:        'r.name',
-  ytd:        'COALESCE(c.rev_2526_total, 0)',
+  ytd:        'ytd_inr',
 };
 
 export default async function ClientListPage({
@@ -124,7 +124,11 @@ export default async function ClientListPage({
            c.business_category,
            c.performance_feedback, c.last_visit_fy, c.last_visit_date,
            LEFT(c.action_points, 80) AS action_points,
-           COALESCE(c.rev_2526_total, 0)::bigint AS ytd_inr,
+           COALESCE((
+             SELECT SUM(total_value) FROM client_revenue_monthly crm
+             WHERE crm.client_id = c.id
+               AND crm.month >= '2025-04-01' AND crm.month < '2026-04-01'
+           ), 0)::bigint AS ytd_inr,
            COALESCE(r.name, c.primary_rep_name, '—') AS rep_name
          FROM clients c
          LEFT JOIN reps r ON c.primary_rep_id = r.id
