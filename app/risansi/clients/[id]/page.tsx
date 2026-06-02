@@ -491,59 +491,62 @@ export default async function ClientProfilePage({
                   )}
                 </div>
               </div>
-              <div style={{ padding: '10px 12px' }}>
-                <RevenueChart fyKeys={chartFYs} revByFY={revByFY} />
-                {/* Data table */}
-                <div style={{ overflowX: 'auto', marginTop: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
+                {/* Left: data table */}
+                <div style={{ borderRight: '1px solid var(--line)', display: 'flex', alignItems: 'center', minHeight: 200, padding: '16px 0' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                     <thead>
-                      <tr style={{ borderBottom: '1px solid var(--line)' }}>
-                        <th style={{ ...REV_TH, textAlign: 'left' }}></th>
+                      <tr style={{ background: 'var(--bg-elev)' }}>
+                        <th style={{ ...REV_TH, textAlign: 'left', padding: '10px 12px' }}></th>
                         {chartFYs.map(f => (
-                          <th key={f} style={REV_TH}>FY {f}</th>
+                          <th key={f} style={{ ...REV_TH, padding: '10px 12px' }}>FY {f}</th>
                         ))}
-                        <th style={REV_TH}>Total</th>
+                        <th style={{ ...REV_TH, padding: '10px 12px', fontWeight: 600, color: 'var(--fg-2)' }}>Total</th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr style={{ borderBottom: '1px dashed var(--line)' }}>
-                        <td style={{ padding: '5px 8px', fontSize: 11 }}>Pump (₹ L)</td>
+                      <tr>
+                        <td style={{ padding: '9px 12px', fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--line)' }}>Pump (₹ L)</td>
                         {chartFYs.map(f => (
-                          <td key={f} style={{ padding: '5px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-                            {revByFY[f].pump > 0 ? revByFY[f].pump.toFixed(1) : <span style={{ color: 'var(--fg-4)' }}>—</span>}
+                          <td key={f} style={{ padding: '9px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11, borderBottom: '1px solid var(--line)', color: revByFY[f].pump > 0 ? 'var(--fg)' : 'var(--fg-3)' }}>
+                            {revByFY[f].pump > 0 ? revByFY[f].pump.toFixed(1) : '—'}
                           </td>
                         ))}
-                        <td style={{ padding: '5px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 500, fontSize: 11 }}>
+                        <td style={{ padding: '9px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 11, borderBottom: '1px solid var(--line)' }}>
                           {lifetimePump.toFixed(1)}
                         </td>
                       </tr>
-                      <tr style={{ borderBottom: '1px dashed var(--line)' }}>
-                        <td style={{ padding: '5px 8px', fontSize: 11 }}>Spare (₹ L)</td>
+                      <tr>
+                        <td style={{ padding: '9px 12px', fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--line)' }}>Spare (₹ L)</td>
                         {chartFYs.map(f => (
-                          <td key={f} style={{ padding: '5px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-                            {revByFY[f].spare > 0 ? revByFY[f].spare.toFixed(1) : <span style={{ color: 'var(--fg-4)' }}>—</span>}
+                          <td key={f} style={{ padding: '9px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11, borderBottom: '1px solid var(--line)', color: revByFY[f].spare > 0 ? 'var(--fg)' : 'var(--fg-3)' }}>
+                            {revByFY[f].spare > 0 ? revByFY[f].spare.toFixed(1) : '—'}
                           </td>
                         ))}
-                        <td style={{ padding: '5px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 500, fontSize: 11 }}>
+                        <td style={{ padding: '9px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 11, borderBottom: '1px solid var(--line)' }}>
                           {lifetimeSpare.toFixed(1)}
                         </td>
                       </tr>
                       <tr style={{ background: 'var(--bg-elev)' }}>
-                        <td style={{ padding: '5px 8px', fontSize: 11, fontWeight: 600 }}>Total</td>
+                        <td style={{ padding: '9px 12px', fontSize: 11, color: 'var(--fg-2)', fontWeight: 600 }}>Total</td>
                         {chartFYs.map(f => {
-                          const t = (revByFY[f].pump + revByFY[f].spare);
+                          const t = revByFY[f].pump + revByFY[f].spare;
                           return (
-                            <td key={f} style={{ padding: '5px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 11 }}>
-                              {t > 0 ? t.toFixed(1) : <span style={{ color: 'var(--fg-4)' }}>—</span>}
+                            <td key={f} style={{ padding: '9px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 11, color: t > 0 ? 'var(--fg)' : 'var(--fg-3)' }}>
+                              {t > 0 ? t.toFixed(1) : '—'}
                             </td>
                           );
                         })}
-                        <td style={{ padding: '5px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 11 }}>
+                        <td style={{ padding: '9px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 11, color: '#0A3D8F' }}>
                           {lifetimeTotal.toFixed(1)}
                         </td>
                       </tr>
                     </tbody>
                   </table>
+                </div>
+                {/* Right: bar chart */}
+                <div style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 200 }}>
+                  <RevenueChart fyKeys={chartFYs} revByFY={revByFY} />
                 </div>
               </div>
             </div>
@@ -987,7 +990,7 @@ function RevenueChart({
   const padL   = 28;
 
   return (
-    <svg width="100%" height="130" viewBox={`0 0 ${totalW + padL + 20} ${height + 30}`} preserveAspectRatio="xMinYMin meet" style={{ overflow: 'visible' }}>
+    <svg width="100%" height="160" viewBox={`0 0 ${totalW + padL + 20} ${height + 30}`} preserveAspectRatio="xMinYMin meet" style={{ overflow: 'visible' }}>
       {/* Grid lines */}
       {[0.25, 0.5, 0.75, 1].map(p => {
         const y = height - p * height;
