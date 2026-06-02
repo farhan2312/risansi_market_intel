@@ -100,7 +100,6 @@ export default async function ClientListPage({
     tour_name:            string | null;
     status:               string;
     tier:                 string | null;
-    business_category:    string | null;
     performance_feedback: string | null;
     last_visit_fy:        string | null;
     last_visit_date:      Date | null;
@@ -121,7 +120,6 @@ export default async function ClientListPage({
         `SELECT
            c.id, c.code, c.legal_name, c.trade_name,
            c.industry, c.zone, c.tour_name, c.status, c.tier,
-           c.business_category,
            c.performance_feedback, c.last_visit_fy, c.last_visit_date,
            LEFT(c.action_points, 80) AS action_points,
            COALESCE(c.rev_2526_total, 0)::bigint AS ytd_inr,
@@ -313,7 +311,6 @@ export default async function ClientListPage({
                   <tr style={{ background: 'var(--bg-elev)' }}>
                     <SortableTH col="code"       label="Code"          currentSort={curSort} currentDir={curDir} />
                     <SortableTH col="name"       label="Client"        currentSort={curSort} currentDir={curDir} />
-                    <th style={TH}>Category</th>
                     <SortableTH col="industry"   label="Industry"      currentSort={curSort} currentDir={curDir} />
                     <SortableTH col="zone"       label="Zone / Route"  currentSort={curSort} currentDir={curDir} />
                     <SortableTH col="rep"        label="Rep"           currentSort={curSort} currentDir={curDir} />
@@ -346,11 +343,6 @@ export default async function ClientListPage({
                           {c.trade_name && c.trade_name !== c.legal_name && (
                             <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 1 }}>{c.trade_name}</div>
                           )}
-                        </td>
-                        <td style={TD}>
-                          {c.business_category
-                            ? <Tag kind={c.business_category === 'Sugar' ? 'accent' : undefined}>{c.business_category}</Tag>
-                            : null}
                         </td>
                         <td style={TD}><Tag>{c.industry}</Tag></td>
                         <td style={{ ...TD, whiteSpace: 'nowrap' }}>
