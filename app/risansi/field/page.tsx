@@ -4,8 +4,7 @@ import { getServerSession } from 'next-auth/next';
 import { Topbar, Tag } from '@/components/risansi';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
-import { formatRev } from '@/lib/risansi-utils';
-import { CoverageMapSvg } from '@/components/risansi/CoverageMapSvg';
+import { IndiaMapWrapper } from '@/components/risansi/IndiaMapWrapper';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
@@ -36,7 +35,7 @@ interface OverdueRow {
   industry: string | null; tier: string | null; status: string;
   state: string | null; city: string | null;
   last_visit_date: string | null; days_overdue: number | null;
-  rep_name: string; ytd_inr: number;
+  rep_name: string;
 }
 
 interface MapClient {
@@ -47,14 +46,13 @@ interface MapClient {
 }
 
 interface StatsRow {
-  total_active: number; visited_month: number; overdue: number; never_visited: number;
+  total_active: number; visited_fy: number; overdue: number; never_visited: number;
 }
 
 const SORT_MAP: Record<string, string> = {
   name:         'c.legal_name',
   days_overdue: 'days_overdue',
   last_visit:   'c.last_visit_date',
-  ytd:          'ytd_inr',
   rep:          'rep_name',
 };
 
@@ -128,12 +126,11 @@ export default async function FieldActivityPage({
         `SELECT
            c.id::text, c.code, c.legal_name, c.industry, c.tier, c.status,
            c.state, c.city, c.last_visit_date::text,
-           COALESCE(
-             EXTRACT(DAY FROM NOW() - c.last_visit_date)::int,
-             9999
-           ) AS days_overdue,
-           COALESCE(r.name, c.primary_rep_name, '—') AS rep_name,
-           COALESCE(c.rev_2526_total, 0)::bigint AS ytd_inr
+           CASE
+             WHEN c.last_visit_date IS NULL THEN NULL
+             ELSE (CURRENT_DATE - c.last_visit_date)
+           END AS days_overdue,
+           COALESCE(r.name, c.primary_rep_name, '—') AS rep_name
          FROM clients c
          LEFT JOIN reps r ON c.primary_rep_id = r.id
          WHERE c.status = 'ACTIVE'
@@ -143,8 +140,8 @@ export default async function FieldActivityPage({
              c.last_visit_date < CURRENT_DATE - INTERVAL '90 days'
            )
            ${repCond}
-         ORDER BY ${sortCol} ${sortDir} NULLS LAST
-         LIMIT 100`,
+         ORDER BY ${sortCol} ${sortDir} NULLS FIRST
+         LIMIT 200`,
         params,
       );
       return rows;
@@ -172,29 +169,32 @@ export default async function FieldActivityPage({
 
     // Stats
     q<StatsRow>(async () => {
-      const repCond = (isRep && repId) ? `AND c.primary_rep_id = $1` : '';
+      const repCond = (isRep && repId) ? `AND primary_rep_id = $1` : '';
       const params  = (isRep && repId) ? [repId] : [];
       const { rows } = await risansiPool.query<{
-        total_active: string; visited_month: string; overdue: string; never_visited: string;
+        total_active: string; visited_fy: string; overdue: string; never_visited: string;
       }>(
         `SELECT
-           COUNT(*)                                                                     FILTER (WHERE c.status = 'ACTIVE')::text AS total_active,
-           COUNT(*) FILTER (WHERE c.last_visit_date >= CURRENT_DATE - INTERVAL '30 days')::text AS visited_month,
-           COUNT(*) FILTER (WHERE c.last_visit_date < CURRENT_DATE - INTERVAL '90 days' OR c.last_visit_date IS NULL)::text AS overdue,
-           COUNT(*) FILTER (WHERE c.last_visit_date IS NULL)::text                     AS never_visited
-         FROM clients c
-         LEFT JOIN reps r ON c.primary_rep_id = r.id
-         WHERE c.status = 'ACTIVE' AND c.deleted_at IS NULL ${repCond}`,
+           COUNT(*) FILTER (WHERE status = 'ACTIVE')::text                                        AS total_active,
+           COUNT(*) FILTER (WHERE status = 'ACTIVE'
+             AND last_visit_date >= CURRENT_DATE - INTERVAL '90 days')::text                      AS visited_fy,
+           COUNT(*) FILTER (WHERE status = 'ACTIVE'
+             AND (last_visit_date IS NULL
+               OR last_visit_date < CURRENT_DATE - INTERVAL '90 days'))::text                     AS overdue,
+           COUNT(*) FILTER (WHERE status = 'ACTIVE'
+             AND last_visit_date IS NULL)::text                                                    AS never_visited
+         FROM clients
+         WHERE deleted_at IS NULL ${repCond}`,
         params,
       );
       const r = rows[0];
       return {
         total_active:   Number(r?.total_active   ?? 0),
-        visited_month:  Number(r?.visited_month  ?? 0),
+        visited_fy:     Number(r?.visited_fy     ?? 0),
         overdue:        Number(r?.overdue        ?? 0),
         never_visited:  Number(r?.never_visited  ?? 0),
       };
-    }, { total_active: 0, visited_month: 0, overdue: 0, never_visited: 0 }),
+    }, { total_active: 0, visited_fy: 0, overdue: 0, never_visited: 0 }),
   ]);
 
   function tabHref(t: string) { return `/risansi/field?tab=${t}`; }
@@ -220,7 +220,7 @@ export default async function FieldActivityPage({
         {/* Stats strip */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
           <StatCard label="Total Active" value={stats.total_active} />
-          <StatCard label="Visited This Month" value={stats.visited_month} color="var(--pos)" />
+          <StatCard label="Visited (Last 90d)" value={stats.visited_fy} color="var(--pos)" />
           <StatCard label="Overdue (90d+)" value={stats.overdue} color="var(--warn)" />
           <StatCard label="Never Visited" value={stats.never_visited} color="var(--neg)" />
         </div>
@@ -229,7 +229,7 @@ export default async function FieldActivityPage({
         <div style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--line)', paddingBottom: 0 }}>
           {[
             { id: 'feed',    label: 'Visit Feed' },
-            { id: 'overdue', label: `Overdue (${overdue.length})` },
+            { id: 'overdue', label: `Overdue (${stats.overdue.toLocaleString('en-IN')})` },
             { id: 'map',     label: 'Map' },
           ].map(t => (
             <a key={t.id} href={tabHref(t.id)} style={{
@@ -315,7 +315,7 @@ export default async function FieldActivityPage({
 
         {/* ── Tab: Overdue ───────────────────────────────────────── */}
         {tab === 'overdue' && (
-          overdue.length === 0 ? (
+          stats.overdue === 0 ? (
             <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--pos)', fontSize: 13, fontWeight: 500 }}>
               ✓ All clients visited within 90 days
             </div>
@@ -324,6 +324,11 @@ export default async function FieldActivityPage({
               background: 'var(--bg-paper)', border: '1px solid var(--line)',
               borderRadius: 'var(--radius)', overflow: 'hidden',
             }}>
+              {stats.overdue > 200 && (
+                <div style={{ padding: '8px 14px', fontSize: 11, color: 'var(--fg-3)', borderBottom: '1px solid var(--line)', background: 'var(--bg-elev)' }}>
+                  Showing first 200 of {stats.overdue.toLocaleString('en-IN')} overdue clients
+                </div>
+              )}
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: 'var(--bg-elev)' }}>
@@ -331,16 +336,15 @@ export default async function FieldActivityPage({
                     <th style={TH}>Industry</th>
                     <th style={TH}>State</th>
                     <th style={TH}>Rep</th>
-                    <OverdueSortTH col="last_visit" label="Last Visit"  curSort={sortKey} curDir={sortDir} />
-                    <OverdueSortTH col="days_overdue" label="Days Overdue" curSort={sortKey} curDir={sortDir} />
-                    <OverdueSortTH col="ytd" label="YTD Rev" curSort={sortKey} curDir={sortDir} />
+                    <OverdueSortTH col="last_visit"   label="Last Visit"    curSort={sortKey} curDir={sortDir} />
+                    <OverdueSortTH col="days_overdue" label="Days Overdue"  curSort={sortKey} curDir={sortDir} />
                     <th style={TH}>Tier</th>
                   </tr>
                 </thead>
                 <tbody>
                   {overdue.map((acc, i) => {
-                    const d = acc.days_overdue ?? 9999;
-                    const dColor = d > 365 ? 'var(--neg)' : d > 180 ? 'oklch(0.55 0.18 50)' : 'var(--warn)';
+                    const d = acc.days_overdue;
+                    const dColor = d == null || d > 365 ? 'var(--neg)' : d > 180 ? 'oklch(0.55 0.18 50)' : 'var(--warn)';
                     return (
                       <tr key={acc.id} style={{ borderBottom: i < overdue.length-1 ? '1px solid var(--line)' : 'none' }}>
                         <td style={{ ...TD, minWidth: 160 }}>
@@ -361,10 +365,7 @@ export default async function FieldActivityPage({
                           {acc.last_visit_date ?? 'Never'}
                         </td>
                         <td style={{ ...TD, fontFamily: 'var(--font-mono)', color: dColor, fontWeight: 500 }}>
-                          {d === 9999 ? '∞' : `${d}d`}
-                        </td>
-                        <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
-                          {acc.ytd_inr > 0 ? formatRev(acc.ytd_inr) : <span style={{ color: 'var(--fg-4)' }}>—</span>}
+                          {d == null ? 'Never visited' : `${d}d`}
                         </td>
                         <td style={TD}>
                           {acc.tier ? <Tag kind={acc.tier === 'Key' ? 'accent' : undefined}>{acc.tier}</Tag> : null}
@@ -380,43 +381,15 @@ export default async function FieldActivityPage({
 
         {/* ── Tab: Map ───────────────────────────────────────────── */}
         {tab === 'map' && (
-          <div>
-            {/* Legend */}
-            <div style={{ display: 'flex', gap: 20, marginBottom: 16, alignItems: 'center', fontSize: 11 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#059669', display: 'inline-block' }} />
-                {'<'} 30 days
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#D97706', display: 'inline-block' }} />
-                {'<'} 90 days
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#DC2626', display: 'inline-block' }} />
-                {'>'} 90 days
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#7F1D1D', display: 'inline-block' }} />
-                Never
-              </div>
-              <div style={{ marginLeft: 'auto', color: 'var(--fg-3)' }}>
-                Dot size: Key = large · Standard = small
-              </div>
-            </div>
-
-            <CoverageMapSvg clients={mapClients.map(c => ({
-              id:              c.id,
-              code:            c.code,
-              legal_name:      c.legal_name,
-              industry:        c.industry,
-              city:            c.city,
-              state:           c.state,
-              last_visit_date: c.last_visit_date,
-              days_since:      c.days_since,
-              tier:            c.tier,
-              rep_name:        c.rep_name ?? '',
-            }))} />
-          </div>
+          <IndiaMapWrapper clients={mapClients.map(c => ({
+            id:              c.id,
+            legal_name:      c.legal_name,
+            city:            c.city,
+            state:           c.state,
+            last_visit_date: c.last_visit_date,
+            tier:            c.tier,
+            rep_name:        c.rep_name ?? '',
+          }))} />
         )}
 
       </div>

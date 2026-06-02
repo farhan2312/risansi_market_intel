@@ -19,7 +19,8 @@
       "Read(//c/Users/MohammedFarhan/.claude/**)",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(list\\(d.keys\\(\\)\\)[:10]\\)\")",
       "Bash(ls /c/Users/MohammedFarhan/claude-mem/private/docs/context/ cat /c/Users/MohammedFarhan/claude-mem/private/docs/context/*.md)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(npm i *)"
     ]
   }
 }
