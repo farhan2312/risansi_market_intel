@@ -1,7 +1,5 @@
 'use client';
 
-import { useState } from 'react';
-
 // ── Types ──────────────────────────────────────────────────────
 
 export interface ClientPin {
@@ -17,170 +15,164 @@ export interface ClientPin {
   rep_name:         string;
 }
 
-interface TooltipState {
-  client: ClientPin;
-  x: number;
-  y: number;
-}
-
 // ── State → SVG coordinate mapping ────────────────────────────
 
-const STATE_POS: Record<string, [number, number]> = {
-  'Maharashtra':      [220, 280],
-  'Karnataka':        [200, 340],
-  'Uttar Pradesh':    [320, 180],
-  'Madhya Pradesh':   [290, 230],
-  'Gujarat':          [160, 240],
-  'Tamil Nadu':       [230, 390],
-  'Punjab':           [270, 130],
-  'Haryana':          [280, 150],
-  'Andhra Pradesh':   [280, 340],
-  'Telangana':        [270, 320],
-  'Rajasthan':        [210, 190],
-  'Bihar':            [370, 190],
-  'West Bengal':      [420, 220],
-  'Odisha':           [380, 260],
-  'Chhattisgarh':     [340, 260],
+const STATE_POSITIONS: Record<string, [number, number]> = {
+  // North
+  'Uttar Pradesh':      [340, 160],
+  'Punjab':             [260, 110],
+  'Haryana':            [275, 130],
+  'Uttarakhand':        [320, 120],
+  'Himachal Pradesh':   [295, 100],
+  'Delhi':              [290, 145],
+  'Rajasthan':          [220, 175],
+  'Jammu and Kashmir':  [270, 85],
+
+  // Central
+  'Madhya Pradesh':     [300, 235],
+  'Chhattisgarh':       [360, 265],
+  'Jharkhand':          [400, 225],
+  'Bihar':              [390, 185],
+
+  // West
+  'Maharashtra':        [250, 295],
+  'Gujarat':            [195, 240],
+  'Goa':                [215, 345],
+
+  // South
+  'Karnataka':          [240, 355],
+  'Tamil Nadu':         [285, 415],
+  'Kerala':             [250, 415],
+  'Andhra Pradesh':     [320, 355],
+  'Telangana':          [305, 320],
+
+  // East
+  'West Bengal':        [430, 215],
+  'Odisha':             [400, 280],
+  'Assam':              [470, 170],
+
+  // Default
+  'default':            [310, 250],
 };
 
-/** Deterministic ±15px jitter so dots don't all stack on the same point */
-function jitter(seed: number): number {
-  return (seed % 30) - 15;
-}
+const DENSE_STATES = new Set([
+  'Uttar Pradesh', 'Maharashtra', 'Madhya Pradesh',
+  'Gujarat', 'Rajasthan', 'Karnataka',
+]);
 
-function getPos(client: ClientPin, index: number): [number, number] {
-  const base = STATE_POS[client.state ?? ''] ?? [300, 250];
+function getDotPosition(client: ClientPin): [number, number] {
+  const state   = client.state ?? 'default';
+  const base    = STATE_POSITIONS[state] ?? STATE_POSITIONS['default'];
+  const spread  = DENSE_STATES.has(state) ? 60 : 40;
+  const numId   = parseInt(client.id, 10) || 0;
+  const seed_x  = ((numId * 7)  % (spread * 2)) - spread;
+  const seed_y  = ((numId * 13) % (spread * 2)) - spread;
   return [
-    base[0] + jitter(index * 7 + 3),
-    base[1] + jitter(index * 13 + 5),
+    Math.max(170, Math.min(510, base[0] + seed_x)),
+    Math.max(60,  Math.min(460, base[1] + seed_y)),
   ];
 }
 
 function dotColor(client: ClientPin): string {
-  if (client.days_since == null) return '#E02424';           // never visited
-  if (client.days_since <= 100)  return '#0E9F6E';           // compliant
-  if (client.days_since <= 180)  return '#D97706';           // due soon
-  return '#E02424';                                          // overdue
-}
-
-function complianceLabel(client: ClientPin): { text: string; color: string } {
-  if (client.days_since == null) return { text: '● Never',    color: '#E02424' };
-  if (client.days_since <= 100)  return { text: '● Compliant', color: '#0E9F6E' };
-  if (client.days_since <= 180)  return { text: '● Due Soon',  color: '#D97706' };
-  return { text: '● Overdue',   color: '#E02424' };
+  if (client.days_since == null) return '#E02424';   // never visited
+  if (client.days_since <= 100)  return '#0E9F6E';   // compliant
+  if (client.days_since <= 180)  return '#D97706';   // due soon
+  return '#E02424';                                  // overdue
 }
 
 // ── Component ──────────────────────────────────────────────────
 
+const MAX_DOTS = 500;
+
 export function CoverageMapSvg({ clients }: { clients: ClientPin[] }) {
-  const [tooltip, setTooltip] = useState<TooltipState | null>(null);
+  // Sample evenly when over limit
+  const mapClients = clients.length > MAX_DOTS
+    ? clients.filter((_: ClientPin, i: number) =>
+        i % Math.ceil(clients.length / MAX_DOTS) === 0
+      )
+    : clients;
 
   return (
     <div style={{ position: 'relative', width: '100%', userSelect: 'none' }}>
-      <svg
-        width="100%"
-        viewBox="0 0 700 580"
-        preserveAspectRatio="xMidYMid meet"
-        style={{ display: 'block' }}
-      >
-        {/* India outline — abstract path from design reference */}
-        <path
-          d="M120 80 L180 60 L250 50 L320 60 L380 80 L440 110 L480 160 L500 220 L470 280 L420 320 L360 340 L290 350 L220 340 L160 310 L110 270 L80 220 L70 160 Z"
-          fill="rgba(10,61,143,0.04)"
-          stroke="rgba(10,61,143,0.15)"
-          strokeWidth="1.5"
-          strokeDasharray="3 4"
-        />
-
-        {/* Zone labels */}
-        <text x="310" y="118" fontSize="9" fill="rgba(107,127,150,0.65)" fontFamily="var(--font-mono)" textAnchor="middle">NORTH</text>
-        <text x="128" y="262" fontSize="9" fill="rgba(107,127,150,0.65)" fontFamily="var(--font-mono)" textAnchor="middle">WEST</text>
-        <text x="285" y="208" fontSize="9" fill="rgba(107,127,150,0.65)" fontFamily="var(--font-mono)" textAnchor="middle">CENTRAL</text>
-        <text x="218" y="412" fontSize="9" fill="rgba(107,127,150,0.65)" fontFamily="var(--font-mono)" textAnchor="middle">SOUTH</text>
-        <text x="422" y="242" fontSize="9" fill="rgba(107,127,150,0.65)" fontFamily="var(--font-mono)" textAnchor="middle">EAST</text>
-
-        {/* Client dots */}
-        {clients.map((client, i) => {
-          const [cx, cy] = getPos(client, i);
-          const color    = dotColor(client);
-          // Key / A-tier → r=6, otherwise r=4
-          const r = (client.tier === 'Key' || client.tier === 'A') ? 6 : 4;
-          return (
-            <circle
-              key={client.id}
-              cx={cx} cy={cy} r={r}
-              fill={color}
-              opacity={0.85}
-              style={{ cursor: 'pointer', transition: 'r 0.1s' }}
-              onMouseEnter={e => {
-                const svg = e.currentTarget.closest('svg') as SVGSVGElement | null;
-                const rect = svg?.getBoundingClientRect();
-                if (!rect) return;
-                setTooltip({ client, x: e.clientX - rect.left, y: e.clientY - rect.top });
-              }}
-              onMouseLeave={() => setTooltip(null)}
-            />
-          );
-        })}
-
-        {/* Legend — bottom-left */}
-        <g transform="translate(24, 536)">
-          <circle cx="5"   cy="5" r="4.5" fill="#0E9F6E" opacity="0.85"/>
-          <text x="14"  y="9" fontSize="9" fill="#6B7FA3" fontFamily="var(--font-mono)">Compliant (&lt;100d)</text>
-          <circle cx="115"  cy="5" r="4.5" fill="#D97706" opacity="0.85"/>
-          <text x="124" y="9" fontSize="9" fill="#6B7FA3" fontFamily="var(--font-mono)">Due Soon (100–180d)</text>
-          <circle cx="238"  cy="5" r="4.5" fill="#E02424" opacity="0.85"/>
-          <text x="247" y="9" fontSize="9" fill="#6B7FA3" fontFamily="var(--font-mono)">Overdue / Never</text>
-        </g>
-      </svg>
-
-      {/* Tooltip — positioned relative to SVG container */}
-      {tooltip && (
-        <div
-          style={{
-            position:     'absolute',
-            left:         tooltip.x + 14,
-            top:          tooltip.y - 10,
-            background:   '#ffffff',
-            border:       '1px solid #DDE6F5',
-            borderRadius: 6,
-            padding:      '10px 12px',
-            fontSize:     11,
-            boxShadow:    '0 4px 20px rgba(10,22,40,0.13)',
-            minWidth:     180,
-            maxWidth:     240,
-            zIndex:       20,
-            pointerEvents: 'none',
-          }}
+      {/* Size-capped SVG wrapper */}
+      <div style={{ width: '100%', maxHeight: '480px', overflow: 'hidden' }}>
+        <svg
+          viewBox="0 0 700 520"
+          style={{ width: '100%', height: 'auto', maxHeight: '480px', display: 'block' }}
         >
-          <div style={{ fontWeight: 600, fontSize: 12, color: '#0D1B2A' }}>
-            {tooltip.client.legal_name}
-          </div>
-          <div style={{ color: '#6B7FA3', fontSize: 10, marginTop: 2, fontFamily: 'var(--font-mono)' }}>
-            {tooltip.client.code}
-            {tooltip.client.industry ? ` · ${tooltip.client.industry}` : ''}
-          </div>
-          {(tooltip.client.city || tooltip.client.state) && (
-            <div style={{ color: '#6B7FA3', fontSize: 10, marginTop: 1 }}>
-              {[tooltip.client.city, tooltip.client.state].filter(Boolean).join(', ')}
-            </div>
-          )}
-          <div style={{ marginTop: 7, display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-            <span style={{ color: '#2D3E55' }}>
-              Last:{' '}
-              {tooltip.client.days_since != null
-                ? `${tooltip.client.days_since}d ago`
-                : 'Never'}
-            </span>
-            <span style={{ color: complianceLabel(tooltip.client).color, fontWeight: 500 }}>
-              {complianceLabel(tooltip.client).text}
-            </span>
-          </div>
-          {tooltip.client.rep_name && tooltip.client.rep_name !== '—' && (
-            <div style={{ marginTop: 4, fontSize: 10, color: '#6B7FA3' }}>
-              Rep: {tooltip.client.rep_name}
-            </div>
-          )}
+          {/* India outline — abstract shape */}
+          <path
+            d="
+              M 280 60
+              L 320 55 L 370 65 L 410 80
+              L 450 100 L 480 130 L 500 160
+              L 510 190 L 505 220 L 495 250
+              L 490 270 L 475 290 L 460 310
+              L 440 330 L 420 350 L 400 370
+              L 375 390 L 355 410 L 340 430
+              L 330 450 L 320 460
+              L 310 450 L 300 435
+              L 280 410 L 260 385
+              L 240 360 L 220 335
+              L 200 305 L 185 275
+              L 175 245 L 170 215
+              L 168 185 L 172 155
+              L 182 125 L 200 100
+              L 225 78 L 255 65
+              Z
+            "
+            fill="rgba(10,61,143,0.04)"
+            stroke="rgba(10,61,143,0.20)"
+            strokeWidth="1.5"
+            strokeDasharray="4 4"
+          />
+
+          {/* Zone labels */}
+          <text x="320" y="100" fontSize="9" fill="rgba(107,127,150,0.65)" fontFamily="var(--font-mono)" textAnchor="middle">NORTH</text>
+          <text x="195" y="255" fontSize="9" fill="rgba(107,127,150,0.65)" fontFamily="var(--font-mono)" textAnchor="middle">WEST</text>
+          <text x="335" y="230" fontSize="9" fill="rgba(107,127,150,0.65)" fontFamily="var(--font-mono)" textAnchor="middle">CENTRAL</text>
+          <text x="295" y="445" fontSize="9" fill="rgba(107,127,150,0.65)" fontFamily="var(--font-mono)" textAnchor="middle">SOUTH</text>
+          <text x="440" y="210" fontSize="9" fill="rgba(107,127,150,0.65)" fontFamily="var(--font-mono)" textAnchor="middle">EAST</text>
+
+          {/* Client dots */}
+          {mapClients.map((client) => {
+            const [cx, cy] = getDotPosition(client);
+            const color    = dotColor(client);
+            const r        = (client.tier === 'Key' || client.tier === 'A') ? 4 : 2.5;
+            return (
+              <circle
+                key={client.id}
+                cx={cx} cy={cy} r={r}
+                fill={color}
+                opacity={0.75}
+                style={{ cursor: 'default' }}
+              >
+                <title>{client.legal_name} · {client.state}</title>
+              </circle>
+            );
+          })}
+
+          {/* Legend — bottom-left */}
+          <g transform="translate(24, 482)">
+            <circle cx="5"   cy="5" r="4" fill="#0E9F6E" opacity="0.85"/>
+            <text x="14"  y="9" fontSize="9" fill="#6B7FA3" fontFamily="var(--font-mono)">Compliant (&lt;100d)</text>
+            <circle cx="115"  cy="5" r="4" fill="#D97706" opacity="0.85"/>
+            <text x="124" y="9" fontSize="9" fill="#6B7FA3" fontFamily="var(--font-mono)">Due Soon (100–180d)</text>
+            <circle cx="238"  cy="5" r="4" fill="#E02424" opacity="0.85"/>
+            <text x="247" y="9" fontSize="9" fill="#6B7FA3" fontFamily="var(--font-mono)">Overdue / Never</text>
+          </g>
+        </svg>
+      </div>
+
+      {/* Sample note */}
+      {clients.length > MAX_DOTS && (
+        <div style={{
+          textAlign: 'center',
+          fontSize: 11,
+          color: 'var(--fg-3)',
+          marginTop: 4,
+        }}>
+          Showing {MAX_DOTS} of {clients.length} clients
         </div>
       )}
     </div>
