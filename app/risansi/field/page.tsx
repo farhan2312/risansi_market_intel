@@ -29,6 +29,7 @@ interface VisitFeedRow {
   id: string; visit_date: string; status: string; purpose: string | null;
   outcome: string | null; summary: string | null; performance_feedback: string | null;
   action_points: string | null;
+  check_in_time: string | null; submitted_at: string | null;
   client_id: string; legal_name: string; code: string; industry: string | null;
   city: string | null; tier: string | null;
   rep_name: string;
@@ -100,7 +101,8 @@ export default async function FieldActivityPage({
   const isRep   = role === 'rep';
 
   const sp         = await searchParams;
-  const tab        = typeof sp.tab  === 'string' ? sp.tab  : 'feed';
+  const tab        = typeof sp.tab  === 'string' ? sp.tab  : 'calendar';
+  const feedTab    = typeof sp.feed === 'string' ? sp.feed : 'today';
   const sortKey    = typeof sp.sort === 'string' ? sp.sort : 'days_overdue';
   const sortDir    = sp.dir === 'asc' ? 'ASC' : 'DESC';
   const sortCol    = SORT_MAP[sortKey] ?? 'days_overdue';
@@ -167,10 +169,18 @@ export default async function FieldActivityPage({
 
   const [feed, overdue, calendarVisits, calendarReps, mapClients, stats] = await Promise.all([
 
-    // 1. Visit feed
+    // 1. Visit feed — filtered by sub-tab (upcoming / today / past)
     q<VisitFeedRow[]>(async () => {
       const repCond = (isRep && repId) ? `AND r.id = $1` : '';
       const params  = (isRep && repId) ? [repId] : [];
+      const filter =
+        feedTab === 'upcoming' ? `v.status = 'planned' AND v.visit_date >= CURRENT_DATE`
+        : feedTab === 'today'  ? `v.visit_date = CURRENT_DATE`
+        : `(v.visit_date < CURRENT_DATE OR v.status = 'completed')`;
+      const orderBy =
+        feedTab === 'upcoming' ? `v.visit_date ASC`
+        : feedTab === 'today'  ? `v.check_in_time ASC NULLS LAST`
+        : `v.visit_date DESC, v.created_at DESC`;
       const { rows } = await risansiPool.query<VisitFeedRow>(
         `SELECT
            v.id,
@@ -181,6 +191,8 @@ export default async function FieldActivityPage({
            v.summary,
            v.performance_feedback,
            LEFT(v.action_points, 100)  AS action_points,
+           v.check_in_time::text       AS check_in_time,
+           v.submitted_at::text        AS submitted_at,
            c.id::text                  AS client_id,
            c.legal_name,
            c.code,
@@ -191,8 +203,8 @@ export default async function FieldActivityPage({
          FROM visits v
          JOIN clients c ON c.id = v.client_id
          LEFT JOIN reps r ON r.id = v.rep_id
-         WHERE v.status != 'planned' ${repCond}
-         ORDER BY v.visit_date DESC, v.created_at DESC
+         WHERE ${filter} ${repCond}
+         ORDER BY ${orderBy}
          LIMIT 50`,
         params,
       );
@@ -381,8 +393,8 @@ export default async function FieldActivityPage({
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--line)', paddingBottom: 0 }}>
           {[
-            { id: 'feed',     label: 'Visit Feed' },
             { id: 'calendar', label: 'Calendar' },
+            { id: 'feed',     label: 'Visit Feed' },
             { id: 'overdue',  label: `Overdue (${stats.overdue.toLocaleString('en-IN')})` },
             { id: 'map',      label: 'Map' },
           ].map(t => (
@@ -401,62 +413,81 @@ export default async function FieldActivityPage({
 
         {/* ── Tab: Visit Feed ──────────────────────────────────── */}
         {tab === 'feed' && (
-          feed.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--fg-3)', fontSize: 13 }}>
-              No completed visits yet
+          <div>
+            {/* Sub-tabs */}
+            <div style={{ display: 'flex', gap: 4, marginBottom: 14 }}>
+              {[
+                { id: 'upcoming', label: 'Upcoming' },
+                { id: 'today',    label: 'Today' },
+                { id: 'past',     label: 'Past' },
+              ].map(st => (
+                <a key={st.id} href={tabHref('feed', { feed: st.id })} style={{
+                  padding: '5px 14px', borderRadius: 6, fontSize: 12,
+                  fontWeight: feedTab === st.id ? 600 : 400,
+                  textDecoration: 'none',
+                  color: feedTab === st.id ? '#0A3D8F' : 'var(--fg-3)',
+                  background: feedTab === st.id ? '#EBF1FB' : 'transparent',
+                  border: `1px solid ${feedTab === st.id ? '#1A5CB8' : 'var(--line)'}`,
+                }}>
+                  {st.label}
+                </a>
+              ))}
             </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {feed.map(v => {
-                const statusKind = v.status === 'completed' ? 'pos' : v.status === 'checked-in' ? 'info' : 'warn';
-                const pfKind     = v.performance_feedback?.toLowerCase().includes('good') ? 'pos'
-                                 : v.performance_feedback?.toLowerCase().includes('poor') ? 'neg' : 'warn';
-                return (
-                  <div key={v.id} style={FEED_CARD}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <Link href={`/risansi/clients/${v.code}`}
-                            style={{ fontWeight: 500, fontSize: 13, color: 'var(--fg)', textDecoration: 'none' }}>
-                            {v.legal_name}
-                          </Link>
-                          {v.tier && <Tag kind="accent">{v.tier}</Tag>}
-                          {v.industry && <Tag>{v.industry}</Tag>}
-                          <Tag kind={statusKind}>{v.status}</Tag>
+
+            {feed.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--fg-3)', fontSize: 13 }}>
+                {feedTab === 'upcoming' ? 'No upcoming visits planned'
+                  : feedTab === 'today' ? 'No visits scheduled today'
+                  : 'No past visits'}
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {feed.map(v => {
+                  const statusKind = v.status === 'completed' ? 'pos' : v.status === 'checked-in' ? 'info' : 'warn';
+                  const isClosed   = !!v.submitted_at;
+                  const cta        = isClosed ? '🔒 View Report'
+                    : v.check_in_time ? 'Continue Report →' : 'Start Report →';
+                  return (
+                    <Link key={v.id} href={`/risansi/visits/${v.id}`} style={{ ...FEED_CARD, display: 'block', textDecoration: 'none' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: v.outcome || v.summary ? 8 : 0 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <span style={{ fontWeight: 500, fontSize: 13, color: 'var(--fg)' }}>{v.legal_name}</span>
+                            {v.tier && <Tag kind="accent">{v.tier}</Tag>}
+                            {v.industry && <Tag>{v.industry}</Tag>}
+                            <Tag kind={statusKind}>{v.status}</Tag>
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 2 }}>
+                            {v.rep_name} · {v.visit_date} {v.city ? `· ${v.city}` : ''}{v.purpose ? ` · ${v.purpose}` : ''}
+                          </div>
                         </div>
-                        <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 2 }}>
-                          {v.rep_name} · {v.visit_date} {v.city ? `· ${v.city}` : ''}
+                        <div style={{
+                          fontSize: 11, flexShrink: 0, fontWeight: 500,
+                          color: isClosed ? 'var(--fg-3)' : '#0A3D8F',
+                        }}>
+                          {cta}
                         </div>
                       </div>
-                      <div style={{ fontSize: 11, color: 'var(--fg-3)', flexShrink: 0 }}>{v.purpose}</div>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingLeft: 40 }}>
-                      {v.outcome && (
-                        <div style={{ fontSize: 12, color: 'var(--fg-2)' }}>
-                          <span style={{ color: 'var(--fg-3)', fontSize: 11 }}>Outcome: </span>{v.outcome}
+                      {(v.outcome || v.summary) && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          {v.outcome && (
+                            <div style={{ fontSize: 12, color: 'var(--fg-2)' }}>
+                              <span style={{ color: 'var(--fg-3)', fontSize: 11 }}>Outcome: </span>{v.outcome}
+                            </div>
+                          )}
+                          {v.summary && (
+                            <div style={{ fontSize: 12, color: 'var(--fg-2)' }}>
+                              <span style={{ color: 'var(--fg-3)', fontSize: 11 }}>Summary: </span>{v.summary}
+                            </div>
+                          )}
                         </div>
                       )}
-                      {v.summary && (
-                        <div style={{ fontSize: 12, color: 'var(--fg-2)' }}>
-                          <span style={{ color: 'var(--fg-3)', fontSize: 11 }}>Summary: </span>{v.summary}
-                        </div>
-                      )}
-                      {v.performance_feedback && (
-                        <div style={{ marginTop: 2 }}>
-                          <Tag kind={pfKind}>Feedback: {v.performance_feedback}</Tag>
-                        </div>
-                      )}
-                      {v.action_points && (
-                        <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 2 }}>
-                          → {v.action_points}{v.action_points.length >= 100 ? '…' : ''}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         )}
 
         {/* ── Tab: Calendar ────────────────────────────────────── */}
@@ -679,28 +710,11 @@ export default async function FieldActivityPage({
             </div>
           ) : (
             <>
-              {/* Summary strip */}
-              <div style={{ display: 'flex', gap: 16, padding: '4px 0 14px', fontSize: 12, color: 'var(--fg-3)', alignItems: 'center', flexWrap: 'wrap' }}>
-                <span>
-                  <strong style={{ color: 'var(--neg)' }}>{overdue.filter(c => c.tier === 'Key').length}</strong>
-                  {' '}Key accounts overdue
-                </span>
-                <span>·</span>
-                <span>
-                  <strong style={{ color: 'var(--warn)' }}>{overdue.filter(c => c.tier !== 'Key').length}</strong>
-                  {' '}Standard accounts overdue
-                </span>
-                <span>·</span>
-                <span>
-                  <strong style={{ color: 'var(--neg)' }}>{overdue.filter(c => !c.last_visit_date).length}</strong>
-                  {' '}never visited
-                </span>
-                {stats.overdue > 200 && (
-                  <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--fg-3)' }}>
-                    Showing first 200 of {stats.overdue.toLocaleString('en-IN')}
-                  </span>
-                )}
-              </div>
+              {stats.overdue > 200 && (
+                <div style={{ fontSize: 11, color: 'var(--fg-3)', padding: '0 0 12px', textAlign: 'right' }}>
+                  Showing first 200 of {stats.overdue.toLocaleString('en-IN')}
+                </div>
+              )}
 
               <div style={{
                 background: 'var(--bg-paper)', border: '1px solid var(--line)',

@@ -63,6 +63,15 @@ interface VisitEntry {
   visit_date: Date; outcome: string | null; purpose: string; status: string; synced: boolean;
 }
 interface AtRisk { count: number; exposure: number; }
+interface UpcomingVisit {
+  id: string; visit_date: string; purpose: string | null; status: string;
+  client_name: string; client_code: string; city: string | null; rep_name: string;
+}
+interface AutoOpp {
+  id: string; product: string | null; stage: string;
+  auto_source: string | null; created_at: string;
+  client_name: string; client_code: string;
+}
 
 // ── Page ───────────────────────────────────────────────────────
 
@@ -324,6 +333,8 @@ export default async function ExecDashboardPage({
     atRisk,
     topAccounts,
     visits,
+    upcomingVisits,
+    autoOpps,
   ] = await Promise.all([
 
     // 1. Current FY revenue: total + pump/spare breakdown
@@ -569,6 +580,49 @@ export default async function ExecDashboardPage({
         synced:       false,
       }));
     }, []),
+
+    // 12. Upcoming visits (next 7 days)
+    q<UpcomingVisit[]>(async () => {
+      const { rows } = await risansiPool.query<{
+        id: string; visit_date: string; purpose: string | null; status: string;
+        client_name: string; client_code: string; city: string | null; rep_name: string;
+      }>(
+        `SELECT
+           v.id::text, v.visit_date::text AS visit_date, v.purpose, v.status,
+           c.legal_name AS client_name, c.code AS client_code, c.city,
+           COALESCE(r.name, '—') AS rep_name
+         FROM visits v
+         JOIN clients c ON c.id = v.client_id
+         LEFT JOIN reps r ON r.id = v.rep_id
+         WHERE v.status = 'planned'
+           AND v.visit_date >= CURRENT_DATE
+           AND v.visit_date <= CURRENT_DATE + INTERVAL '7 days'
+         ORDER BY v.visit_date ASC
+         LIMIT 5`,
+      );
+      return rows;
+    }, []),
+
+    // 13. Recently auto-created opportunities (last 7 days)
+    q<AutoOpp[]>(async () => {
+      const { rows } = await risansiPool.query<{
+        id: string; product: string | null; stage: string;
+        auto_source: string | null; created_at: string;
+        client_name: string; client_code: string;
+      }>(
+        `SELECT
+           o.id::text, o.product, o.stage, o.auto_source,
+           o.created_at::text AS created_at,
+           c.legal_name AS client_name, c.code AS client_code
+         FROM opportunities o
+         JOIN clients c ON o.client_id = c.id
+         WHERE o.auto_created = TRUE
+           AND o.created_at >= NOW() - INTERVAL '7 days'
+         ORDER BY o.created_at DESC
+         LIMIT 5`,
+      );
+      return rows;
+    }, []),
   ]);
 
   // ── Derived values ────────────────────────────────────────────
@@ -746,6 +800,85 @@ export default async function ExecDashboardPage({
             sub="Had revenue · no visit 18 mo+"
             spark={[]}
           />
+        </div>
+
+        {/* ── Action Items row ────────────────────────────────── */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+
+          {/* Upcoming Visits */}
+          <div style={PANEL}>
+            <div style={PANEL_H}>
+              <span style={PANEL_TITLE}>Upcoming Visits · Next 7 Days</span>
+              <a href="/risansi/field?tab=calendar" style={{ marginLeft: 'auto', fontSize: 11, color: '#1A5CB8', textDecoration: 'none', fontWeight: 500 }}>
+                View calendar →
+              </a>
+            </div>
+            {upcomingVisits.length === 0 ? (
+              <div style={{ padding: 16, fontSize: 13, color: 'var(--fg-3)', textAlign: 'center' }}>
+                No visits planned this week
+              </div>
+            ) : upcomingVisits.map((v, i) => (
+              <a key={v.id} href={`/risansi/visits/${v.id}`} style={{
+                display: 'flex', padding: '10px 14px', gap: 10, alignItems: 'center',
+                borderBottom: i < upcomingVisits.length - 1 ? '1px solid var(--line)' : 'none',
+                textDecoration: 'none',
+              }}>
+                <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: '#1A5CB8', minWidth: 56 }}>
+                  {new Date(v.visit_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--fg)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {v.client_name}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--fg-3)' }}>
+                    {v.rep_name} · {v.purpose ?? 'Visit'}
+                  </div>
+                </div>
+                <span style={{ fontSize: 12, color: 'var(--fg-3)' }}>→</span>
+              </a>
+            ))}
+          </div>
+
+          {/* Auto-Created Opportunities */}
+          <div style={PANEL}>
+            <div style={PANEL_H}>
+              <span style={PANEL_TITLE}>⚡ Auto-Created Opportunities</span>
+              <a href="/risansi/pipeline" style={{ marginLeft: 'auto', fontSize: 11, color: '#1A5CB8', textDecoration: 'none', fontWeight: 500 }}>
+                View pipeline →
+              </a>
+            </div>
+            {autoOpps.length === 0 ? (
+              <div style={{ padding: 16, fontSize: 13, color: 'var(--fg-3)', textAlign: 'center' }}>
+                No auto-created opportunities this week
+              </div>
+            ) : autoOpps.map((o, i) => (
+              <a key={o.id} href="/risansi/pipeline" style={{
+                display: 'flex', padding: '10px 14px', gap: 10, alignItems: 'center',
+                borderBottom: i < autoOpps.length - 1 ? '1px solid var(--line)' : 'none',
+                textDecoration: 'none',
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--fg)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {o.client_name}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {o.product?.slice(0, 50) ?? '—'}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <span style={{
+                    fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 10,
+                    background: '#EBF1FB', color: '#1A5CB8',
+                  }}>
+                    {o.auto_source === 'expansion_plan' ? 'Expansion' : 'Displacement'}
+                  </span>
+                  <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 2 }}>
+                    {new Date(o.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                  </div>
+                </div>
+              </a>
+            ))}
+          </div>
         </div>
 
         {/* ── Mid row ─────────────────────────────────────────── */}
