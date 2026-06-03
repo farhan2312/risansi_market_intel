@@ -1,7 +1,11 @@
 import type { CSSProperties } from 'react';
-import { Topbar, Tag, MultiSelectFilter, ActiveFilterBar, SortableTH } from '@/components/risansi';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+import { Topbar, MultiSelectFilter, ActiveFilterBar, SortableTH } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentFY, fmtCr } from '@/lib/risansi-utils';
+import { NewOpportunityButton } from '@/components/risansi/NewOpportunityButton';
+import { OpportunityKanban } from '@/components/risansi/OpportunityKanban';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
@@ -14,11 +18,25 @@ interface OppRow {
   stage:               string;
   value_cr:            number;
   probability:         number | null;
-  expected_close_date: string | null;
+  eta_text:            string | null;
+  quote_ref:           string | null;
+  notes:               string | null;
+  auto_created:        boolean | null;
+  auto_source:         string | null;
+  client_id:           string;
   client_name:         string;
   client_code:         string;
   industry:            string;
+  rep_id:              number | null;
   rep_name:            string | null;
+  // Optional edit fields — may not exist on the table
+  secondary_rep_id?:   number | null;
+  quote_date?:         string | null;
+  negotiation_notes?:  string | null;
+  po_number?:          string | null;
+  final_value_cr?:     string | number | null;
+  lost_to_competitor?: string | null;
+  lost_reason?:        string | null;
 }
 
 interface WinRateRow {
@@ -33,8 +51,6 @@ interface LostToRow {
   value:      number;
 }
 
-const STAGES = ['Suspect', 'Prospect', 'Quoted', 'Negotiating', 'Won', 'Lost'] as const;
-
 const STAGE_COLOR: Record<string, string> = {
   Suspect:     'var(--info)',
   Prospect:    '#5a86c2',
@@ -47,11 +63,11 @@ const STAGE_COLOR: Record<string, string> = {
 // Sortable columns for Active Opportunities table
 const SORT_MAP: Record<string, string> = {
   client:      'c.legal_name',
-  product:     'po.product',
-  stage:       'po.stage',
-  value:       'po.value_cr',
-  probability: 'po.probability',
-  eta:         'po.expected_close_date',
+  product:     'o.product',
+  stage:       'o.stage',
+  value:       'o.value_cr',
+  probability: 'o.probability',
+  eta:         'o.eta_text',
   rep:         'r.name',
 };
 
@@ -63,6 +79,21 @@ export default async function PipelinePage({
   const sp = await searchParams;
   const fy = getCurrentFY();
 
+  // ── Role / rep scoping ──────────────────────────────────────
+  const session = await getServerSession(authOptions);
+  const role    = session?.user?.role ?? 'rep';
+
+  let currentRepId: number | null = null;
+  if (role === 'rep' && session?.user?.email) {
+    const repRes = await risansiPool.query<{ id: number }>(
+      'SELECT id FROM reps WHERE email = $1 LIMIT 1',
+      [session.user.email],
+    );
+    currentRepId = repRes.rows[0]?.id ?? null;
+  }
+  // Rep sees own by default; manager/admin sees all; ?rep=all overrides for reps
+  const showAll = sp.rep === 'all' || role !== 'rep';
+
   // Multi-select filters
   const stageFilts    = typeof sp.stage        === 'string' && sp.stage        ? sp.stage.split(',').filter(Boolean)        : [];
   const prodTypeFilts = typeof sp.product_type === 'string' && sp.product_type ? sp.product_type.split(',').filter(Boolean) : [];
@@ -72,21 +103,26 @@ export default async function PipelinePage({
   // Sort
   const sortKey  = typeof sp.sort  === 'string' ? sp.sort            : 'value';
   const orderDir = sp.dir === 'desc'            ? 'DESC'             : 'DESC'; // default value DESC
-  const sortCol  = SORT_MAP[sortKey] ?? 'po.value_cr';
+  const sortCol  = SORT_MAP[sortKey] ?? 'o.value_cr';
 
-  // Build WHERE for openOpps
+  // Build shared filter conditions (rep scope + multi-select filters).
+  // The stage split (open vs Won/Lost) is applied per-query below.
   const conds: string[] = [];
   const vals: (string | number | string[])[] = [];
   let idx = 1;
 
-  conds.push(`po.stage NOT IN ('Won', 'Lost')`);
+  // Rep scoping — limit to own opportunities unless showing all
+  if (!showAll && currentRepId != null) {
+    conds.push(`o.rep_id = $${idx}`);
+    vals.push(currentRepId); idx++;
+  }
 
   if (stageFilts.length > 0) {
-    conds.push(`po.stage = ANY($${idx}::text[])`);
+    conds.push(`o.stage = ANY($${idx}::text[])`);
     vals.push(stageFilts); idx++;
   }
   if (prodTypeFilts.length > 0) {
-    conds.push(`po.product_type = ANY($${idx}::text[])`);
+    conds.push(`o.product_type = ANY($${idx}::text[])`);
     vals.push(prodTypeFilts); idx++;
   }
   if (repFilts.length > 0) {
@@ -98,55 +134,71 @@ export default async function PipelinePage({
     vals.push(indFilts); idx++;
   }
 
-  const where = `WHERE ${conds.join(' AND ')}`;
+  const filterClause = conds.length ? ` AND ${conds.join(' AND ')}` : '';
+  const openWhere   = `WHERE o.stage NOT IN ('Won', 'Lost')${filterClause}`;
+  const closedWhere = `WHERE o.stage IN ('Won', 'Lost') AND o.updated_at >= NOW() - INTERVAL '12 months'${filterClause}`;
 
-  const [openOpps, bookedYTD, annualTarget, winLossRows, lostToRows, stageOptions, productTypeOptions, repOptions, industryOptions] = await Promise.all([
+  const [openOpps, closedOpps, bookedYTD, annualTarget, winLossRows, lostToRows, stageOptions, productTypeOptions, repOptions, industryOptions] = await Promise.all([
 
-    // 1. Open opportunities with filters + sort
+    // 1. Open opportunities with filters + sort (feeds KPIs + Active Opportunities table).
+    //    SELECT o.* keeps this resilient to which optional columns exist.
     q<OppRow[]>(async () => {
-      const { rows } = await risansiPool.query<{
-        id: string; product: string; product_type: string | null; stage: string;
-        value_cr: string; probability: number | null;
-        expected_close_date: string | null;
-        client_name: string; client_code: string; industry: string;
-        rep_name: string | null;
-      }>(`
-        SELECT po.id, po.product,
-               (po.product_type)::text AS product_type,
-               po.stage,
-               po.value_cr::text AS value_cr,
-               po.probability,
-               po.expected_close_date::text AS expected_close_date,
+      const { rows } = await risansiPool.query(`
+        SELECT o.*,
                c.legal_name AS client_name, c.code AS client_code, c.industry,
-               r.name AS rep_name
-        FROM opportunities po
-        JOIN clients c ON c.id = po.client_id
-        LEFT JOIN reps r ON r.id = c.primary_rep_id
-        ${where}
+               COALESCE(r.name, '—') AS rep_name
+        FROM opportunities o
+        JOIN clients c ON c.id = o.client_id
+        LEFT JOIN reps r ON r.id = o.rep_id
+        ${openWhere}
         ORDER BY ${sortCol} ${orderDir} NULLS LAST
         LIMIT 200
       `, vals as (string | number)[]
       );
-      return rows.map(r => ({ ...r, value_cr: Number(r.value_cr) }));
+      return rows.map((r) => {
+        const row = r as Record<string, unknown>;
+        return { ...row, value_cr: Number(row.value_cr ?? 0) };
+      }) as unknown as OppRow[];
     }, []),
 
-    // 2. Booked YTD
-    q<number>(async () => {
-      const { rows } = await risansiPool.query<{ booked: string }>(
-        `SELECT COALESCE(SUM(order_value_cr), 0)::text AS booked FROM orders WHERE financial_year = $1`,
-        [fy.code],
+    // 1b. Recently closed opportunities (Won/Lost, last 12 months) — feeds the kanban's Won/Lost columns.
+    q<OppRow[]>(async () => {
+      const { rows } = await risansiPool.query(`
+        SELECT o.*,
+               c.legal_name AS client_name, c.code AS client_code, c.industry,
+               COALESCE(r.name, '—') AS rep_name
+        FROM opportunities o
+        JOIN clients c ON c.id = o.client_id
+        LEFT JOIN reps r ON r.id = o.rep_id
+        ${closedWhere}
+        ORDER BY o.updated_at DESC NULLS LAST
+        LIMIT 200
+      `, vals as (string | number)[]
       );
-      return Number(rows[0]?.booked ?? 0);
+      return rows.map((r) => {
+        const row = r as Record<string, unknown>;
+        return { ...row, value_cr: Number(row.value_cr ?? 0) };
+      }) as unknown as OppRow[];
+    }, []),
+
+    // 2. Booked YTD — from client_revenue_monthly (FY 25-26), returned in Cr
+    q<number>(async () => {
+      const { rows } = await risansiPool.query<{ booked_inr: string }>(
+        `SELECT COALESCE(SUM(total_value), 0)::text AS booked_inr
+         FROM client_revenue_monthly
+         WHERE month >= '2025-04-01' AND month < '2026-04-01'`,
+      );
+      return Number(rows[0]?.booked_inr ?? 0) / 10_000_000;
     }, 0),
 
-    // 3. Annual target
+    // 3. Annual target — sum of rep targets (Cr), fallback 32 Cr
     q<number>(async () => {
-      const { rows } = await risansiPool.query<{ target: string }>(
-        `SELECT COALESCE(target_amount, 0)::text AS target FROM annual_targets WHERE financial_year = $1 LIMIT 1`,
-        [fy.code],
+      const { rows } = await risansiPool.query<{ total_target_cr: string }>(
+        `SELECT COALESCE(SUM(target_cr), 32)::text AS total_target_cr
+         FROM reps WHERE is_active = TRUE`,
       );
-      return Number(rows[0]?.target ?? 0);
-    }, 0),
+      return Number(rows[0]?.total_target_cr ?? 32);
+    }, 32),
 
     // 4. Win / loss by industry
     q<WinRateRow[]>(async () => {
@@ -218,7 +270,7 @@ export default async function PipelinePage({
   const weightedOpen = openOpps.reduce((s, o) => s + o.value_cr * ((o.probability ?? 50) / 100), 0);
   const bestCase     = bookedYTD + openTotal;
   const probabilityWeighted = bookedYTD + weightedOpen;
-  const target       = annualTarget > 0 ? annualTarget : 320;
+  const target       = annualTarget > 0 ? annualTarget : 32;
   const toGo         = Math.max(0, target - bookedYTD);
 
   const totalWon   = winLossRows.reduce((s, r) => s + Number(r.won), 0);
@@ -227,9 +279,6 @@ export default async function PipelinePage({
     ? Math.round((totalWon / (totalWon + totalLost)) * 100)
     : 0;
 
-  const byStage: Record<string, OppRow[]> = {};
-  for (const s of STAGES) byStage[s] = openOpps.filter(o => o.stage === s);
-
   const anyFilter = stageFilts.length > 0 || prodTypeFilts.length > 0 || repFilts.length > 0 || indFilts.length > 0;
   const curSort = sortKey;
   const curDir  = orderDir === 'DESC' ? 'desc' : 'asc';
@@ -237,23 +286,48 @@ export default async function PipelinePage({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
-        <Topbar crumbs={['Pipeline & Revenue']} />
+        <Topbar crumbs={['Opportunities']} />
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>
 
         {/* Page head */}
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
-            Pipeline & Revenue
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
+              Opportunities
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 4, fontFamily: 'var(--font-mono)' }}>
+              {openOpps.length} open opportunit{openOpps.length !== 1 ? 'ies' : ''}
+              {' · '}{fmtCr(openTotal)} open value
+              {' · '}weighted forecast {fmtCr(probabilityWeighted)}
+              {winRatePct > 0 && ` · win rate FY ${winRatePct}%`}
+            </div>
           </div>
-          <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 4, fontFamily: 'var(--font-mono)' }}>
-            {openOpps.length} open opportunit{openOpps.length !== 1 ? 'ies' : ''}
-            {' · '}{fmtCr(openTotal)} open value
-            {' · '}weighted forecast {fmtCr(probabilityWeighted)}
-            {winRatePct > 0 && ` · win rate FY ${winRatePct}%`}
-          </div>
+          <NewOpportunityButton />
         </div>
+
+        {/* Rep scope toggle (rep role only) */}
+        {role === 'rep' && (
+          <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+            <a href="/risansi/pipeline" style={{
+              padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 500,
+              background: !showAll ? '#0A3D8F' : 'var(--bg-elev)',
+              color: !showAll ? 'white' : 'var(--fg-3)',
+              textDecoration: 'none', border: '1px solid var(--line)',
+            }}>
+              My Opportunities
+            </a>
+            <a href="/risansi/pipeline?rep=all" style={{
+              padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 500,
+              background: showAll ? '#0A3D8F' : 'var(--bg-elev)',
+              color: showAll ? 'white' : 'var(--fg-3)',
+              textDecoration: 'none', border: '1px solid var(--line)',
+            }}>
+              All Opportunities
+            </a>
+          </div>
+        )}
 
         {/* Forecast strip */}
         <div style={{ ...PANEL, marginBottom: 14 }}>
@@ -265,7 +339,7 @@ export default async function PipelinePage({
               <ForecastBlock label="Probability-weighted" value={probabilityWeighted}
                 sub={`${fmtCr(weightedOpen)} weighted pipe + booked`} color="var(--accent)" highlight />
               <ForecastBlock label="Annual Target" value={target}
-                sub={annualTarget > 0 ? `${fmtCr(toGo)} to go` : 'Target not configured'} color="var(--fg-2)" />
+                sub={`${fmtCr(toGo)} to go`} color="var(--fg-2)" />
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--fg-3)', marginBottom: 6 }}>
                   <span>Target {fmtCr(target)}</span>
@@ -286,39 +360,9 @@ export default async function PipelinePage({
           </div>
         </div>
 
-        {/* Kanban */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10, marginBottom: 14 }}>
-          {STAGES.map(stage => {
-            const items = byStage[stage] ?? [];
-            const stageTotal = items.reduce((s, o) => s + o.value_cr, 0);
-            const color = STAGE_COLOR[stage];
-            return (
-              <div key={stage} style={{
-                background: 'var(--bg-paper)', border: '1px solid var(--line)',
-                borderRadius: 6, display: 'flex', flexDirection: 'column',
-              }}>
-                <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--line)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: 11, fontWeight: 500, color, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                      {stage}
-                    </span>
-                    <span style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
-                      {items.length}
-                    </span>
-                  </div>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--fg)', marginTop: 4 }}>
-                    {stageTotal > 0 ? fmtCr(stageTotal) : '—'}
-                  </div>
-                </div>
-                <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
-                  {items.map(opp => <OppCard key={opp.id} opp={opp} />)}
-                  {items.length === 0 && (
-                    <div style={{ fontSize: 10, color: 'var(--fg-3)', textAlign: 'center', padding: 20 }}>No opps</div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+        {/* Kanban — open + recently-closed opps. Drag to change stage, or click to edit. */}
+        <div style={{ marginBottom: 14 }}>
+          <OpportunityKanban initialOpps={[...openOpps, ...closedOpps]} />
         </div>
 
         {/* Bottom: opps table + win/loss panels */}
@@ -386,7 +430,7 @@ export default async function PipelinePage({
                         {o.probability != null ? `${o.probability}%` : '—'}
                       </td>
                       <td style={{ ...TD, fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
-                        {o.expected_close_date ?? '—'}
+                        {o.eta_text ?? '—'}
                       </td>
                       <td style={{ ...TD, fontSize: 11, color: 'var(--fg-3)' }}>
                         {o.rep_name || '—'}
@@ -520,32 +564,6 @@ function ForecastBar({ booked, weightedOpen, target }: {
         <div style={{ position: 'absolute', left: `${bookedPct}%`, top: 0, bottom: 0, width: `${pipePct}%`, background: 'var(--accent)', opacity: 0.85 }} />
       </div>
       <div style={{ position: 'absolute', left: `${targetPct}%`, top: -3, bottom: -3, width: 2, background: 'var(--bg-ink)', zIndex: 1 }} />
-    </div>
-  );
-}
-
-function OppCard({ opp }: { opp: OppRow }) {
-  const borderColor = STAGE_COLOR[opp.stage] ?? 'var(--line)';
-  return (
-    <div style={{
-      background: 'var(--bg-elev)', border: '1px solid var(--line)',
-      borderLeft: `2px solid ${borderColor}`, borderRadius: 4, padding: 10,
-    }}>
-      <div style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-        <span>{opp.client_code}</span>
-        <span>{opp.rep_name || '—'}</span>
-      </div>
-      <div style={{ fontSize: 12, fontWeight: 500, lineHeight: 1.3, marginBottom: 4 }}>{opp.client_name}</div>
-      <div style={{ fontSize: 11, color: 'var(--fg-2)', marginBottom: 6 }}>{opp.product}</div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 500 }}>
-          {fmtCr(opp.value_cr)}
-        </span>
-        <span style={{ fontSize: 10, color: 'var(--fg-3)' }}>
-          {opp.probability != null ? `${opp.probability}%` : ''}
-          {opp.expected_close_date ? ` · ${opp.expected_close_date}` : ''}
-        </span>
-      </div>
     </div>
   );
 }

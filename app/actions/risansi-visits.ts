@@ -5,6 +5,33 @@ import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 
+// Cached check: does opportunities.secondary_rep_id exist?
+let _oppHasSecondaryRep: boolean | null = null;
+async function opportunitiesHasSecondaryRep(): Promise<boolean> {
+  if (_oppHasSecondaryRep !== null) return _oppHasSecondaryRep;
+  try {
+    const { rows } = await risansiPool.query(
+      `SELECT 1 FROM information_schema.columns
+       WHERE table_name = 'opportunities' AND column_name = 'secondary_rep_id' LIMIT 1`,
+    );
+    _oppHasSecondaryRep = rows.length > 0;
+  } catch {
+    _oppHasSecondaryRep = false;
+  }
+  return _oppHasSecondaryRep;
+}
+
+// Insert an auto-created opportunity, including secondary_rep_id only if the column exists.
+async function insertAutoOpp(fields: Record<string, unknown>) {
+  const cols = Object.keys(fields);
+  const ph   = cols.map((_, i) => `$${i + 1}`);
+  await risansiPool.query(
+    `INSERT INTO opportunities (${cols.join(', ')}, auto_created, created_at, updated_at)
+     VALUES (${ph.join(', ')}, TRUE, NOW(), NOW())`,
+    Object.values(fields),
+  );
+}
+
 // ── Check In ───────────────────────────────────────────────────
 
 export async function checkInVisit({
@@ -208,6 +235,18 @@ export async function submitVisit(visitId: string) {
   );
   const repId = repRes.rows[0]?.id ?? visit.rep_id;
 
+  // Always assign both reps from the client (fall back to submitting rep)
+  const clientRepRes = await risansiPool.query<{
+    primary_rep_id: number | null; secondary_rep_id: number | null;
+  }>(
+    'SELECT primary_rep_id, secondary_rep_id FROM clients WHERE id = $1',
+    [visit.client_id],
+  );
+  const primaryRepId   = clientRepRes.rows[0]?.primary_rep_id ?? repId;
+  const secondaryRepId = clientRepRes.rows[0]?.secondary_rep_id ?? null;
+  const hasSecondary   = await opportunitiesHasSecondaryRep();
+  const secondaryField = hasSecondary ? { secondary_rep_id: secondaryRepId } : {};
+
   // 1. Close the visit
   await risansiPool.query(
     `UPDATE visits SET
@@ -221,35 +260,34 @@ export async function submitVisit(visitId: string) {
 
   // 2. Auto-create expansion opportunity
   if (sugar?.has_expansion && sugar?.expansion_detail) {
-    await risansiPool.query(
-      `INSERT INTO opportunities
-         (client_id, rep_id, visit_id, product, stage, notes,
-          auto_created, auto_source, created_by, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,'Suspect',$5,TRUE,'expansion_plan',$6,NOW(),NOW())`,
-      [
-        visit.client_id, repId, visitId,
-        `Expansion: ${String(sugar.expansion_detail).slice(0, 100)}`,
-        `Auto-created from visit. ${sugar.expansion_detail}`,
-        session.user.email,
-      ],
-    );
+    await insertAutoOpp({
+      client_id:   visit.client_id,
+      rep_id:      primaryRepId,
+      ...secondaryField,
+      visit_id:    visitId,
+      product:     `Expansion: ${String(sugar.expansion_detail).slice(0, 100)}`,
+      stage:       'Suspect',
+      notes:       `Auto-created from visit. ${sugar.expansion_detail}`,
+      auto_source: 'expansion_plan',
+      created_by:  session.user.email,
+    });
   }
 
   // 3. Auto-create displacement opportunities
   for (const equip of dispOpps) {
-    await risansiPool.query(
-      `INSERT INTO opportunities
-         (client_id, rep_id, visit_id, equipment_id, product, product_type,
-          stage, notes, auto_created, auto_source, created_by, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,'Suspect',$7,TRUE,'displacement',$8,NOW(),NOW())`,
-      [
-        visit.client_id, repId, visitId, equip.id,
-        `${equip.supplier} ${equip.model ?? ''} replacement`.trim(),
-        equip.pump_type,
-        `Auto-created: EOL ${equip.supplier} pump (${equip.application ?? 'n/a'}) observed.`,
-        session.user.email,
-      ],
-    );
+    await insertAutoOpp({
+      client_id:    visit.client_id,
+      rep_id:       primaryRepId,
+      ...secondaryField,
+      visit_id:     visitId,
+      equipment_id: equip.id,
+      product:      `${equip.supplier} ${equip.model ?? ''} replacement`.trim(),
+      product_type: equip.pump_type,
+      stage:        'Suspect',
+      notes:        `Auto-created: EOL ${equip.supplier} pump (${equip.application ?? 'n/a'}) observed.`,
+      auto_source:  'displacement',
+      created_by:   session.user.email,
+    });
   }
 
   // 4. Auto-create follow-up task

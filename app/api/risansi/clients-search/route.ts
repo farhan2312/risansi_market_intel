@@ -7,16 +7,21 @@ export async function GET(request: Request) {
 
   try {
     const res = await risansiPool.query(
-      `SELECT id, code, legal_name, city, state, industry
-       FROM clients
-       WHERE deleted_at IS NULL
-         AND status = 'ACTIVE'
+      `SELECT c.id, c.code, c.legal_name, c.city, c.state, c.industry,
+              c.primary_rep_id, c.secondary_rep_id,
+              COALESCE(r1.name, c.primary_rep_name)   AS primary_rep_name,
+              COALESCE(r2.name, c.secondary_rep_name) AS secondary_rep_name
+       FROM clients c
+       LEFT JOIN reps r1 ON c.primary_rep_id   = r1.id
+       LEFT JOIN reps r2 ON c.secondary_rep_id = r2.id
+       WHERE c.deleted_at IS NULL
+         AND c.status = 'ACTIVE'
          AND (
-           legal_name ILIKE $1
-           OR code     ILIKE $1
-           OR city     ILIKE $1
+           c.legal_name ILIKE $1
+           OR c.code     ILIKE $1
+           OR c.city     ILIKE $1
          )
-       ORDER BY legal_name ASC
+       ORDER BY c.legal_name ASC
        LIMIT 20`,
       [`%${q}%`],
     );

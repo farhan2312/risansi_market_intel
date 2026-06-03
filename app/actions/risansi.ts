@@ -14,6 +14,26 @@ async function requireSession() {
   return session.user;
 }
 
+// Cached set of columns that actually exist on the opportunities table.
+// Lets writes degrade gracefully when optional columns aren't present.
+let _oppColumns: Set<string> | null = null;
+async function opportunityColumns(): Promise<Set<string>> {
+  if (_oppColumns) return _oppColumns;
+  try {
+    const { rows } = await risansiPool.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = 'opportunities'`,
+    );
+    _oppColumns = new Set(rows.map(r => r.column_name));
+  } catch {
+    _oppColumns = new Set();
+  }
+  return _oppColumns;
+}
+
+async function opportunitiesHasSecondaryRep(): Promise<boolean> {
+  return (await opportunityColumns()).has('secondary_rep_id');
+}
+
 async function logActivity(entityType: string, entityId: string, action: string, email: string) {
   try {
     await risansiPool.query(
@@ -415,29 +435,61 @@ export async function createPipelineOpportunity(formData: FormData) {
 
   const clientId = (formData.get('client_id')       as string | null)?.trim() ?? '';
   const product  = (formData.get('product')          as string | null)?.trim() ?? 'New Opportunity';
+  const prodType = (formData.get('product_type')      as string | null)?.trim() || 'PCP';
   const stage    = (formData.get('stage')            as string | null)?.trim() ?? 'Suspect';
-  const value    = parseFloat((formData.get('estimated_value') as string | null) ?? '0') || 0;
+  // Accept value in Lakhs (₹12.5L → 0.125 Cr); fall back to legacy estimated_value (Cr)
+  const valueLakh = parseFloat((formData.get('value_lakh') as string | null) ?? '');
+  const value     = Number.isFinite(valueLakh)
+    ? valueLakh / 100
+    : (parseFloat((formData.get('estimated_value') as string | null) ?? '0') || 0);
   const prob     = parseInt((formData.get('probability')       as string | null) ?? '25', 10) || 25;
-  const eta      = (formData.get('expected_close')   as string | null)?.trim() ?? null;
+  const eta      = (formData.get('eta_text')         as string | null)?.trim()
+                   || (formData.get('expected_close') as string | null)?.trim() || null;
+  const quoteRef = (formData.get('quote_ref')        as string | null)?.trim() || null;
+  const notes    = (formData.get('notes')            as string | null)?.trim() || null;
 
   if (!clientId) return;
 
-  // Resolve rep for this client
-  let repId: number | null = null;
-  try {
-    const { rows: repRows } = await risansiPool.query<{ primary_rep_id: number | null }>(
+  // Reps come from the form (pre-filled from the client, editable per opportunity).
+  // Changing them here affects only this opportunity, never the client record.
+  const selectedRepId = formData.get('rep_id')
+    ? parseInt(formData.get('rep_id') as string, 10)
+    : null;
+  const secondaryRepId = formData.get('secondary_rep_id')
+    ? parseInt(formData.get('secondary_rep_id') as string, 10)
+    : null;
+
+  // Fallback to client's primary rep if the form somehow omitted it
+  let primaryRepId = selectedRepId;
+  if (!primaryRepId) {
+    const { rows } = await risansiPool.query<{ primary_rep_id: number | null }>(
       'SELECT primary_rep_id FROM clients WHERE id = $1', [clientId],
     );
-    repId = repRows[0]?.primary_rep_id ?? null;
-  } catch { /* ignore */ }
+    primaryRepId = rows[0]?.primary_rep_id ?? null;
+  }
+  if (!primaryRepId) {
+    throw new Error('Please select a Primary Rep for this opportunity.');
+  }
 
-  const { rows: oppRows } = await risansiPool.query<{ id: string }>(
-    `INSERT INTO opportunities
-       (client_id, rep_id, product, stage, value_cr, probability, eta_text, auto_created, created_by, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, $8, NOW(), NOW())
-     RETURNING id`,
-    [clientId, repId, product, stage, value, prob, eta, user.email],
-  );
+  const hasSecondary = await opportunitiesHasSecondaryRep();
+  let oppRows: { id: string }[];
+  if (hasSecondary) {
+    ({ rows: oppRows } = await risansiPool.query<{ id: string }>(
+      `INSERT INTO opportunities
+         (client_id, rep_id, secondary_rep_id, product, product_type, stage, value_cr, probability, eta_text, quote_ref, notes, auto_created, created_by, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, FALSE, $12, NOW(), NOW())
+       RETURNING id`,
+      [clientId, primaryRepId, secondaryRepId, product, prodType, stage, value, prob, eta, quoteRef, notes, user.email],
+    ));
+  } else {
+    ({ rows: oppRows } = await risansiPool.query<{ id: string }>(
+      `INSERT INTO opportunities
+         (client_id, rep_id, product, product_type, stage, value_cr, probability, eta_text, quote_ref, notes, auto_created, created_by, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, FALSE, $11, NOW(), NOW())
+       RETURNING id`,
+      [clientId, primaryRepId, product, prodType, stage, value, prob, eta, quoteRef, notes, user.email],
+    ));
+  }
 
   // Log stage creation
   const newOppId = oppRows[0]?.id ?? null;
@@ -469,6 +521,86 @@ export async function updateOpportunityStage(id: string, formData: FormData) {
   );
 
   await logActivity('opportunity', id, `stage updated to ${stage}`, user.email!);
+  revalidatePath('/risansi/pipeline');
+  revalidatePath('/risansi');
+}
+
+// ── Pipeline: full opportunity edit ────────────────────────────
+
+export async function updateOpportunity(oppId: number, formData: FormData) {
+  const user = await requireSession();
+
+  // Lock guard — a Won/Lost opp can't be edited unless it's being moved out of that stage
+  const { rows: cur } = await risansiPool.query<{ stage: string }>(
+    'SELECT stage FROM opportunities WHERE id = $1', [oppId],
+  );
+  const currentStage = cur[0]?.stage;
+  const newStage     = (formData.get('stage') as string | null) ?? currentStage;
+  if ((currentStage === 'Won' || currentStage === 'Lost') && newStage === currentStage) {
+    throw new Error('This opportunity is locked and cannot be edited.');
+  }
+
+  const valueLakh = parseFloat((formData.get('value_lakh')       as string | null) ?? '0');
+  const finalLakh = parseFloat((formData.get('final_value_lakh') as string | null) ?? '0');
+  const num = (k: string) => (formData.get(k) ? parseInt(formData.get(k) as string, 10) : null);
+
+  // For rep_id: if empty/null, fall back to the client's primary rep
+  const rawRepId = formData.get('rep_id');
+  let repId = rawRepId && rawRepId !== '' ? parseInt(rawRepId as string, 10) : null;
+  if (!repId) {
+    const { rows } = await risansiPool.query<{ primary_rep_id: number | null }>(
+      `SELECT primary_rep_id FROM clients
+       WHERE id = (SELECT client_id FROM opportunities WHERE id = $1)`,
+      [oppId],
+    );
+    repId = rows[0]?.primary_rep_id ?? null;
+  }
+  // secondary_rep_id can be null
+  const rawSecRepId = formData.get('secondary_rep_id');
+  const secRepId = rawSecRepId && rawSecRepId !== '' ? parseInt(rawSecRepId as string, 10) : null;
+
+  // Candidate columns → values. Only those present on the table are written.
+  const candidates: Record<string, unknown> = {
+    product:            (formData.get('product') as string | null)?.trim() || null,
+    product_type:       (formData.get('product_type') as string | null) || 'PCP',
+    stage:              (formData.get('stage') as string | null) || 'Suspect',
+    value_cr:           valueLakh > 0 ? valueLakh / 100 : null,
+    probability:        num('probability'),
+    eta_text:           (formData.get('eta_text') as string | null) || null,
+    quote_ref:          (formData.get('quote_ref') as string | null) || null,
+    quote_date:         (formData.get('quote_date') as string | null) || null,
+    negotiation_notes:  (formData.get('negotiation_notes') as string | null) || null,
+    notes:              (formData.get('notes') as string | null) || null,
+    rep_id:             repId,
+    secondary_rep_id:   secRepId,
+    po_number:          (formData.get('po_number') as string | null) || null,
+    final_value_cr:     finalLakh > 0 ? finalLakh / 100 : null,
+    lost_to_competitor: (formData.get('lost_to_competitor') as string | null) || null,
+    lost_reason:        (formData.get('lost_reason') as string | null) || null,
+  };
+
+  const existing = await opportunityColumns();
+  const cols = Object.keys(candidates).filter(c => existing.size === 0 || existing.has(c));
+  if (cols.length === 0) return;
+
+  const sets = cols.map((c, i) => `${c} = $${i + 1}`);
+  const vals = cols.map(c => candidates[c]);
+  await risansiPool.query(
+    `UPDATE opportunities SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${cols.length + 1}`,
+    [...vals, oppId],
+  );
+
+  await logActivity('opportunity', String(oppId), `updated opportunity · ${candidates.stage}`, user.email!);
+  revalidatePath('/risansi/pipeline');
+  revalidatePath('/risansi');
+}
+
+// ── Pipeline: delete opportunity ───────────────────────────────
+
+export async function deleteOpportunity(oppId: number) {
+  const user = await requireSession();
+  await risansiPool.query('DELETE FROM opportunities WHERE id = $1', [oppId]);
+  await logActivity('opportunity', String(oppId), 'deleted opportunity', user.email!);
   revalidatePath('/risansi/pipeline');
   revalidatePath('/risansi');
 }
