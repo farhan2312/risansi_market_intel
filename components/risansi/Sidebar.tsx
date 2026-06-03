@@ -46,7 +46,6 @@ const SALES_NAV: NavItem[] = [
   { id: 'dash',      href: '/risansi',          label: 'Dashboard',      Icon: IcDash },
   { id: 'client360', href: '/risansi/clients',  label: 'Client 360',     Icon: IcClient },
   { id: 'field',     href: '/risansi/field',    label: 'Field Activity', Icon: IcMap },
-  { id: 'visits',    href: '/risansi/visits',   label: 'Visit Plan',     Icon: IcCal },
   { id: 'pipeline',  href: '/risansi/pipeline', label: 'Pipeline',       Icon: IcPipeline },
   { id: 'compete',   href: '/risansi/compete',  label: 'Competitive',    Icon: IcTower, alertKey: 'compete' },
 ];
@@ -72,7 +71,6 @@ const PATH_TO_ID: [string, string][] = [
   ['/risansi/compete',          'compete'],
   ['/risansi/clients',          'client360'],
   ['/risansi/pipeline',         'pipeline'],
-  ['/risansi/visits',           'visits'],
   ['/risansi/field',            'field'],
   ['/risansi',                  'dash'],
 ];
