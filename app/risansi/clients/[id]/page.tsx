@@ -7,6 +7,8 @@ import risansiPool from '@/lib/db-risansi';
 import { fyShortLabel, fmtCr, formatRev } from '@/lib/risansi-utils';
 import { ClientActionButtons, PipelineOppBtn, EditDrawerTrigger } from '@/components/risansi/ClientActionButtons';
 import { AddContactButton } from '@/components/risansi/AddContactButton';
+import { EditContactButton } from '@/components/risansi/EditContactButton';
+import { BackButton } from '@/components/risansi/BackButton';
 import type { DrawerRep } from '@/components/risansi/AssignVisitDrawer';
 
 // ── Safe query wrapper ─────────────────────────────────────────
@@ -358,10 +360,13 @@ export default async function ClientProfilePage({
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Sticky topbar */}
       <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
-        <Topbar crumbs={['Clients', client.zone ?? '', client.trade_name ?? client.legal_name]} />
+        <Topbar crumbs={[{ label: 'Clients', href: '/risansi/clients' }, client.zone ?? '', client.trade_name ?? client.legal_name]} />
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>
+
+        {/* Back button */}
+        <BackButton />
 
         {/* ── Page header ─────────────────────────────────────── */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
@@ -853,6 +858,23 @@ export default async function ClientProfilePage({
                             {c.notes}
                           </div>
                         )}
+
+                        {/* Edit — live contacts only (Excel-imported show the Imported badge, no edit) */}
+                        {canEdit && c.added_by !== 'excel_import' && (
+                          <EditContactButton
+                            contact={{
+                              id: c.id,
+                              name: c.name,
+                              designation: c.designation,
+                              phone: c.phone,
+                              email: c.email,
+                              whatsapp: c.whatsapp,
+                              notes: c.notes,
+                              is_primary: c.is_primary,
+                            }}
+                            clientId={Number(client.id)}
+                          />
+                        )}
                       </div>
                     </div>
                   ))}
@@ -890,7 +912,7 @@ export default async function ClientProfilePage({
                     >
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', marginBottom: 2 }}>
-                          {o.id.slice(0, 8).toUpperCase()}
+                          {`OPP-${String(o.id).padStart(4, '0')}`}
                         </div>
                         <div style={{ fontWeight: 500, fontSize: 12, marginBottom: 4 }}>{o.product}</div>
                         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>

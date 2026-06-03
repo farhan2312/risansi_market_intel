@@ -1,11 +1,12 @@
 import type { CSSProperties } from 'react';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { Topbar, MultiSelectFilter, ActiveFilterBar, SortableTH } from '@/components/risansi';
+import { Topbar, MultiSelectFilter, ActiveFilterBar } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentFY, fmtCr } from '@/lib/risansi-utils';
 import { NewOpportunityButton } from '@/components/risansi/NewOpportunityButton';
 import { OpportunityKanban } from '@/components/risansi/OpportunityKanban';
+import { ActiveOppsTable } from '@/components/risansi/ActiveOppsTable';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
@@ -50,15 +51,6 @@ interface LostToRow {
   opp_count:  string;
   value:      number;
 }
-
-const STAGE_COLOR: Record<string, string> = {
-  Suspect:     'var(--info)',
-  Prospect:    '#5a86c2',
-  Quoted:      '#c69347',
-  Negotiating: 'var(--accent)',
-  Won:         'var(--pos)',
-  Lost:        'var(--neg)',
-};
 
 // Sortable columns for Active Opportunities table
 const SORT_MAP: Record<string, string> = {
@@ -280,8 +272,6 @@ export default async function PipelinePage({
     : 0;
 
   const anyFilter = stageFilts.length > 0 || prodTypeFilts.length > 0 || repFilts.length > 0 || indFilts.length > 0;
-  const curSort = sortKey;
-  const curDir  = orderDir === 'DESC' ? 'desc' : 'asc';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -397,56 +387,7 @@ export default async function PipelinePage({
               </div>
             )}
 
-            <div style={{ overflowX: 'auto', marginTop: 4 }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ background: 'var(--bg-elev)' }}>
-                    <SortableTH col="client"      label="Client"   currentSort={curSort} currentDir={curDir} />
-                    <SortableTH col="product"     label="Product"  currentSort={curSort} currentDir={curDir} />
-                    <SortableTH col="stage"       label="Stage"    currentSort={curSort} currentDir={curDir} />
-                    <SortableTH col="value"       label="Value"    currentSort={curSort} currentDir={curDir} align="right" />
-                    <SortableTH col="probability" label="Prob"     currentSort={curSort} currentDir={curDir} align="center" />
-                    <SortableTH col="eta"         label="ETA"      currentSort={curSort} currentDir={curDir} />
-                    <SortableTH col="rep"         label="Rep"      currentSort={curSort} currentDir={curDir} />
-                  </tr>
-                </thead>
-                <tbody>
-                  {openOpps.slice(0, 50).map((o, i) => (
-                    <tr key={o.id} style={{ borderBottom: i < Math.min(openOpps.length, 50) - 1 ? '1px solid var(--line)' : 'none' }}>
-                      <td style={TD}>
-                        <div style={{ fontSize: 12, fontWeight: 500, lineHeight: 1.3 }}>{o.client_name}</div>
-                        <div style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>{o.client_code}</div>
-                      </td>
-                      <td style={{ ...TD, fontSize: 11 }}>{o.product}</td>
-                      <td style={TD}>
-                        <span style={{ fontSize: 11, fontWeight: 500, color: STAGE_COLOR[o.stage] ?? 'var(--fg)' }}>
-                          {o.stage}
-                        </span>
-                      </td>
-                      <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>
-                        {fmtCr(o.value_cr)}
-                      </td>
-                      <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-                        {o.probability != null ? `${o.probability}%` : '—'}
-                      </td>
-                      <td style={{ ...TD, fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
-                        {o.eta_text ?? '—'}
-                      </td>
-                      <td style={{ ...TD, fontSize: 11, color: 'var(--fg-3)' }}>
-                        {o.rep_name || '—'}
-                      </td>
-                    </tr>
-                  ))}
-                  {openOpps.length === 0 && (
-                    <tr>
-                      <td colSpan={7} style={{ padding: '24px', textAlign: 'center', fontSize: 12, color: 'var(--fg-3)' }}>
-                        No open opportunities
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <ActiveOppsTable opps={openOpps} />
           </div>
 
           {/* Win Rate + Lost To */}
@@ -581,11 +522,3 @@ const PANEL_H: CSSProperties = {
 
 const PANEL_TITLE: CSSProperties = { fontSize: 12, fontWeight: 500, letterSpacing: '-0.005em' };
 
-const TH: CSSProperties = {
-  padding: '9px 12px', textAlign: 'left', fontSize: 10,
-  textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 500,
-  color: 'var(--fg-3)', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap',
-  background: 'var(--bg-elev)',
-};
-
-const TD: CSSProperties = { padding: '10px 12px', verticalAlign: 'middle' };

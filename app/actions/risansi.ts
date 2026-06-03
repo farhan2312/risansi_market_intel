@@ -113,6 +113,51 @@ export async function addContact(formData: FormData): Promise<void> {
   revalidatePath(`/risansi/clients/${clientId}`);
 }
 
+// ── Client: update an existing contact ─────────────────────────
+
+export async function updateContact(contactId: number, clientId: number, formData: FormData): Promise<void> {
+  const user = await requireSession();
+
+  const name = (formData.get('name') as string | null)?.trim() ?? '';
+  if (!name || name.length < 2) throw new Error('Contact name is required (min 2 characters)');
+
+  const designation = (formData.get('designation') as string | null)?.trim() || null;
+  const phone       = (formData.get('phone')       as string | null)?.trim() || null;
+  const email       = (formData.get('email')       as string | null)?.trim() || null;
+  const whatsapp    = (formData.get('whatsapp')    as string | null)?.trim() || null;
+  const notes       = (formData.get('notes')       as string | null)?.trim() || null;
+  const isPrimary   = formData.get('is_primary') === 'true';
+
+  // Only one primary per client — clear others first
+  if (isPrimary) {
+    await risansiPool.query(
+      `UPDATE contacts SET is_primary = FALSE WHERE client_id = $1 AND id != $2`,
+      [clientId, contactId],
+    );
+  }
+
+  await risansiPool.query(
+    `UPDATE contacts SET
+       name = $1, designation = $2, is_primary = $3,
+       phone = $4, email = $5, whatsapp = $6, notes = $7,
+       updated_at = NOW()
+     WHERE id = $8`,
+    [name, designation, isPrimary, phone, email, whatsapp, notes, contactId],
+  );
+
+  await logActivity('client', String(clientId), `Contact Updated: ${name}`, user.email!);
+  revalidatePath(`/risansi/clients/${clientId}`);
+}
+
+// ── Client: delete a contact ───────────────────────────────────
+
+export async function deleteContact(contactId: number, clientId: number): Promise<void> {
+  const user = await requireSession();
+  await risansiPool.query('DELETE FROM contacts WHERE id = $1', [contactId]);
+  await logActivity('client', String(clientId), 'Contact Deleted', user.email!);
+  revalidatePath(`/risansi/clients/${clientId}`);
+}
+
 // ── Client: update client details ─────────────────────────────
 
 export async function updateClient(clientId: number, formData: FormData): Promise<void> {

@@ -78,7 +78,7 @@ export function ClientActionButtons({
           Plan Visit
         </button>
         <button type="button" onClick={() => setIsOppOpen(true)} style={BTN}>
-          + New Opportunity
+          New Opportunity
         </button>
         {canEdit && (
           <button type="button" onClick={() => setIsEditOpen(true)} style={{ ...BTN, background: '#0A3D8F', color: '#fff', border: '1px solid #0A3D8F' }}>

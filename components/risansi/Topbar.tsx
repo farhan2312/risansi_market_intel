@@ -2,8 +2,10 @@
 
 import type { CSSProperties } from 'react';
 
+export type Crumb = string | { label: string; href: string };
+
 export interface TopbarProps {
-  crumbs: string[];
+  crumbs: Crumb[];
   primaryAction?: string;
   primaryActionHref?: string;
 }
@@ -13,15 +15,23 @@ export function Topbar({ crumbs, primaryAction, primaryActionHref }: TopbarProps
     <header style={TOPBAR}>
       {/* Breadcrumbs */}
       <nav style={CRUMBS}>
-        {crumbs.map((c, i) => (
-          <span key={i} style={{ display: 'contents' }}>
-            {i > 0 && <IcChevRight />}
-            {i === crumbs.length - 1
-              ? <strong style={{ color: '#0A3D8F', fontWeight: 600 }}>{c}</strong>
-              : <span style={{ color: 'var(--fg-3)' }}>{c}</span>
-            }
-          </span>
-        ))}
+        {crumbs.map((c, i) => {
+          const label = typeof c === 'string' ? c : c.label;
+          const href  = typeof c === 'string' ? undefined : c.href;
+          const isLast = i === crumbs.length - 1;
+          return (
+            <span key={i} style={{ display: 'contents' }}>
+              {i > 0 && <IcChevRight />}
+              {isLast ? (
+                <strong style={{ color: '#0A3D8F', fontWeight: 600 }}>{label}</strong>
+              ) : href ? (
+                <a href={href} style={{ color: 'var(--fg-3)', textDecoration: 'none' }}>{label}</a>
+              ) : (
+                <span style={{ color: 'var(--fg-3)' }}>{label}</span>
+              )}
+            </span>
+          );
+        })}
       </nav>
 
       {/* Live indicator — pushed right by marginLeft: auto */}
