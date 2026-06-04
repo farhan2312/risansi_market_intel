@@ -56,6 +56,7 @@ export async function checkInVisit({
          check_in_accuracy_m = $3,
          manual_checkin      = $4,
          manual_checkin_note = $5,
+         gps_within_radius   = NULL,
          status              = CASE WHEN status = 'planned' THEN 'checked-in' ELSE status END,
          updated_at          = NOW()
        WHERE id = $6 AND submitted_at IS NULL`,
