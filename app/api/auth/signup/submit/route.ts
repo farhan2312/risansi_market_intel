@@ -22,9 +22,9 @@ export async function POST(req: NextRequest) {
     const hashed = await bcrypt.hash(password, 10);
 
     await risansiPool.query(
-      `INSERT INTO access_requests (email, display_name, role, status, requested_at)
+      `INSERT INTO access_requests (user_email, display_name, role, status, requested_at)
        VALUES ($1, $2, $3, 'Pending', NOW())
-       ON CONFLICT (email) DO UPDATE SET
+       ON CONFLICT (user_email) DO UPDATE SET
          display_name = EXCLUDED.display_name,
          role         = EXCLUDED.role,
          status       = 'Pending',
@@ -33,13 +33,14 @@ export async function POST(req: NextRequest) {
     );
 
     await risansiPool.query(
-      `UPDATE access_requests SET password_hash = $1 WHERE email = $2`,
+      `UPDATE access_requests SET password_hash = $1 WHERE user_email = $2`,
       [hashed, email],
     );
 
     return NextResponse.json({ ok: true });
   } catch (err: unknown) {
     console.error('Signup error:', err);
-    return NextResponse.json({ error: 'Failed to submit request' }, { status: 500 });
+    const message = err instanceof Error ? err.message : 'Failed to submit request';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

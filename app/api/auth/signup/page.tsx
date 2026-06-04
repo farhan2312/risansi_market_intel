@@ -59,6 +59,7 @@ export default function SignUpPage() {
       if (!res.ok) throw new Error(data.error ?? 'Request failed');
       router.push('/api/auth/signup/pending');
     } catch (err: unknown) {
+      console.error('Signup error:', err);
       setError(err instanceof Error ? err.message : 'Something went wrong');
     } finally {
       setLoading(false);
