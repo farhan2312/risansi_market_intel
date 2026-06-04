@@ -735,6 +735,11 @@ function SugarSection({
 
   const sugarField = (col: string) => Number(report?.[col] ?? 0);
 
+  // Each Yes/No toggle needs its OWN controlled state — binding `value` to the
+  // static report data left these stuck on their initial value when clicked.
+  const [hasOutstanding, setHasOutstanding] = useState(!!(report?.has_outstanding_issues));
+  const [pricesCaptured, setPricesCaptured] = useState(!!(report?.competitor_prices_captured));
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* RIL Screw counts */}
@@ -803,9 +808,9 @@ function SugarSection({
           {/* Outstanding */}
           <YesNoField
             label="Outstanding payment / commercial issues?"
-            value={!!(report?.has_outstanding_issues)}
+            value={hasOutstanding}
             disabled={disabled}
-            onChange={v => queueSave('has_outstanding_issues', v)}
+            onChange={v => { setHasOutstanding(v); queueSave('has_outstanding_issues', v); }}
             detailLabel="Details"
             defaultDetail={String(report?.outstanding_detail ?? '')}
             onDetailChange={v => queueSave('outstanding_detail', v)}
@@ -840,9 +845,9 @@ function SugarSection({
       {/* Competitor prices */}
       <CheckboxField
         label="Competitor prices captured during visit?"
-        checked={!!(report?.competitor_prices_captured)}
+        checked={pricesCaptured}
         disabled={disabled}
-        onChange={v => queueSave('competitor_prices_captured', v)}
+        onChange={v => { setPricesCaptured(v); queueSave('competitor_prices_captured', v); }}
       />
     </div>
   );
