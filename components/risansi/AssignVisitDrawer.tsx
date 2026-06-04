@@ -76,6 +76,7 @@ export default function AssignVisitDrawer({
   controlledOpen,
   onClose,
   prefilledClient,
+  prefilledRepId,
   lockClient: lockClientProp,
 }: {
   reps: DrawerRep[];
@@ -87,6 +88,7 @@ export default function AssignVisitDrawer({
   controlledOpen?: boolean;
   onClose?: () => void;
   prefilledClient?: { id: string; code?: string; legal_name: string } | null;
+  prefilledRepId?: string | number | null;   // client's primary rep — default/fallback
   lockClient?: boolean;
 }) {
   const router = useRouter();
@@ -163,7 +165,7 @@ export default function AssignVisitDrawer({
     if (controlledOpen === undefined) return;
     if (controlledOpen) {
       setLockClientMode(lockClientProp ?? false);
-      setPrefillRepId('');
+      setPrefillRepId(prefilledRepId != null ? String(prefilledRepId) : '');
       if (prefilledClient) {
         setSelectedClient({
           id: prefilledClient.id,
@@ -425,7 +427,11 @@ export default function AssignVisitDrawer({
                 {currentUserName || currentRepName || 'You'}
                 <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--fg-3)', fontStyle: 'italic' }}>(You)</span>
               </div>
-              <input type="hidden" name="rep_id" value={repId != null ? String(repId) : ''} />
+              <input
+                type="hidden"
+                name="rep_id"
+                value={repId != null ? String(repId) : (prefilledRepId != null ? String(prefilledRepId) : '')}
+              />
             </div>
           ) : (
             <div>

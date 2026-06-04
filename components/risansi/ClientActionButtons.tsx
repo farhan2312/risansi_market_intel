@@ -96,6 +96,7 @@ export function ClientActionButtons({
         controlledOpen={isVisitOpen}
         onClose={() => setIsVisitOpen(false)}
         prefilledClient={{ id: String(clientId), code: clientCode, legal_name: clientName }}
+        prefilledRepId={repId}
         lockClient
         onSuccess={handleVisitSuccess}
         role={currentUserRole}

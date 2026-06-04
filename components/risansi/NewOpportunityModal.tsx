@@ -231,8 +231,8 @@ function NewOppForm({ client, lockClient, currentUserName, currentUserRepId, cur
             {reps.length === 0 ? (
               <div style={{ ...INP, color: 'var(--fg-3)', fontStyle: 'italic' }}>Loading reps…</div>
             ) : (
-              <select name="rep_id" value={primaryRepId} onChange={e => setPrimaryRepId(e.target.value)} required style={{ ...INP, borderColor: !primaryRepId ? 'var(--warn)' : 'var(--line-strong)' }}>
-                <option value="">— Select Primary Rep —</option>
+              <select name="rep_id" value={primaryRepId} onChange={e => setPrimaryRepId(e.target.value)} style={{ ...INP, borderColor: !primaryRepId ? 'var(--warn)' : 'var(--line-strong)' }}>
+                <option value="">— Use client&apos;s primary rep —</option>
                 {reps.map(r => (
                   <option key={r.id} value={String(r.id)}>{r.name}{r.zone ? ` · ${r.zone}` : ''}{r.route ? ` · ${r.route}` : ''}</option>
                 ))}
