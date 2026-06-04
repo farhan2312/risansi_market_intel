@@ -158,10 +158,111 @@ export async function deleteContact(contactId: number, clientId: number): Promis
   revalidatePath(`/risansi/clients/${clientId}`);
 }
 
+// ── Client: shared contact processing ──────────────────────────
+// Used by both addClient and updateClient. Takes the full contact list
+// (existing + new) plus the ids the user removed, and reconciles the
+// contacts table: delete removed, update existing (id && !isNew),
+// insert new. Only one primary is allowed per client.
+
+interface ContactPayload {
+  id?: number;
+  name?: string;
+  designation?: string;
+  phone?: string;
+  email?: string;
+  whatsapp?: string;
+  is_primary?: boolean;
+  isNew?: boolean;
+}
+
+async function saveContacts(
+  clientId: number,
+  contactsJson: string,
+  deletedIds: number[],
+  userEmail: string,
+): Promise<void> {
+  let contacts: ContactPayload[] = [];
+  try {
+    const parsed = JSON.parse(contactsJson || '[]');
+    if (Array.isArray(parsed)) contacts = parsed;
+  } catch { contacts = []; }
+
+  // Delete removed contacts
+  if (deletedIds.length > 0) {
+    await risansiPool.query(
+      `DELETE FROM contacts WHERE id = ANY($1::int[]) AND client_id = $2`,
+      [deletedIds, clientId],
+    );
+  }
+
+  // If any contact is set as primary, clear existing primary first
+  const hasPrimary = contacts.some(c => c.is_primary);
+  if (hasPrimary) {
+    await risansiPool.query(
+      `UPDATE contacts SET is_primary = FALSE WHERE client_id = $1`,
+      [clientId],
+    );
+  }
+
+  for (const ct of contacts) {
+    if (!ct.name?.trim()) continue;
+
+    if (ct.id && !ct.isNew) {
+      // Update existing contact
+      await risansiPool.query(
+        `UPDATE contacts SET
+           name        = $1, designation = $2,
+           phone       = $3, email       = $4,
+           whatsapp    = $5, is_primary  = $6,
+           updated_at  = NOW()
+         WHERE id = $7 AND client_id = $8`,
+        [
+          ct.name.trim(),
+          ct.designation?.trim() || null,
+          ct.phone?.trim() || null,
+          ct.email?.trim() || null,
+          ct.whatsapp?.trim() || null,
+          ct.is_primary ?? false,
+          ct.id, clientId,
+        ],
+      );
+    } else {
+      // Insert new contact
+      await risansiPool.query(
+        `INSERT INTO contacts
+           (client_id, name, designation, phone, email, whatsapp, is_primary,
+            added_by, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW(),NOW())`,
+        [
+          clientId,
+          ct.name.trim(),
+          ct.designation?.trim() || null,
+          ct.phone?.trim() || null,
+          ct.email?.trim() || null,
+          ct.whatsapp?.trim() || null,
+          ct.is_primary ?? false,
+          userEmail,
+        ],
+      );
+    }
+  }
+}
+
+function parseDeletedIds(raw: FormDataEntryValue | null): number[] {
+  try {
+    const parsed = JSON.parse((raw as string) || '[]');
+    return Array.isArray(parsed) ? parsed.filter((n): n is number => typeof n === 'number') : [];
+  } catch { return []; }
+}
+
 // ── Client: update client details ─────────────────────────────
 
 export async function updateClient(clientId: number, formData: FormData): Promise<void> {
-  const user = await requireSession();
+  const session = await getServerSession(authOptions);
+  if (!['admin', 'sysadmin'].includes(session?.user?.role ?? '')) {
+    throw new Error('Unauthorized');
+  }
+  const email = session!.user.email ?? 'system';
 
   // Fetch current status for change logging
   let currentStatus: string | null = null;
@@ -172,155 +273,74 @@ export async function updateClient(clientId: number, formData: FormData): Promis
     currentStatus = rows[0]?.status ?? null;
   } catch { /* ignore */ }
 
-  const newStatus = (formData.get('status') as string | null)?.trim() ?? currentStatus ?? 'ACTIVE';
+  const newStatus = (formData.get('status') as string | null)?.trim() || 'ACTIVE';
 
-  const core = [
-    (formData.get('legal_name')        as string)?.trim() ?? '',      // $1
-    (formData.get('trade_name')        as string | null)?.trim() || null, // $2
-    (formData.get('industry')          as string)?.trim() ?? '',      // $3
-    formData.get('is_sugar') === 'true',                              // $4
-    (formData.get('client_type')       as string)?.trim() ?? '',      // $5
-    (formData.get('market_type')       as string | null)?.trim() || 'Domestic', // $6
-    (formData.get('state')             as string | null)?.trim() || null,  // $7
-    (formData.get('city')              as string | null)?.trim() || null,  // $8
-    (formData.get('address')           as string | null)?.trim() || null,  // $9
-    formData.get('tcd')  ? parseInt(formData.get('tcd')  as string) : null, // $10
-    formData.get('klpd') ? parseFloat(formData.get('klpd') as string) : null, // $11
-    formData.get('primary_rep_id')   ? parseInt(formData.get('primary_rep_id')   as string) : null, // $12
-    (formData.get('primary_rep_name')  as string | null)?.trim() || null, // $13
-    (formData.get('tour_name')         as string | null)?.trim() || null, // $14
-    (formData.get('since_year')        as string | null)?.trim() || null, // $15
-    newStatus,                                                         // $16
-    (formData.get('tier')              as string | null)?.trim() || 'Standard', // $17
-    (formData.get('performance_feedback') as string | null)?.trim() || null, // $18
-    (formData.get('action_points')     as string | null)?.trim() || null, // $19
-    (formData.get('pcp_competitor')    as string | null)?.trim() || null, // $20
-    (formData.get('mgmt_intervention') as string | null)?.trim() || null, // $21
-    (formData.get('constraints_notes') as string | null)?.trim() || null, // $22
-    clientId,                                                          // $23
-  ];
+  await risansiPool.query(
+    `UPDATE clients SET
+       legal_name         = $1,
+       trade_name         = $2,
+       group_name         = $3,
+       country            = $4,
+       state              = $5,
+       city               = $6,
+       address            = $7,
+       google_maps_url    = $8,
+       market_type        = $9,
+       industry           = $10,
+       is_sugar           = $11,
+       client_type        = $12,
+       is_tender          = $13,
+       capacity_bracket   = $14,
+       tcd                = $15,
+       klpd               = $16,
+       status             = $17,
+       tier               = $18,
+       since_year         = $19,
+       tour_name          = $20,
+       primary_rep_id     = $21,
+       primary_rep_name   = $22,
+       secondary_rep_id   = $23,
+       secondary_rep_name = $24,
+       updated_by         = $25,
+       updated_at         = NOW()
+     WHERE id = $26`,
+    [
+      (formData.get('legal_name')        as string | null)?.trim() || null,
+      (formData.get('trade_name')        as string | null)?.trim() || null,
+      (formData.get('group_name')        as string | null)?.trim() || null,
+      (formData.get('country')           as string | null)?.trim() || 'India',
+      (formData.get('state')             as string | null)?.trim() || null,
+      (formData.get('city')              as string | null)?.trim() || null,
+      (formData.get('address')           as string | null)?.trim() || null,
+      (formData.get('google_maps_url')   as string | null)?.trim() || null,
+      (formData.get('market_type')       as string | null)?.trim() || 'Domestic',
+      (formData.get('industry')          as string | null)?.trim() || null,
+      formData.get('is_sugar') === 'true',
+      (formData.get('client_type')       as string | null)?.trim() || null,
+      formData.get('is_tender') === 'true',
+      (formData.get('capacity_bracket')  as string | null)?.trim() || null,
+      formData.get('tcd')  ? parseInt(formData.get('tcd')  as string) : null,
+      formData.get('klpd') ? parseInt(formData.get('klpd') as string) : null,
+      newStatus,
+      (formData.get('tier')              as string | null)?.trim() || 'Standard',
+      (formData.get('since_year')        as string | null)?.trim() || null,
+      (formData.get('tour_name')         as string | null)?.trim() || null,
+      formData.get('primary_rep_id')   ? parseInt(formData.get('primary_rep_id')   as string) : null,
+      (formData.get('primary_rep_name')  as string | null)?.trim() || null,
+      formData.get('secondary_rep_id') ? parseInt(formData.get('secondary_rep_id') as string) : null,
+      (formData.get('secondary_rep_name') as string | null)?.trim() || null,
+      email,
+      clientId,
+    ],
+  );
 
-  // Try full UPDATE with all columns; fall back to core-only if schema differs
-  try {
-    await risansiPool.query(
-      `UPDATE clients SET
-        legal_name           = $1,
-        trade_name           = $2,
-        group_name           = $3,
-        industry             = $4,
-        is_sugar             = $5,
-        client_type          = $6,
-        market_type          = $7,
-        country              = $8,
-        state                = $9,
-        city                 = $10,
-        address              = $11,
-        google_maps_url      = $12,
-        capacity_bracket     = $13,
-        tcd                  = $14,
-        klpd                 = $15,
-        primary_rep_id       = $16,
-        primary_rep_name     = $17,
-        secondary_rep_id     = $18,
-        secondary_rep_name   = $19,
-        tour_name            = $20,
-        since_year           = $21,
-        status               = $22,
-        tier                 = $23,
-        performance_feedback = $24,
-        action_points        = $25,
-        pcp_competitor       = $26,
-        mgmt_intervention    = $27,
-        constraints_notes    = $28,
-        action_target_date_raw = $29,
-        mgmt_intervention2     = $30,
-        total_outstanding      = $31,
-        expected_to_spare      = $32,
-        expected_to_pump       = $33,
-        weightage_score        = $34,
-        competitors_observed   = $35,
-        open_remarks           = $36,
-        major_remarks          = $37,
-        ice_dispersal_by       = $38,
-        negotiation_by         = $39,
-        updated_by             = $40,
-        updated_at           = NOW()
-      WHERE id = $41`,
-      [
-        (formData.get('legal_name')          as string)?.trim() ?? '',
-        (formData.get('trade_name')          as string | null)?.trim() || null,
-        (formData.get('group_name')          as string | null)?.trim() || null,
-        (formData.get('industry')            as string)?.trim() ?? '',
-        formData.get('is_sugar') === 'true',
-        (formData.get('client_type')         as string)?.trim() ?? '',
-        (formData.get('market_type')         as string | null)?.trim() || 'Domestic',
-        (formData.get('country')             as string | null)?.trim() || 'India',
-        (formData.get('state')               as string | null)?.trim() || null,
-        (formData.get('city')                as string | null)?.trim() || null,
-        (formData.get('address')             as string | null)?.trim() || null,
-        (formData.get('google_maps_url')     as string | null)?.trim() || null,
-        (formData.get('capacity_bracket')    as string | null)?.trim() || null,
-        formData.get('tcd')  ? parseInt(formData.get('tcd')  as string) : null,
-        formData.get('klpd') ? parseFloat(formData.get('klpd') as string) : null,
-        formData.get('primary_rep_id')   ? parseInt(formData.get('primary_rep_id')   as string) : null,
-        (formData.get('primary_rep_name')    as string | null)?.trim() || null,
-        formData.get('secondary_rep_id') ? parseInt(formData.get('secondary_rep_id') as string) : null,
-        (formData.get('secondary_rep_name')  as string | null)?.trim() || null,
-        (formData.get('tour_name')           as string | null)?.trim() || null,
-        (formData.get('since_year')          as string | null)?.trim() || null,
-        newStatus,
-        (formData.get('tier')                as string | null)?.trim() || 'Standard',
-        (formData.get('performance_feedback') as string | null)?.trim() || null,
-        (formData.get('action_points')       as string | null)?.trim() || null,
-        (formData.get('pcp_competitor')      as string | null)?.trim() || null,
-        (formData.get('mgmt_intervention')   as string | null)?.trim() || null,
-        (formData.get('constraints_notes')   as string | null)?.trim() || null,
-        (formData.get('action_target_date_raw') as string | null)?.trim() || null,
-        (formData.get('mgmt_intervention2')     as string | null)?.trim() || null,
-        formData.get('total_outstanding') ? parseFloat(formData.get('total_outstanding') as string) : null,
-        formData.get('expected_to_spare')   ? parseFloat(formData.get('expected_to_spare') as string) : null,
-        formData.get('expected_to_pump')    ? parseFloat(formData.get('expected_to_pump') as string) : null,
-        formData.get('weightage_score')     ? parseFloat(formData.get('weightage_score') as string) : null,
-        (formData.get('competitors_observed') as string | null)?.trim() || null,
-        (formData.get('open_remarks')       as string | null)?.trim() || null,
-        (formData.get('major_remarks')      as string | null)?.trim() || null,
-        (formData.get('ice_dispersal_by')   as string | null)?.trim() || null,
-        (formData.get('negotiation_by')     as string | null)?.trim() || null,
-        user.email ?? 'system',
-        clientId,
-      ],
-    );
-  } catch {
-    // Fallback: core columns only
-    await risansiPool.query(
-      `UPDATE clients SET
-        legal_name           = $1,
-        trade_name           = $2,
-        industry             = $3,
-        is_sugar             = $4,
-        client_type          = $5,
-        market_type          = $6,
-        state                = $7,
-        city                 = $8,
-        address              = $9,
-        tcd                  = $10,
-        klpd                 = $11,
-        primary_rep_id       = $12,
-        primary_rep_name     = $13,
-        tour_name            = $14,
-        since_year           = $15,
-        status               = $16,
-        tier                 = $17,
-        performance_feedback = $18,
-        action_points        = $19,
-        pcp_competitor       = $20,
-        mgmt_intervention    = $21,
-        constraints_notes    = $22,
-        updated_at           = NOW()
-      WHERE id = $23`,
-      core,
-    );
-  }
+  // Save contacts
+  await saveContacts(
+    clientId,
+    (formData.get('contacts_json') as string) ?? '[]',
+    parseDeletedIds(formData.get('deleted_contact_ids')),
+    email,
+  );
 
   // Log status change
   if (currentStatus && newStatus !== currentStatus) {
@@ -329,14 +349,15 @@ export async function updateClient(clientId: number, formData: FormData): Promis
         `INSERT INTO client_status_log
            (client_id, from_status, to_status, reason, changed_by)
          VALUES ($1, $2, $3, $4, $5)`,
-        [clientId, currentStatus, newStatus, 'Updated via edit form', user.email],
+        [clientId, currentStatus, newStatus, 'Updated via edit form', email],
       );
     } catch { /* table may not exist */ }
   }
 
-  await logActivity('client', String(clientId), 'Client Updated', user.email!);
+  await logActivity('client', String(clientId), 'Client Updated', email);
   revalidatePath(`/risansi/clients/${clientId}`);
   revalidatePath('/risansi/clients');
+  revalidatePath('/risansi/admin/clients');
 }
 
 // ── Client: plan visit ─────────────────────────────────────────
@@ -676,33 +697,60 @@ export async function assignVisit(formData: FormData) {
   const user = await requireSession();
 
   const clientId  = (formData.get('client_id')  as string | null)?.trim() ?? '';
-  const repId     = (formData.get('rep_id')      as string | null)?.trim() || null;
+  const repIdRaw  = (formData.get('rep_id')      as string | null)?.trim() || null;
   const visitDate = (formData.get('visit_date')  as string | null)?.trim();
   const purpose   = (formData.get('purpose')     as string | null)?.trim() ?? 'Routine';
   const notes     = (formData.get('notes')       as string | null)?.trim() || null;
 
-  if (!clientId) return;
+  // A missing client must surface as an error — never report a fake success.
+  if (!clientId) throw new Error('Please select a client before scheduling a visit.');
 
   const date = visitDate ?? new Date().toISOString().slice(0, 10);
 
-  // Try full insert with optional columns; fall back to minimal if schema differs
-  try {
-    await risansiPool.query(
-      `INSERT INTO visits
-         (client_id, rep_id, visit_date, purpose, status, is_planned, summary, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, 'planned', TRUE, $5, NOW(), NOW())`,
-      [clientId, repId, date, purpose, notes],
+  // Resolve the rep so a planned visit is never dropped for a missing/blank rep:
+  //   submitted rep → client's primary rep → any active rep.
+  const parsedRep = repIdRaw ? parseInt(repIdRaw, 10) : NaN;
+  let repId: number | null = Number.isInteger(parsedRep) ? parsedRep : null;
+  if (!repId) {
+    const { rows } = await risansiPool.query<{ primary_rep_id: number | null }>(
+      'SELECT primary_rep_id FROM clients WHERE id = $1', [clientId],
     );
-  } catch {
-    await risansiPool.query(
-      `INSERT INTO visits (client_id, rep_id, visit_date, purpose, status, created_at)
-       VALUES ($1, $2, $3, $4, 'planned', NOW())`,
-      [clientId, repId, date, purpose],
+    repId = rows[0]?.primary_rep_id ?? null;
+  }
+  if (!repId) {
+    const { rows } = await risansiPool.query<{ id: number }>(
+      'SELECT id FROM reps WHERE is_active = TRUE ORDER BY id LIMIT 1',
     );
+    repId = rows[0]?.id ?? null;
   }
 
+  // Try full insert with optional columns; fall back to minimal ONLY if the
+  // full insert fails (e.g. a column is missing). Errors propagate to the UI.
+  let insertedId: number | null = null;
+  try {
+    const { rows } = await risansiPool.query<{ id: number }>(
+      `INSERT INTO visits
+         (client_id, rep_id, visit_date, purpose, status, is_planned, summary, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, 'planned', TRUE, $5, NOW(), NOW())
+       RETURNING id`,
+      [clientId, repId, date, purpose, notes],
+    );
+    insertedId = rows[0]?.id ?? null;
+  } catch {
+    const { rows } = await risansiPool.query<{ id: number }>(
+      `INSERT INTO visits (client_id, rep_id, visit_date, purpose, status, created_at)
+       VALUES ($1, $2, $3, $4, 'planned', NOW())
+       RETURNING id`,
+      [clientId, repId, date, purpose],
+    );
+    insertedId = rows[0]?.id ?? null;
+  }
+
+  if (!insertedId) throw new Error('Visit could not be saved — please try again.');
+
   await logActivity('client', clientId, `visit assigned for ${date} · ${purpose}`, user.email!);
-  revalidatePath('/risansi/visits');
+  revalidatePath('/risansi/field');   // calendar lives here now
+  revalidatePath('/risansi/visits');  // legacy redirect
   revalidatePath(`/risansi/clients/${clientId}`);
 }
 
@@ -1000,104 +1048,84 @@ export async function submitOpportunity(formData: FormData) {
 
 // ── Client: add new client ─────────────────────────────────────
 
-export async function addClient(formData: FormData): Promise<{ error?: string; id?: string }> {
-  const user = await requireSession();
+export async function addClient(formData: FormData): Promise<void> {
+  const session = await getServerSession(authOptions);
+  if (!['admin', 'sysadmin'].includes(session?.user?.role ?? '')) {
+    throw new Error('Unauthorized');
+  }
+  const email = session!.user.email ?? 'system';
 
-  const code           = (formData.get('code')            as string | null)?.trim().toUpperCase() ?? '';
-  const legalName      = (formData.get('legal_name')      as string | null)?.trim() ?? '';
-  const industryId     = (formData.get('industry_id')     as string | null)?.trim() || null;
-  const industry       = (formData.get('industry')         as string | null)?.trim() || null;
-  const clientType     = (formData.get('client_type')     as string | null)?.trim() || null;
-  const zone           = (formData.get('zone')             as string | null)?.trim() || null;
-  const route          = (formData.get('route')            as string | null)?.trim() || null;
-  const repId          = (formData.get('rep_id')           as string | null)?.trim() || null;
-  const repName        = (formData.get('rep_name')         as string | null)?.trim() || null;
-  const city           = (formData.get('city')             as string | null)?.trim() || null;
-  const state          = (formData.get('state')            as string | null)?.trim() || null;
-  const pincode        = (formData.get('pincode')          as string | null)?.trim() || null;
-  const address        = (formData.get('address')          as string | null)?.trim() || null;
-  const googleMapsUrl  = (formData.get('google_maps_url')  as string | null)?.trim() || null;
-  const phone          = (formData.get('phone')            as string | null)?.trim() || null;
-  const email          = (formData.get('email')            as string | null)?.trim() || null;
-  const website        = (formData.get('website')          as string | null)?.trim() || null;
-  const gstin          = (formData.get('gstin')            as string | null)?.trim() || null;
-  const isSugar        = formData.get('is_sugar') === 'true';
-  const tcdKlpd        = parseFloat((formData.get('tcd_klpd') as string | null) ?? '') || null;
-  const tier           = (formData.get('tier')             as string | null)?.trim() || null;
-  const status         = (formData.get('status')           as string | null)?.trim() || 'ACTIVE';
-  const marketType     = (formData.get('market_type')     as string | null)?.trim() || null;
-  const businessCat    = (formData.get('business_category') as string | null)?.trim() || null;
+  const code      = (formData.get('code')       as string | null)?.toUpperCase().trim() ?? '';
+  const legalName = (formData.get('legal_name') as string | null)?.trim() ?? '';
 
-  // Validate required fields
-  if (!code || !/^[A-Z]{4}\d{2}[A-Z]\d{3}$/.test(code)) {
-    return { error: 'Client code must match pattern: 4 letters, 2 digits, 1 letter, 3 digits (e.g. ABCD01E002).' };
-  }
-  if (!legalName || legalName.length < 3) {
-    return { error: 'Legal name must be at least 3 characters.' };
-  }
-  if (!industry) {
-    return { error: 'Industry is required.' };
-  }
-  if (!clientType) {
-    return { error: 'Client type is required.' };
-  }
+  if (!code)      throw new Error('Client code is required.');
+  if (!legalName) throw new Error('Legal name is required.');
 
   // Duplicate check
-  try {
-    const dup = await risansiPool.query<{ id: string }>(
-      `SELECT id FROM clients WHERE code = $1 AND deleted_at IS NULL LIMIT 1`,
-      [code],
-    );
-    if (dup.rows.length > 0) {
-      return { error: `Client code ${code} already exists.` };
-    }
-  } catch { /* ignore if clients table differs */ }
-
-  // Insert
-  let newId: string | null = null;
-  try {
-    const { rows } = await risansiPool.query<{ id: string }>(
-      `INSERT INTO clients
-         (code, legal_name, industry_id, industry, client_type, zone, route,
-          primary_rep_id, primary_rep_name,
-          city, state, pincode, address, google_maps_url,
-          phone, email, website, gstin,
-          is_sugar, tcd_klpd, tier, status, market_type, business_category,
-          created_at, updated_at)
-       VALUES
-         ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,NOW(),NOW())
-       RETURNING id`,
-      [
-        code, legalName, industryId, industry, clientType, zone, route,
-        repId || null, repName || null,
-        city, state, pincode, address, googleMapsUrl,
-        phone, email, website, gstin,
-        isSugar, tcdKlpd, tier, status, marketType, businessCat,
-      ],
-    );
-    newId = rows[0]?.id ?? null;
-  } catch {
-    // Fallback: minimal insert (columns may differ)
-    try {
-      const { rows } = await risansiPool.query<{ id: string }>(
-        `INSERT INTO clients (code, legal_name, industry, client_type, zone, status, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,NOW(),NOW())
-         RETURNING id`,
-        [code, legalName, industry, clientType, zone, status],
-      );
-      newId = rows[0]?.id ?? null;
-    } catch (err2) {
-      const msg = err2 instanceof Error ? err2.message : 'Database error';
-      return { error: `Failed to create client: ${msg}` };
-    }
+  const existing = await risansiPool.query<{ id: number }>(
+    'SELECT id FROM clients WHERE code = $1 AND deleted_at IS NULL', [code],
+  );
+  if (existing.rows.length > 0) {
+    throw new Error(`Code ${code} already exists`);
   }
 
-  if (newId) {
-    await logActivity('client', newId, `created: ${code} · ${legalName}`, user.email!);
-  }
+  const result = await risansiPool.query<{ id: number }>(
+    `INSERT INTO clients (
+       code, legal_name, trade_name, group_name,
+       country, state, city, address, google_maps_url,
+       market_type, industry, is_sugar, client_type,
+       is_tender, capacity_bracket, tcd, klpd,
+       status, tier, since_year, tour_name,
+       primary_rep_id, primary_rep_name,
+       secondary_rep_id, secondary_rep_name,
+       created_by, created_at, updated_at
+     ) VALUES (
+       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+       $11,$12,$13,$14,$15,$16,$17,$18,$19,
+       $20,$21,$22,$23,$24,$25,$26,NOW(),NOW()
+     ) RETURNING id`,
+    [
+      code,
+      legalName,
+      (formData.get('trade_name')        as string | null)?.trim() || null,
+      (formData.get('group_name')        as string | null)?.trim() || null,
+      (formData.get('country')           as string | null)?.trim() || 'India',
+      (formData.get('state')             as string | null)?.trim() || null,
+      (formData.get('city')              as string | null)?.trim() || null,
+      (formData.get('address')           as string | null)?.trim() || null,
+      (formData.get('google_maps_url')   as string | null)?.trim() || null,
+      (formData.get('market_type')       as string | null)?.trim() || 'Domestic',
+      (formData.get('industry')          as string | null)?.trim() || null,
+      formData.get('is_sugar') === 'true',
+      (formData.get('client_type')       as string | null)?.trim() || null,
+      formData.get('is_tender') === 'true',
+      (formData.get('capacity_bracket')  as string | null)?.trim() || null,
+      formData.get('tcd')  ? parseInt(formData.get('tcd')  as string) : null,
+      formData.get('klpd') ? parseInt(formData.get('klpd') as string) : null,
+      (formData.get('status')            as string | null)?.trim() || 'ACTIVE',
+      (formData.get('tier')              as string | null)?.trim() || 'Standard',
+      (formData.get('since_year')        as string | null)?.trim() || null,
+      (formData.get('tour_name')         as string | null)?.trim() || null,
+      formData.get('primary_rep_id')   ? parseInt(formData.get('primary_rep_id')   as string) : null,
+      (formData.get('primary_rep_name')  as string | null)?.trim() || null,
+      formData.get('secondary_rep_id') ? parseInt(formData.get('secondary_rep_id') as string) : null,
+      (formData.get('secondary_rep_name') as string | null)?.trim() || null,
+      email,
+    ],
+  );
 
+  const clientId = result.rows[0].id;
+
+  // Save contacts
+  await saveContacts(
+    clientId,
+    (formData.get('contacts_json') as string) ?? '[]',
+    parseDeletedIds(formData.get('deleted_contact_ids')),
+    email,
+  );
+
+  await logActivity('client', String(clientId), `created: ${code} · ${legalName}`, email);
   revalidatePath('/risansi/clients');
+  revalidatePath('/risansi/admin/clients');
   revalidatePath('/risansi');
-
-  return { id: newId ?? undefined };
 }

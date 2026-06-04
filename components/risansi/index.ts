@@ -11,10 +11,9 @@ export { ActiveFilterBar }    from './ActiveFilterBar';
 export { SortableTH }         from './SortableTH';
 export { useSortableTable }   from './useSortableTable';
 export { RepSelector }        from './RepSelector';
-export { EditClientDrawer }   from './EditClientDrawer';
+export { ClientFormDrawer, AddClientButton } from './ClientFormDrawer';
 export { AddContactDrawer } from './AddContactDrawer';
 export { AddContactButton } from './AddContactButton';
-export type { ClientForEdit } from './EditClientDrawer';
 
 export type { SidebarProps, SidebarRole, SidebarUser, SidebarAlerts } from './Sidebar';
 export type { TopbarProps }     from './Topbar';

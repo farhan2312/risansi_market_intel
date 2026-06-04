@@ -230,6 +230,8 @@ export default async function FieldActivityPage({
          LEFT JOIN reps r ON c.primary_rep_id = r.id
          WHERE c.status = 'ACTIVE'
            AND c.deleted_at IS NULL
+           -- exclude future dates (planned visits that leaked into last_visit_date)
+           AND (c.last_visit_date IS NULL OR c.last_visit_date <= CURRENT_DATE)
            AND (
              c.last_visit_date IS NULL OR
              c.last_visit_date < CURRENT_DATE - INTERVAL '90 days'
@@ -387,7 +389,7 @@ export default async function FieldActivityPage({
 
         {/* AssignVisit drawer — always mounted for overdue row buttons (rep locked to self) */}
         <div style={{ display: 'none' }}>
-          <AssignVisitDrawer reps={calendarReps} hideButton={true} role={role} repId={repId ?? undefined} />
+          <AssignVisitDrawer reps={calendarReps} hideButton={true} role={role} repId={repId ?? undefined} currentUserName={session?.user?.name ?? undefined} />
         </div>
 
         {/* Tabs */}
@@ -519,7 +521,7 @@ export default async function FieldActivityPage({
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <AssignVisitButton reps={calendarReps} role={role} repId={repId ?? undefined} />
+                  <AssignVisitButton reps={calendarReps} role={role} repId={repId ?? undefined} currentUserName={session?.user?.name ?? undefined} />
                   <WeekNav currentOffset={weekOffset} />
                 </div>
               </div>
@@ -625,7 +627,7 @@ export default async function FieldActivityPage({
                   </span>
                 </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <AssignVisitButton reps={calendarReps} role={role} repId={repId ?? undefined} />
+                  <AssignVisitButton reps={calendarReps} role={role} repId={repId ?? undefined} currentUserName={session?.user?.name ?? undefined} />
                   <MonthNav currentOffset={monthOffset} />
                 </div>
               </div>
@@ -902,7 +904,8 @@ function InternationalPanel({ clients }: { clients: MapClient[] }) {
                 const days = c.last_visit_date
                   ? Math.floor((now - new Date(c.last_visit_date).getTime()) / 86_400_000)
                   : null;
-                const dot = days === null ? '#DC2626' : days <= 90 ? '#0E9F6E' : '#D97706';
+                // null OR future date → treat as never visited (red)
+                const dot = days === null || days < 0 ? '#DC2626' : days <= 90 ? '#0E9F6E' : '#D97706';
                 return (
                   <div key={c.id} style={{ fontSize: 11, color: 'var(--fg-2)', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 5 }}>
                     <div style={{ width: 5, height: 5, borderRadius: '50%', background: dot, flexShrink: 0 }} />

@@ -1,8 +1,9 @@
 import type { CSSProperties } from 'react';
 import Link from 'next/link';
 import { Topbar, Tag, StatusDot, MultiSelectFilter, ActiveFilterBar, SortableTH } from '@/components/risansi';
-import { AddClientDrawer } from '@/components/risansi/AddClientDrawer';
+import { AddClientButton } from '@/components/risansi/ClientFormDrawer';
 import risansiPool from '@/lib/db-risansi';
+import { formatLastVisitShort } from '@/lib/risansi-utils';
 import { FilterBar } from '../../clients/FilterBar';
 
 const PAGE_SIZE = 50;
@@ -196,12 +197,6 @@ export default async function ClientMasterPage({
   ]);
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
-  const today      = Date.now();
-
-  function daysAgo(d: Date | null): number | null {
-    if (!d) return null;
-    return Math.floor((today - new Date(d).getTime()) / 86_400_000);
-  }
 
   function buildUrl(overrides: Record<string, string | number | undefined>): string {
     const base: Record<string, string> = {};
@@ -260,7 +255,7 @@ export default async function ClientMasterPage({
               Client master · {total.toLocaleString('en-IN')} records
             </div>
           </div>
-          <AddClientDrawer />
+          <AddClientButton />
         </div>
 
         {/* ── Search + Sugar toggle ─────────────────────────────── */}
@@ -333,12 +328,9 @@ export default async function ClientMasterPage({
                 </thead>
                 <tbody>
                   {clients.map((c, i) => {
-                    const days = daysAgo(c.last_visit_date);
-                    const daysColor = days == null
-                      ? 'var(--neg)'
-                      : days > 200 ? 'var(--neg)'
-                      : days > 100 ? 'var(--warn)'
-                      : 'var(--pos)';
+                    const lv = formatLastVisitShort(
+                      c.last_visit_date ? new Date(c.last_visit_date).toISOString() : null,
+                    );
 
                     return (
                       <tr key={c.id} style={{ borderBottom: i < clients.length - 1 ? '1px solid var(--line)' : 'none' }}>
@@ -384,8 +376,8 @@ export default async function ClientMasterPage({
                         </td>
 
                         {/* Last visit */}
-                        <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: daysColor, whiteSpace: 'nowrap' }}>
-                          {days == null ? 'Never' : days === 0 ? 'Today' : `${days}d ago`}
+                        <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: lv.color, whiteSpace: 'nowrap' }}>
+                          <span style={{ fontWeight: lv.label === 'Never' ? 400 : 500 }}>{lv.label}</span>
                         </td>
 
                         {/* Status */}

@@ -2,6 +2,14 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { formatLastVisitShort } from '@/lib/risansi-utils';
+
+// Whole days since a last-visit date; future dates (planned visits) → null ("never").
+function daysSinceVisit(dateStr: string | null): number | null {
+  if (!dateStr) return null;
+  const n = Math.floor((Date.now() - new Date(dateStr).getTime()) / 86_400_000);
+  return n < 0 ? null : n;
+}
 
 export interface CoverageClient {
   id:              string;
@@ -28,15 +36,10 @@ export function ClientCoverageList({ clients }: { clients: CoverageClient[] }) {
       !(c.code ?? '').toLowerCase().includes(search.toLowerCase())
     ) return false;
 
-    if (filter === 'compliant') {
-      if (!c.last_visit_date) return false;
-      return Math.floor((Date.now() - new Date(c.last_visit_date).getTime()) / 86_400_000) <= 90;
-    }
-    if (filter === 'overdue') {
-      if (!c.last_visit_date) return false;
-      return Math.floor((Date.now() - new Date(c.last_visit_date).getTime()) / 86_400_000) > 90;
-    }
-    if (filter === 'never') return !c.last_visit_date;
+    const days = daysSinceVisit(c.last_visit_date);
+    if (filter === 'compliant') return days != null && days <= 90;
+    if (filter === 'overdue')   return days != null && days > 90;
+    if (filter === 'never')     return days === null;  // null OR future date
     return true;
   });
 
@@ -110,10 +113,7 @@ export function ClientCoverageList({ clients }: { clients: CoverageClient[] }) {
           </div>
         ) : (
           filtered.map(c => {
-            const days = c.last_visit_date
-              ? Math.floor((Date.now() - new Date(c.last_visit_date).getTime()) / 86_400_000)
-              : null;
-            const dot = days === null ? '#DC2626' : days <= 30 ? '#0E9F6E' : days <= 90 ? '#D97706' : '#DC2626';
+            const lv = formatLastVisitShort(c.last_visit_date);
             return (
               <Link
                 key={c.id}
@@ -126,7 +126,7 @@ export function ClientCoverageList({ clients }: { clients: CoverageClient[] }) {
                 onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-elev)')}
                 onMouseLeave={e => (e.currentTarget.style.background = 'var(--bg-paper)')}
               >
-                <div style={{ width: 7, height: 7, borderRadius: '50%', background: dot, flexShrink: 0 }} />
+                <div style={{ width: 7, height: 7, borderRadius: '50%', background: lv.color, flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{
                     fontSize: 12, fontWeight: 500, color: 'var(--fg)',
@@ -141,9 +141,9 @@ export function ClientCoverageList({ clients }: { clients: CoverageClient[] }) {
                 </div>
                 <div style={{
                   fontSize: 10, fontFamily: 'var(--font-mono)',
-                  color: dot, flexShrink: 0, textAlign: 'right',
+                  color: lv.color, flexShrink: 0, textAlign: 'right',
                 }}>
-                  {days === null ? 'Never' : days === 0 ? 'Today' : `${days}d`}
+                  {lv.label}
                 </div>
               </Link>
             );

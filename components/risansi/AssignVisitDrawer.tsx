@@ -5,6 +5,7 @@ import {
 } from 'react';
 import { useRouter } from 'next/navigation';
 import { assignVisit } from '@/app/actions/risansi';
+import { PLAN_VISIT_LABEL } from '@/lib/risansi-utils';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -55,7 +56,7 @@ export function AssignVisitRowBtn({
       }))}
       style={ROW_BTN}
     >
-      Assign Visit →
+      {PLAN_VISIT_LABEL}
     </button>
   );
 }
@@ -68,12 +69,25 @@ export default function AssignVisitDrawer({
   onSuccess,
   role,
   repId,
+  currentUserName,
+  // Controlled API (used by Client 360) — open/close via props, with the
+  // client pre-filled. When `controlledOpen` is undefined the drawer falls
+  // back to its internal event-driven behaviour (used by the calendar).
+  controlledOpen,
+  onClose,
+  prefilledClient,
+  lockClient: lockClientProp,
 }: {
   reps: DrawerRep[];
   hideButton?: boolean;
   onSuccess?: () => void;
   role?: string;
   repId?: string | number | null;
+  currentUserName?: string;
+  controlledOpen?: boolean;
+  onClose?: () => void;
+  prefilledClient?: { id: string; code?: string; legal_name: string } | null;
+  lockClient?: boolean;
 }) {
   const router = useRouter();
 
@@ -142,6 +156,38 @@ export default function AssignVisitDrawer({
     return () => window.removeEventListener(OPEN_VISIT_DRAWER, handleOpen);
   }, []);
 
+  // ── Controlled open (Client 360 etc.) ─────────────────────
+  // When the parent toggles `controlledOpen`, open/close the drawer and
+  // pre-fill the client. Mirrors the event handler above for the prop path.
+  useEffect(() => {
+    if (controlledOpen === undefined) return;
+    if (controlledOpen) {
+      setLockClientMode(lockClientProp ?? false);
+      setPrefillRepId('');
+      if (prefilledClient) {
+        setSelectedClient({
+          id: prefilledClient.id,
+          code: prefilledClient.code ?? '',
+          legal_name: prefilledClient.legal_name,
+          city: null, state: null, industry: null,
+        });
+        setQuery(prefilledClient.legal_name);
+      } else {
+        setSelectedClient(null);
+        setQuery('');
+      }
+      setResults([]);
+      setShowResults(false);
+      setSuccess(false);
+      setError('');
+      setFormKey(k => k + 1);
+      setOpen(true);
+    } else {
+      setOpen(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [controlledOpen]);
+
   // ── Client search with debounce (skip when locked) ────────
 
   useEffect(() => {
@@ -179,7 +225,7 @@ export default function AssignVisitDrawer({
     setOpen(true);
   }
 
-  function close() { setOpen(false); }
+  function close() { setOpen(false); onClose?.(); }
 
   function nextWorkday(): string {
     const d = new Date();
@@ -199,19 +245,21 @@ export default function AssignVisitDrawer({
     }
     setError('');
     const fd = new FormData(e.currentTarget);
-    fd.set('client_id', selectedClient.id);
+    fd.set('client_id', String(selectedClient.id));
+
     startTransition(async () => {
       try {
         await assignVisit(fd);
         setSuccess(true);
         onSuccess?.();
         setTimeout(() => {
-          setOpen(false);
           setSuccess(false);
+          close();
           router.refresh();
         }, 1200);
-      } catch {
-        setError('Failed to schedule visit — please try again.');
+      } catch (err) {
+        console.error('[Plan Visit] assignVisit failed', err);
+        setError(err instanceof Error ? err.message : 'Failed to schedule visit — please try again.');
       }
     });
   }
@@ -223,7 +271,7 @@ export default function AssignVisitDrawer({
       {/* Header trigger button — hidden when embedded in ClientActionButtons */}
       {!hideButton && (
         <button type="button" onClick={openFresh} style={PRIMARY_BTN}>
-          + Assign Visit
+          {PLAN_VISIT_LABEL}
         </button>
       )}
 
@@ -256,7 +304,7 @@ export default function AssignVisitDrawer({
         }}>
           <div>
             <div style={{ fontSize: 15, fontWeight: 700, color: '#0A3D8F', letterSpacing: '-0.01em' }}>
-              Plan Visit
+              {PLAN_VISIT_LABEL}
             </div>
             <div style={{ fontSize: 11, color: '#6B7FA3', marginTop: 2 }}>
               {lockClientMode
@@ -360,16 +408,16 @@ export default function AssignVisitDrawer({
                 border: '1px solid var(--line)', borderRadius: 6,
                 fontSize: 13, color: 'var(--fg-2)',
               }}>
-                {currentRepName || 'You'}
-                <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--fg-3)', fontStyle: 'italic' }}>(you)</span>
+                {currentUserName || currentRepName || 'You'}
+                <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--fg-3)', fontStyle: 'italic' }}>(You)</span>
               </div>
               <input type="hidden" name="rep_id" value={repId != null ? String(repId) : ''} />
             </div>
           ) : (
             <div>
-              <label style={LBL}>Rep <Req /></label>
-              <select name="rep_id" defaultValue={prefillRepId} style={INP} required>
-                <option value="">Select a rep…</option>
+              <label style={LBL}>Rep</label>
+              <select name="rep_id" defaultValue={prefillRepId} style={INP}>
+                <option value="">Use client&apos;s primary rep</option>
                 {reps.map(r => (
                   <option key={r.id} value={r.id}>
                     {r.name}{r.route ? ` · ${r.route}` : ''}

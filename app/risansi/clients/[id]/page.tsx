@@ -4,7 +4,7 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, Tag, StatusDot } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
-import { fyShortLabel, fmtCr, formatRev } from '@/lib/risansi-utils';
+import { fyShortLabel, fmtCr, formatRev, formatLastVisit } from '@/lib/risansi-utils';
 import { ClientActionButtons, PipelineOppBtn, EditDrawerTrigger } from '@/components/risansi/ClientActionButtons';
 import { AddContactButton } from '@/components/risansi/AddContactButton';
 import { EditContactButton } from '@/components/risansi/EditContactButton';
@@ -334,11 +334,9 @@ export default async function ClientProfilePage({
   const rilUnits   = equipment.filter(e => e.supplier === 'RIL').reduce((s, e) => s + e.quantity, 0);
   const totalUnits = equipment.reduce((s, e) => s + e.quantity, 0);
 
-  // Last visit
-  const lastVisit = visits[0] ?? null;
-  const daysAgo   = lastVisit
-    ? Math.floor((Date.now() - new Date(lastVisit.visit_date).getTime()) / 86_400_000)
-    : null;
+  // Last visit — from clients.last_visit_date (most recent COMPLETED visit only;
+  // planned future visits never count). formatLastVisit treats future dates as "never".
+  const lastVisitInfo = formatLastVisit(client.last_visit_date);
 
   // Pipeline total (value_cr already in Crores)
   const pipelineTotal = openOpps.reduce((s, o) => s + Number(o.value_cr), 0);
@@ -459,7 +457,11 @@ export default async function ClientProfilePage({
             repName={client.rep_name ?? client.primary_rep_name ?? ''}
             reps={reps}
             clientData={client}
+            contacts={contacts.filter(c => c.added_by !== 'excel_import')}
             canEdit={canEdit}
+            currentUserName={session?.user?.name ?? ''}
+            currentUserRepId={session?.user?.repId ?? null}
+            currentUserRole={role}
           />
         </div>
 
@@ -469,9 +471,12 @@ export default async function ClientProfilePage({
             value={formatRev(lifetimeTotal * 100_000)}
             sub={`${client.since_year ?? '—'} – present · ${lifetimeOrders} orders`} />
           <MiniKpi label="Last Visit"
-            value={daysAgo == null ? 'Never' : daysAgo === 0 ? 'Today' : `${daysAgo} days`}
-            sub={daysAgo != null && daysAgo > 90 ? `overdue · ${lastVisit?.rep_name ?? ''}` : lastVisit?.rep_name ?? 'No visits logged'}
-            neg={daysAgo != null && daysAgo > 90} />
+            value={lastVisitInfo.label}
+            valueColor={lastVisitInfo.color}
+            sub={lastVisitInfo.label === 'Never visited'
+              ? 'No visits logged'
+              : new Date(client.last_visit_date!).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+            neg={lastVisitInfo.isOverdue} />
           <MiniKpi label="Installed Base · PCP"
             value={totalUnits > 0 ? `${rilUnits} / ${totalUnits}` : '—'}
             sub={totalUnits > 0 ? `${Math.round((rilUnits / totalUnits) * 100)}% RIL share` : 'No PCP data'} />
@@ -983,12 +988,12 @@ export default async function ClientProfilePage({
 
 // ── Sub-components ─────────────────────────────────────────────
 
-function MiniKpi({ label, value, sub, neg = false }: { label: string; value: string; sub?: string; neg?: boolean }) {
+function MiniKpi({ label, value, sub, neg = false, valueColor }: { label: string; value: string; sub?: string; neg?: boolean; valueColor?: string }) {
   return (
     <div style={PANEL}>
       <div style={{ padding: 12 }}>
         <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.10em', fontWeight: 500 }}>{label}</div>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 20, marginTop: 4, color: neg ? 'var(--neg)' : 'var(--fg)', fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 20, marginTop: 4, color: valueColor ?? (neg ? 'var(--neg)' : 'var(--fg)'), fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>
           {value}
         </div>
         {sub && <div style={{ fontSize: 11, color: neg ? 'var(--neg)' : 'var(--fg-3)', marginTop: 3 }}>{sub}</div>}

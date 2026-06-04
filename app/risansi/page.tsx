@@ -10,7 +10,7 @@ import risansiPool from '@/lib/db-risansi';
 import {
   getCurrentFY, fyShortLabel,
   fyYtdPct, fyDaysLeft, formatIndianDate, formatTime, fmtCr, fmtL,
-  getGreeting, formatRev,
+  getGreeting, formatRev, PLAN_VISIT_LABEL,
 } from '@/lib/risansi-utils';
 
 // ── Safe query wrapper ─────────────────────────────────────────
@@ -217,7 +217,7 @@ export default async function ExecDashboardPage({
     return (
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
-          <Topbar crumbs={['Risansi', 'My Dashboard']} primaryAction="Plan Visit" primaryActionHref="/risansi/field" />
+          <Topbar crumbs={['Risansi', 'My Dashboard']} primaryAction={PLAN_VISIT_LABEL} primaryActionHref="/risansi/field" />
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>
@@ -681,7 +681,7 @@ export default async function ExecDashboardPage({
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Sticky topbar */}
       <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
-        <Topbar crumbs={['Risansi', 'Executive Dashboard']} primaryAction="Visit Plan" primaryActionHref="/risansi/visits" />
+        <Topbar crumbs={['Risansi', 'Executive Dashboard']} primaryAction={PLAN_VISIT_LABEL} primaryActionHref="/risansi/field" />
       </div>
 
       {/* Scrollable page body */}

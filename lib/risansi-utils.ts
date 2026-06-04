@@ -79,6 +79,62 @@ export function daysSince(dateStr: string): number {
   return Math.max(0, Math.floor((Date.now() - d.getTime()) / 86_400_000));
 }
 
+// ── Last-visit display ─────────────────────────────────────────
+// Single source of truth for rendering clients.last_visit_date.
+// A future date means a *planned* visit leaked into last_visit_date —
+// it is never a real "last visit", so we treat it as "never visited".
+
+/** Whole days from `dateStr` (midnight) to today (midnight). Negative = future. */
+function daysBetweenTodayAnd(dateStr: string): number | null {
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  date.setHours(0, 0, 0, 0);
+  return Math.floor((today.getTime() - date.getTime()) / 86_400_000);
+}
+
+/** Rich last-visit label for KPI cards / detail views. */
+export function formatLastVisit(
+  dateStr: string | null | undefined,
+): { label: string; color: string; isOverdue: boolean } {
+  const never = { label: 'Never visited', color: 'var(--neg)', isOverdue: true };
+  if (!dateStr) return never;
+
+  const diffDays = daysBetweenTodayAnd(dateStr);
+  if (diffDays == null) return never;
+
+  // Future date (planned visit showing as last visit) → treat as never
+  if (diffDays < 0)   return never;
+  if (diffDays === 0) return { label: 'Today',     color: 'var(--pos)',  isOverdue: false };
+  if (diffDays === 1) return { label: '1 day ago', color: 'var(--pos)',  isOverdue: false };
+  if (diffDays <= 30) return { label: `${diffDays} days ago`, color: 'var(--pos)',  isOverdue: false };
+  if (diffDays <= 90) return { label: `${diffDays} days ago`, color: 'var(--warn)', isOverdue: false };
+  if (diffDays <= 365) return { label: `${diffDays} days ago`, color: 'var(--neg)', isOverdue: true };
+
+  const years = Math.floor(diffDays / 365);
+  return {
+    label: years === 1 ? '1 year ago' : `${years} years ago`,
+    color: 'var(--neg)',
+    isOverdue: true,
+  };
+}
+
+/** Short last-visit label for dense tables. */
+export function formatLastVisitShort(
+  dateStr: string | null | undefined,
+): { label: string; color: string } {
+  if (!dateStr) return { label: 'Never', color: 'var(--neg)' };
+
+  const days = daysBetweenTodayAnd(dateStr);
+  if (days == null || days < 0) return { label: 'Never', color: 'var(--neg)' };
+  if (days === 0) return { label: 'Today',     color: 'var(--pos)' };
+  if (days <= 30) return { label: `${days}d`,  color: 'var(--pos)' };
+  if (days <= 90) return { label: `${days}d`,  color: 'var(--warn)' };
+  if (days <= 365) return { label: `${days}d`, color: 'var(--neg)' };
+  return { label: `${Math.floor(days / 365)}yr`, color: 'var(--neg)' };
+}
+
 // ── Currency formatting ────────────────────────────────────────
 
 /** ₹12.4 Cr — null-safe. For values already in Crores (orders.order_value_cr, sales_targets). */
@@ -245,3 +301,7 @@ export function normaliseIndustry(name: string): string {
       .replace(/\b\w/g, (c) => c.toUpperCase())
   );
 }
+
+// ── UI labels ──────────────────────────────────────────────────
+// Single source of truth for the Plan Visit button label across the app.
+export const PLAN_VISIT_LABEL = 'Plan Visit';

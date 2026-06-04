@@ -295,7 +295,11 @@ export default async function PipelinePage({
               {winRatePct > 0 && ` · win rate FY ${winRatePct}%`}
             </div>
           </div>
-          <NewOpportunityButton />
+          <NewOpportunityButton
+            currentUserName={session?.user?.name ?? ''}
+            currentUserRepId={currentRepId}
+            currentUserRole={role}
+          />
         </div>
 
         {/* Rep scope toggle (rep role only) */}

@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useEffect, type CSSProperties } from 'react';
-import AssignVisitDrawer, { OPEN_VISIT_DRAWER, type DrawerRep } from './AssignVisitDrawer';
-import { NewOpportunityDrawer } from './NewOpportunityDrawer';
-import { EditClientDrawer, type ClientForEdit } from './EditClientDrawer';
+import AssignVisitDrawer, { type DrawerRep } from './AssignVisitDrawer';
+import { NewOpportunityModal } from './NewOpportunityModal';
+import { ClientFormDrawer } from './ClientFormDrawer';
 import { Toast } from './Toast';
+import { PLAN_VISIT_LABEL } from '@/lib/risansi-utils';
 
 // ── Event names ────────────────────────────────────────────────
 
@@ -36,15 +37,21 @@ interface Props {
   repId:       string | null;
   repName:     string;
   reps:        DrawerRep[];
-  clientData:  ClientForEdit;
+  clientData:  any;
+  contacts?:   any[];
   canEdit?:    boolean;
+  currentUserName?:  string;
+  currentUserRepId?: string | number | null;
+  currentUserRole?:  string;
 }
 
 // ── Component ──────────────────────────────────────────────────
 
 export function ClientActionButtons({
-  clientId, clientName, clientCode, industry, repId, repName, reps, clientData, canEdit = false,
+  clientId, clientName, clientCode, industry, repId, repName, reps, clientData, contacts, canEdit = false,
+  currentUserName, currentUserRepId, currentUserRole,
 }: Props) {
+  const [isVisitOpen, setIsVisitOpen] = useState(false);
   const [isOppOpen,  setIsOppOpen]  = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -61,12 +68,6 @@ export function ClientActionButtons({
     };
   }, []);
 
-  function openPlanVisit() {
-    window.dispatchEvent(new CustomEvent(OPEN_VISIT_DRAWER, {
-      detail: { clientId, clientName, clientCode, repId: repId ?? undefined, lockClient: true },
-    }));
-  }
-
   function handleVisitSuccess() {
     setToast({ message: 'Visit scheduled successfully', type: 'success' });
   }
@@ -74,8 +75,8 @@ export function ClientActionButtons({
   return (
     <>
       <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-        <button type="button" onClick={openPlanVisit} style={BTN}>
-          Plan Visit
+        <button type="button" onClick={() => setIsVisitOpen(true)} style={BTN}>
+          {PLAN_VISIT_LABEL}
         </button>
         <button type="button" onClick={() => setIsOppOpen(true)} style={BTN}>
           New Opportunity
@@ -87,26 +88,46 @@ export function ClientActionButtons({
         )}
       </div>
 
-      {/* Visit drawer */}
-      <AssignVisitDrawer reps={reps} hideButton onSuccess={handleVisitSuccess} />
+      {/* Visit drawer — opened directly via props (client pre-filled & locked),
+          rep is locked to themselves when role === 'rep' */}
+      <AssignVisitDrawer
+        reps={reps}
+        hideButton
+        controlledOpen={isVisitOpen}
+        onClose={() => setIsVisitOpen(false)}
+        prefilledClient={{ id: String(clientId), code: clientCode, legal_name: clientName }}
+        lockClient
+        onSuccess={handleVisitSuccess}
+        role={currentUserRole}
+        repId={currentUserRepId}
+        currentUserName={currentUserName}
+      />
 
-      {/* Opportunity drawer */}
-      {isOppOpen && (
-        <NewOpportunityDrawer
-          clientId={clientId}
-          clientName={clientName}
-          clientCode={clientCode}
-          industry={industry}
-          onClose={() => setIsOppOpen(false)}
+      {/* Opportunity modal — shared with the Opportunities page, client locked here */}
+      <NewOpportunityModal
+        open={isOppOpen}
+        onClose={() => setIsOppOpen(false)}
+        lockClient
+        clientId={clientId}
+        clientName={clientName}
+        clientCode={clientCode}
+        clientIndustry={industry}
+        clientPrimaryRepId={repId ? Number(repId) : null}
+        clientPrimaryRepName={repName || null}
+        currentUserName={currentUserName ?? ''}
+        currentUserRepId={currentUserRepId ?? null}
+        currentUserRole={currentUserRole ?? 'rep'}
+      />
+
+      {/* Edit client drawer — unified ClientFormDrawer in edit mode */}
+      {isEditOpen && (
+        <ClientFormDrawer
+          mode="edit"
+          client={clientData}
+          existingContacts={contacts ?? []}
+          onClose={() => setIsEditOpen(false)}
         />
       )}
-
-      {/* Edit client drawer */}
-      <EditClientDrawer
-        client={clientData}
-        open={isEditOpen}
-        onClose={() => setIsEditOpen(false)}
-      />
 
       {toast && (
         <Toast message={toast.message} type={toast.type} onDismiss={() => setToast(null)} />
@@ -115,7 +136,7 @@ export function ClientActionButtons({
   );
 }
 
-// ── Tiny button for the pipeline panel "+ New Opportunity" ─────
+// ── Tiny button for the pipeline panel "New Opportunity" ─────
 
 export function PipelineOppBtn() {
   return (
@@ -124,7 +145,7 @@ export function PipelineOppBtn() {
       onClick={() => window.dispatchEvent(new CustomEvent(OPEN_OPP_DRAWER))}
       style={GHOST_BTN}
     >
-      + New Opportunity
+      New Opportunity
     </button>
   );
 }

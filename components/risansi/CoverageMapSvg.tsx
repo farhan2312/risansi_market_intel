@@ -96,6 +96,7 @@ function getDotPosition(client: ClientPin): [number, number] {
 function dotColor(lastVisit: string | null): string {
   if (!lastVisit) return '#DC2626';
   const days = Math.floor((Date.now() - new Date(lastVisit).getTime()) / 86_400_000);
+  if (days < 0)    return '#DC2626';  // future date (planned visit) → treat as never
   if (days <= 30)  return '#0E9F6E';
   if (days <= 90)  return '#D97706';
   return '#DC2626';

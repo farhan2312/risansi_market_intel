@@ -59,12 +59,28 @@ export async function approveUser(formData: FormData) {
     );
   }
 
-  // Link the approved rep's login email onto the reps row
+  // Link the approved rep onto the reps row:
+  //   1. email      → so they can log in
+  //   2. name       → overwrite the migrated Excel name with the
+  //                   user's display name (more accurate). COALESCE
+  //                   keeps the existing name if display_name is null.
+  //   3. everything else (zone/route/target_cr) is left untouched so
+  //      existing client/visit relationships (joined on rep_id) stay intact.
   if (safeRole === 'rep' && repId && userEmail) {
     try {
+      const userRes = await risansiPool.query<{ display_name: string | null }>(
+        'SELECT display_name FROM access_requests WHERE id = $1',
+        [id],
+      );
+      const displayName = userRes.rows[0]?.display_name ?? null;
+
       await risansiPool.query(
-        'UPDATE reps SET email = $1, updated_at = NOW() WHERE id = $2',
-        [userEmail, repId],
+        `UPDATE reps SET
+           email      = $1,
+           name       = COALESCE($2, name),
+           updated_at = NOW()
+         WHERE id = $3`,
+        [userEmail, displayName, repId],
       );
     } catch { /* ignore */ }
   }
