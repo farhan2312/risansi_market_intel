@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 
-const VALID_ROLES = ['rep', 'manager', 'admin'];
+const VALID_ROLES = ['rep', 'manager', 'admin', 'sysadmin'];
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);

@@ -91,6 +91,7 @@ export function ApprovalRow({ request, reps }: { request: ApprovalRequest; reps:
           <option value="rep">Field Rep</option>
           <option value="manager">Sales Manager</option>
           <option value="admin">Admin</option>
+          <option value="sysadmin">System Admin</option>
         </select>
       </td>
 
