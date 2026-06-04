@@ -66,17 +66,37 @@ export default function AssignVisitDrawer({
   reps,
   hideButton = false,
   onSuccess,
+  role,
+  repId,
 }: {
   reps: DrawerRep[];
   hideButton?: boolean;
   onSuccess?: () => void;
+  role?: string;
+  repId?: string | number | null;
 }) {
   const router = useRouter();
+
+  const isRepUser = role === 'rep';
 
   const [open, setOpen]               = useState(false);
   const [isPending, startTransition]  = useTransition();
   const [formKey, setFormKey]         = useState(0);
   const [prefillRepId, setPrefillRepId] = useState('');
+  const [currentRepName, setCurrentRepName] = useState('');
+
+  // A rep is locked to themselves — fetch their own name for the read-only display.
+  useEffect(() => {
+    if (!isRepUser || repId == null) return;
+    fetch('/api/risansi/reps')
+      .then(r => r.json())
+      .then((data: Array<{ id: string | number; name: string }>) => {
+        if (!Array.isArray(data)) return;
+        const me = data.find(r => String(r.id) === String(repId));
+        if (me) setCurrentRepName(me.name);
+      })
+      .catch(() => {});
+  }, [isRepUser, repId]);
 
   // Client search
   const [query, setQuery]                   = useState('');
@@ -332,17 +352,32 @@ export default function AssignVisitDrawer({
           </div>
 
           {/* 2 · Rep */}
-          <div>
-            <label style={LBL}>Rep <Req /></label>
-            <select name="rep_id" defaultValue={prefillRepId} style={INP} required>
-              <option value="">Select a rep…</option>
-              {reps.map(r => (
-                <option key={r.id} value={r.id}>
-                  {r.name}{r.route ? ` · ${r.route}` : ''}
-                </option>
-              ))}
-            </select>
-          </div>
+          {isRepUser ? (
+            <div>
+              <label style={LBL}>Rep</label>
+              <div style={{
+                padding: '9px 12px', background: 'var(--bg-sunk)',
+                border: '1px solid var(--line)', borderRadius: 6,
+                fontSize: 13, color: 'var(--fg-2)',
+              }}>
+                {currentRepName || 'You'}
+                <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--fg-3)', fontStyle: 'italic' }}>(you)</span>
+              </div>
+              <input type="hidden" name="rep_id" value={repId != null ? String(repId) : ''} />
+            </div>
+          ) : (
+            <div>
+              <label style={LBL}>Rep <Req /></label>
+              <select name="rep_id" defaultValue={prefillRepId} style={INP} required>
+                <option value="">Select a rep…</option>
+                {reps.map(r => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}{r.route ? ` · ${r.route}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* 3 · Visit Date */}
           <div>

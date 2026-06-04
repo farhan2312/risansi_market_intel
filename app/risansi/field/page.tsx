@@ -385,12 +385,10 @@ export default async function FieldActivityPage({
           <StatCard label="Never Visited"    value={stats.never_visited} color="var(--neg)" />
         </div>
 
-        {/* AssignVisit drawer — always mounted for overdue row buttons */}
-        {!isRep && (
-          <div style={{ display: 'none' }}>
-            <AssignVisitDrawer reps={calendarReps} hideButton={true} />
-          </div>
-        )}
+        {/* AssignVisit drawer — always mounted for overdue row buttons (rep locked to self) */}
+        <div style={{ display: 'none' }}>
+          <AssignVisitDrawer reps={calendarReps} hideButton={true} role={role} repId={repId ?? undefined} />
+        </div>
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--line)', paddingBottom: 0 }}>
@@ -521,7 +519,7 @@ export default async function FieldActivityPage({
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <AssignVisitButton reps={calendarReps} />
+                  <AssignVisitButton reps={calendarReps} role={role} repId={repId ?? undefined} />
                   <WeekNav currentOffset={weekOffset} />
                 </div>
               </div>
@@ -626,7 +624,10 @@ export default async function FieldActivityPage({
                     {calendarVisits.length} visit{calendarVisits.length !== 1 ? 's' : ''}
                   </span>
                 </div>
-                <MonthNav currentOffset={monthOffset} />
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <AssignVisitButton reps={calendarReps} role={role} repId={repId ?? undefined} />
+                  <MonthNav currentOffset={monthOffset} />
+                </div>
               </div>
 
               {/* Month grid */}
@@ -732,7 +733,7 @@ export default async function FieldActivityPage({
                       <th style={TH}>Rep</th>
                       <OverdueSortTH col="last_visit"   label="Last Visit"   curSort={sortKey} curDir={sortDir} />
                       <OverdueSortTH col="days_overdue" label="Days Overdue" curSort={sortKey} curDir={sortDir} />
-                      {!isRep && <th style={TH}>Action</th>}
+                      <th style={TH}>Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -762,15 +763,13 @@ export default async function FieldActivityPage({
                           <td style={{ ...TD, fontFamily: 'var(--font-mono)', color: dColor, fontWeight: 500 }}>
                             {d == null ? '—' : d > 365 ? '1yr+' : `${d}d`}
                           </td>
-                          {!isRep && (
-                            <td style={TD}>
-                              <AssignVisitRowBtn
-                                clientId={acc.id}
-                                clientName={acc.legal_name}
-                                clientCode={acc.code}
-                              />
-                            </td>
-                          )}
+                          <td style={TD}>
+                            <AssignVisitRowBtn
+                              clientId={acc.id}
+                              clientName={acc.legal_name}
+                              clientCode={acc.code}
+                            />
+                          </td>
                         </tr>
                       );
                     })}

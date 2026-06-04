@@ -5,6 +5,10 @@ import type { DrawerRep } from './AssignVisitDrawer';
 
 // Thin client island — the drawer manages its own open/close state
 // and renders its own trigger button.
-export function AssignVisitButton({ reps }: { reps: DrawerRep[] }) {
-  return <AssignVisitDrawer reps={reps} />;
+export function AssignVisitButton({ reps, repId, role }: {
+  reps: DrawerRep[];
+  repId?: string | number | null;
+  role?: string;
+}) {
+  return <AssignVisitDrawer reps={reps} repId={repId} role={role} />;
 }
