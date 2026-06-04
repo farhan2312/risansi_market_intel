@@ -11,6 +11,7 @@ import { MonthNav } from '@/components/risansi/MonthNav';
 import { AssignVisitButton } from '@/components/risansi/AssignVisitButton';
 import AssignVisitDrawer, { AssignVisitRowBtn } from '@/components/risansi/AssignVisitDrawer';
 import type { DrawerRep } from '@/components/risansi/AssignVisitDrawer';
+import { VisitReportsTab, type VisitReportRow } from '@/components/risansi/VisitReportsTab';
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -177,7 +178,7 @@ export default async function FieldActivityPage({
 
   // ── Queries ──────────────────────────────────────────────────
 
-  const [feed, overdue, calendarVisits, calendarReps, mapClients, stats] = await Promise.all([
+  const [feed, overdue, calendarVisits, calendarReps, mapClients, stats, reportsVisits] = await Promise.all([
 
     // 1. Visit feed — filtered by sub-tab (upcoming / today / past)
     q<VisitFeedRow[]>(async () => {
@@ -340,6 +341,58 @@ export default async function FieldActivityPage({
         never_visited: Number(r?.never_visited ?? 0),
       };
     }, { total_active: 0, visited_fy: 0, overdue: 0, never_visited: 0 }),
+
+    // 7. Visit Reports — submitted visits with related aggregates (only when tab open).
+    //    Rep scope is parameterized; search/purpose/rep filtering happens client-side.
+    q<VisitReportRow[]>(async () => {
+      if (tab !== 'reports') return [];
+      const repScope = (isRep && repId) ? 'AND v.rep_id = $1' : '';
+      const params   = (isRep && repId) ? [repId] : [];
+      const { rows } = await risansiPool.query(
+        `SELECT
+           v.id::text AS id, v.visit_date::text AS visit_date, v.status,
+           v.submitted_at::text AS submitted_at,
+           v.purpose, v.outcome, v.summary,
+           v.is_planned, v.is_unplanned, v.unplanned_reason,
+           v.check_in_time::text AS check_in_time, v.check_out_time::text AS check_out_time,
+           v.gps_within_radius, v.manual_checkin,
+           v.competitor_activity_observed,
+           v.sample_or_gift_given, v.sample_gift_detail, v.sample_gift_value,
+           v.follow_up_required, v.follow_up_text, v.follow_up_due_date::text AS follow_up_due_date,
+           v.next_visit_recommendation::text AS next_visit_recommendation,
+           v.industry_format, v.performance_feedback, v.pcp_competitor,
+           v.mgmt_intervention, v.action_points, v.complaint_notes,
+           v.competitors_observed, v.open_remarks, v.major_remarks,
+           v.ice_dispersal_by, v.negotiation_by,
+           c.id::text AS client_id, c.legal_name AS client_name, c.code AS client_code,
+           c.industry, c.is_sugar, c.city, c.state, c.tier,
+           COALESCE(r.name, '—') AS rep_name, r.id::text AS rep_id,
+           COUNT(DISTINCT e.id) FILTER (WHERE e.is_ril = TRUE)        AS ril_equip_count,
+           COUNT(DISTINCT e.id) FILTER (WHERE e.is_ril = FALSE)       AS competitor_equip_count,
+           COUNT(DISTINCT e.id) FILTER (WHERE e.is_opportunity = TRUE) AS displacement_opp_count,
+           COUNT(DISTINCT o.id) FILTER (WHERE o.auto_created = TRUE)   AS auto_opp_count,
+           COUNT(DISTINCT t.id) AS task_count,
+           MAX(CASE WHEN vsr.has_expansion          THEN 1 ELSE 0 END) AS has_expansion,
+           MAX(CASE WHEN vsr.has_complaints         THEN 1 ELSE 0 END) AS has_complaints,
+           MAX(CASE WHEN vsr.has_pending_offers     THEN 1 ELSE 0 END) AS has_pending_offers,
+           MAX(CASE WHEN vsr.has_outstanding_issues THEN 1 ELSE 0 END) AS has_outstanding_issues,
+           MAX(CASE WHEN vsr.competitor_prices_captured THEN 1 ELSE 0 END) AS competitor_prices_captured
+         FROM visits v
+         JOIN clients c ON v.client_id = c.id
+         LEFT JOIN reps r ON v.rep_id = r.id
+         LEFT JOIN equipment e ON e.visit_id = v.id
+         LEFT JOIN opportunities o ON o.visit_id = v.id
+         LEFT JOIN tasks t ON t.visit_id = v.id
+         LEFT JOIN visit_sugar_report vsr ON vsr.visit_id = v.id
+         WHERE v.submitted_at IS NOT NULL
+           ${repScope}
+         GROUP BY v.id, c.id, r.id, r.name
+         ORDER BY v.visit_date DESC, v.submitted_at DESC
+         LIMIT 100`,
+        params,
+      );
+      return rows as VisitReportRow[];
+    }, []),
   ]);
 
   // ── DEBUG: calendar data (server logs) ───────────────────────
@@ -414,6 +467,7 @@ export default async function FieldActivityPage({
           {[
             { id: 'calendar', label: 'Calendar' },
             { id: 'feed',     label: 'Visit Feed' },
+            { id: 'reports',  label: 'Visit Reports' },
             { id: 'overdue',  label: `Overdue (${stats.overdue.toLocaleString('en-IN')})` },
             { id: 'map',      label: 'Map' },
           ].map(t => (
@@ -507,6 +561,11 @@ export default async function FieldActivityPage({
               </div>
             )}
           </div>
+        )}
+
+        {/* ── Tab: Visit Reports ───────────────────────────────── */}
+        {tab === 'reports' && (
+          <VisitReportsTab visits={reportsVisits} role={role} />
         )}
 
         {/* ── Tab: Calendar ────────────────────────────────────── */}
