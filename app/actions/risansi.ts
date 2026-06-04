@@ -702,6 +702,14 @@ export async function assignVisit(formData: FormData) {
   const purpose   = (formData.get('purpose')     as string | null)?.trim() ?? 'Routine';
   const notes     = (formData.get('notes')       as string | null)?.trim() || null;
 
+  // ── DEBUG: server action invocation (Vercel logs) ──
+  console.log('=== assignVisit SERVER ACTION CALLED ===');
+  console.log('client_id:', clientId);
+  console.log('rep_id:', repIdRaw);
+  console.log('visit_date:', visitDate);
+  console.log('purpose:', purpose);
+  console.log('by user:', user?.email);
+
   // A missing client must surface as an error — never report a fake success.
   if (!clientId) throw new Error('Please select a client before scheduling a visit.');
 
@@ -723,6 +731,7 @@ export async function assignVisit(formData: FormData) {
     );
     repId = rows[0]?.id ?? null;
   }
+  console.log('assignVisit: resolved rep_id =', repId, '· visit_date =', date);
 
   // Try full insert with optional columns; fall back to minimal ONLY if the
   // full insert fails (e.g. a column is missing). Errors propagate to the UI.
@@ -736,7 +745,8 @@ export async function assignVisit(formData: FormData) {
       [clientId, repId, date, purpose, notes],
     );
     insertedId = rows[0]?.id ?? null;
-  } catch {
+  } catch (err) {
+    console.error('assignVisit: full insert failed, retrying minimal —', err);
     const { rows } = await risansiPool.query<{ id: number }>(
       `INSERT INTO visits (client_id, rep_id, visit_date, purpose, status, created_at)
        VALUES ($1, $2, $3, $4, 'planned', NOW())
@@ -746,6 +756,7 @@ export async function assignVisit(formData: FormData) {
     insertedId = rows[0]?.id ?? null;
   }
 
+  console.log('=== assignVisit DONE === inserted visit id =', insertedId);
   if (!insertedId) throw new Error('Visit could not be saved — please try again.');
 
   await logActivity('client', clientId, `visit assigned for ${date} · ${purpose}`, user.email!);

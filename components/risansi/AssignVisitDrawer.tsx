@@ -247,6 +247,20 @@ export default function AssignVisitDrawer({
     const fd = new FormData(e.currentTarget);
     fd.set('client_id', String(selectedClient.id));
 
+    // ── DEBUG: log everything being submitted (browser console) ──
+    console.log('=== AssignVisitDrawer Submit ===');
+    console.log('client_id:', fd.get('client_id'));
+    console.log('rep_id:', fd.get('rep_id'));
+    console.log('visit_date:', fd.get('visit_date'));
+    console.log('purpose:', fd.get('purpose'));
+    console.log('selectedClient:', selectedClient);
+    console.log('prefilledClient prop:', prefilledClient);
+    console.log('repId prop (current user rep):', repId);
+    console.log('role prop:', role, '· lockClientMode:', lockClientMode, '· controlledOpen:', controlledOpen);
+    for (const [key, val] of fd.entries()) {
+      console.log(`  fd[${key}]:`, val);
+    }
+
     startTransition(async () => {
       try {
         await assignVisit(fd);

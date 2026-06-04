@@ -90,7 +90,10 @@ export default async function PipelinePage({
   // Multi-select filters
   const stageFilts    = typeof sp.stage        === 'string' && sp.stage        ? sp.stage.split(',').filter(Boolean)        : [];
   const prodTypeFilts = typeof sp.product_type === 'string' && sp.product_type ? sp.product_type.split(',').filter(Boolean) : [];
-  const repFilts      = typeof sp.rep          === 'string' && sp.rep          ? sp.rep.split(',').filter(Boolean)          : [];
+  // NOTE: `rep` is also the scope-toggle param (?rep=all). Exclude the 'all'
+  // sentinel here so the multi-select rep filter doesn't try to match a rep
+  // literally named "all" (which returned zero results for "All Opportunities").
+  const repFilts      = typeof sp.rep          === 'string' && sp.rep && sp.rep !== 'all' ? sp.rep.split(',').filter(Boolean)          : [];
   const indFilts      = typeof sp.industry     === 'string' && sp.industry     ? sp.industry.split(',').filter(Boolean)     : [];
 
   // Sort

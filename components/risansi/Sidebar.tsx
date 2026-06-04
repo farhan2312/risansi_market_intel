@@ -152,7 +152,7 @@ export function Sidebar({ active, role, user, alerts = {}, pendingCount = 0 }: S
       )}
 
       {/* User */}
-      <UserMenu name={user.name} email={user.email} />
+      <UserMenu name={user.name} email={user.email} role={user.role} />
     </aside>
   );
 }

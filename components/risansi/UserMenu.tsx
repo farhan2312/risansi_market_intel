@@ -4,9 +4,24 @@ import { useState, useRef, useEffect } from 'react';
 import { signOut } from 'next-auth/react';
 import type { CSSProperties } from 'react';
 
-export function UserMenu({ name, email }: { name: string; email: string }) {
+type UserMenuProps = {
+  name: string;
+  email: string;
+  role: string;
+};
+
+const ROLE_LABELS: Record<string, string> = {
+  rep:      'Sales Representative',
+  manager:  'Sales Manager',
+  admin:    'Admin',
+  sysadmin: 'System Admin',
+};
+
+export function UserMenu({ name, email, role }: UserMenuProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  const roleLabel = ROLE_LABELS[role] ?? role;
 
   const initials = name
     ?.split(' ')
@@ -58,7 +73,7 @@ export function UserMenu({ name, email }: { name: string; email: string }) {
         <div style={AVATAR}>{initials}</div>
         <div style={{ minWidth: 0, flex: 1, textAlign: 'left' }}>
           <div style={WHO}>{name}</div>
-          <div style={ROLE_LABEL}>{email.split('@')[0]}</div>
+          <div style={ROLE_LABEL}>{roleLabel}</div>
         </div>
         <svg
           width={12} height={12} viewBox="0 0 16 16" fill="none"
