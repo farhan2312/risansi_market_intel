@@ -906,7 +906,7 @@ function CalendarVisitCard({ visit, compact = false }: { visit: CalendarVisit; c
 
   return (
     <Link
-      href={`/risansi/clients/${visit.client_code}`}
+      href={`/risansi/visits/${visit.id}`}
       style={{
         display: 'block', margin: '2px', padding: compact ? '3px 5px' : '5px 7px',
         borderRadius: 4, borderLeft: `3px solid ${color}`,
