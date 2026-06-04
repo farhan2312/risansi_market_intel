@@ -435,11 +435,11 @@ export default function AssignVisitDrawer({
             </div>
           ) : (
             <div>
-              <label style={LBL}>Rep</label>
-              <select name="rep_id" defaultValue={prefillRepId} style={INP}>
-                <option value="">Use client&apos;s primary rep</option>
+              <label style={LBL}>Rep <Req /></label>
+              <select name="rep_id" value={prefillRepId} onChange={e => setPrefillRepId(e.target.value)} style={INP}>
+                <option value="">— Select Rep —</option>
                 {reps.map(r => (
-                  <option key={r.id} value={r.id}>
+                  <option key={r.id} value={String(r.id)}>
                     {r.name}{r.route ? ` · ${r.route}` : ''}
                   </option>
                 ))}

@@ -41,7 +41,7 @@ interface OverdueRow {
   industry: string | null; tier: string | null; status: string;
   state: string | null; city: string | null;
   last_visit_date: string | null; days_overdue: number | null;
-  rep_name: string;
+  rep_name: string; primary_rep_id: string | null;
 }
 
 interface CalendarVisit {
@@ -234,7 +234,8 @@ export default async function FieldActivityPage({
              WHEN c.last_visit_date IS NULL THEN NULL
              ELSE (CURRENT_DATE - c.last_visit_date)
            END AS days_overdue,
-           COALESCE(r.name, c.primary_rep_name, '—') AS rep_name
+           COALESCE(r.name, c.primary_rep_name, '—') AS rep_name,
+           c.primary_rep_id::text AS primary_rep_id
          FROM clients c
          LEFT JOIN reps r ON c.primary_rep_id = r.id
          WHERE c.status = 'ACTIVE'
@@ -846,6 +847,7 @@ export default async function FieldActivityPage({
                               clientId={acc.id}
                               clientName={acc.legal_name}
                               clientCode={acc.code}
+                              repId={acc.primary_rep_id ?? undefined}
                             />
                           </td>
                         </tr>
