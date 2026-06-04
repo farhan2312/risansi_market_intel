@@ -78,7 +78,7 @@ interface AutoOpp {
 export default async function ExecDashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ fy?: string }>;
+  searchParams: Promise<{ fy?: string; view?: string }>;
 }) {
   // ── Mobile redirect (must live here, not in layout) ────────
   const headersList = await headers();
@@ -92,8 +92,13 @@ export default async function ExecDashboardPage({
   const role        = session?.user?.role ?? '';
   const isRep       = role === 'rep';
 
-  // ── Rep-specific dashboard (early return) ──────────────────────
-  if (isRep) {
+  const sp       = await searchParams;
+  const view     = typeof sp.view === 'string' ? sp.view : 'personal';
+  // Reps default to their personal dashboard; admins/managers always see full.
+  const showFull = role !== 'rep' || view === 'full';
+
+  // ── Rep-specific dashboard (personal view) ─────────────────────
+  if (!showFull) {
     const email = session?.user?.email ?? '';
     const today = new Date();
 
@@ -212,7 +217,7 @@ export default async function ExecDashboardPage({
     return (
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
-          <Topbar crumbs={['Risansi', 'My Dashboard']} primaryAction="Log Visit" primaryActionHref="/risansi/field" />
+          <Topbar crumbs={['Risansi', 'My Dashboard']} primaryAction="Plan Visit" primaryActionHref="/risansi/field" />
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>
@@ -227,6 +232,9 @@ export default async function ExecDashboardPage({
               {!repId && ' · Rep profile not linked — contact admin to sync your account'}
             </div>
           </div>
+
+          {/* View toggle (reps only) */}
+          <RepViewToggle view={view} />
 
           {/* 4 KPI cards */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
@@ -698,6 +706,9 @@ export default async function ExecDashboardPage({
             <RefreshButton />
           </div>
         </div>
+
+        {/* View toggle (reps only — admins/managers don't see it) */}
+        {isRep && <RepViewToggle view={view} />}
 
         {/* ── Hero metrics row 1: full-width Revenue card ─────── */}
         <div style={{ marginBottom: 12 }}>
@@ -1287,6 +1298,25 @@ function RepKpi({ label, value, sub, neg = false }: { label: string; value: stri
         <div style={{ ...METRIC_VAL, fontSize: 32 }}>{value}</div>
         <div style={{ fontSize: 11, color: neg ? 'var(--neg)' : 'var(--fg-3)', marginTop: 4 }}>{sub}</div>
       </div>
+    </div>
+  );
+}
+
+// Rep-only toggle between personal and full-company dashboard views
+function RepViewToggle({ view }: { view: string }) {
+  const isFull = view === 'full';
+  const tab = (active: boolean): CSSProperties => ({
+    padding: '6px 16px', borderRadius: 6, fontSize: 13, fontWeight: 500,
+    textDecoration: 'none',
+    background: active ? '#fff' : 'transparent',
+    color: active ? '#1A5CB8' : 'var(--fg-3)',
+    boxShadow: active ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
+    transition: 'all 150ms',
+  });
+  return (
+    <div style={{ display: 'flex', gap: 0, marginBottom: 20, background: 'var(--bg-elev)', borderRadius: 8, padding: 4, width: 'fit-content' }}>
+      <a href="/risansi" style={tab(!isFull)}>My Dashboard</a>
+      <a href="/risansi?view=full" style={tab(isFull)}>Full View</a>
     </div>
   );
 }
