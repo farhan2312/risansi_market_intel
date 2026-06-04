@@ -646,7 +646,15 @@ function CheckInButton({ visitId, onDone }: { visitId: string; onDone: () => voi
     setLoading(true); setError('');
     try {
       const pos = await new Promise<GeolocationPosition>((res, rej) =>
-        navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 10000 }),
+        navigator.geolocation.getCurrentPosition(
+          res,
+          (err) => {
+            console.error('GPS error code:', err.code);
+            console.error('GPS error message:', err.message);
+            rej(err);
+          },
+          { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+        ),
       );
       await checkInVisit({
         visitId,
@@ -655,15 +663,22 @@ function CheckInButton({ visitId, onDone }: { visitId: string; onDone: () => voi
       });
       onDone();
     } catch (err: unknown) {
-      const geoErr = err as GeolocationPositionError;
-      if (geoErr?.code === 1) {
-        setError('Location access denied. Checking in without GPS…');
-        await checkInVisit({ visitId, lat: null, lng: null, accuracy: null, manual: true, manualNote: 'GPS denied' });
-        onDone();
-      } else {
-        await checkInVisit({ visitId, lat: null, lng: null, accuracy: null, manual: true, manualNote: 'GPS unavailable' });
-        onDone();
-      }
+      const code = (err as GeolocationPositionError)?.code;
+      const msg =
+        code === 1 ? 'Location permission denied. Please allow location access in your browser settings.'
+        : code === 2 ? 'Location unavailable. Check your device GPS.'
+        : code === 3 ? 'Location timed out. Please try again.'
+        : 'GPS error. You can still check in manually.';
+      setError(msg);
+      setLoading(false);
+    }
+  };
+
+  const manualCheckIn = async () => {
+    setLoading(true);
+    try {
+      await checkInVisit({ visitId, lat: null, lng: null, accuracy: null, manual: true, manualNote: 'GPS unavailable' });
+      onDone();
     } finally {
       setLoading(false);
     }
@@ -687,7 +702,21 @@ function CheckInButton({ visitId, onDone }: { visitId: string; onDone: () => voi
           Your GPS coordinates will be recorded
         </span>
       </div>
-      {error && <div style={{ marginTop: 8, fontSize: 12, color: '#D97706' }}>{error}</div>}
+      {error && (
+        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, color: '#D97706' }}>{error}</span>
+          <button
+            type="button" onClick={manualCheckIn} disabled={loading}
+            style={{
+              padding: '5px 12px', borderRadius: 6, border: '1px solid var(--line-strong)',
+              background: 'var(--bg-paper)', cursor: loading ? 'not-allowed' : 'pointer',
+              fontSize: 12, fontFamily: 'inherit', color: 'var(--fg-2)',
+            }}
+          >
+            Check in without GPS
+          </button>
+        </div>
+      )}
     </div>
   );
 }
