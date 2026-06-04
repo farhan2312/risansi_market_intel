@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { saveVisitField, checkInVisit, addEquipment } from '@/app/actions/risansi-visits';
+import { FormErrorBoundary } from './FormErrorBoundary';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -150,7 +151,9 @@ export function VisitReportForm({
             </div>
           </div>
         ) : !disabled ? (
-          <CheckInButton visitId={visit.id} onDone={() => router.refresh()} />
+          <FormErrorBoundary>
+            <CheckInButton visitId={visit.id} onDone={() => router.refresh()} />
+          </FormErrorBoundary>
         ) : (
           <div style={{ fontSize: 13, color: 'var(--fg-3)', padding: '8px 0' }}>No check-in recorded</div>
         )}
@@ -642,46 +645,57 @@ function CheckInButton({ visitId, onDone }: { visitId: string; onDone: () => voi
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
 
-  const handle = async () => {
-    setLoading(true); setError('');
+  // Single entry point that always catches — the server action can never
+  // produce an unhandled rejection that crashes the page.
+  const doCheckIn = async (
+    lat: number | null, lng: number | null, accuracy: number | null,
+    manual: boolean, manualNote: string | null,
+  ) => {
     try {
-      const pos = await new Promise<GeolocationPosition>((res, rej) =>
-        navigator.geolocation.getCurrentPosition(
-          res,
-          (err) => {
-            console.error('GPS error code:', err.code);
-            console.error('GPS error message:', err.message);
-            rej(err);
-          },
-          { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
-        ),
-      );
-      await checkInVisit({
-        visitId,
-        lat: pos.coords.latitude, lng: pos.coords.longitude,
-        accuracy: pos.coords.accuracy,
-      });
+      await checkInVisit({ visitId, lat, lng, accuracy, manual, manualNote: manualNote ?? undefined });
       onDone();
     } catch (err: unknown) {
-      const code = (err as GeolocationPositionError)?.code;
-      const msg =
-        code === 1 ? 'Location permission denied. Please allow location access in your browser settings.'
-        : code === 2 ? 'Location unavailable. Check your device GPS.'
-        : code === 3 ? 'Location timed out. Please try again.'
-        : 'GPS error. You can still check in manually.';
-      setError(msg);
+      console.error('Check-in error:', err);
+      setError(err instanceof Error ? err.message : 'Check-in failed. Please try again.');
+    } finally {
       setLoading(false);
     }
   };
 
-  const manualCheckIn = async () => {
-    setLoading(true);
-    try {
-      await checkInVisit({ visitId, lat: null, lng: null, accuracy: null, manual: true, manualNote: 'GPS unavailable' });
-      onDone();
-    } finally {
-      setLoading(false);
+  const handle = async () => {
+    setLoading(true); setError('');
+
+    // Geolocation may be absent (insecure context / unsupported webview) —
+    // fall back to a manual check-in instead of throwing.
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      await doCheckIn(null, null, null, true, 'GPS not supported on this device');
+      return;
     }
+
+    try {
+      const pos = await new Promise<GeolocationPosition>((res, rej) =>
+        navigator.geolocation.getCurrentPosition(
+          res, rej,
+          { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+        ),
+      );
+      await doCheckIn(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy, false, null);
+    } catch (gpsErr: unknown) {
+      const code = (gpsErr as GeolocationPositionError)?.code;
+      console.error('GPS error:', code, (gpsErr as Error)?.message);
+      const reason =
+        code === 1 ? 'Location permission denied'
+        : code === 2 ? 'Location unavailable'
+        : code === 3 ? 'Location request timed out'
+        : 'GPS error: ' + ((gpsErr as Error)?.message ?? 'unknown');
+      // Graceful fallback — record a manual check-in so the visit can still start.
+      await doCheckIn(null, null, null, true, reason);
+    }
+  };
+
+  const manualCheckIn = () => {
+    setLoading(true); setError('');
+    return doCheckIn(null, null, null, true, 'Manual check-in');
   };
 
   return (

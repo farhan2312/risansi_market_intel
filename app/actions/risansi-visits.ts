@@ -44,24 +44,29 @@ export async function checkInVisit({
   manual?: boolean;
   manualNote?: string;
 }) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.email) throw new Error('Unauthorized');
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) throw new Error('Not authenticated');
 
-  await risansiPool.query(
-    `UPDATE visits SET
-       check_in_time       = NOW(),
-       check_in_lat        = $1,
-       check_in_lng        = $2,
-       check_in_accuracy_m = $3,
-       manual_checkin      = $4,
-       manual_checkin_note = $5,
-       status              = CASE WHEN status = 'planned' THEN 'checked-in' ELSE status END,
-       updated_at          = NOW()
-     WHERE id = $6 AND submitted_at IS NULL`,
-    [lat, lng, accuracy, manual, manualNote ?? null, visitId],
-  );
+    await risansiPool.query(
+      `UPDATE visits SET
+         check_in_time       = NOW(),
+         check_in_lat        = $1,
+         check_in_lng        = $2,
+         check_in_accuracy_m = $3,
+         manual_checkin      = $4,
+         manual_checkin_note = $5,
+         status              = CASE WHEN status = 'planned' THEN 'checked-in' ELSE status END,
+         updated_at          = NOW()
+       WHERE id = $6 AND submitted_at IS NULL`,
+      [lat, lng, accuracy, manual, manualNote ?? null, visitId],
+    );
 
-  revalidatePath(`/risansi/visits/${visitId}`);
+    revalidatePath(`/risansi/visits/${visitId}`);
+  } catch (err) {
+    console.error('checkInVisit error:', err);
+    throw err;
+  }
 }
 
 // ── Auto-save visit fields ─────────────────────────────────────
