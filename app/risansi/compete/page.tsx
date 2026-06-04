@@ -1,4 +1,6 @@
 import type { CSSProperties } from 'react';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, Donut, Tag, KpiCard, MultiSelectFilter, ActiveFilterBar, SortableTH } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
 import { fmtCr } from '@/lib/risansi-utils';
@@ -17,6 +19,12 @@ const COMP_COLORS: Record<string, string> = {
   Others:        'var(--fg-3)',
 };
 function compColor(name: string) { return COMP_COLORS[name] ?? COMP_COLORS.Others; }
+
+function fmtD(d: string | null): string {
+  if (!d) return '—';
+  const dt = new Date(d);
+  return isNaN(dt.getTime()) ? '—' : dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
 
 interface MarketTotals {
   ril_pcp:     number;
@@ -44,6 +52,22 @@ interface IndustryShare {
   total_pcp: number;
 }
 
+// ── Visit-sourced intelligence ─────────────────────────────────
+
+interface FieldSighting {
+  supplier: string; pump_type: string | null; application: string | null;
+  condition: string | null; client_name: string; client_code: string;
+  visit_date: string | null; rep_name: string;
+}
+interface CompActivity {
+  visit_date: string | null; competitors_observed: string | null;
+  pcp_competitor: string | null; client_name: string; client_code: string; rep_name: string;
+}
+interface LostTo { competitor: string; losses: number; value_cr: number; }
+interface PriceIntel {
+  visit_date: string | null; pics: number; client_name: string; client_code: string; rep_name: string;
+}
+
 // Sort map for displacement table
 const SORT_MAP: Record<string, string> = {
   client:         'c.legal_name',
@@ -61,6 +85,18 @@ export default async function CompetePage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = await searchParams;
+
+  // ── Role / rep scoping (rep sees only their own visit data) ──
+  const session = await getServerSession(authOptions);
+  const role    = session?.user?.role ?? 'rep';
+  const isRep   = role === 'rep';
+  let repId: number | null = session?.user?.repId ?? null;
+  if (isRep && repId == null && session?.user?.email) {
+    const r = await risansiPool.query<{ id: number }>(
+      'SELECT id FROM reps WHERE email = $1 LIMIT 1', [session.user.email],
+    );
+    repId = r.rows[0]?.id ?? null;
+  }
 
   // Multi-select filters for displacement table
   const zoneFilts = typeof sp.zone === 'string' && sp.zone ? sp.zone.split(',').filter(Boolean) : [];
@@ -90,7 +126,13 @@ export default async function CompetePage({
 
   const dispWhere = `WHERE ${dispConds.join(' AND ')}`;
 
-  const [totals, displacementAccounts, industryShare, zoneOptions, repOptions] = await Promise.all([
+  // Rep scope fragment for visit-sourced queries (parameterised as $1)
+  const repScope = (isRep && repId) ? true : false;
+
+  const [
+    totals, displacementAccounts, industryShare, zoneOptions, repOptions,
+    fieldSightings, competitorActivity, lostToRows, priceIntel,
+  ] = await Promise.all([
 
     // 1. Aggregate totals
     q<MarketTotals>(async () => {
@@ -191,7 +233,100 @@ export default async function CompetePage({
       );
       return rows.map(r => r.name);
     }, []),
+
+    // A. Field Sightings — competitor equipment logged on visits
+    q<FieldSighting[]>(async () => {
+      const { rows } = await risansiPool.query<{
+        supplier: string; pump_type: string | null; application: string | null;
+        condition: string | null; client_name: string; client_code: string;
+        visit_date: string | null; rep_name: string;
+      }>(
+        `SELECT COALESCE(e.supplier, 'Unknown') AS supplier,
+                e.pump_type, e.application, e.condition,
+                c.legal_name AS client_name, c.code AS client_code,
+                v.visit_date::text AS visit_date,
+                COALESCE(r.name, '—') AS rep_name
+         FROM equipment e
+         JOIN visits  v ON v.id = e.visit_id
+         JOIN clients c ON c.id = e.client_id
+         LEFT JOIN reps r ON r.id = v.rep_id
+         WHERE e.is_ril = FALSE
+           ${repScope ? 'AND v.rep_id = $1' : ''}
+         ORDER BY v.visit_date DESC NULLS LAST
+         LIMIT 100`,
+        repScope ? [repId] : [],
+      );
+      return rows;
+    }, []),
+
+    // B. Competitor Activity Feed — visits flagged with competitor activity
+    q<CompActivity[]>(async () => {
+      const { rows } = await risansiPool.query<CompActivity>(
+        `SELECT v.visit_date::text AS visit_date,
+                v.competitors_observed, v.pcp_competitor,
+                c.legal_name AS client_name, c.code AS client_code,
+                COALESCE(r.name, '—') AS rep_name
+         FROM visits v
+         JOIN clients c ON c.id = v.client_id
+         LEFT JOIN reps r ON r.id = v.rep_id
+         WHERE v.competitor_activity_observed = TRUE
+           ${repScope ? 'AND v.rep_id = $1' : ''}
+         ORDER BY v.visit_date DESC NULLS LAST
+         LIMIT 20`,
+        repScope ? [repId] : [],
+      );
+      return rows;
+    }, []),
+
+    // C. Lost To Analysis — opportunities lost to named competitors
+    q<LostTo[]>(async () => {
+      const { rows } = await risansiPool.query<{ competitor: string; losses: string; value_cr: string }>(
+        `SELECT o.lost_to_competitor AS competitor,
+                COUNT(*)::text AS losses,
+                COALESCE(SUM(o.value_cr), 0)::text AS value_cr
+         FROM opportunities o
+         WHERE o.lost_to_competitor IS NOT NULL AND TRIM(o.lost_to_competitor) <> ''
+           ${repScope ? 'AND o.rep_id = $1' : ''}
+         GROUP BY o.lost_to_competitor
+         ORDER BY COUNT(*) DESC, SUM(o.value_cr) DESC NULLS LAST
+         LIMIT 10`,
+        repScope ? [repId] : [],
+      );
+      return rows.map(r => ({ competitor: r.competitor, losses: Number(r.losses), value_cr: Number(r.value_cr) }));
+    }, []),
+
+    // D. Price Intelligence — where competitor prices were captured
+    q<PriceIntel[]>(async () => {
+      const { rows } = await risansiPool.query<{
+        visit_date: string | null; pics: string | null;
+        client_name: string; client_code: string; rep_name: string;
+      }>(
+        `SELECT v.visit_date::text AS visit_date,
+                vsr.competitor_pics_count::text AS pics,
+                c.legal_name AS client_name, c.code AS client_code,
+                COALESCE(r.name, '—') AS rep_name
+         FROM visit_sugar_report vsr
+         JOIN visits  v ON v.id = vsr.visit_id
+         JOIN clients c ON c.id = v.client_id
+         LEFT JOIN reps r ON r.id = v.rep_id
+         WHERE vsr.competitor_prices_captured = TRUE
+           ${repScope ? 'AND v.rep_id = $1' : ''}
+         ORDER BY v.visit_date DESC NULLS LAST
+         LIMIT 20`,
+        repScope ? [repId] : [],
+      );
+      return rows.map(r => ({ ...r, pics: Number(r.pics ?? 0) }));
+    }, []),
   ]);
+
+  // ── Field-sightings supplier rollup (which competitors we meet most) ──
+  const sightingCounts = (() => {
+    const m = new Map<string, number>();
+    for (const s of fieldSightings) m.set(s.supplier, (m.get(s.supplier) ?? 0) + 1);
+    return [...m.entries()].map(([supplier, count]) => ({ supplier, count })).sort((a, b) => b.count - a.count);
+  })();
+  const maxSighting = sightingCounts.length ? Math.max(...sightingCounts.map(s => s.count)) : 1;
+  const maxLosses   = lostToRows.length ? Math.max(...lostToRows.map(l => l.losses)) : 1;
 
   // ── Derived values ─────────────────────────────────────────────
   const safeTotal = Math.max(totals.total_pcp, 1);
@@ -222,14 +357,14 @@ export default async function CompetePage({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
-        <Topbar crumbs={['Risansi', 'Competitive Intelligence']} />
+        <Topbar crumbs={['Risansi', 'Competition Intelligence']} />
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>
 
         <div style={{ marginBottom: 18 }}>
           <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
-            Competitive Intelligence
+            Competition Intelligence
           </div>
           <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>
             PCP installed base · master data from client files
@@ -495,6 +630,160 @@ export default async function CompetePage({
           )}
         </div>
 
+        {/* ═══ VISIT INTELLIGENCE — sourced from field visit forms ═══ */}
+        <div style={{ margin: '26px 0 12px' }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--fg)' }}>Visit Intelligence</div>
+          <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 2 }}>
+            Live competitor signals captured by reps in the field
+            {isRep && ' · your visits only'}
+          </div>
+        </div>
+
+        {/* Section A — Field Sightings */}
+        <div style={PANEL}>
+          <div style={PANEL_H}>
+            <span style={PANEL_TITLE}>Field Sightings · Competitor Equipment</span>
+            <span style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', marginLeft: 'auto' }}>
+              {fieldSightings.length} logged on visits
+            </span>
+          </div>
+          {fieldSightings.length === 0 ? (
+            <div style={EMPTY}>No competitor equipment logged on visits yet</div>
+          ) : (
+            <>
+              <div style={{ padding: '12px 16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '8px 20px', borderBottom: '1px solid var(--line)' }}>
+                {sightingCounts.map(s => (
+                  <div key={s.supplier}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
+                      <span style={{ color: 'var(--fg-2)' }}>{s.supplier}</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>{s.count}</span>
+                    </div>
+                    <div style={{ height: 5, background: 'var(--bg-sunk)', borderRadius: 3, overflow: 'hidden' }}>
+                      <div style={{ width: `${(s.count / maxSighting) * 100}%`, height: '100%', background: 'var(--neg)', borderRadius: 3 }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: 'var(--bg-elev)' }}>
+                      {['Competitor', 'Pump Type', 'Application', 'Client', 'Logged', 'Condition'].map(h => <th key={h} style={TH}>{h}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {fieldSightings.map((s, i) => (
+                      <tr key={i} style={{ borderBottom: '1px solid var(--line)' }}>
+                        <td style={{ ...TD, fontWeight: 500 }}>{s.supplier}</td>
+                        <td style={TD}>{s.pump_type ?? '—'}</td>
+                        <td style={{ ...TD, color: 'var(--fg-3)' }}>{s.application ?? '—'}</td>
+                        <td style={TD}>
+                          {s.client_name}
+                          <span style={{ marginLeft: 6, fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>{s.client_code}</span>
+                        </td>
+                        <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)' }}>{fmtD(s.visit_date)}</td>
+                        <td style={TD}>
+                          {s.condition
+                            ? <Tag kind={/eol|end of life/i.test(s.condition) ? 'neg' : undefined}>{s.condition}</Tag>
+                            : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Section B — Competitor Activity Feed */}
+        <div style={{ ...PANEL, marginTop: 14 }}>
+          <div style={PANEL_H}>
+            <span style={PANEL_TITLE}>Competitor Activity Feed</span>
+            <span style={{ fontSize: 11, color: 'var(--fg-3)', marginLeft: 'auto' }}>most recent {competitorActivity.length}</span>
+          </div>
+          {competitorActivity.length === 0 ? (
+            <div style={EMPTY}>No competitor activity observed on visits yet</div>
+          ) : (
+            <div>
+              {competitorActivity.map((a, i) => (
+                <div key={i} style={{ display: 'flex', gap: 12, padding: '10px 16px', borderBottom: i < competitorActivity.length - 1 ? '1px solid var(--line)' : 'none' }}>
+                  <div style={{ width: 90, flexShrink: 0, fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>{fmtD(a.visit_date)}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 500 }}>
+                      {a.client_name}
+                      <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--fg-3)' }}>{a.client_code} · {a.rep_name}</span>
+                    </div>
+                    {a.competitors_observed && <div style={{ fontSize: 12, color: 'var(--fg-2)', marginTop: 2, lineHeight: 1.4 }}>{a.competitors_observed}</div>}
+                    {a.pcp_competitor && <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 2 }}>PCP competitor: {a.pcp_competitor}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Section C — Lost To Analysis */}
+        <div style={{ ...PANEL, marginTop: 14 }}>
+          <div style={PANEL_H}>
+            <span style={PANEL_TITLE}>Lost To · Opportunities</span>
+            <span style={{ fontSize: 11, color: 'var(--fg-3)', marginLeft: 'auto' }}>who we lose deals to · last submitted</span>
+          </div>
+          {lostToRows.length === 0 ? (
+            <div style={EMPTY}>No opportunities marked lost to a competitor{isRep ? ' for you' : ''}</div>
+          ) : (
+            <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {lostToRows.map(l => (
+                <div key={l.competitor}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                    <span style={{ fontWeight: 500 }}>{l.competitor}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>
+                      {l.losses} loss{l.losses !== 1 ? 'es' : ''}{l.value_cr > 0 ? ` · ${fmtCr(l.value_cr)}` : ''}
+                    </span>
+                  </div>
+                  <div style={{ height: 8, background: 'var(--bg-sunk)', borderRadius: 4, overflow: 'hidden' }}>
+                    <div style={{ width: `${(l.losses / maxLosses) * 100}%`, height: '100%', background: 'var(--neg)', borderRadius: 4 }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Section D — Price Intelligence */}
+        <div style={{ ...PANEL, marginTop: 14 }}>
+          <div style={PANEL_H}>
+            <span style={PANEL_TITLE}>Price Intelligence · Captures</span>
+            <span style={{ fontSize: 11, color: 'var(--fg-3)', marginLeft: 'auto' }}>where competitor prices were captured</span>
+          </div>
+          {priceIntel.length === 0 ? (
+            <div style={EMPTY}>No competitor price captures recorded yet</div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg-elev)' }}>
+                    {['Client', 'Date', 'Rep', 'Price Photos'].map(h => <th key={h} style={TH}>{h}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {priceIntel.map((p, i) => (
+                    <tr key={i} style={{ borderBottom: '1px solid var(--line)' }}>
+                      <td style={{ ...TD, fontWeight: 500 }}>
+                        {p.client_name}
+                        <span style={{ marginLeft: 6, fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>{p.client_code}</span>
+                      </td>
+                      <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)' }}>{fmtD(p.visit_date)}</td>
+                      <td style={{ ...TD, color: 'var(--fg-3)', fontSize: 11 }}>{p.rep_name}</td>
+                      <td style={{ ...TD, fontFamily: 'var(--font-mono)' }}>{p.pics > 0 ? `📷 ${p.pics}` : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
       </div>
     </div>
   );
@@ -538,4 +827,11 @@ const TH: CSSProperties = {
 const TD: CSSProperties = {
   padding:       '10px 12px',
   verticalAlign: 'middle',
+};
+
+const EMPTY: CSSProperties = {
+  padding:    '32px 0',
+  textAlign:  'center',
+  fontSize:   12,
+  color:      'var(--fg-3)',
 };

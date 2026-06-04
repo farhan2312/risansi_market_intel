@@ -47,7 +47,7 @@ const SALES_NAV: NavItem[] = [
   { id: 'client360', href: '/risansi/clients',  label: 'Client 360',     Icon: IcClient },
   { id: 'field',     href: '/risansi/field',    label: 'Field Activity', Icon: IcMap },
   { id: 'pipeline',  href: '/risansi/pipeline', label: 'Opportunities',  Icon: IcPipeline },
-  { id: 'compete',   href: '/risansi/compete',  label: 'Competitive',    Icon: IcTower, alertKey: 'compete' },
+  { id: 'compete',   href: '/risansi/compete',  label: 'Competition',    Icon: IcTower, alertKey: 'compete' },
 ];
 
 // GROUP 2 — Admin (admin / sysadmin only)
