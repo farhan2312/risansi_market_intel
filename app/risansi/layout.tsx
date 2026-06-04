@@ -93,7 +93,9 @@ export default async function RisansiLayout({ children }: { children: React.Reac
         user={{
           name:     session.user.name ?? email,
           initials: getInitials(session.user.name ?? email),
-          role:     role.charAt(0).toUpperCase() + role.slice(1),
+          // Pass the raw lowercase role so UserMenu's ROLE_LABELS map resolves
+          // it to a friendly label (e.g. 'rep' → 'Sales Representative').
+          role:     role,
           email:    email,
         }}
       />
