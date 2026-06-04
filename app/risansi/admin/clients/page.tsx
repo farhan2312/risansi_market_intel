@@ -3,16 +3,11 @@ import Link from 'next/link';
 import { Topbar, Tag, StatusDot, MultiSelectFilter, ActiveFilterBar, SortableTH } from '@/components/risansi';
 import { AddClientDrawer } from '@/components/risansi/AddClientDrawer';
 import risansiPool from '@/lib/db-risansi';
-import { formatRev } from '@/lib/risansi-utils';
 import { FilterBar } from '../../clients/FilterBar';
-
-async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
-  try { return await fn(); } catch { return fallback; }
-}
 
 const PAGE_SIZE = 50;
 
-// Whitelist of sortable columns
+// Only columns confirmed to exist are listed here
 const SORT_MAP: Record<string, string> = {
   code:       'c.code',
   name:       'c.legal_name',
@@ -22,10 +17,9 @@ const SORT_MAP: Record<string, string> = {
   status:     'c.status',
   tier:       'c.tier',
   rep:        'r.name',
-  ytd:        'ytd_inr',
 };
 
-export default async function ClientListPage({
+export default async function ClientMasterPage({
   searchParams,
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>
@@ -37,158 +31,168 @@ export default async function ClientListPage({
   const sortKey   = typeof sp.sort     === 'string' ? sp.sort            : 'last_visit';
   const orderDir  = sp.order === 'desc'             ? 'DESC'             : 'ASC';
   const pageNum   = Math.max(1, parseInt(typeof sp.page === 'string' ? sp.page : '1', 10) || 1);
-  const offset    = (pageNum - 1) * PAGE_SIZE;
+  const limit     = PAGE_SIZE;
+  const offset    = (pageNum - 1) * limit;    // page 1 → offset 0  ✓
 
   // Multi-select filters — comma-separated in URL
-  const indFilts    = typeof sp.industry === 'string' && sp.industry ? sp.industry.split(',').filter(Boolean) : [];
-  const zoneFilts   = typeof sp.zone     === 'string' && sp.zone     ? sp.zone.split(',').filter(Boolean)     : [];
-  const tierFilts   = typeof sp.tier     === 'string' && sp.tier     ? sp.tier.split(',').filter(Boolean)     : [];
-  const statFilts   = typeof sp.status   === 'string' && sp.status   ? sp.status.split(',').filter(Boolean).map(s => s.toUpperCase()) : [];
-  const repFilts    = typeof sp.rep      === 'string' && sp.rep      ? sp.rep.split(',').filter(Boolean)      : [];
+  const indFilts  = typeof sp.industry === 'string' && sp.industry ? sp.industry.split(',').filter(Boolean) : [];
+  const zoneFilts = typeof sp.zone     === 'string' && sp.zone     ? sp.zone.split(',').filter(Boolean)     : [];
+  const tierFilts = typeof sp.tier     === 'string' && sp.tier     ? sp.tier.split(',').filter(Boolean)     : [];
+  const statFilts = typeof sp.status   === 'string' && sp.status   ? sp.status.split(',').filter(Boolean).map(s => s.toUpperCase()) : [];
+  const repFilts  = typeof sp.rep      === 'string' && sp.rep      ? sp.rep.split(',').filter(Boolean)      : [];
 
-  const sortCol  = SORT_MAP[sortKey] ?? 'c.last_visit_date';
+  const hasActiveFilters = !!(q_str || sugarFilt || indFilts.length || zoneFilts.length || tierFilts.length || statFilts.length || repFilts.length);
+  const sortCol = SORT_MAP[sortKey] ?? 'c.last_visit_date';
 
-  // ── Build parameterised WHERE conditions ──────────────────
-
-  const conds: string[] = [];
-  const vals:  (string | number | string[])[] = [];
-  let idx = 1;
+  // ── Build parameterised WHERE conditions ──────────────────────
+  const whereConditions: string[] = ['c.deleted_at IS NULL'];
+  const params: (string | number | boolean | string[])[] = [];
 
   if (q_str) {
-    conds.push(`(c.legal_name ILIKE $${idx} OR c.trade_name ILIKE $${idx} OR c.code ILIKE $${idx} OR c.city ILIKE $${idx} OR c.state ILIKE $${idx})`);
-    vals.push(`%${q_str}%`); idx++;
+    const pIdx = params.push(`%${q_str}%`);
+    whereConditions.push(
+      `(c.legal_name ILIKE $${pIdx} OR c.trade_name ILIKE $${pIdx} OR c.code ILIKE $${pIdx} OR c.city ILIKE $${pIdx} OR c.state ILIKE $${pIdx})`
+    );
   }
   if (indFilts.length > 0) {
-    conds.push(`c.industry = ANY($${idx}::text[])`);
-    vals.push(indFilts); idx++;
+    whereConditions.push(`c.industry = ANY($${params.push(indFilts)}::text[])`);
   }
   if (zoneFilts.length > 0) {
-    conds.push(`(c.zone = ANY($${idx}::text[]) OR r.zone = ANY($${idx}::text[]))`);
-    vals.push(zoneFilts); idx++;
+    // Filter on client's own zone only — reps.zone may not exist
+    whereConditions.push(`c.zone = ANY($${params.push(zoneFilts)}::text[])`);
   }
   if (tierFilts.length > 0) {
-    conds.push(`c.tier = ANY($${idx}::text[])`);
-    vals.push(tierFilts); idx++;
+    whereConditions.push(`c.tier = ANY($${params.push(tierFilts)}::text[])`);
   }
   if (statFilts.length > 0) {
-    conds.push(`UPPER(c.status) = ANY($${idx}::text[])`);
-    vals.push(statFilts); idx++;
+    whereConditions.push(`UPPER(c.status) = ANY($${params.push(statFilts)}::text[])`);
   }
   if (repFilts.length > 0) {
-    conds.push(`(c.primary_rep_name = ANY($${idx}::text[]) OR r.name = ANY($${idx}::text[]))`);
-    vals.push(repFilts); idx++;
+    const rIdx = params.push(repFilts);
+    whereConditions.push(
+      `(c.primary_rep_name = ANY($${rIdx}::text[]) OR r.name = ANY($${rIdx}::text[]))`
+    );
   }
-  if (sugarFilt === 'true') {
-    conds.push(`c.is_sugar = TRUE`);
-  } else if (sugarFilt === 'false') {
-    conds.push(`(c.is_sugar = FALSE OR c.is_sugar IS NULL)`);
-  }
+  if (sugarFilt === 'true')  whereConditions.push('c.is_sugar = TRUE');
+  if (sugarFilt === 'false') whereConditions.push('(c.is_sugar = FALSE OR c.is_sugar IS NULL)');
 
-  const baseWhere = `c.deleted_at IS NULL`;
-  const where = conds.length
-    ? `WHERE ${baseWhere} AND ${conds.join(' AND ')}`
-    : `WHERE ${baseWhere}`;
+  const whereClause = whereConditions.join(' AND ');
+  const countParams = [...params]; // snapshot before limit/offset are pushed
 
-  // ── Queries ────────────────────────────────────────────────
+  const limIdx = params.length + 1;
+  const offIdx = params.length + 2;
+  const mainParams = [...params, limit, offset];
 
+  // ── Interfaces ─────────────────────────────────────────────────
   interface ClientRow {
-    id:                   string;
-    code:                 string;
-    legal_name:           string;
-    trade_name:           string | null;
-    industry:             string;
-    zone:                 string;
-    tour_name:            string | null;
-    status:               string;
-    tier:                 string | null;
-    business_category:    string | null;
-    performance_feedback: string | null;
-    last_visit_fy:        string | null;
-    last_visit_date:      Date | null;
-    action_points:        string | null;
-    rep_name:             string | null;
-    ytd_inr:              number;
-    prev_inr:             number;
+    id:              string;
+    code:            string;
+    legal_name:      string;
+    trade_name:      string | null;
+    industry:        string;
+    is_sugar:        boolean;
+    state:           string | null;
+    city:            string | null;
+    status:          string;
+    tier:            string | null;
+    last_visit_date: Date | null;
+    zone:            string | null;
+    tour_name:       string | null;
+    rep_name:        string | null;
   }
 
   interface RepOption { rep_name: string; client_count: number; }
+
+  // ── All queries in parallel ────────────────────────────────────
   const [clients, total, industries, zones, tiers, repOptions] = await Promise.all([
-    q<ClientRow[]>(async () => {
-      const mainVals: (string | number | string[])[] = [...vals, PAGE_SIZE, offset];
-      const limIdx = idx;
-      const offIdx = idx + 1;
-      const { rows } = await risansiPool.query<ClientRow>(
-        `SELECT
-           c.id, c.code, c.legal_name, c.trade_name,
-           c.industry, c.zone, c.tour_name, c.status, c.tier,
-           c.business_category,
-           c.performance_feedback, c.last_visit_fy, c.last_visit_date,
-           LEFT(c.action_points, 80) AS action_points,
-           COALESCE((
-             SELECT SUM(total_value) FROM client_revenue_monthly crm
-             WHERE crm.client_id = c.id
-               AND crm.month >= '2025-04-01' AND crm.month < '2026-04-01'
-           ), 0)::bigint AS ytd_inr,
-           COALESCE(r.name, c.primary_rep_name, '—') AS rep_name
-         FROM clients c
-         LEFT JOIN reps r ON c.primary_rep_id = r.id
-         ${where}
-         ORDER BY ${sortCol} ${orderDir} ${orderDir === 'ASC' ? 'NULLS FIRST' : 'NULLS LAST'}
-         LIMIT $${limIdx} OFFSET $${offIdx}`,
-        mainVals as (string | number)[],
-      );
-      return rows;
-    }, []),
 
-    q<number>(async () => {
-      const { rows } = await risansiPool.query<{ total: string }>(
-        `SELECT COUNT(DISTINCT c.id)::text AS total FROM clients c LEFT JOIN reps r ON c.primary_rep_id = r.id ${where}`,
-        vals as (string | number)[],
-      );
-      return Number(rows[0]?.total ?? 0);
-    }, 0),
+    (async (): Promise<ClientRow[]> => {
+      try {
+        const { rows } = await risansiPool.query<ClientRow>(
+          `SELECT
+             c.id, c.code, c.legal_name, c.trade_name,
+             c.industry, c.is_sugar, c.state, c.city,
+             c.status, c.tier,
+             c.last_visit_date,
+             c.zone,
+             c.tour_name,
+             COALESCE(r.name, c.primary_rep_name, '—') AS rep_name
+           FROM clients c
+           LEFT JOIN reps r ON c.primary_rep_id = r.id
+           WHERE ${whereClause}
+           ORDER BY ${sortCol} ${orderDir} ${orderDir === 'ASC' ? 'NULLS FIRST' : 'NULLS LAST'}
+           LIMIT  $${limIdx}
+           OFFSET $${offIdx}`,
+          mainParams as (string | number)[],
+        );
+        return rows;
+      } catch (err) {
+        console.error('[admin/clients/page] main query failed:', err);
+        return [];
+      }
+    })(),
 
-    q<string[]>(async () => {
-      const { rows } = await risansiPool.query<{ industry: string }>(
-        `SELECT DISTINCT industry FROM clients WHERE industry IS NOT NULL ORDER BY industry`,
-      );
-      return rows.map(r => r.industry);
-    }, []),
+    (async (): Promise<number> => {
+      try {
+        const { rows } = await risansiPool.query<{ count: string }>(
+          `SELECT COUNT(DISTINCT c.id)::text AS count
+           FROM clients c
+           LEFT JOIN reps r ON c.primary_rep_id = r.id
+           WHERE ${whereClause}`,
+          countParams as (string | number)[],
+        );
+        return Number(rows[0]?.count ?? 0);
+      } catch (err) {
+        console.error('[admin/clients/page] count query failed:', err);
+        return 0;
+      }
+    })(),
 
-    q<string[]>(async () => {
-      const { rows } = await risansiPool.query<{ zone: string }>(
-        `SELECT DISTINCT COALESCE(r.zone, c.zone) AS zone
-         FROM clients c
-         LEFT JOIN reps r ON c.primary_rep_id = r.id
-         WHERE COALESCE(r.zone, c.zone) IS NOT NULL AND c.deleted_at IS NULL
-         ORDER BY 1`,
-      );
-      return rows.map(r => r.zone);
-    }, []),
+    (async (): Promise<string[]> => {
+      try {
+        const { rows } = await risansiPool.query<{ industry: string }>(
+          `SELECT DISTINCT industry FROM clients WHERE industry IS NOT NULL AND deleted_at IS NULL ORDER BY industry`,
+        );
+        return rows.map(r => r.industry);
+      } catch { return []; }
+    })(),
 
-    q<string[]>(async () => {
-      const { rows } = await risansiPool.query<{ tier: string }>(
-        `SELECT DISTINCT tier FROM clients WHERE tier IS NOT NULL AND deleted_at IS NULL ORDER BY tier`,
-      );
-      return rows.map(r => r.tier);
-    }, []),
+    (async (): Promise<string[]> => {
+      try {
+        const { rows } = await risansiPool.query<{ zone: string }>(
+          `SELECT DISTINCT zone FROM clients WHERE zone IS NOT NULL AND deleted_at IS NULL ORDER BY zone`,
+        );
+        return rows.map(r => r.zone);
+      } catch { return []; }
+    })(),
 
-    q<RepOption[]>(async () => {
-      const { rows } = await risansiPool.query<RepOption>(
-        `SELECT
-           COALESCE(r.name, c.primary_rep_name) AS rep_name,
-           COUNT(*)::int AS client_count
-         FROM clients c
-         LEFT JOIN reps r ON c.primary_rep_id = r.id
-         WHERE c.deleted_at IS NULL
-           AND (c.primary_rep_name IS NOT NULL OR r.name IS NOT NULL)
-         GROUP BY COALESCE(r.name, c.primary_rep_name)
-         HAVING COALESCE(r.name, c.primary_rep_name) IS NOT NULL
-         ORDER BY client_count DESC
-         LIMIT 30`,
-      );
-      return rows;
-    }, []),
+    (async (): Promise<string[]> => {
+      try {
+        const { rows } = await risansiPool.query<{ tier: string }>(
+          `SELECT DISTINCT tier FROM clients WHERE tier IS NOT NULL AND deleted_at IS NULL ORDER BY tier`,
+        );
+        return rows.map(r => r.tier);
+      } catch { return []; }
+    })(),
+
+    (async (): Promise<RepOption[]> => {
+      try {
+        const { rows } = await risansiPool.query<RepOption>(
+          `SELECT
+             COALESCE(r.name, c.primary_rep_name) AS rep_name,
+             COUNT(*)::int AS client_count
+           FROM clients c
+           LEFT JOIN reps r ON c.primary_rep_id = r.id
+           WHERE c.deleted_at IS NULL
+             AND (c.primary_rep_name IS NOT NULL OR r.name IS NOT NULL)
+           GROUP BY COALESCE(r.name, c.primary_rep_name)
+           HAVING COALESCE(r.name, c.primary_rep_name) IS NOT NULL
+           ORDER BY client_count DESC
+           LIMIT 30`,
+        );
+        return rows;
+      } catch { return []; }
+    })(),
   ]);
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
@@ -233,24 +237,21 @@ export default async function ClientListPage({
     return t === 'Key' ? 'accent' : undefined;
   }
 
-  // Current sort for SortableTH
   const curSort = sortKey;
   const curDir  = orderDir === 'DESC' ? 'desc' : 'asc';
-
-  // Status options for MultiSelectFilter
   const STATUS_OPTIONS = ['ACTIVE', 'INACTIVE', 'PROSPECTIVE', 'BLACKLISTED'];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Sticky topbar */}
       <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
-        <Topbar crumbs={['Admin', 'Client Master']} primaryAction="New Client" />
+        <Topbar crumbs={['Admin', 'Client Master']} />
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>
 
-        {/* ── Page header ─────────────────────────────────────── */}
-        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 14 }}>
+        {/* ── Page header ──────────────────────────────────────── */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
           <div>
             <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
               Client Master
@@ -262,19 +263,19 @@ export default async function ClientListPage({
           <AddClientDrawer />
         </div>
 
-        {/* ── Search + Sugar toggle row ────────────────────────── */}
+        {/* ── Search + Sugar toggle ─────────────────────────────── */}
         <FilterBar q={q_str} sugar={sugarFilt} total={total} />
 
-        {/* ── Multi-select filter row ──────────────────────────── */}
+        {/* ── Multi-select filter row ───────────────────────────── */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', paddingBottom: 8 }}>
           <MultiSelectFilter param="industry" label="Industry"  options={industries}      selected={indFilts}  />
           <MultiSelectFilter param="zone"     label="Zone"      options={zones}           selected={zoneFilts} />
           <MultiSelectFilter param="tier"     label="Tier"      options={tiers}           selected={tierFilts} />
           <MultiSelectFilter param="status"   label="Status"    options={STATUS_OPTIONS}  selected={statFilts} />
-          <MultiSelectFilter param="rep"      label="Rep"       options={repOptions.map(r => ({ value: r.rep_name, label: r.rep_name, count: r.client_count }))} selected={repFilts}  />
+          <MultiSelectFilter param="rep"      label="Rep"       options={repOptions.map(r => ({ value: r.rep_name, label: r.rep_name, count: r.client_count }))} selected={repFilts} />
         </div>
 
-        {/* ── Active filter pills ──────────────────────────────── */}
+        {/* ── Active filter pills ───────────────────────────────── */}
         <ActiveFilterBar filters={[
           { param: 'industry', label: 'Industry', values: indFilts  },
           { param: 'zone',     label: 'Zone',     values: zoneFilts },
@@ -283,7 +284,7 @@ export default async function ClientListPage({
           { param: 'rep',      label: 'Rep',      values: repFilts  },
         ]} />
 
-        {/* ── Table ───────────────────────────────────────────── */}
+        {/* ── Table ────────────────────────────────────────────── */}
         <div style={{
           background:   'var(--bg-paper)',
           border:       '1px solid var(--line)',
@@ -292,39 +293,62 @@ export default async function ClientListPage({
           marginTop:    8,
         }}>
           {clients.length === 0 ? (
-            <div style={{ padding: '48px 0', textAlign: 'center', fontSize: 13, color: 'var(--fg-3)' }}>
-              No clients match the current filters.
+            <div style={{ padding: '60px 24px', textAlign: 'center', color: 'var(--fg-3)' }}>
+              {hasActiveFilters ? (
+                <>
+                  <div style={{ fontSize: 32, marginBottom: 8 }}>🔍</div>
+                  <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--fg-2)', marginBottom: 4 }}>
+                    No clients match the current filters
+                  </div>
+                  <div style={{ fontSize: 13 }}>
+                    Try removing some filters or clearing the search
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
+                  <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--fg-2)', marginBottom: 4 }}>
+                    No clients found
+                  </div>
+                  <div style={{ fontSize: 13 }}>
+                    The client database appears to be empty
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: 'var(--bg-elev)' }}>
-                    <SortableTH col="code"       label="Code"          currentSort={curSort} currentDir={curDir} />
-                    <SortableTH col="name"       label="Client"        currentSort={curSort} currentDir={curDir} />
-                    <th style={TH}>Category</th>
-                    <SortableTH col="industry"   label="Industry"      currentSort={curSort} currentDir={curDir} />
-                    <SortableTH col="zone"       label="Zone / Route"  currentSort={curSort} currentDir={curDir} />
-                    <SortableTH col="rep"        label="Rep"           currentSort={curSort} currentDir={curDir} />
-                    <SortableTH col="last_visit" label="Last Visit"    currentSort={curSort} currentDir={curDir} />
-                    <th style={TH}>Last FY</th>
-                    <th style={TH}>Feedback</th>
-                    <SortableTH col="ytd"        label="YTD Rev"       currentSort={curSort} currentDir={curDir} align="right" />
-                    <th style={TH}>Action Points</th>
-                    <SortableTH col="status"     label="Status"        currentSort={curSort} currentDir={curDir} />
-                    <SortableTH col="tier"       label="Tier"          currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="code"       label="Code"         currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="name"       label="Client"       currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="industry"   label="Industry"     currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="zone"       label="Zone / Route" currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="rep"        label="Rep"          currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="last_visit" label="Last Visit"   currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="status"     label="Status"       currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="tier"       label="Tier"         currentSort={curSort} currentDir={curDir} />
                   </tr>
                 </thead>
                 <tbody>
                   {clients.map((c, i) => {
                     const days = daysAgo(c.last_visit_date);
-                    const daysColor = days == null ? 'var(--neg)' : days > 200 ? 'var(--neg)' : days > 100 ? 'var(--warn)' : 'var(--pos)';
+                    const daysColor = days == null
+                      ? 'var(--neg)'
+                      : days > 200 ? 'var(--neg)'
+                      : days > 100 ? 'var(--warn)'
+                      : 'var(--pos)';
 
                     return (
                       <tr key={c.id} style={{ borderBottom: i < clients.length - 1 ? '1px solid var(--line)' : 'none' }}>
+
+                        {/* Code */}
                         <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>
                           {c.code}
                         </td>
+
+                        {/* Client name */}
                         <td style={{ ...TD, minWidth: 180 }}>
                           <Link
                             href={`/risansi/clients/${c.code}`}
@@ -336,16 +360,19 @@ export default async function ClientListPage({
                             <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 1 }}>{c.trade_name}</div>
                           )}
                         </td>
-                        <td style={TD}>
-                          {c.business_category
-                            ? <Tag kind={c.business_category === 'Sugar' ? 'accent' : undefined}>{c.business_category}</Tag>
-                            : null}
-                        </td>
+
+                        {/* Industry */}
                         <td style={TD}><Tag>{c.industry}</Tag></td>
+
+                        {/* Zone / Route */}
                         <td style={{ ...TD, whiteSpace: 'nowrap' }}>
-                          <div style={{ fontSize: 12 }}>{c.zone}</div>
-                          {c.tour_name && <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 1 }}>{c.tour_name}</div>}
+                          <div style={{ fontSize: 12 }}>{c.zone ?? '—'}</div>
+                          {c.tour_name && (
+                            <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 1 }}>{c.tour_name}</div>
+                          )}
                         </td>
+
+                        {/* Rep */}
                         <td style={{ padding: '0 12px' }}>
                           <span style={{
                             fontSize: 12,
@@ -355,38 +382,25 @@ export default async function ClientListPage({
                             {c.rep_name || '—'}
                           </span>
                         </td>
+
+                        {/* Last visit */}
                         <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: daysColor, whiteSpace: 'nowrap' }}>
                           {days == null ? 'Never' : days === 0 ? 'Today' : `${days}d ago`}
                         </td>
-                        <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>
-                          {c.last_visit_fy ? `FY ${c.last_visit_fy}` : '—'}
-                        </td>
-                        <td style={TD}>
-                          {c.performance_feedback
-                            ? <Tag kind={
-                                c.performance_feedback.toLowerCase().includes('good') ? 'pos'
-                                : c.performance_feedback.toLowerCase().includes('poor') ? 'neg'
-                                : 'warn'
-                              }>{c.performance_feedback}</Tag>
-                            : null}
-                        </td>
-                        <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12, whiteSpace: 'nowrap' }}>
-                          {c.ytd_inr > 0 ? formatRev(c.ytd_inr) : <span style={{ color: 'var(--fg-4)' }}>—</span>}
-                        </td>
-                        <td style={{ ...TD, fontSize: 11, color: 'var(--fg-2)', maxWidth: 180 }}>
-                          {c.action_points
-                            ? <span title={c.action_points}>{c.action_points}{c.action_points.length >= 30 ? '…' : ''}</span>
-                            : null}
-                        </td>
+
+                        {/* Status */}
                         <td style={{ ...TD, whiteSpace: 'nowrap' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                             <StatusDot s={statusDotKind(c.status)} />
                             <span style={{ fontSize: 11 }}>{c.status}</span>
                           </div>
                         </td>
+
+                        {/* Tier */}
                         <td style={TD}>
                           {c.tier ? <Tag kind={tierKind(c.tier)}>{c.tier}</Tag> : null}
                         </td>
+
                       </tr>
                     );
                   })}
@@ -396,7 +410,7 @@ export default async function ClientListPage({
           )}
         </div>
 
-        {/* ── Pagination ──────────────────────────────────────── */}
+        {/* ── Pagination ────────────────────────────────────────── */}
         {totalPages > 1 && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 16 }}>
             <span style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
@@ -425,25 +439,13 @@ export default async function ClientListPage({
             </div>
           </div>
         )}
+
       </div>
     </div>
   );
 }
 
 // ── Style constants ────────────────────────────────────────────
-
-const TH: CSSProperties = {
-  padding:       '9px 12px',
-  textAlign:     'left',
-  fontSize:      10,
-  textTransform: 'uppercase',
-  letterSpacing: '0.08em',
-  fontWeight:    500,
-  color:         'var(--fg-3)',
-  borderBottom:  '1px solid var(--line)',
-  whiteSpace:    'nowrap',
-  background:    'var(--bg-elev)',
-};
 
 const TD: CSSProperties = {
   padding:       '10px 12px',
