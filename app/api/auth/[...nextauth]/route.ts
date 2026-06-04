@@ -75,12 +75,25 @@ export const authOptions: AuthOptions = {
           token.risansiAccess = 'Pending';
           token.role          = 'rep';
         }
+
+        // rep_id is a newer column — fetch separately so a missing column
+        // can never break authentication for everyone.
+        try {
+          const repRes = await risansiPool.query<{ rep_id: number | null }>(
+            `SELECT rep_id FROM access_requests WHERE user_email = $1 LIMIT 1`,
+            [email],
+          );
+          token.repId = repRes.rows[0]?.rep_id ?? null;
+        } catch {
+          token.repId = null;
+        }
       }
       return token;
     },
     async session({ session, token }) {
       session.user.risansiAccess = token.risansiAccess as string;
       session.user.role          = token.role          as string;
+      session.user.repId         = (token.repId as number | null) ?? null;
       return session;
     },
   },

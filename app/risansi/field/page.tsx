@@ -156,8 +156,10 @@ export default async function FieldActivityPage({
 
   // ── Rep lookup ───────────────────────────────────────────────
 
-  let repId: string | null = null;
-  if (isRep && session?.user?.email) {
+  // Prefer the session's linked rep_id; fall back to email lookup for reps
+  // approved before rep-linking existed.
+  let repId: string | null = session?.user?.repId != null ? String(session.user.repId) : null;
+  if (isRep && !repId && session?.user?.email) {
     const { rows } = await risansiPool.query<{ id: string }>(
       `SELECT id FROM reps WHERE email = $1 LIMIT 1`,
       [session.user.email],

@@ -97,6 +97,8 @@ export default async function ExecDashboardPage({
     const email = session?.user?.email ?? '';
     const today = new Date();
 
+    // Prefer the linked rep_id from the session; fall back to email lookup
+    // for reps approved before rep-linking existed.
     const repRow = await q<{ id: string } | null>(async () => {
       const { rows } = await risansiPool.query<{ id: string }>(
         'SELECT id::text AS id FROM reps WHERE email = $1 LIMIT 1',
@@ -104,7 +106,7 @@ export default async function ExecDashboardPage({
       );
       return rows[0] ?? null;
     }, null);
-    const repId = repRow?.id ?? null;
+    const repId = (session?.user?.repId != null ? String(session.user.repId) : null) ?? repRow?.id ?? null;
 
     const [myVisitsCount, myOverdueCount, myPipelineValue, myClientsCount, myRecentVisits, myOverdueClients] = await Promise.all([
 

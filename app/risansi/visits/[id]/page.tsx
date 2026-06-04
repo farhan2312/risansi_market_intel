@@ -63,14 +63,17 @@ export default async function VisitReportPage({
   const visit = visitRes.rows[0];
   if (!visit) notFound();
 
-  // Rep can only see their own visits
+  // Rep can only see their own visits — prefer session rep_id, fall back to email
   if (session.user.role === 'rep') {
-    const repRes = await risansiPool.query<{ id: string }>(
-      'SELECT id FROM reps WHERE email = $1 LIMIT 1',
-      [session.user.email],
-    );
-    const repId = repRes.rows[0]?.id;
-    if (visit.rep_id && visit.rep_id !== repId) redirect('/risansi/field');
+    let repId: string | null = session.user.repId != null ? String(session.user.repId) : null;
+    if (!repId) {
+      const repRes = await risansiPool.query<{ id: string }>(
+        'SELECT id FROM reps WHERE email = $1 LIMIT 1',
+        [session.user.email],
+      );
+      repId = repRes.rows[0]?.id ?? null;
+    }
+    if (visit.rep_id && repId && String(visit.rep_id) !== String(repId)) redirect('/risansi/field');
   }
 
   const [contacts, equipment, sugarRes, nonsugarRes, oppsRes, tasksRes] = await Promise.all([

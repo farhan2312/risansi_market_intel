@@ -9,6 +9,7 @@ declare module 'next-auth' {
       image?: string | null;
       risansiAccess: string;
       role: string;
+      repId: number | null;
     };
   }
 }
@@ -17,5 +18,6 @@ declare module 'next-auth/jwt' {
   interface JWT {
     risansiAccess: string;
     role: string;
+    repId: number | null;
   }
 }

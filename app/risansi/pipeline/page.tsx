@@ -75,8 +75,9 @@ export default async function PipelinePage({
   const session = await getServerSession(authOptions);
   const role    = session?.user?.role ?? 'rep';
 
-  let currentRepId: number | null = null;
-  if (role === 'rep' && session?.user?.email) {
+  // Prefer the session's linked rep_id; fall back to email lookup.
+  let currentRepId: number | null = session?.user?.repId ?? null;
+  if (role === 'rep' && currentRepId == null && session?.user?.email) {
     const repRes = await risansiPool.query<{ id: number }>(
       'SELECT id FROM reps WHERE email = $1 LIMIT 1',
       [session.user.email],
