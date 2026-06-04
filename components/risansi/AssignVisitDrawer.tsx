@@ -101,6 +101,19 @@ export default function AssignVisitDrawer({
   const [prefillRepId, setPrefillRepId] = useState('');
   const [currentRepName, setCurrentRepName] = useState('');
 
+  // Admin/manager rep dropdown — fetch the list directly (the `reps` prop can
+  // arrive empty if the page's own query failed). Fall back to the prop.
+  const [fetchedReps, setFetchedReps] = useState<Array<{ id: string; name: string; zone?: string | null; route?: string | null }>>([]);
+  useEffect(() => {
+    if (isRepUser) return;
+    fetch('/api/risansi/reps')
+      .then(r => { if (!r.ok) throw new Error('Failed to fetch reps'); return r.json(); })
+      .then(d => setFetchedReps(Array.isArray(d) ? d : []))
+      .catch(err => { console.error('Failed to load reps:', err); setFetchedReps([]); });
+  }, [isRepUser]);
+  const repOptions: Array<{ id: string; name: string; zone?: string | null; route?: string | null }> =
+    fetchedReps.length ? fetchedReps : reps.map(r => ({ id: String(r.id), name: r.name, route: r.route ?? null }));
+
   // A rep is locked to themselves — fetch their own name for the read-only display.
   useEffect(() => {
     if (!isRepUser || repId == null) return;
@@ -436,14 +449,20 @@ export default function AssignVisitDrawer({
           ) : (
             <div>
               <label style={LBL}>Rep <Req /></label>
-              <select name="rep_id" value={prefillRepId} onChange={e => setPrefillRepId(e.target.value)} style={INP}>
-                <option value="">— Select Rep —</option>
-                {reps.map(r => (
-                  <option key={r.id} value={String(r.id)}>
-                    {r.name}{r.route ? ` · ${r.route}` : ''}
-                  </option>
-                ))}
-              </select>
+              {repOptions.length === 0 ? (
+                <select disabled style={{ ...INP, color: 'var(--fg-3)' }}>
+                  <option>Loading reps…</option>
+                </select>
+              ) : (
+                <select name="rep_id" value={prefillRepId} onChange={e => setPrefillRepId(e.target.value)} style={INP}>
+                  <option value="">— Select Rep —</option>
+                  {repOptions.map(r => (
+                    <option key={r.id} value={String(r.id)}>
+                      {r.name}{r.zone ? ` · ${r.zone}` : r.route ? ` · ${r.route}` : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
           )}
 

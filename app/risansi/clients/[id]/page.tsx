@@ -279,7 +279,7 @@ export default async function ClientProfilePage({
     // 8. Reps for Plan Visit drawer
     q<DrawerRep[]>(async () => {
       const { rows } = await risansiPool.query<{ id: string; name: string; route: string | null }>(
-        `SELECT id, name, route FROM reps WHERE deleted_at IS NULL ORDER BY name`,
+        `SELECT id, name, route FROM reps WHERE is_active = TRUE ORDER BY name`,
       );
       return rows;
     }, []),
