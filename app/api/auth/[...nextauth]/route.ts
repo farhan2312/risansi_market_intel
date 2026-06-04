@@ -76,30 +76,23 @@ export const authOptions: AuthOptions = {
           token.role          = 'rep';
         }
 
-        // rep_id is a newer column — fetch separately so a missing column
-        // can never break authentication for everyone.
+        // Resolve the rep link fresh from reps.email on every refresh.
+        // (access_requests has NO rep_id column — querying it threw and forced
+        // repId to null for everyone.) reps.email is the canonical link set at
+        // approval, so this also picks up a rep linked AFTER the token was issued.
         try {
-          const repRes = await risansiPool.query<{ rep_id: number | null }>(
-            `SELECT rep_id FROM access_requests WHERE user_email = $1 LIMIT 1`,
+          const repRes = await risansiPool.query<{ id: number; name: string }>(
+            `SELECT id, name FROM reps WHERE email = $1 AND is_active = TRUE LIMIT 1`,
             [email],
           );
-          token.repId = repRes.rows[0]?.rep_id ?? null;
+          if (repRes.rows[0]) {
+            token.repId = repRes.rows[0].id;
+            token.name  = repRes.rows[0].name;   // canonical rep name
+          } else {
+            token.repId = null;
+          }
         } catch {
           token.repId = null;
-        }
-
-        // Once linked to a rep, use the canonical name from the reps table
-        // (which approval overwrote with the user's display_name) instead of
-        // the access_requests display_name, so the session shows the same
-        // name that all client/visit records resolve to.
-        if (token.repId) {
-          try {
-            const nameRes = await risansiPool.query<{ name: string | null }>(
-              'SELECT name FROM reps WHERE id = $1 LIMIT 1',
-              [token.repId],
-            );
-            if (nameRes.rows[0]?.name) token.name = nameRes.rows[0].name;
-          } catch { /* keep display_name fallback */ }
         }
       }
       return token;

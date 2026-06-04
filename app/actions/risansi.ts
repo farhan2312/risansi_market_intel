@@ -514,28 +514,46 @@ export async function createPipelineOpportunity(formData: FormData) {
   const quoteRef = (formData.get('quote_ref')        as string | null)?.trim() || null;
   const notes    = (formData.get('notes')            as string | null)?.trim() || null;
 
-  if (!clientId) return;
+  if (!clientId) throw new Error('Client is required.');
 
-  // Reps come from the form (pre-filled from the client, editable per opportunity).
-  // Changing them here affects only this opportunity, never the client record.
-  const selectedRepId = formData.get('rep_id')
-    ? parseInt(formData.get('rep_id') as string, 10)
-    : null;
-  const secondaryRepId = formData.get('secondary_rep_id')
-    ? parseInt(formData.get('secondary_rep_id') as string, 10)
-    : null;
+  // Rep assignment rule (enforced server-side, mirrors Plan Visit):
+  //   rep role          → ALWAYS themselves; resolved fresh by login email,
+  //                       never the submitted rep_id; no secondary rep.
+  //   admin/manager/...  → the submitted dropdown selections, falling back to
+  //                       the client's primary/secondary rep when left blank.
+  const role = user.role ?? 'rep';
+  let primaryRepId: number | null = null;
+  let secondaryRepId: number | null = null;
 
-  // Fallback to client's primary rep if the form somehow omitted it
-  let primaryRepId = selectedRepId;
-  if (!primaryRepId) {
-    const { rows } = await risansiPool.query<{ primary_rep_id: number | null }>(
-      'SELECT primary_rep_id FROM clients WHERE id = $1', [clientId],
+  if (role === 'rep') {
+    const { rows } = await risansiPool.query<{ id: number }>(
+      'SELECT id FROM reps WHERE email = $1 AND is_active = TRUE LIMIT 1',
+      [user.email],
     );
-    primaryRepId = rows[0]?.primary_rep_id ?? null;
+    primaryRepId = rows[0]?.id ?? (typeof user.repId === 'number' ? user.repId : null);
+  } else {
+    const rawRep    = (formData.get('rep_id')           as string | null)?.trim();
+    const rawSecRep = (formData.get('secondary_rep_id') as string | null)?.trim();
+    const parsedRep = rawRep ? parseInt(rawRep, 10) : NaN;
+    const parsedSec = rawSecRep ? parseInt(rawSecRep, 10) : NaN;
+    primaryRepId   = Number.isInteger(parsedRep) ? parsedRep : null;
+    secondaryRepId = Number.isInteger(parsedSec) ? parsedSec : null;
+
+    // Fallback to the client's reps when the dropdown was left blank
+    if (!primaryRepId) {
+      const { rows } = await risansiPool.query<{ primary_rep_id: number | null; secondary_rep_id: number | null }>(
+        'SELECT primary_rep_id, secondary_rep_id FROM clients WHERE id = $1', [clientId],
+      );
+      primaryRepId   = rows[0]?.primary_rep_id ?? null;
+      secondaryRepId = secondaryRepId ?? rows[0]?.secondary_rep_id ?? null;
+    }
   }
+
   if (!primaryRepId) {
-    throw new Error('Please select a Primary Rep for this opportunity.');
+    throw new Error('No rep assigned. Please select a rep or assign a Primary Rep to this client first.');
   }
+
+  console.log('createPipelineOpportunity: role=', role, 'repId=', primaryRepId, 'secRepId=', secondaryRepId, 'clientId=', clientId);
 
   const hasSecondary = await opportunitiesHasSecondaryRep();
   let oppRows: { id: string }[];
@@ -697,41 +715,41 @@ export async function assignVisit(formData: FormData) {
   const user = await requireSession();
 
   const clientId  = (formData.get('client_id')  as string | null)?.trim() ?? '';
-  const repIdRaw  = (formData.get('rep_id')      as string | null)?.trim() || null;
   const visitDate = (formData.get('visit_date')  as string | null)?.trim();
   const purpose   = (formData.get('purpose')     as string | null)?.trim() ?? 'Routine';
   const notes     = (formData.get('notes')       as string | null)?.trim() || null;
-
-  // ── DEBUG: server action invocation (Vercel logs) ──
-  console.log('=== assignVisit SERVER ACTION CALLED ===');
-  console.log('client_id:', clientId);
-  console.log('rep_id:', repIdRaw);
-  console.log('visit_date:', visitDate);
-  console.log('purpose:', purpose);
-  console.log('by user:', user?.email);
+  const role      = user.role ?? 'rep';
 
   // A missing client must surface as an error — never report a fake success.
   if (!clientId) throw new Error('Please select a client before scheduling a visit.');
 
   const date = visitDate ?? new Date().toISOString().slice(0, 10);
 
-  // Resolve the rep so a planned visit is never dropped for a missing/blank rep:
-  //   submitted rep → client's primary rep → any active rep.
-  const parsedRep = repIdRaw ? parseInt(repIdRaw, 10) : NaN;
-  let repId: number | null = Number.isInteger(parsedRep) ? parsedRep : null;
-  if (!repId) {
-    const { rows } = await risansiPool.query<{ primary_rep_id: number | null }>(
-      'SELECT primary_rep_id FROM clients WHERE id = $1', [clientId],
-    );
-    repId = rows[0]?.primary_rep_id ?? null;
-  }
-  if (!repId) {
+  // Rep assignment rule (enforced server-side regardless of the form):
+  //   rep role          → ALWAYS themselves; resolved fresh by login email
+  //                       (session.user.repId can't be trusted — see note below),
+  //                       never the submitted rep_id.
+  //   admin/manager/...  → the submitted dropdown selection, falling back to the
+  //                       client's primary rep when left blank.
+  let repId: number | null = null;
+  if (role === 'rep') {
     const { rows } = await risansiPool.query<{ id: number }>(
-      'SELECT id FROM reps WHERE is_active = TRUE ORDER BY id LIMIT 1',
+      'SELECT id FROM reps WHERE email = $1 AND is_active = TRUE LIMIT 1',
+      [user.email],
     );
-    repId = rows[0]?.id ?? null;
+    repId = rows[0]?.id ?? (typeof user.repId === 'number' ? user.repId : null);
+  } else {
+    const rawRepId = (formData.get('rep_id') as string | null)?.trim();
+    const parsed   = rawRepId ? parseInt(rawRepId, 10) : NaN;
+    repId = Number.isInteger(parsed) ? parsed : null;
+    if (!repId) {
+      const { rows } = await risansiPool.query<{ primary_rep_id: number | null }>(
+        'SELECT primary_rep_id FROM clients WHERE id = $1', [clientId],
+      );
+      repId = rows[0]?.primary_rep_id ?? null;
+    }
   }
-  console.log('assignVisit: resolved rep_id =', repId, '· visit_date =', date);
+  console.log('assignVisit: role=', role, 'repId=', repId, 'clientId=', clientId, 'date=', date);
 
   // Try full insert with optional columns; fall back to minimal ONLY if the
   // full insert fails (e.g. a column is missing). Errors propagate to the UI.
@@ -756,13 +774,13 @@ export async function assignVisit(formData: FormData) {
     insertedId = rows[0]?.id ?? null;
   }
 
-  console.log('=== assignVisit DONE === inserted visit id =', insertedId);
   if (!insertedId) throw new Error('Visit could not be saved — please try again.');
 
   await logActivity('client', clientId, `visit assigned for ${date} · ${purpose}`, user.email!);
   revalidatePath('/risansi/field');   // calendar lives here now
   revalidatePath('/risansi/visits');  // legacy redirect
   revalidatePath(`/risansi/clients/${clientId}`);
+  revalidatePath('/risansi');
 }
 
 // ── Mobile: GPS check-in ───────────────────────────────────────
