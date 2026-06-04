@@ -141,7 +141,9 @@ export function VisitReportForm({
               </div>
               {visit.check_in_lat != null && (
                 <div style={{ fontSize: 11, color: '#065F46' }}>
-                  GPS: {visit.check_in_lat.toFixed(4)}, {visit.check_in_lng?.toFixed(4)}
+                  {/* numeric columns arrive as strings from pg — coerce before toFixed */}
+                  GPS: {Number(visit.check_in_lat).toFixed(4)}, {visit.check_in_lng != null ? Number(visit.check_in_lng).toFixed(4) : '—'}
+                  {visit.check_in_accuracy_m != null && ` · ±${Math.round(Number(visit.check_in_accuracy_m))}m`}
                   {visit.gps_within_radius ? ' · ✓ Within client area' : ' · ⚠ Outside registered location'}
                 </div>
               )}
