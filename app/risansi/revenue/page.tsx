@@ -1,40 +1,45 @@
 import type { CSSProperties } from 'react';
-import { Topbar, Tag, MiniBars, MultiSelectFilter, ActiveFilterBar, SortableTH } from '@/components/risansi';
+import Link from 'next/link';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+import { Topbar, Donut } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentFY, fmtL } from '@/lib/risansi-utils';
+import { formatRev } from '@/lib/risansi-utils';
+import { RevenueTopClients, type RevenueClientRow } from '@/components/risansi/RevenueTopClients';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
 }
 
 const INR_TO_L = 100_000;
+const CUR_FY_START = '2025-04-01';
+const CUR_FY_END   = '2026-04-01';
+const PREV_FY_START = '2024-04-01';
+const PREV_FY_END   = '2025-04-01';
 
-interface Summary {
-  ytd:          number;
-  py:           number;
-  ppy:          number;
-  activeClients: number;
+// 'YYYY-MM-01' + n months (n may be negative)
+function addMonths(ymd: string, n: number): string {
+  const [y, m] = ymd.split('-').map(Number);
+  const d = new Date(Date.UTC(y, (m - 1) + n, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-01`;
+}
+function monthLabel(ymd: string): string {
+  const [y, m] = ymd.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-IN', { month: 'short', year: '2-digit', timeZone: 'UTC' });
+}
+function monthLabelLong(ymd: string): string {
+  const [y, m] = ymd.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-IN', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+}
+function fyLabel(start: number): string {
+  return `FY ${String(start % 100).padStart(2, '0')}-${String((start + 1) % 100).padStart(2, '0')}`;
 }
 
-interface YoYRow     { label: string; total: number; }
-interface IndustryRow { industry: string; ytd: number; py: number; }
-interface RepZoneRow  { zone: string; rep: string; ytd: number; py: number; clients: number; }
-
-interface TopClient {
-  code: string; name: string; industry: string; zone: string;
-  ytd: number; py: number;
-}
-
-interface BizCatRow { category: string; client_count: number; ytd: number; }
-
-// Sort map for top clients table
-const SORT_MAP: Record<string, string> = {
-  name:     'c.legal_name',
-  industry: 'c.industry',
-  zone:     'c.zone',
-  ytd:      'ytd_inr',
-  py:       'py_inr',
-};
+interface ByIndustry { industry: string; clients: number; pump: number; spare: number; total: number; }
+interface ByRep { rep: string; zone: string | null; clients: number; total: number; target_cr: number | null; }
+interface ByCat { category: string; clients: number; total: number; }
+interface YoY { fyStart: number; pump: number; spare: number; total: number; }
+interface MonthPoint { ym: string; pump: number; spare: number; total: number; }
 
 export default async function RevenuePage({
   searchParams,
@@ -42,233 +47,211 @@ export default async function RevenuePage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = await searchParams;
-  const fy = getCurrentFY();
 
-  // Multi-select filters for top clients table
-  const indFilts  = typeof sp.industry === 'string' && sp.industry ? sp.industry.split(',').filter(Boolean) : [];
-  const zoneFilts = typeof sp.zone     === 'string' && sp.zone     ? sp.zone.split(',').filter(Boolean)     : [];
-
-  // Sort
-  const sortKey  = typeof sp.sort === 'string' ? sp.sort : 'ytd';
-  const orderDir = sp.dir === 'asc' ? 'ASC' : 'DESC';
-  const sortCol  = SORT_MAP[sortKey] ?? 'ytd_inr';
-
-  // Build WHERE for top clients
-  const clientConds: string[] = ['c.deleted_at IS NULL'];
-  const clientVals: (string | string[])[] = [];
-  let idx = 1;
-
-  if (indFilts.length > 0) {
-    clientConds.push(`c.industry = ANY($${idx}::text[])`);
-    clientVals.push(indFilts); idx++;
+  // ── Role / rep scoping ──────────────────────────────────────
+  const session = await getServerSession(authOptions);
+  const role    = session?.user?.role ?? 'rep';
+  const isRep   = role === 'rep';
+  let repId: number | null = session?.user?.repId ?? null;
+  if (isRep && repId == null && session?.user?.email) {
+    const r = await risansiPool.query<{ id: number }>('SELECT id FROM reps WHERE email = $1 LIMIT 1', [session.user.email]);
+    repId = r.rows[0]?.id ?? null;
   }
-  if (zoneFilts.length > 0) {
-    clientConds.push(`c.zone = ANY($${idx}::text[])`);
-    clientVals.push(zoneFilts); idx++;
+  const personal = isRep && sp.view !== 'full';
+  const scoped   = personal && repId != null;
+  const repCond  = scoped ? ` AND c.primary_rep_id = $REP` : '';
+
+  // Build a query's param list, substituting the $REP placeholder with the next index.
+  function withRep(sql: string, baseParams: (string | number)[]): [string, (string | number)[]] {
+    if (!scoped) return [sql.replace(/ AND c\.primary_rep_id = \$REP/g, ''), baseParams];
+    const idx = baseParams.length + 1;
+    return [sql.replace(/\$REP/g, String(idx)), [...baseParams, repId as number]];
   }
 
-  const clientWhere = `WHERE ${clientConds.join(' AND ')}`;
+  // ── Period (month filter or full FY) ────────────────────────
+  const monthSel = typeof sp.month === 'string' && /^\d{4}-\d{2}-01$/.test(sp.month) ? sp.month : null;
+  const periodStart = monthSel ?? CUR_FY_START;
+  const periodEnd   = monthSel ? addMonths(monthSel, 1) : CUR_FY_END;
+  const prevStart   = monthSel ? addMonths(monthSel, -12) : PREV_FY_START;
+  const prevEnd     = monthSel ? addMonths(periodEnd, -12) : PREV_FY_END;
 
-  const [summary, yoy, byIndustry, byRepZone, topClients, byBizCat, industryOptions, zoneOptions] = await Promise.all([
+  function buildUrl(over: { view?: string | null; month?: string | null }): string {
+    const view  = 'view' in over ? over.view  : (personal ? null : (isRep ? 'full' : null));
+    const month = 'month' in over ? over.month : monthSel;
+    const p = new URLSearchParams();
+    if (view) p.set('view', view);
+    if (month) p.set('month', month);
+    const qs = p.toString();
+    return `/risansi/revenue${qs ? `?${qs}` : ''}`;
+  }
 
-    // 1. Summary totals
-    q<Summary>(async () => {
-      const { rows } = await risansiPool.query<{
-        ytd: string; py: string; ppy: string; active: string;
-      }>(
+  const [summary, activeClients, yoy, monthly, byIndustry, byRep, topClients, byCat, monthTiles] = await Promise.all([
+
+    // 1. FY summary — current + previous period, pump/spare, clients billed
+    q(async () => {
+      const [sql, params] = withRep(
         `SELECT
-           (SELECT COALESCE(SUM(total_value),0) FROM client_revenue_monthly
-            WHERE month >= '2025-04-01' AND month < '2026-04-01')::text AS ytd,
-           (SELECT COALESCE(SUM(total_value),0) FROM client_revenue_monthly
-            WHERE month >= '2024-04-01' AND month < '2025-04-01')::text AS py,
-           (SELECT COALESCE(SUM(total_value),0) FROM client_revenue_monthly
-            WHERE month >= '2023-04-01' AND month < '2024-04-01')::text AS ppy,
-           COUNT(*) FILTER (WHERE status = 'ACTIVE' AND deleted_at IS NULL)::text AS active
-         FROM clients
-         WHERE deleted_at IS NULL`,
+           COALESCE(SUM(crm.total_value) FILTER (WHERE crm.month >= $1 AND crm.month < $2),0)::text AS cur_total,
+           COALESCE(SUM(crm.pump_value)  FILTER (WHERE crm.month >= $1 AND crm.month < $2),0)::text AS cur_pump,
+           COALESCE(SUM(crm.spare_value) FILTER (WHERE crm.month >= $1 AND crm.month < $2),0)::text AS cur_spare,
+           COALESCE(SUM(crm.total_value) FILTER (WHERE crm.month >= $3 AND crm.month < $4),0)::text AS prev_total,
+           COUNT(DISTINCT crm.client_id) FILTER (WHERE crm.month >= $1 AND crm.month < $2 AND crm.total_value > 0)::text AS billed
+         FROM client_revenue_monthly crm
+         JOIN clients c ON c.id = crm.client_id
+         WHERE c.deleted_at IS NULL${repCond}`,
+        [periodStart, periodEnd, prevStart, prevEnd],
       );
+      const { rows } = await risansiPool.query<{ cur_total: string; cur_pump: string; cur_spare: string; prev_total: string; billed: string }>(sql, params);
       const r = rows[0];
       return {
-        ytd:           Number(r?.ytd    ?? 0) / INR_TO_L,
-        py:            Number(r?.py     ?? 0) / INR_TO_L,
-        ppy:           Number(r?.ppy    ?? 0) / INR_TO_L,
-        activeClients: Number(r?.active ?? 0),
+        total: Number(r?.cur_total ?? 0), pump: Number(r?.cur_pump ?? 0), spare: Number(r?.cur_spare ?? 0),
+        prevTotal: Number(r?.prev_total ?? 0), billed: Number(r?.billed ?? 0),
       };
-    }, { ytd: 0, py: 0, ppy: 0, activeClients: 0 }),
+    }, { total: 0, pump: 0, spare: 0, prevTotal: 0, billed: 0 }),
 
-    // 2. YoY trend
-    q<YoYRow[]>(async () => {
-      const { rows } = await risansiPool.query<{ fy_label: string; total_inr: string }>(
-        `SELECT fy_label, COALESCE(SUM(total_value),0)::text AS total_inr
-         FROM (
-           SELECT
-             CASE
-               WHEN month >= '2021-04-01' AND month < '2022-04-01' THEN 'FY21'
-               WHEN month >= '2022-04-01' AND month < '2023-04-01' THEN 'FY22'
-               WHEN month >= '2023-04-01' AND month < '2024-04-01' THEN 'FY23'
-               WHEN month >= '2024-04-01' AND month < '2025-04-01' THEN 'FY24'
-               WHEN month >= '2025-04-01' AND month < '2026-04-01' THEN 'FY25'
-               ELSE NULL
-             END AS fy_label,
-             CASE
-               WHEN month >= '2021-04-01' AND month < '2022-04-01' THEN 1
-               WHEN month >= '2022-04-01' AND month < '2023-04-01' THEN 2
-               WHEN month >= '2023-04-01' AND month < '2024-04-01' THEN 3
-               WHEN month >= '2024-04-01' AND month < '2025-04-01' THEN 4
-               WHEN month >= '2025-04-01' AND month < '2026-04-01' THEN 5
-               ELSE NULL
-             END AS fy_order,
-             total_value
-           FROM client_revenue_monthly
-         ) t WHERE fy_label IS NOT NULL
-         GROUP BY fy_label, fy_order
-         ORDER BY fy_order ASC`,
-      );
-      return rows.map(r => ({ label: r.fy_label, total: Number(r.total_inr) / INR_TO_L }));
-    }, []),
+    // 2. Total active clients (scope-aware)
+    q(async () => {
+      const [sql, params] = withRep(`SELECT COUNT(*)::text AS n FROM clients c WHERE c.deleted_at IS NULL AND c.status = 'ACTIVE'${repCond}`, []);
+      const { rows } = await risansiPool.query<{ n: string }>(sql, params);
+      return Number(rows[0]?.n ?? 0);
+    }, 0),
 
-    // 3. By industry
-    q<IndustryRow[]>(async () => {
-      const { rows } = await risansiPool.query<{ industry: string; ytd: string; py: string }>(
-        `SELECT
-           COALESCE(c.industry, 'Unknown') AS industry,
-           COALESCE(SUM(CASE WHEN crm.month >= '2025-04-01' AND crm.month < '2026-04-01' THEN crm.total_value ELSE 0 END),0)::text AS ytd,
-           COALESCE(SUM(CASE WHEN crm.month >= '2024-04-01' AND crm.month < '2025-04-01' THEN crm.total_value ELSE 0 END),0)::text AS py
+    // 3. YoY by FY (not month-filtered — it's a trend)
+    q<YoY[]>(async () => {
+      const [sql, params] = withRep(
+        `SELECT (CASE WHEN EXTRACT(MONTH FROM crm.month) >= 4 THEN EXTRACT(YEAR FROM crm.month) ELSE EXTRACT(YEAR FROM crm.month) - 1 END)::int AS fy_start,
+                COALESCE(SUM(crm.pump_value),0)::text AS pump,
+                COALESCE(SUM(crm.spare_value),0)::text AS spare,
+                COALESCE(SUM(crm.total_value),0)::text AS total
          FROM client_revenue_monthly crm
-         JOIN clients c ON crm.client_id = c.id
-         WHERE c.deleted_at IS NULL
-         GROUP BY COALESCE(c.industry, 'Unknown')
-         ORDER BY SUM(CASE WHEN crm.month >= '2025-04-01' AND crm.month < '2026-04-01' THEN crm.total_value ELSE 0 END) DESC
-         LIMIT 12`,
+         JOIN clients c ON c.id = crm.client_id
+         WHERE c.deleted_at IS NULL${repCond}
+         GROUP BY 1 ORDER BY 1 DESC LIMIT 5`,
+        [],
       );
-      return rows.map(r => ({
-        industry: r.industry,
-        ytd:      Number(r.ytd) / INR_TO_L,
-        py:       Number(r.py)  / INR_TO_L,
-      }));
+      const { rows } = await risansiPool.query<{ fy_start: number; pump: string; spare: string; total: string }>(sql, params);
+      return rows.map(r => ({ fyStart: Number(r.fy_start), pump: Number(r.pump), spare: Number(r.spare), total: Number(r.total) })).reverse();
     }, []),
 
-    // 4. By rep / zone
-    q<RepZoneRow[]>(async () => {
-      const { rows } = await risansiPool.query<{
-        zone: string; rep: string; ytd: string; py: string; clients: string;
-      }>(
-        `SELECT
-           COALESCE(c.zone, '—') AS zone,
-           COALESCE(r.name, c.primary_rep_name, 'Unassigned') AS rep,
-           COALESCE(SUM(CASE WHEN crm.month >= '2025-04-01' AND crm.month < '2026-04-01' THEN crm.total_value ELSE 0 END),0)::text AS ytd,
-           COALESCE(SUM(CASE WHEN crm.month >= '2024-04-01' AND crm.month < '2025-04-01' THEN crm.total_value ELSE 0 END),0)::text AS py,
-           COUNT(DISTINCT c.id)::text AS clients
+    // 4. Monthly trend — distinct months present (annual snapshots), most recent 24
+    q<MonthPoint[]>(async () => {
+      const [sql, params] = withRep(
+        `SELECT to_char(crm.month,'YYYY-MM-01') AS ym,
+                COALESCE(SUM(crm.pump_value),0)::text AS pump,
+                COALESCE(SUM(crm.spare_value),0)::text AS spare,
+                COALESCE(SUM(crm.total_value),0)::text AS total
          FROM client_revenue_monthly crm
-         JOIN clients c ON crm.client_id = c.id
-         LEFT JOIN reps r ON c.primary_rep_id = r.id
-         WHERE c.deleted_at IS NULL
-         GROUP BY COALESCE(c.zone, '—'), COALESCE(r.name, c.primary_rep_name, 'Unassigned')
-         ORDER BY SUM(CASE WHEN crm.month >= '2025-04-01' AND crm.month < '2026-04-01' THEN crm.total_value ELSE 0 END) DESC
-         LIMIT 15`,
+         JOIN clients c ON c.id = crm.client_id
+         WHERE c.deleted_at IS NULL${repCond}
+         GROUP BY ym ORDER BY ym DESC LIMIT 24`,
+        [],
       );
+      const { rows } = await risansiPool.query<{ ym: string; pump: string; spare: string; total: string }>(sql, params);
+      return rows.map(r => ({ ym: r.ym, pump: Number(r.pump), spare: Number(r.spare), total: Number(r.total) })).reverse();
+    }, []),
+
+    // 5. By industry (period)
+    q<ByIndustry[]>(async () => {
+      const [sql, params] = withRep(
+        `SELECT COALESCE(c.industry,'Other') AS industry,
+                COUNT(DISTINCT crm.client_id)::text AS clients,
+                COALESCE(SUM(crm.pump_value),0)::text AS pump,
+                COALESCE(SUM(crm.spare_value),0)::text AS spare,
+                COALESCE(SUM(crm.total_value),0)::text AS total
+         FROM client_revenue_monthly crm
+         JOIN clients c ON c.id = crm.client_id
+         WHERE c.deleted_at IS NULL AND crm.month >= $1 AND crm.month < $2${repCond}
+         GROUP BY COALESCE(c.industry,'Other') HAVING SUM(crm.total_value) > 0
+         ORDER BY SUM(crm.total_value) DESC LIMIT 15`,
+        [periodStart, periodEnd],
+      );
+      const { rows } = await risansiPool.query<{ industry: string; clients: string; pump: string; spare: string; total: string }>(sql, params);
+      return rows.map(r => ({ industry: r.industry, clients: Number(r.clients), pump: Number(r.pump), spare: Number(r.spare), total: Number(r.total) }));
+    }, []),
+
+    // 6. By rep / zone (period) + target
+    q<ByRep[]>(async () => {
+      const [sql, params] = withRep(
+        `SELECT COALESCE(r.name, c.primary_rep_name, 'Unassigned') AS rep,
+                r.zone, r.target_cr::text AS target_cr,
+                COUNT(DISTINCT crm.client_id)::text AS clients,
+                COALESCE(SUM(crm.total_value),0)::text AS total
+         FROM client_revenue_monthly crm
+         JOIN clients c ON c.id = crm.client_id
+         LEFT JOIN reps r ON r.id = c.primary_rep_id
+         WHERE c.deleted_at IS NULL AND crm.month >= $1 AND crm.month < $2${repCond}
+         GROUP BY COALESCE(r.name, c.primary_rep_name, 'Unassigned'), r.zone, r.target_cr
+         HAVING SUM(crm.total_value) > 0 ORDER BY SUM(crm.total_value) DESC LIMIT 30`,
+        [periodStart, periodEnd],
+      );
+      const { rows } = await risansiPool.query<{ rep: string; zone: string | null; target_cr: string | null; clients: string; total: string }>(sql, params);
+      return rows.map(r => ({ rep: r.rep, zone: r.zone, clients: Number(r.clients), total: Number(r.total), target_cr: r.target_cr != null ? Number(r.target_cr) : null }));
+    }, []),
+
+    // 7. Top clients (current + previous period for vs LY) — fetch up to 100, paginated client-side
+    q<RevenueClientRow[]>(async () => {
+      const [sql, params] = withRep(
+        `SELECT c.id::text AS id, c.code, c.legal_name, c.industry, c.state, c.tier,
+                COALESCE(r.name, c.primary_rep_name, '—') AS rep_name,
+                COALESCE(SUM(crm.pump_value)  FILTER (WHERE crm.month >= $1 AND crm.month < $2),0)::text AS pump,
+                COALESCE(SUM(crm.spare_value) FILTER (WHERE crm.month >= $1 AND crm.month < $2),0)::text AS spare,
+                COALESCE(SUM(crm.total_value) FILTER (WHERE crm.month >= $1 AND crm.month < $2),0)::text AS total,
+                COALESCE(SUM(crm.total_value) FILTER (WHERE crm.month >= $3 AND crm.month < $4),0)::text AS prev_total
+         FROM client_revenue_monthly crm
+         JOIN clients c ON c.id = crm.client_id
+         LEFT JOIN reps r ON r.id = c.primary_rep_id
+         WHERE c.deleted_at IS NULL${repCond}
+         GROUP BY c.id, c.code, c.legal_name, c.industry, c.state, c.tier, r.name, c.primary_rep_name
+         HAVING SUM(crm.total_value) FILTER (WHERE crm.month >= $1 AND crm.month < $2) > 0
+         ORDER BY SUM(crm.total_value) FILTER (WHERE crm.month >= $1 AND crm.month < $2) DESC
+         LIMIT 100`,
+        [periodStart, periodEnd, prevStart, prevEnd],
+      );
+      const { rows } = await risansiPool.query<Record<string, string | null>>(sql, params);
       return rows.map(r => ({
-        zone:    r.zone,
-        rep:     r.rep,
-        ytd:     Number(r.ytd)     / INR_TO_L,
-        py:      Number(r.py)      / INR_TO_L,
-        clients: Number(r.clients),
+        id: r.id as string, code: r.code as string, legal_name: r.legal_name as string,
+        industry: r.industry, state: r.state, tier: r.tier, rep_name: (r.rep_name as string) ?? '—',
+        pump: Number(r.pump ?? 0), spare: Number(r.spare ?? 0), total: Number(r.total ?? 0), prev_total: Number(r.prev_total ?? 0),
       }));
     }, []),
 
-    // 5. Top clients (with filters + sort)
-    q<TopClient[]>(async () => {
-      const { rows } = await risansiPool.query<{
-        code: string; name: string; industry: string; zone: string;
-        ytd_inr: string; py_inr: string;
-      }>(
-        `SELECT
-           c.code,
-           c.legal_name AS name,
-           COALESCE(c.industry, '—') AS industry,
-           COALESCE(c.zone, '—') AS zone,
-           COALESCE(curr.total_inr, 0)::text AS ytd_inr,
-           COALESCE(prev.total_inr, 0)::text AS py_inr
-         FROM clients c
-         LEFT JOIN (
-           SELECT client_id, SUM(total_value) AS total_inr
-           FROM client_revenue_monthly
-           WHERE month >= '2025-04-01' AND month < '2026-04-01'
-           GROUP BY client_id
-         ) curr ON curr.client_id = c.id
-         LEFT JOIN (
-           SELECT client_id, SUM(total_value) AS total_inr
-           FROM client_revenue_monthly
-           WHERE month >= '2024-04-01' AND month < '2025-04-01'
-           GROUP BY client_id
-         ) prev ON prev.client_id = c.id
-         ${clientWhere}
-         ORDER BY ${sortCol} ${orderDir} NULLS LAST
-         LIMIT 20`,
-        clientVals as string[],
+    // 8. Business category (client_type — no business_category column exists)
+    q<ByCat[]>(async () => {
+      const [sql, params] = withRep(
+        `SELECT COALESCE(NULLIF(TRIM(c.client_type),''),'Unclassified') AS category,
+                COUNT(DISTINCT crm.client_id)::text AS clients,
+                COALESCE(SUM(crm.total_value),0)::text AS total
+         FROM client_revenue_monthly crm
+         JOIN clients c ON c.id = crm.client_id
+         WHERE c.deleted_at IS NULL AND crm.month >= $1 AND crm.month < $2${repCond}
+         GROUP BY category HAVING SUM(crm.total_value) > 0 ORDER BY SUM(crm.total_value) DESC`,
+        [periodStart, periodEnd],
       );
-      return rows.map(r => ({
-        code:     r.code,
-        name:     r.name,
-        industry: r.industry,
-        zone:     r.zone,
-        ytd:      Number(r.ytd_inr) / INR_TO_L,
-        py:       Number(r.py_inr)  / INR_TO_L,
-      }));
+      const { rows } = await risansiPool.query<{ category: string; clients: string; total: string }>(sql, params);
+      return rows.map(r => ({ category: r.category, clients: Number(r.clients), total: Number(r.total) }));
     }, []),
 
-    // 6. By business category
-    q<BizCatRow[]>(async () => {
-      const { rows } = await risansiPool.query<{ category: string; client_count: string; ytd: string }>(
-        `SELECT
-           COALESCE(c.business_category, 'Uncategorised') AS category,
-           COUNT(DISTINCT c.id)::text AS client_count,
-           COALESCE(SUM(crm.total_value),0)::text AS ytd
-         FROM clients c
-         LEFT JOIN client_revenue_monthly crm
-           ON crm.client_id = c.id
-           AND crm.month >= '2025-04-01' AND crm.month < '2026-04-01'
-         WHERE c.deleted_at IS NULL AND c.status = 'ACTIVE'
-         GROUP BY c.business_category
-         ORDER BY SUM(crm.total_value) DESC NULLS LAST
-         LIMIT 8`,
-      );
-      return rows.map(r => ({
-        category:     r.category,
-        client_count: Number(r.client_count),
-        ytd:          Number(r.ytd) / INR_TO_L,
-      }));
-    }, []),
-
-    // 7. Industry options
+    // 9. Month tiles — distinct months present in the current FY
     q<string[]>(async () => {
-      const { rows } = await risansiPool.query<{ industry: string }>(
-        `SELECT DISTINCT industry FROM clients WHERE industry IS NOT NULL ORDER BY industry`,
+      const { rows } = await risansiPool.query<{ ym: string }>(
+        `SELECT DISTINCT to_char(month,'YYYY-MM-01') AS ym FROM client_revenue_monthly
+         WHERE month >= $1 AND month < $2 ORDER BY ym`,
+        [CUR_FY_START, CUR_FY_END],
       );
-      return rows.map(r => r.industry);
-    }, []),
-
-    // 8. Zone options
-    q<string[]>(async () => {
-      const { rows } = await risansiPool.query<{ zone: string }>(
-        `SELECT DISTINCT zone FROM clients WHERE zone IS NOT NULL AND deleted_at IS NULL ORDER BY zone`,
-      );
-      return rows.map(r => r.zone);
+      return rows.map(r => r.ym);
     }, []),
   ]);
 
-  // ── Derived ───────────────────────────────────────────────────
+  // ── Derived ─────────────────────────────────────────────────
+  const delta      = summary.prevTotal > 0 ? ((summary.total - summary.prevTotal) / summary.prevTotal) * 100 : null;
+  const pumpPct    = summary.total > 0 ? (summary.pump / summary.total) * 100 : 0;
+  const sparePct   = summary.total > 0 ? (summary.spare / summary.total) * 100 : 0;
+  const maxIndustry = Math.max(...byIndustry.map(r => r.total), 1);
+  const maxRep      = Math.max(...byRep.map(r => r.total), 1);
+  const catTotal    = byCat.reduce((s, r) => s + r.total, 0);
+  const hasAnyData  = summary.total > 0 || byIndustry.length > 0 || topClients.length > 0 || yoy.some(y => y.total > 0);
 
-  const yoyGrowth   = summary.py > 0 ? ((summary.ytd - summary.py) / summary.py) * 100 : 0;
-  const pyGrowth    = summary.ppy > 0 ? ((summary.py - summary.ppy) / summary.ppy) * 100 : 0;
-  const maxIndustry = Math.max(...byIndustry.map(r => r.ytd), 1);
-  const maxRepZone  = Math.max(...byRepZone.map(r => r.ytd), 1);
-  const yoyValues   = yoy.map(r => r.total);
-  const yoyLabels   = yoy.map(r => r.label);
-
-  const curSort  = sortKey;
-  const curDir   = orderDir === 'DESC' ? 'desc' : 'asc';
-  const anyFilter = indFilts.length > 0 || zoneFilts.length > 0;
+  const subtitle = monthSel ? `Showing ${monthLabelLong(monthSel)}` : 'FY 25-26 · All months';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -278,228 +261,200 @@ export default async function RevenuePage({
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>
 
-        {/* ── Page header ───────────────────────────────────── */}
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
-            Revenue Intelligence
-          </div>
+        {/* Header */}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>Revenue</div>
           <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>
-            {fy.label} · All figures in ₹ Lakhs · Source: client master
+            {subtitle}{personal ? ' · your clients' : ''}
           </div>
         </div>
 
-        {/* ── KPI row ───────────────────────────────────────── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 14 }}>
-          <KpiCard
-            label={`${fy.label} Revenue`}
-            value={fmtL(summary.ytd)}
-            delta={yoyGrowth !== 0 ? `${yoyGrowth >= 0 ? '+' : ''}${yoyGrowth.toFixed(1)}% vs FY25` : undefined}
-            positive={yoyGrowth >= 0}
-          />
-          <KpiCard
-            label="FY 24–25 (PY)"
-            value={fmtL(summary.py)}
-            delta={pyGrowth !== 0 ? `${pyGrowth >= 0 ? '+' : ''}${pyGrowth.toFixed(1)}% vs FY24` : undefined}
-            positive={pyGrowth >= 0}
-          />
-          <KpiCard
-            label="Active Clients"
-            value={summary.activeClients.toLocaleString('en-IN')}
-            delta={byIndustry.length > 0 ? `${byIndustry.length} industries` : undefined}
-            positive
-          />
-          <KpiCard
-            label="Top Industry"
-            value={byIndustry[0]?.industry ?? '—'}
-            delta={byIndustry[0] ? fmtL(byIndustry[0].ytd) : undefined}
-            positive
-          />
-        </div>
+        {/* Section 0 — rep toggle */}
+        {isRep && (
+          <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+            <a href={buildUrl({ view: null })} style={toggle(personal)}>My Revenue</a>
+            <a href={buildUrl({ view: 'full' })} style={toggle(!personal)}>All Revenue</a>
+          </div>
+        )}
 
-        {/* ── YoY trend + business category ─────────────────── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14, marginBottom: 14 }}>
-
-          <div style={PANEL}>
-            <div style={PANEL_H}>
-              <span style={PANEL_TITLE}>Year-on-Year Revenue Trend</span>
-              <span style={META}>FY21 – FY26 · ₹ Lakhs</span>
+        {!hasAnyData ? (
+          <div style={{ ...PANEL, padding: '48px 24px', textAlign: 'center', color: 'var(--fg-3)' }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>💹</div>
+            <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--fg-2)', marginBottom: 6 }}>No revenue recorded yet</div>
+            <div style={{ fontSize: 13 }}>
+              Upload monthly revenue data from{' '}
+              <Link href="/risansi/admin/revenue" style={{ color: 'var(--accent)' }}>Admin → Revenue Upload</Link>
             </div>
-            <div style={{ padding: '20px 24px' }}>
-              {yoyValues.length > 0 ? (
-                <>
-                  <MiniBars values={yoyValues} labels={yoyLabels} width={520} height={90} color="#1A5CB8" />
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12 }}>
-                    {yoy.map((row, i) => (
-                      <div key={i} style={{ textAlign: 'center' }}>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: i === yoy.length - 1 ? 700 : 400, color: i === yoy.length - 1 ? '#0A3D8F' : 'var(--fg-3)' }}>
-                          {fmtL(row.total)}
-                        </div>
-                      </div>
-                    ))}
+          </div>
+        ) : (
+          <>
+            {/* Section 1 — month tiles */}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
+              <a href={buildUrl({ month: null })} style={tile(!monthSel)}>All</a>
+              {monthTiles.map(m => (
+                <a key={m} href={buildUrl({ month: m })} style={tile(monthSel === m)}>{monthLabel(m)}</a>
+              ))}
+            </div>
+
+            {/* Section 2 — KPI strip */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 14 }}>
+              <Kpi label={monthSel ? 'Period Total' : 'FY 25-26 Total'} value={formatRev(summary.total)}
+                sub={delta != null ? `${delta >= 0 ? '▲' : '▼'} ${delta >= 0 ? '+' : ''}${delta.toFixed(1)}% vs ${monthSel ? 'LY' : 'FY 24-25'}` : 'no prior-period data'}
+                subColor={delta == null ? 'var(--fg-3)' : delta >= 0 ? 'var(--pos)' : 'var(--neg)'} />
+              <Kpi label="Pump Revenue" value={formatRev(summary.pump)} sub={`${pumpPct.toFixed(0)}% of total`} />
+              <Kpi label="Spare Revenue" value={formatRev(summary.spare)} sub={`${sparePct.toFixed(0)}% of total`} />
+              <Kpi label="Clients Billed" value={summary.billed.toLocaleString('en-IN')} sub={`of ${activeClients.toLocaleString('en-IN')} active clients`} />
+            </div>
+
+            {/* Section 3 — YoY + pump/spare donut */}
+            <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 14, marginBottom: 14 }}>
+              <div style={PANEL}>
+                <div style={PANEL_H}><span style={PANEL_TITLE}>Year-on-Year Revenue</span><span style={META}>Pump vs Spare · ₹ Lakhs</span></div>
+                <div style={{ padding: '16px 18px' }}>
+                  {yoy.some(y => y.total > 0) ? <YoYChart rows={yoy} curFyStart={2025} /> : <Empty>No historical data</Empty>}
+                  <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginTop: 8, fontSize: 11, color: 'var(--fg-3)' }}>
+                    <span><span style={{ display: 'inline-block', width: 8, height: 8, background: '#0A3D8F', borderRadius: 2, marginRight: 5 }} />Pump</span>
+                    <span><span style={{ display: 'inline-block', width: 8, height: 8, background: '#00A3C4', borderRadius: 2, marginRight: 5 }} />Spare</span>
                   </div>
-                </>
-              ) : (
-                <div style={{ fontSize: 12, color: 'var(--fg-3)', textAlign: 'center', padding: '32px 0' }}>No historical data</div>
-              )}
-            </div>
-          </div>
-
-          <div style={PANEL}>
-            <div style={PANEL_H}>
-              <span style={PANEL_TITLE}>Business Category</span>
-              <span style={META}>{fy.label} · active clients</span>
-            </div>
-            {byBizCat.length === 0 ? (
-              <div style={{ fontSize: 12, color: 'var(--fg-3)', textAlign: 'center', padding: '32px 0' }}>No data</div>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead>
-                  <tr style={{ background: 'var(--bg-elev)' }}>
-                    {['Category', 'Clients', 'Revenue FY26', '% of Total'].map(h => (
-                      <th key={h} style={TH}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {byBizCat.map(row => {
-                    const pct = summary.ytd > 0 ? (row.ytd / summary.ytd) * 100 : 0;
-                    return (
-                      <tr key={row.category} style={{ borderBottom: '1px solid var(--line)' }}>
-                        <td style={{ padding: '8px 12px', verticalAlign: 'middle' }}>
-                          <BizCatPill category={row.category} />
-                        </td>
-                        <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-                          {row.client_count}
-                        </td>
-                        <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, color: '#0D1B2A', fontSize: 12 }}>
-                          {fmtL(row.ytd)}
-                        </td>
-                        <td style={{ ...TD, minWidth: 90 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <div style={{ flex: 1, height: 4, background: '#DDE6F5', borderRadius: 2, overflow: 'hidden' }}>
-                              <div style={{ height: '100%', width: `${pct}%`, background: '#1A5CB8', borderRadius: 2 }} />
-                            </div>
-                            <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--fg-3)', minWidth: 30, textAlign: 'right' }}>
-                              {pct.toFixed(0)}%
-                            </span>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  <tr style={{ background: 'var(--bg-elev)', fontWeight: 600 }}>
-                    <td style={{ padding: '8px 12px', fontSize: 11, fontWeight: 700, color: '#0A3D8F', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                      Total
-                    </td>
-                    <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
-                      {byBizCat.reduce((s, r) => s + r.client_count, 0)}
-                    </td>
-                    <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 700, color: '#0D1B2A' }}>
-                      {fmtL(byBizCat.reduce((s, r) => s + r.ytd, 0))}
-                    </td>
-                    <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)', textAlign: 'right' }}>
-                      100%
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-
-        {/* ── Industry breakdown + Top clients ──────────────── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: 14, marginBottom: 14 }}>
-
-          <div style={PANEL}>
-            <div style={PANEL_H}>
-              <span style={PANEL_TITLE}>Revenue by Industry</span>
-              <span style={META}>{fy.label}</span>
-            </div>
-            <div style={{ padding: '14px 16px' }}>
-              {byIndustry.length === 0 && (
-                <div style={{ fontSize: 12, color: 'var(--fg-3)', textAlign: 'center', padding: '24px 0' }}>No data</div>
-              )}
-              {byIndustry.map((row, i) => {
-                const pct   = (row.ytd / maxIndustry) * 100;
-                const delta = row.py > 0 ? ((row.ytd - row.py) / row.py) * 100 : null;
-                const colors = ['#0A3D8F','#1A5CB8','#2E7DD1','#00B4D8','#059669','#D97706','#7C3AED','#DC2626','#6B7FA3','#374151','#0891B2','#065F46'];
-                return (
-                  <div key={row.industry} style={{ marginBottom: 12 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 12 }}>
-                      <span style={{ color: '#2C3E5A', fontWeight: i < 3 ? 600 : 400, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {row.industry}
-                      </span>
-                      <span style={{ fontFamily: 'var(--font-mono)', color: '#0D1B2A', display: 'flex', gap: 8, alignItems: 'center' }}>
-                        {delta != null && (
-                          <span style={{ fontSize: 10, color: delta >= 0 ? 'var(--pos)' : 'var(--neg)' }}>
-                            {delta >= 0 ? '▲' : '▼'}{Math.abs(delta).toFixed(0)}%
-                          </span>
-                        )}
-                        {fmtL(row.ytd)}
-                      </span>
-                    </div>
-                    <div style={{ height: 5, background: '#DDE6F5', borderRadius: 2, overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${pct}%`, background: colors[i % colors.length], borderRadius: 2 }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Top 20 clients */}
-          <div style={PANEL}>
-            <div style={PANEL_H}>
-              <span style={PANEL_TITLE}>Top 20 Clients · {fy.label}</span>
-              <span style={META}>{topClients.length} accounts</span>
-            </div>
-
-            {/* Filter row */}
-            <div style={{ padding: '10px 14px 0', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <MultiSelectFilter param="industry" label="Industry" options={industryOptions} selected={indFilts} />
-              <MultiSelectFilter param="zone"     label="Zone"     options={zoneOptions}     selected={zoneFilts} />
-            </div>
-
-            {/* Active filter pills */}
-            {anyFilter && (
-              <div style={{ padding: '4px 14px 0' }}>
-                <ActiveFilterBar filters={[
-                  { param: 'industry', label: 'Industry', values: indFilts  },
-                  { param: 'zone',     label: 'Zone',     values: zoneFilts },
-                ]} />
+                </div>
               </div>
-            )}
 
-            <div style={{ overflowX: 'auto', maxHeight: 460, overflowY: 'auto', marginTop: 4 }}>
-              {topClients.length === 0 ? (
-                <div style={{ fontSize: 12, color: 'var(--fg-3)', textAlign: 'center', padding: '32px 0' }}>No revenue data</div>
-              ) : (
+              <div style={PANEL}>
+                <div style={PANEL_H}><span style={PANEL_TITLE}>Pump vs Spare</span></div>
+                <div style={{ padding: 20, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
+                  {summary.total > 0 ? (
+                    <>
+                      <Donut
+                        data={[{ pct: pumpPct, color: '#0A3D8F', name: 'Pump' }, { pct: sparePct, color: '#00A3C4', name: 'Spare' }]}
+                        size={150} thick={22}
+                        center={<div style={{ textAlign: 'center' }}>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 600, color: 'var(--fg)' }}>{formatRev(summary.total)}</div>
+                          <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginTop: 2 }}>Total</div>
+                        </div>}
+                      />
+                      <div style={{ display: 'flex', gap: 18, fontSize: 12 }}>
+                        <span><span style={{ display: 'inline-block', width: 8, height: 8, background: '#0A3D8F', borderRadius: 2, marginRight: 5 }} />Pump {pumpPct.toFixed(0)}%</span>
+                        <span><span style={{ display: 'inline-block', width: 8, height: 8, background: '#00A3C4', borderRadius: 2, marginRight: 5 }} />Spare {sparePct.toFixed(0)}%</span>
+                      </div>
+                    </>
+                  ) : <Empty>No revenue in this period</Empty>}
+                </div>
+              </div>
+            </div>
+
+            {/* Section 4 — industry + rep tables */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 14, marginBottom: 14 }}>
+              {/* Industry */}
+              <div style={PANEL}>
+                <div style={PANEL_H}><span style={PANEL_TITLE}>Revenue by Industry</span></div>
+                {byIndustry.length === 0 ? <Empty>No data</Empty> : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                      <thead><tr style={{ background: 'var(--bg-elev)' }}>
+                        {['Industry', 'Clients', 'Pump', 'Spare', 'Total', '% Share'].map(h => <th key={h} style={TH}>{h}</th>)}
+                      </tr></thead>
+                      <tbody>
+                        {byIndustry.map(r => {
+                          const share = summary.total > 0 ? (r.total / summary.total) * 100 : 0;
+                          return (
+                            <tr key={r.industry} style={{ borderBottom: '1px solid var(--line)' }}>
+                              <td style={{ ...TD, fontWeight: 500 }}>{r.industry}</td>
+                              <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)' }}>{r.clients}</td>
+                              <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{r.pump > 0 ? formatRev(r.pump) : '—'}</td>
+                              <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{r.spare > 0 ? formatRev(r.spare) : '—'}</td>
+                              <td style={{ ...TD, minWidth: 130 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <div style={{ flex: 1, height: 5, background: 'var(--bg-sunk)', borderRadius: 3, overflow: 'hidden', minWidth: 50 }}>
+                                    <div style={{ width: `${(r.total / maxIndustry) * 100}%`, height: '100%', background: '#1A5CB8', borderRadius: 3 }} />
+                                  </div>
+                                  <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, minWidth: 56, textAlign: 'right' }}>{formatRev(r.total)}</span>
+                                </div>
+                              </td>
+                              <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)' }}>{share.toFixed(0)}%</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Rep */}
+              <div style={PANEL}>
+                <div style={PANEL_H}><span style={PANEL_TITLE}>Revenue by Rep</span></div>
+                {byRep.length === 0 ? <Empty>No data</Empty> : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                      <thead><tr style={{ background: 'var(--bg-elev)' }}>
+                        {['Rep', 'Zone', 'Clients', 'Total', 'vs Target'].map(h => <th key={h} style={TH}>{h}</th>)}
+                      </tr></thead>
+                      <tbody>
+                        {byRep.map(r => {
+                          const targetInr = r.target_cr != null ? r.target_cr * 1_00_00_000 : null; // Cr → INR
+                          const pct = targetInr && targetInr > 0 ? (r.total / targetInr) * 100 : null;
+                          return (
+                            <tr key={r.rep} style={{ borderBottom: '1px solid var(--line)' }}>
+                              <td style={{ ...TD, fontWeight: 500 }}>{r.rep}</td>
+                              <td style={{ ...TD, color: 'var(--fg-3)', fontSize: 11 }}>{r.zone ?? '—'}</td>
+                              <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)' }}>{r.clients}</td>
+                              <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{formatRev(r.total)}</td>
+                              <td style={{ ...TD, minWidth: 110 }}>
+                                {pct == null ? <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>—</span> : (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <div style={{ flex: 1, height: 5, background: 'var(--bg-sunk)', borderRadius: 3, overflow: 'hidden', minWidth: 40 }}>
+                                      <div style={{ width: `${Math.min(pct, 100)}%`, height: '100%', background: pct >= 100 ? 'var(--pos)' : pct >= 60 ? 'var(--accent)' : 'var(--warn)', borderRadius: 3 }} />
+                                    </div>
+                                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: pct >= 100 ? 'var(--pos)' : 'var(--fg-3)', minWidth: 32, textAlign: 'right' }}>{pct.toFixed(0)}%</span>
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Section 5 — monthly trend */}
+            <div style={{ ...PANEL, marginBottom: 14 }}>
+              <div style={PANEL_H}><span style={PANEL_TITLE}>Revenue Trend</span><span style={META}>per recorded period · ₹ Lakhs</span></div>
+              <div style={{ padding: '16px 18px' }}>
+                {monthly.some(m => m.total > 0) ? <MonthlyTrend rows={monthly} selected={monthSel} /> : <Empty>No trend data</Empty>}
+              </div>
+            </div>
+
+            {/* Section 6 — top clients (interactive) */}
+            <div style={{ marginBottom: 14 }}>
+              <RevenueTopClients clients={topClients} />
+            </div>
+
+            {/* Section 7 — business category */}
+            <div style={PANEL}>
+              <div style={PANEL_H}><span style={PANEL_TITLE}>Business Category</span><span style={META}>by client type</span></div>
+              {byCat.length === 0 ? <Empty>No data</Empty> : (
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                  <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
-                    <tr style={{ background: 'var(--bg-elev)' }}>
-                      <th style={TH}>#</th>
-                      <SortableTH col="name"     label="Account"  currentSort={curSort} currentDir={curDir} />
-                      <SortableTH col="industry" label="Industry" currentSort={curSort} currentDir={curDir} />
-                      <SortableTH col="zone"     label="Zone"     currentSort={curSort} currentDir={curDir} />
-                      <SortableTH col="ytd"      label="YTD"      currentSort={curSort} currentDir={curDir} align="right" />
-                      <SortableTH col="py"       label="vs PY"    currentSort={curSort} currentDir={curDir} align="right" />
-                    </tr>
-                  </thead>
+                  <thead><tr style={{ background: 'var(--bg-elev)' }}>
+                    {['Category', 'Clients', 'Revenue', '% of Total'].map(h => <th key={h} style={TH}>{h}</th>)}
+                  </tr></thead>
                   <tbody>
-                    {topClients.map((c, i) => {
-                      const delta = c.py > 0 ? ((c.ytd - c.py) / c.py) * 100 : null;
+                    {byCat.map((r, i) => {
+                      const pct = catTotal > 0 ? (r.total / catTotal) * 100 : 0;
                       return (
-                        <tr key={c.code} style={{ borderBottom: '1px solid var(--line)' }}>
-                          <td style={{ ...TD, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', width: 28 }}>{i + 1}</td>
-                          <td style={{ padding: '8px 12px', verticalAlign: 'middle' }}>
-                            <div style={{ fontWeight: 500 }}>{c.name}</div>
-                            <div style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>{c.code}</div>
-                          </td>
-                          <td style={TD}><Tag>{c.industry}</Tag></td>
-                          <td style={{ ...TD, color: 'var(--fg-3)' }}>{c.zone}</td>
-                          <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, color: '#0D1B2A' }}>{fmtL(c.ytd)}</td>
-                          <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: delta != null ? (delta >= 0 ? 'var(--pos)' : 'var(--neg)') : 'var(--fg-3)' }}>
-                            {delta != null ? `${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%` : '—'}
+                        <tr key={r.category} style={{ borderBottom: '1px solid var(--line)' }}>
+                          <td style={{ ...TD }}><span style={catPill(i)}>{r.category}</span></td>
+                          <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)' }}>{r.clients}</td>
+                          <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{formatRev(r.total)}</td>
+                          <td style={{ ...TD, minWidth: 120 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <div style={{ flex: 1, height: 5, background: 'var(--bg-sunk)', borderRadius: 3, overflow: 'hidden' }}>
+                                <div style={{ width: `${pct}%`, height: '100%', background: CAT_COLORS[i % CAT_COLORS.length], borderRadius: 3 }} />
+                              </div>
+                              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)', minWidth: 34, textAlign: 'right' }}>{pct.toFixed(0)}%</span>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -508,156 +463,123 @@ export default async function RevenuePage({
                 </table>
               )}
             </div>
-          </div>
-        </div>
-
-        {/* ── Rep / Zone table ──────────────────────────────── */}
-        <div style={PANEL}>
-          <div style={PANEL_H}>
-            <span style={PANEL_TITLE}>Revenue by Zone / Rep</span>
-            <span style={META}>{fy.label}</span>
-          </div>
-          <div style={{ overflowX: 'auto' }}>
-            {byRepZone.length === 0 ? (
-              <div style={{ fontSize: 12, color: 'var(--fg-3)', textAlign: 'center', padding: '32px 0' }}>No data</div>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead>
-                  <tr style={{ background: 'var(--bg-elev)' }}>
-                    {['Zone', 'Rep', 'Clients', 'YTD Revenue', 'PY Revenue', 'Growth', 'Share'].map(h => (
-                      <th key={h} style={TH}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {byRepZone.map((row, i) => {
-                    const delta = row.py > 0 ? ((row.ytd - row.py) / row.py) * 100 : null;
-                    const share = summary.ytd > 0 ? (row.ytd / summary.ytd) * 100 : 0;
-                    return (
-                      <tr key={`${row.zone}-${row.rep}`} style={{ borderBottom: i < byRepZone.length - 1 ? '1px solid var(--line)' : 'none' }}>
-                        <td style={{ ...TD, fontWeight: 500, color: '#0A3D8F' }}>{row.zone}</td>
-                        <td style={TD}>{row.rep}</td>
-                        <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)' }}>{row.clients}</td>
-                        <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, color: '#0D1B2A' }}>{fmtL(row.ytd)}</td>
-                        <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>{fmtL(row.py)}</td>
-                        <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: delta != null ? (delta >= 0 ? 'var(--pos)' : 'var(--neg)') : 'var(--fg-3)' }}>
-                          {delta != null ? `${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%` : '—'}
-                        </td>
-                        <td style={{ padding: '10px 12px', verticalAlign: 'middle', minWidth: 100 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <div style={{ flex: 1, height: 4, background: '#DDE6F5', borderRadius: 2, overflow: 'hidden' }}>
-                              <div style={{ height: '100%', width: `${(row.ytd / maxRepZone) * 100}%`, background: '#1A5CB8', borderRadius: 2 }} />
-                            </div>
-                            <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--fg-3)', minWidth: 32, textAlign: 'right' }}>
-                              {share.toFixed(0)}%
-                            </span>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-
+          </>
+        )}
       </div>
     </div>
   );
 }
 
-// ── Sub-components ─────────────────────────────────────────────
+// ── Charts (server-rendered SVG) ───────────────────────────────
 
-const BIZ_CAT_STYLE: Record<string, { bg: string; color: string }> = {
-  '10 Lacs+ per annum':          { bg: '#DBEAFE', color: '#0A3D8F' },
-  '5–10 Lacs per annum':         { bg: '#EFF6FF', color: '#1A5CB8' },
-  '1–5 Lacs per annum':          { bg: '#ECFEFF', color: '#0891B2' },
-  '10K–1 Lac per annum':         { bg: '#FEF3C7', color: '#D97706' },
-  'Below 10K per annum':         { bg: '#F1F5F9', color: '#64748B' },
-  'Active — No FY26 Revenue':    { bg: '#FEE2E2', color: '#B91C1C' },
-  'Prospective':                 { bg: '#D1FAE5', color: '#065F46' },
-  'No Activity':                 { bg: '#F8FAFC', color: '#94A3B8' },
-  'Uncategorised':               { bg: '#F1F5F9', color: '#64748B' },
-};
-
-function BizCatPill({ category }: { category: string }) {
-  const style = BIZ_CAT_STYLE[category] ?? { bg: '#F1F5F9', color: '#64748B' };
+function YoYChart({ rows, curFyStart }: { rows: YoY[]; curFyStart: number }) {
+  const max = Math.max(...rows.map(r => Math.max(r.pump, r.spare) / INR_TO_L), 1);
+  const H = 150, barW = 16, pairGap = 4, groupGap = 38, padL = 38, padB = 24;
+  const groupW = barW * 2 + pairGap;
+  const totalW = rows.length * (groupW + groupGap) - groupGap;
   return (
-    <span style={{
-      display: 'inline-block', padding: '2px 8px',
-      borderRadius: 12, fontSize: 11, fontWeight: 500,
-      background: style.bg, color: style.color, whiteSpace: 'nowrap',
-    }}>
-      {category}
-    </span>
+    <svg width="100%" height={H + padB} viewBox={`0 0 ${totalW + padL + 10} ${H + padB}`} preserveAspectRatio="xMinYMin meet" style={{ overflow: 'visible' }}>
+      {[0.25, 0.5, 0.75, 1].map(p => {
+        const y = H - p * H;
+        return (
+          <g key={p}>
+            <line x1={padL} x2={totalW + padL} y1={y} y2={y} stroke="var(--line)" strokeDasharray="2 3" />
+            <text x={padL - 4} y={y + 3} textAnchor="end" fontSize="9" fill="var(--fg-3)" fontFamily="var(--font-mono)">{Math.round(max * p)}</text>
+          </g>
+        );
+      })}
+      {rows.map((r, i) => {
+        const x = padL + i * (groupW + groupGap);
+        const ph = (r.pump / INR_TO_L / max) * H;
+        const sh = (r.spare / INR_TO_L / max) * H;
+        const cur = r.fyStart === curFyStart;
+        return (
+          <g key={i}>
+            <rect x={x} y={H - ph} width={barW} height={ph} rx={1.5} fill="#0A3D8F" opacity={cur ? 1 : 0.6} />
+            <rect x={x + barW + pairGap} y={H - sh} width={barW} height={sh} rx={1.5} fill="#00A3C4" opacity={cur ? 1 : 0.6} />
+            <text x={x + groupW / 2} y={H + 14} textAnchor="middle" fontSize="10" fontWeight={cur ? 700 : 400} fill={cur ? '#0A3D8F' : 'var(--fg-3)'} fontFamily="var(--font-mono)">{fyLabel(r.fyStart)}</text>
+          </g>
+        );
+      })}
+    </svg>
   );
 }
 
-function KpiCard({ label, value, delta, positive }: {
-  label: string; value: string; delta?: string; positive?: boolean;
-}) {
+function MonthlyTrend({ rows, selected }: { rows: MonthPoint[]; selected: string | null }) {
+  const max = Math.max(...rows.map(r => r.total / INR_TO_L), 1);
+  const H = 120, padL = 38, padB = 24, gap = 10;
+  const bw = Math.max(10, Math.min(40, Math.floor((640 - padL) / rows.length) - gap));
+  const totalW = rows.length * (bw + gap) - gap;
+  return (
+    <svg width="100%" height={H + padB} viewBox={`0 0 ${totalW + padL + 10} ${H + padB}`} preserveAspectRatio="xMinYMin meet" style={{ overflow: 'visible' }}>
+      {[0.5, 1].map(p => {
+        const y = H - p * H;
+        return (
+          <g key={p}>
+            <line x1={padL} x2={totalW + padL} y1={y} y2={y} stroke="var(--line)" strokeDasharray="2 3" />
+            <text x={padL - 4} y={y + 3} textAnchor="end" fontSize="9" fill="var(--fg-3)" fontFamily="var(--font-mono)">{Math.round(max * p)}</text>
+          </g>
+        );
+      })}
+      {rows.map((r, i) => {
+        const x = padL + i * (bw + gap);
+        const h = (r.total / INR_TO_L / max) * H;
+        const sel = selected === r.ym;
+        return (
+          <g key={r.ym}>
+            <title>{`${monthLabel(r.ym)} · Pump ${formatRev(r.pump)} · Spare ${formatRev(r.spare)} · Total ${formatRev(r.total)}`}</title>
+            <rect x={x} y={H - h} width={bw} height={h} rx={2} fill={sel ? '#D97706' : '#1A5CB8'} />
+            <text x={x + bw / 2} y={H + 14} textAnchor="middle" fontSize="9" fill={sel ? '#D97706' : 'var(--fg-3)'} fontFamily="var(--font-mono)">{monthLabel(r.ym)}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// ── Small sub-components ───────────────────────────────────────
+
+function Kpi({ label, value, sub, subColor }: { label: string; value: string; sub: string; subColor?: string }) {
   return (
     <div style={{ ...PANEL, borderLeft: '3px solid #0A3D8F', padding: 16 }}>
-      <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#6B7FA3', marginBottom: 6 }}>
-        {label}
-      </div>
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700, color: '#0D1B2A', letterSpacing: '-0.02em' }}>
-        {value}
-      </div>
-      {delta && (
-        <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: positive ? 'var(--pos)' : 'var(--neg)', marginTop: 4 }}>
-          {positive ? '▲' : '▼'} {delta}
-        </div>
-      )}
+      <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#6B7FA3', marginBottom: 6 }}>{label}</div>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700, color: '#0D1B2A', letterSpacing: '-0.02em' }}>{value}</div>
+      <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: subColor ?? 'var(--fg-3)', marginTop: 4 }}>{sub}</div>
     </div>
   );
+}
+
+function Empty({ children }: { children: React.ReactNode }) {
+  return <div style={{ fontSize: 12, color: 'var(--fg-3)', textAlign: 'center', padding: '32px 0' }}>{children}</div>;
+}
+
+const CAT_COLORS = ['#0A3D8F', '#1A5CB8', '#00B4D8', '#059669', '#D97706', '#7C3AED', '#DC2626', '#6B7FA3'];
+
+function toggle(active: boolean): CSSProperties {
+  return {
+    padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 500,
+    background: active ? '#0A3D8F' : 'var(--bg-elev)', color: active ? '#fff' : 'var(--fg-3)',
+    textDecoration: 'none', border: '1px solid var(--line)',
+  };
+}
+function tile(active: boolean): CSSProperties {
+  return {
+    padding: '5px 12px', borderRadius: 6, fontSize: 12, fontWeight: active ? 600 : 500,
+    background: active ? '#0A3D8F' : 'var(--bg-paper)', color: active ? '#fff' : 'var(--fg-2)',
+    textDecoration: 'none', border: `1px solid ${active ? '#0A3D8F' : 'var(--line-strong)'}`,
+    fontFamily: 'var(--font-mono)',
+  };
+}
+function catPill(i: number): CSSProperties {
+  const c = CAT_COLORS[i % CAT_COLORS.length];
+  return { display: 'inline-block', padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 500, background: c + '18', color: c, border: `1px solid ${c}40`, whiteSpace: 'nowrap' };
 }
 
 // ── Styles ─────────────────────────────────────────────────────
 
-const PANEL: CSSProperties = {
-  background:   'var(--bg-paper)',
-  border:       '1px solid var(--line)',
-  borderRadius: 'var(--radius)',
-};
-
-const PANEL_H: CSSProperties = {
-  padding:      '12px 16px',
-  borderBottom: '1px solid var(--line)',
-  display:      'flex',
-  alignItems:   'center',
-  gap:          10,
-};
-
-const PANEL_TITLE: CSSProperties = {
-  fontSize:      11,
-  fontWeight:    700,
-  letterSpacing: '0.08em',
-  textTransform: 'uppercase',
-  color:         '#0A3D8F',
-};
-
-const META: CSSProperties = {
-  fontSize:   11,
-  color:      'var(--fg-3)',
-  fontFamily: 'var(--font-mono)',
-};
-
-const TH: CSSProperties = {
-  padding:       '9px 12px',
-  textAlign:     'left',
-  fontSize:      10,
-  textTransform: 'uppercase',
-  letterSpacing: '0.08em',
-  fontWeight:    600,
-  color:         '#6B7FA3',
-  background:    '#EBF1FB',
-  borderBottom:  '2px solid #DDE6F5',
-  whiteSpace:    'nowrap',
-};
-
-const TD: CSSProperties = {
-  padding:       '10px 12px',
-  verticalAlign: 'middle',
-};
+const PANEL: CSSProperties = { background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 'var(--radius)' };
+const PANEL_H: CSSProperties = { padding: '12px 14px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 };
+const PANEL_TITLE: CSSProperties = { fontSize: 12, fontWeight: 500, letterSpacing: '-0.005em' };
+const META: CSSProperties = { fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', marginLeft: 'auto' };
+const TH: CSSProperties = { padding: '9px 12px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 500, color: 'var(--fg-3)', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap', background: 'var(--bg-elev)' };
+const TD: CSSProperties = { padding: '10px 12px', verticalAlign: 'middle' };
