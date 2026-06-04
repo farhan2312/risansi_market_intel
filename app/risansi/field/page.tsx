@@ -111,7 +111,10 @@ export default async function FieldActivityPage({
 
   // ── Date range computation ───────────────────────────────────
 
-  const todayDate = new Date();
+  // Compute "today" in IST so week/month bounds match the business timezone,
+  // not the server's UTC clock (e.g. June 4 late-night UTC = June 5 IST).
+  // dateStr() reads local date parts, so the IST-shifted Date yields IST dates.
+  const todayDate = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
   const todayISO  = dateStr(todayDate);
 
   // Week bounds (for admin calendar)
@@ -123,6 +126,11 @@ export default async function FieldActivityPage({
   sun.setDate(mon.getDate() + 6);
   const weekStart = dateStr(mon);
   const weekEnd   = dateStr(sun);
+  // Exclusive upper bound for the query = Monday of NEXT week (mon + 7).
+  // Using weekEnd (Sunday) with `< weekEnd` silently dropped all Sunday visits.
+  const nextMon = new Date(mon);
+  nextMon.setDate(mon.getDate() + 7);
+  const weekEndExclusive = dateStr(nextMon);
   const weekLabel = `${mon.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} – ${sun.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`;
   const weekDays  = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(mon);
@@ -246,7 +254,7 @@ export default async function FieldActivityPage({
 
     // 3. Calendar visits (week for admin, month for rep)
     q<CalendarVisit[]>(async () => {
-      const [from, to] = isRep ? [monthStart, monthEnd] : [weekStart, weekEnd];
+      const [from, to] = isRep ? [monthStart, monthEnd] : [weekStart, weekEndExclusive];
       const repCond    = (isRep && repId) ? `AND r.id = $3` : '';
       const params: (string | null)[] = isRep && repId ? [from, to, repId] : [from, to];
       const { rows } = await risansiPool.query<CalendarVisit>(
@@ -333,6 +341,15 @@ export default async function FieldActivityPage({
       };
     }, { total_active: 0, visited_fy: 0, overdue: 0, never_visited: 0 }),
   ]);
+
+  // ── DEBUG: calendar data (server logs) ───────────────────────
+  console.log('=== CALENDAR DEBUG ===');
+  console.log('role:', role, '· isRep:', isRep, '· repId filter:', repId);
+  console.log('todayISO:', todayISO);
+  console.log('weekStart:', weekStart, '· weekEnd (display):', weekEnd, '· weekEndExclusive (query):', weekEndExclusive);
+  console.log('monthStart:', monthStart, '· monthEnd:', monthEnd);
+  console.log('reps fetched:', calendarReps.map(r => `${r.id}:${r.name}`));
+  console.log('visits fetched:', calendarVisits.map(v => `id:${v.id} rep:${v.rep_id} date:${v.visit_date} status:${v.status}`));
 
   // ── Derived ──────────────────────────────────────────────────
 
@@ -577,7 +594,7 @@ export default async function FieldActivityPage({
                             {rep.route && <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 1 }}>{rep.route}</div>}
                           </td>
                           {weekDays.map(day => {
-                            const dayVisits = calendarVisits.filter(v => v.rep_id === rep.id && v.visit_date === day.date);
+                            const dayVisits = calendarVisits.filter(v => String(v.rep_id) === String(rep.id) && v.visit_date === day.date);
                             return (
                               <td key={day.date} style={{
                                 padding: 4, verticalAlign: 'top',
