@@ -102,7 +102,7 @@ export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] })
       <div style={{ height: 16, textAlign: 'right', marginBottom: 4 }}>
         <span style={{
           fontSize: 11, fontStyle: 'italic',
-          color: saveState === 'saved' ? '#059669' : saveState === 'error' ? '#DC2626' : 'var(--fg-3)',
+          color: saveState === 'saved' ? 'var(--pos)' : saveState === 'error' ? 'var(--neg)' : 'var(--fg-3)',
         }}>
           {saveState === 'saving' && 'Saving…'}
           {saveState === 'saved'  && '✓ Saved'}
@@ -159,7 +159,7 @@ export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] })
                     onDragEnd={() => { setDragId(null); setOverStage(null); }}
                     onClick={() => setEditOpp(opp)}
                     style={{
-                      background: isWon ? '#F0FDF4' : isLost ? '#F9FAFB' : 'var(--bg-elev)',
+                      background: isWon ? 'var(--won-bg)' : isLost ? 'var(--bg-sunk)' : 'var(--bg-elev)',
                       border: '1px solid var(--line)',
                       borderLeft: `3px solid ${isWon ? '#0E9F6E' : isLost ? '#9CA3AF' : STAGE_COLOR[opp.stage] ?? 'var(--line)'}`,
                       borderRadius: 4, padding: 10, cursor: 'pointer',
@@ -170,10 +170,10 @@ export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] })
                       <span>{opp.client_code}</span>
                       <span>{opp.rep_name || '—'}</span>
                     </div>
-                    <div style={{ fontSize: 12, fontWeight: 500, lineHeight: 1.3, marginBottom: 4 }}>{opp.client_name}</div>
+                    <div style={{ fontSize: 12, fontWeight: 500, lineHeight: 1.3, marginBottom: 4, color: 'var(--fg)' }}>{opp.client_name}</div>
                     <div style={{ fontSize: 11, color: 'var(--fg-2)', marginBottom: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{opp.product}</div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: '#0A3D8F' }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: 'var(--brand-blue)' }}>
                         {opp.value_cr ? `₹${(opp.value_cr * 100).toFixed(1)}L` : '—'}
                       </span>
                       <span style={{ fontSize: 10, color: 'var(--fg-3)' }}>
@@ -182,19 +182,19 @@ export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] })
                       </span>
                     </div>
                     {isWon && (
-                      <div style={{ marginTop: 6, fontSize: 10, color: '#065F46' }}>
+                      <div style={{ marginTop: 6, fontSize: 10, color: 'var(--pos)' }}>
                         🎉 Won
                         {opp.final_value_cr ? ` · ₹${(parseFloat(String(opp.final_value_cr)) * 100).toFixed(1)}L` : ''}
                         {opp.po_number ? ` · ${opp.po_number}` : ''}
                       </div>
                     )}
                     {isLost && (
-                      <div style={{ marginTop: 6, fontSize: 10, color: '#9B1C1C' }}>
+                      <div style={{ marginTop: 6, fontSize: 10, color: 'var(--neg)' }}>
                         ❌ Lost{opp.lost_to_competitor ? ` · ${opp.lost_to_competitor}` : ''}
                       </div>
                     )}
                     {!isWon && !isLost && opp.auto_created && (
-                      <div style={{ marginTop: 5, display: 'inline-block', fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 4, background: '#EBF1FB', color: '#1A5CB8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      <div style={{ marginTop: 5, display: 'inline-block', fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 4, background: 'var(--accent-soft)', color: 'var(--brand-blue)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                         ⚡ Auto
                       </div>
                     )}

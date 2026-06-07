@@ -541,9 +541,9 @@ function MonthlyTrend({ rows, selected }: { rows: MonthPoint[]; selected: string
 
 function Kpi({ label, value, sub, subColor }: { label: string; value: string; sub: string; subColor?: string }) {
   return (
-    <div style={{ ...PANEL, borderLeft: '3px solid #0A3D8F', padding: 16 }}>
-      <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#6B7FA3', marginBottom: 6 }}>{label}</div>
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700, color: '#0D1B2A', letterSpacing: '-0.02em' }}>{value}</div>
+    <div style={{ ...PANEL, borderLeft: '3px solid var(--title)', padding: 16 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fg-3)', marginBottom: 6 }}>{label}</div>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700, color: 'var(--fg)', letterSpacing: '-0.02em' }}>{value}</div>
       <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: subColor ?? 'var(--fg-3)', marginTop: 4 }}>{sub}</div>
     </div>
   );

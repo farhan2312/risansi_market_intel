@@ -22,7 +22,10 @@
       "Bash(node:*)",
       "Bash(npm i *)",
       "Bash(rm -f components/risansi/NewOpportunityDrawer.tsx)",
-      "Bash(grep -rl \"NewOpportunityDrawer\" components/ app/ --include=*.tsx)"
+      "Bash(grep -rl \"NewOpportunityDrawer\" components/ app/ --include=*.tsx)",
+      "Bash([ -d \"node_modules/$p\" ])",
+      "Bash(echo \"=== tsc exit: $? ===\")",
+      "Bash(echo \"tsc exit: $?\")"
     ]
   }
 }

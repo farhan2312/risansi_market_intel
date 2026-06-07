@@ -1,6 +1,7 @@
 'use client';
 
-import type { CSSProperties } from 'react';
+import { Bell, ChevronRight, Plus } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 export type Crumb = string | { label: string; href: string };
 
@@ -12,143 +13,56 @@ export interface TopbarProps {
 
 export function Topbar({ crumbs, primaryAction, primaryActionHref }: TopbarProps) {
   return (
-    <header style={TOPBAR}>
+    <header className="flex h-[52px] flex-shrink-0 items-center gap-3 border-b border-[var(--line)] bg-[var(--bg-paper)] px-6">
       {/* Breadcrumbs */}
-      <nav style={CRUMBS}>
+      <nav className="flex items-center gap-1.5 text-[13px] text-[var(--fg-3)]">
         {crumbs.map((c, i) => {
           const label = typeof c === 'string' ? c : c.label;
-          const href  = typeof c === 'string' ? undefined : c.href;
+          const href = typeof c === 'string' ? undefined : c.href;
           const isLast = i === crumbs.length - 1;
           return (
-            <span key={i} style={{ display: 'contents' }}>
-              {i > 0 && <IcChevRight />}
+            <span key={i} className="flex items-center gap-1.5">
+              {i > 0 && <ChevronRight size={12} className="text-[var(--fg-4)]" />}
               {isLast ? (
-                <strong style={{ color: '#0A3D8F', fontWeight: 600 }}>{label}</strong>
+                <strong className="font-semibold text-[var(--brand-blue)]">{label}</strong>
               ) : href ? (
-                <a href={href} style={{ color: 'var(--fg-3)', textDecoration: 'none' }}>{label}</a>
+                <a href={href} className="text-[var(--fg-3)] no-underline hover:text-[var(--fg-2)]">
+                  {label}
+                </a>
               ) : (
-                <span style={{ color: 'var(--fg-3)' }}>{label}</span>
+                <span className="text-[var(--fg-3)]">{label}</span>
               )}
             </span>
           );
         })}
       </nav>
 
-      {/* Live indicator — pushed right by marginLeft: auto */}
-      <div style={LIVE_WRAP}>
-        <span style={LIVE_DOT} />
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>Live · synced 2s ago</span>
+      {/* Live indicator — pushed right */}
+      <div className="ml-auto flex items-center gap-1.5 text-xs text-[var(--pos)]">
+        <span className="live-dot" />
+        <span className="mono text-[11px]">Live · synced 2s ago</span>
       </div>
 
-      {/* Bell */}
-      <TbBtn><IcBell /></TbBtn>
+      {/* Notifications */}
+      <Button variant="ghost" size="icon-sm" aria-label="Notifications">
+        <Bell />
+      </Button>
 
       {/* Primary action */}
       {primaryAction && primaryActionHref && (
-        <a href={primaryActionHref} style={{
-          display: 'flex', alignItems: 'center', gap: 6,
-          fontSize: 12, padding: '5px 10px', borderRadius: 5,
-          cursor: 'pointer', fontFamily: 'inherit', fontWeight: 500,
-          background: '#1A5CB8', color: '#fff',
-          border: '1px solid #1A5CB8', textDecoration: 'none',
-        }}>
-          <IcPlus />{primaryAction}
-        </a>
+        <Button asChild size="sm">
+          <a href={primaryActionHref}>
+            <Plus />
+            {primaryAction}
+          </a>
+        </Button>
       )}
       {primaryAction && !primaryActionHref && (
-        <TbBtn primary>
-          <IcPlus />{primaryAction}
-        </TbBtn>
+        <Button size="sm">
+          <Plus />
+          {primaryAction}
+        </Button>
       )}
     </header>
-  );
-}
-
-function TbBtn({ children, primary }: { children: React.ReactNode; primary?: boolean }) {
-  return (
-    <button style={{
-      display: 'flex', alignItems: 'center', gap: 6,
-      fontSize: 12,
-      padding: '5px 10px',
-      borderRadius: 5,
-      cursor: 'pointer',
-      fontFamily: 'inherit',
-      fontWeight: primary ? 500 : 400,
-      background: primary ? '#1A5CB8' : 'transparent',
-      color: primary ? '#fff' : 'var(--fg-2)',
-      border: primary ? '1px solid #1A5CB8' : '1px solid transparent',
-    }}>
-      {children}
-    </button>
-  );
-}
-
-// ── Styles ────────────────────────────────────────────────────
-
-const TOPBAR: CSSProperties = {
-  height: 52,
-  background: '#FFFFFF',
-  borderBottom: '1px solid #DDE6F5',
-  display: 'flex',
-  alignItems: 'center',
-  padding: '0 24px',
-  gap: 12,
-  flexShrink: 0,
-};
-
-const CRUMBS: CSSProperties = {
-  display: 'flex',
-  gap: 6,
-  alignItems: 'center',
-  fontSize: 13,
-  color: 'var(--fg-3)',
-};
-
-const LIVE_WRAP: CSSProperties = {
-  marginLeft: 'auto',
-  display: 'flex',
-  alignItems: 'center',
-  gap: 6,
-  fontSize: 12,
-  color: '#0E9F6E',
-  padding: '5px 10px',
-  borderRadius: 5,
-};
-
-const LIVE_DOT: CSSProperties = {
-  width: 7,
-  height: 7,
-  borderRadius: '50%',
-  background: '#0E9F6E',
-  animation: 'pulse-dot 2s ease-in-out infinite',
-  flexShrink: 0,
-};
-
-// ── Icons ─────────────────────────────────────────────────────
-
-function IcChevRight() {
-  return (
-    <svg width={11} height={11} viewBox="0 0 16 16" fill="none"
-         stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"
-         style={{ opacity: 0.4 }}>
-      <path d="M6 4l4 4-4 4"/>
-    </svg>
-  );
-}
-function IcBell() {
-  return (
-    <svg width={15} height={15} viewBox="0 0 16 16" fill="none"
-         stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 6.5a4 4 0 1 1 8 0c0 3 1 4 1 4H3s1-1 1-4z"/>
-      <path d="M6.5 13.5a1.5 1.5 0 0 0 3 0"/>
-    </svg>
-  );
-}
-function IcPlus() {
-  return (
-    <svg width={12} height={12} viewBox="0 0 16 16" fill="none"
-         stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M8 3v10M3 8h10"/>
-    </svg>
   );
 }

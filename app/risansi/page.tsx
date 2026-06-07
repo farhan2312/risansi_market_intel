@@ -764,7 +764,7 @@ export default async function ExecDashboardPage({
 
               {/* Right: YoY mini bars */}
               <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#6B7FA3', fontWeight: 600, marginBottom: 8 }}>
+                <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fg-3)', fontWeight: 600, marginBottom: 8 }}>
                   Year-on-Year Revenue
                 </div>
                 <MiniBars
@@ -943,10 +943,10 @@ export default async function ExecDashboardPage({
                     thick={20}
                     center={
                       <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700, color: '#0D1B2A' }}>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700, color: 'var(--fg)' }}>
                           {rilShare.toFixed(1)}%
                         </div>
-                        <div style={{ fontSize: 10, color: '#6B7FA3', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                        <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
                           RIL Share
                         </div>
                       </div>
@@ -1138,7 +1138,7 @@ const PANEL: CSSProperties = {
 
 const KPI_PANEL: CSSProperties = {
   ...PANEL,
-  borderLeft: '4px solid #0A3D8F',
+  borderLeft: '4px solid var(--title)',
 };
 
 const PANEL_H: CSSProperties = {
@@ -1154,7 +1154,7 @@ const PANEL_TITLE: CSSProperties = {
   fontWeight:    700,
   letterSpacing: '0.08em',
   textTransform: 'uppercase',
-  color:         '#0A3D8F',
+  color:         'var(--title)',
 };
 
 const META: CSSProperties = {
@@ -1167,7 +1167,7 @@ const METRIC_LABEL: CSSProperties = {
   fontSize:       10,
   textTransform:  'uppercase',
   letterSpacing:  '0.08em',
-  color:          '#6B7FA3',
+  color:          'var(--fg-3)',
   fontWeight:     600,
 };
 
@@ -1178,7 +1178,7 @@ const METRIC_VAL: CSSProperties = {
   letterSpacing:      '-0.02em',
   fontVariantNumeric: 'tabular-nums',
   lineHeight:         1.05,
-  color:              '#0D1B2A',
+  color:              'var(--fg)',
 };
 
 const TH: CSSProperties = {
@@ -1238,9 +1238,9 @@ function SegmentBar({ label, value, total, color }: { label: string; value: numb
   return (
     <div style={{ marginBottom: 10 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 11 }}>
-        <span style={{ color: '#2C3E5A' }}>{label}</span>
-        <span style={{ fontFamily: 'var(--font-mono)', color: '#0D1B2A' }}>
-          {formatRev(Math.round(value * 100_000))} <span style={{ color: '#6B7FA3' }}>({pct.toFixed(0)}%)</span>
+        <span style={{ color: 'var(--fg-2)' }}>{label}</span>
+        <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg)' }}>
+          {formatRev(Math.round(value * 100_000))} <span style={{ color: 'var(--fg-3)' }}>({pct.toFixed(0)}%)</span>
         </span>
       </div>
       <div style={{ height: 4, background: '#DDE6F5', borderRadius: 2, overflow: 'hidden' }}>
@@ -1265,7 +1265,7 @@ function FunnelBarRow({ stage, count, value, max, color }: {
   const pct = max > 0 ? (value / max) * 100 : 0;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px dashed var(--line)' }}>
-      <div style={{ width: 110, fontSize: 11, color: '#2C3E5A', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 500, flexShrink: 0 }}>
+      <div style={{ width: 110, fontSize: 11, color: 'var(--fg-2)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 500, flexShrink: 0 }}>
         {stage}
       </div>
       <div style={{ flex: 1 }}>
@@ -1275,7 +1275,7 @@ function FunnelBarRow({ stage, count, value, max, color }: {
           </div>
         </div>
       </div>
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, minWidth: 90, textAlign: 'right', color: '#0D1B2A' }}>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, minWidth: 90, textAlign: 'right', color: 'var(--fg)' }}>
         {fmtCr(value)}
       </div>
     </div>

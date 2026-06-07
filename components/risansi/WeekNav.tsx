@@ -1,6 +1,17 @@
 'use client';
 
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
+import type { CSSProperties, MouseEvent } from 'react';
+
+const NAV_BTN: CSSProperties = {
+  padding: '6px 10px', borderRadius: 6,
+  border: '1px solid var(--line-strong)',
+  background: 'var(--bg-paper)', cursor: 'pointer', fontSize: 13,
+  fontFamily: 'inherit', color: 'var(--fg)',
+};
+
+const hoverOn  = (e: MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.background = 'var(--bg-elev)'; };
+const hoverOff = (e: MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.background = 'var(--bg-paper)'; };
 
 export function WeekNav({ currentOffset }: { currentOffset: number }) {
   const router      = useRouter();
@@ -16,15 +27,7 @@ export function WeekNav({ currentOffset }: { currentOffset: number }) {
 
   return (
     <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-      <button
-        onClick={() => go(currentOffset - 1)}
-        style={{
-          padding: '6px 10px', borderRadius: 6,
-          border: '1px solid var(--line-strong, #CBD5E1)',
-          background: '#fff', cursor: 'pointer', fontSize: 13,
-          fontFamily: 'inherit', color: 'var(--fg)',
-        }}
-      >
+      <button onClick={() => go(currentOffset - 1)} onMouseEnter={hoverOn} onMouseLeave={hoverOff} style={NAV_BTN}>
         ← Prev
       </button>
       {currentOffset !== 0 && (
@@ -32,8 +35,8 @@ export function WeekNav({ currentOffset }: { currentOffset: number }) {
           onClick={() => go(0)}
           style={{
             padding: '6px 10px', borderRadius: 6,
-            border: '1px solid #1A5CB8',
-            background: '#EBF1FB', color: '#1A5CB8',
+            border: '1px solid var(--brand-blue)',
+            background: 'var(--accent-soft)', color: 'var(--brand-blue)',
             cursor: 'pointer', fontSize: 12, fontWeight: 500,
             fontFamily: 'inherit',
           }}
@@ -41,15 +44,7 @@ export function WeekNav({ currentOffset }: { currentOffset: number }) {
           This Week
         </button>
       )}
-      <button
-        onClick={() => go(currentOffset + 1)}
-        style={{
-          padding: '6px 10px', borderRadius: 6,
-          border: '1px solid var(--line-strong, #CBD5E1)',
-          background: '#fff', cursor: 'pointer', fontSize: 13,
-          fontFamily: 'inherit', color: 'var(--fg)',
-        }}
-      >
+      <button onClick={() => go(currentOffset + 1)} onMouseEnter={hoverOn} onMouseLeave={hoverOff} style={NAV_BTN}>
         Next →
       </button>
     </div>

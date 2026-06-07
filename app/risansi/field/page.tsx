@@ -77,10 +77,10 @@ const PURPOSE_COLORS: Record<string, string> = {
 
 const STATUS_BG: Record<string, string> = {
   'planned':    'var(--bg-elev)',
-  'checked-in': '#DBEAFE',
-  'completed':  '#D1FAE5',
-  'missed':     '#FDE8E8',
-  'cancelled':  '#F3F4F6',
+  'checked-in': 'var(--info-soft)',
+  'completed':  'var(--pos-soft)',
+  'missed':     'var(--neg-soft)',
+  'cancelled':  'var(--bg-elev)',
 };
 
 const SORT_MAP: Record<string, string> = {
@@ -901,9 +901,9 @@ function CalendarVisitCard({ visit, compact = false }: { visit: CalendarVisit; c
   const color = PURPOSE_COLORS[visit.purpose] ?? '#6B7FA3';
   const bg    = STATUS_BG[visit.status] ?? 'var(--bg-elev)';
   const statusColor =
-    visit.status === 'completed'  ? '#065F46' :
-    visit.status === 'missed'     ? '#9B1C1C' :
-    visit.status === 'checked-in' ? '#1E40AF' :
+    visit.status === 'completed'  ? 'var(--pos)' :
+    visit.status === 'missed'     ? 'var(--neg)' :
+    visit.status === 'checked-in' ? 'var(--brand-blue)' :
     'var(--fg-3)';
 
   return (

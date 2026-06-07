@@ -2,6 +2,8 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { signOut } from 'next-auth/react';
+import { useTheme } from 'next-themes';
+import { Sun, Moon } from 'lucide-react';
 import type { CSSProperties } from 'react';
 
 type UserMenuProps = {
@@ -20,6 +22,11 @@ const ROLE_LABELS: Record<string, string> = {
 export function UserMenu({ name, email, role }: UserMenuProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  const { resolvedTheme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const isDark = mounted && resolvedTheme === 'dark';
 
   const roleLabel = ROLE_LABELS[role] ?? role;
 
@@ -50,6 +57,26 @@ export function UserMenu({ name, email, role }: UserMenuProps) {
             <div style={{ fontSize: 13, fontWeight: 600, color: '#FFFFFF' }}>{name}</div>
             <div style={{ fontSize: 11, color: '#8BA3C7', marginTop: 2, wordBreak: 'break-all' }}>{email}</div>
           </div>
+
+          {/* Theme toggle */}
+          <div style={{ padding: '6px 8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+            <button
+              type="button"
+              onClick={() => setTheme(isDark ? 'light' : 'dark')}
+              style={THEME_BTN}
+              aria-label="Toggle dark mode"
+              aria-pressed={isDark}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {isDark ? <Moon size={13} /> : <Sun size={13} />}
+                Dark mode
+              </span>
+              <span style={{ ...SWITCH_TRACK, background: isDark ? '#1A5CB8' : 'rgba(255,255,255,0.18)' }}>
+                <span style={{ ...SWITCH_KNOB, transform: isDark ? 'translateX(14px)' : 'translateX(0)' }} />
+              </span>
+            </button>
+          </div>
+
           <div style={{ padding: '6px 8px' }}>
             <button
               onClick={() => signOut({ callbackUrl: '/api/auth/signin' })}
@@ -132,6 +159,43 @@ const AVATAR: CSSProperties = {
   fontSize: 12,
   color: '#fff',
   fontWeight: 600,
+};
+
+const THEME_BTN: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  width: '100%',
+  padding: '8px 10px',
+  background: 'transparent',
+  border: 'none',
+  borderRadius: 5,
+  fontSize: 12,
+  color: '#C9D6EC',
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+  textAlign: 'left',
+};
+
+const SWITCH_TRACK: CSSProperties = {
+  position: 'relative',
+  display: 'inline-block',
+  width: 30,
+  height: 16,
+  borderRadius: 999,
+  flexShrink: 0,
+  transition: 'background 0.18s',
+};
+
+const SWITCH_KNOB: CSSProperties = {
+  position: 'absolute',
+  top: 2,
+  left: 2,
+  width: 12,
+  height: 12,
+  borderRadius: '50%',
+  background: '#fff',
+  transition: 'transform 0.18s',
 };
 
 const SIGNOUT_BTN: CSSProperties = {

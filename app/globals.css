@@ -1,84 +1,138 @@
 @import "tailwindcss";
 
-/* ── shadcn/ui CSS variables ────────────────────────────────── */
+/* ── shadcn/ui ⇄ Risansi token bridge ───────────────────────────
+   The shadcn kit consumes these semantic vars two ways: as utilities
+   (bg-primary, border-border …) generated from the @theme block below,
+   and as raw var() refs inside arbitrary values (e.g. var(--secondary),
+   var(--radius-md) in button.tsx). We keep the var *names* the kit
+   expects but point their *values* at the Risansi design tokens defined
+   lower in this file — so the kit inherits the exact Risansi palette and
+   follows the dark-mode overrides (:root.dark) automatically. */
 :root {
-  --background: oklch(0.961 0.006 247.9);
-  --foreground: oklch(0.18 0.02 247);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.18 0.02 247);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.18 0.02 247);
-  --primary: oklch(0.35 0.15 264);
-  --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.46 0.14 264);
-  --secondary-foreground: oklch(1 0 0);
-  --muted: oklch(0.93 0.006 247);
-  --muted-foreground: oklch(0.5 0.02 247);
-  --accent: oklch(0.93 0.015 264);
-  --accent-foreground: oklch(0.35 0.15 264);
-  --destructive: oklch(0.5 0.22 27);
-  --border: oklch(0.88 0.008 247);
-  --input: oklch(0.88 0.008 247);
-  --ring: oklch(0.46 0.14 264);
+  --background:           var(--bg);
+  --foreground:           var(--fg);
+  --card:                 var(--bg-paper);
+  --card-foreground:      var(--fg);
+  --popover:              var(--bg-paper);
+  --popover-foreground:   var(--fg);
+  --primary:              var(--brand-blue);
+  --primary-foreground:   #ffffff;
+  --secondary:            var(--bg-elev);
+  --secondary-foreground: var(--fg);
+  --muted:                var(--bg-elev);
+  --muted-foreground:     var(--fg-3);
+  --destructive:          var(--neg);
+  --border:               var(--line);
+  --input:                var(--line-strong);
+  --ring:                 var(--accent-line);
+
+  --radius:    6px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+
   --chart-1: oklch(0.809 0.105 251.813);
   --chart-2: oklch(0.623 0.214 259.815);
   --chart-3: oklch(0.546 0.245 262.881);
   --chart-4: oklch(0.488 0.243 264.376);
   --chart-5: oklch(0.424 0.199 265.638);
-  --radius: 0.5rem;
-  --sidebar: oklch(0.18 0.08 264);
-  --sidebar-foreground: oklch(0.85 0.02 247);
-  --sidebar-primary: oklch(0.46 0.14 264);
-  --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.25 0.08 264);
-  --sidebar-accent-foreground: oklch(0.9 0 0);
-  --sidebar-border: oklch(0.28 0.06 264);
-  --sidebar-ring: oklch(0.46 0.14 264);
+
+  /* Sidebar chrome — intentionally dark navy in both themes */
+  --sidebar:                    #0A1628;
+  --sidebar-foreground:         #B8C9E8;
+  --sidebar-primary:            var(--brand-blue);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent:             #00B4D8;
+  --sidebar-border:             rgba(255, 255, 255, 0.08);
 }
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.809 0.105 251.813);
-  --chart-2: oklch(0.623 0.214 259.815);
-  --chart-3: oklch(0.546 0.245 262.881);
-  --chart-4: oklch(0.488 0.243 264.376);
-  --chart-5: oklch(0.424 0.199 265.638);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+/* Dark mode — overrides the Risansi tokens themselves, so every page
+   (which styles via var(--bg)/var(--fg)/…) and the bridged shadcn vars
+   both flip together. `:root.dark` (0,2,0) out-specifies the later plain
+   `:root` token block (0,1,0); a bare `.dark` would lose to it on order.
+   next-themes adds the `dark` class to <html>. */
+:root.dark {
+  /* Text — brightened for legibility on the dark surfaces below. */
+  --fg:   #F0F4F8;
+  --fg-2: #CBD5E0;
+  --fg-3: #8FA3B8;
+  --fg-4: #6B7FA3;
+
+  /* Surfaces */
+  --bg:       #0D1B2E;
+  --bg-paper: #132240;
+  --bg-elev:  #1A2E4A;
+  --bg-sunk:  #0A1628;
+
+  /* Borders — visible but subtle */
+  --line:        rgba(255, 255, 255, 0.08);
+  --line-2:      rgba(255, 255, 255, 0.05);
+  --line-strong: rgba(255, 255, 255, 0.16);
+
+  /* Brand / accent — slightly lighter blue for dark bg.
+     --accent + --accent-line track --brand-blue so the bridged
+     shadcn --ring and Risansi page accents stay consistent. */
+  --brand-blue:  #4A8FE8;
+  --accent:      #4A8FE8;
+  --accent-soft: rgba(74, 143, 232, 0.15);
+  --accent-line: rgba(74, 143, 232, 0.30);
+  --title:       #4A8FE8;
+  --won-bg:            rgba(5, 150, 105, 0.15);
+  --toggle-sel-bg:     var(--brand-blue);
+  --toggle-sel-fg:     #ffffff;
+  --toggle-sel-border: var(--brand-blue);
+
+  /* Functional — brighter for dark */
+  --pos:       #34D399;
+  --pos-soft:  rgba(52, 211, 153, 0.15);
+  --neg:       #F87171;
+  --neg-soft:  rgba(248, 113, 113, 0.15);
+  --warn:      #FBBF24;
+  --warn-soft: rgba(251, 191, 36, 0.15);
+  --info:      #60A5FA;
+  --info-soft: rgba(96, 165, 250, 0.15);
 }
 
-/* ── Tailwind theme mappings ────────────────────────────────── */
+/* ── Tailwind theme mappings ─────────────────────────────────────
+   `inline` means utilities embed the var() ref directly, so when
+   :root.dark changes the underlying token the utility re-resolves. */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-background:             var(--background);
+  --color-foreground:             var(--foreground);
+  --color-card:                   var(--card);
+  --color-card-foreground:        var(--card-foreground);
+  --color-popover:                var(--popover);
+  --color-popover-foreground:     var(--popover-foreground);
+  --color-primary:                var(--primary);
+  --color-primary-foreground:     var(--primary-foreground);
+  --color-secondary:              var(--secondary);
+  --color-secondary-foreground:   var(--secondary-foreground);
+  --color-muted:                  var(--muted);
+  --color-muted-foreground:       var(--muted-foreground);
+  --color-accent:                 var(--bg-elev);
+  --color-accent-foreground:      var(--fg);
+  --color-destructive:            var(--destructive);
+  --color-destructive-foreground: #ffffff;
+  --color-border:                 var(--border);
+  --color-input:                  var(--input);
+  --color-ring:                   var(--ring);
+
+  --color-sidebar:                    var(--sidebar);
+  --color-sidebar-foreground:         var(--sidebar-foreground);
+  --color-sidebar-primary:            var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent:             var(--sidebar-accent);
+  --color-sidebar-border:             var(--sidebar-border);
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
 }
 
 body {
-  background: #F4F7FC;
-  color: #0D1B2A;
+  background: var(--bg);
+  color: var(--fg);
   font-family: 'IBM Plex Sans', system-ui, sans-serif;
   font-size: 13px;
   line-height: 1.5;
@@ -122,6 +176,40 @@ body {
   color: #0A3D8F;
   text-transform: uppercase;
   letter-spacing: 0.09em;
+}
+
+/* Dark-mode overrides for the kept panel classes. Light appearance is
+   left byte-for-byte unchanged above; these only apply under .dark so
+   panels, headers, and titles stay legible on the dark surfaces. */
+:root.dark .panel {
+  background: var(--bg-paper);
+  border-color: var(--line);
+  box-shadow: none;
+}
+:root.dark .panel-header {
+  border-bottom-color: var(--line);
+}
+:root.dark .panel-title {
+  color: var(--accent);
+}
+
+/* Native form controls in dark mode. Inline styles on <input>/<select>/
+   <textarea> win over normal CSS, so !important is required to retheme
+   them. Scoped to .dark only — light mode controls are untouched. */
+.dark input:not([type="hidden"]),
+.dark select,
+.dark textarea {
+  background-color: var(--bg-sunk) !important;
+  color: var(--fg) !important;
+  border-color: var(--line-strong) !important;
+}
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: var(--fg-3) !important;
+}
+.dark select option {
+  background-color: var(--bg-ink);
+  color: var(--fg);
 }
 
 /* ── Skeleton shimmer ───────────────────────────────────────── */
@@ -190,6 +278,17 @@ body {
   --brand-blue:  #1A5CB8;
   --brand-cyan:  #00A3C4;
   --brand-light: #E8F0FB;
+
+  /* Section-title / KPI-accent navy. Light value here is the original
+     #0A3D8F (unchanged); :root.dark flips it to the lighter accent so
+     titles stay legible on dark surfaces. */
+  --title: #0A3D8F;
+
+  /* Theme-aware component colors — light values here, :root.dark flips them. */
+  --won-bg:            #F0FDF4;  /* kanban Won card */
+  --toggle-sel-bg:     #EBF1FB;  /* sugar/non-sugar selected pill */
+  --toggle-sel-fg:     #0A3D8F;
+  --toggle-sel-border: #0A3D8F;
 
   /* Functional */
   --pos:       #059669;

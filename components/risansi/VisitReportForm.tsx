@@ -133,14 +133,14 @@ export function VisitReportForm({
       {/* ── SECTION 1: Check In ────────────────────────────── */}
       <FormSection title="Check In" icon="📍">
         {visit.check_in_time ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: '#D1FAE5', borderRadius: 8, fontSize: 13 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: 'var(--pos-soft)', borderRadius: 8, fontSize: 13 }}>
             <span>✓</span>
             <div>
               <div style={{ fontWeight: 600 }}>
                 Checked in at {new Date(visit.check_in_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
               </div>
               {visit.check_in_lat != null && visit.check_in_lng != null && (
-                <div style={{ fontSize: 11, color: '#065F46' }}>
+                <div style={{ fontSize: 11, color: 'var(--pos)' }}>
                   {/* numeric columns arrive as strings from pg — coerce before toFixed */}
                   GPS: {Number(visit.check_in_lat).toFixed(4)}, {Number(visit.check_in_lng).toFixed(4)}
                   {visit.check_in_accuracy_m != null && ` · ±${Math.round(Number(visit.check_in_accuracy_m))}m`}
@@ -149,14 +149,14 @@ export function VisitReportForm({
                     href={`https://www.google.com/maps?q=${visit.check_in_lat},${visit.check_in_lng}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    style={{ color: '#065F46', textDecoration: 'underline', cursor: 'pointer' }}
+                    style={{ color: 'var(--pos)', textDecoration: 'underline', cursor: 'pointer' }}
                   >
                     📍 View location
                   </a>
                 </div>
               )}
               {visit.manual_checkin && (
-                <div style={{ fontSize: 11, color: '#92400E' }}>Manual check-in recorded</div>
+                <div style={{ fontSize: 11, color: 'var(--warn)' }}>Manual check-in recorded</div>
               )}
             </div>
           </div>
@@ -215,9 +215,9 @@ export function VisitReportForm({
                 style={{
                   padding: '6px 16px', borderRadius: 6, fontSize: 13,
                   fontFamily: 'inherit', cursor: disabled ? 'default' : 'pointer',
-                  border: (isSugar ? 'sugar' : 'non-sugar') === val ? '2px solid #0A3D8F' : '1px solid var(--line-strong)',
-                  background: (isSugar ? 'sugar' : 'non-sugar') === val ? '#EBF1FB' : 'var(--bg-paper)',
-                  color: (isSugar ? 'sugar' : 'non-sugar') === val ? '#0A3D8F' : 'var(--fg-3)',
+                  border: (isSugar ? 'sugar' : 'non-sugar') === val ? '2px solid var(--toggle-sel-border)' : '1px solid var(--line-strong)',
+                  background: (isSugar ? 'sugar' : 'non-sugar') === val ? 'var(--toggle-sel-bg)' : 'var(--bg-paper)',
+                  color: (isSugar ? 'sugar' : 'non-sugar') === val ? 'var(--toggle-sel-fg)' : 'var(--fg-3)',
                   fontWeight: (isSugar ? 'sugar' : 'non-sugar') === val ? 600 : 400,
                 }}
               >
