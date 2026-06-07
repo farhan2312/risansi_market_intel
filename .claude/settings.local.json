@@ -25,7 +25,9 @@
       "Bash(grep -rl \"NewOpportunityDrawer\" components/ app/ --include=*.tsx)",
       "Bash([ -d \"node_modules/$p\" ])",
       "Bash(echo \"=== tsc exit: $? ===\")",
-      "Bash(echo \"tsc exit: $?\")"
+      "Bash(echo \"tsc exit: $?\")",
+      "Bash(rm -rf .next/dev)",
+      "Bash(echo \"REAL tsc exit: $?\")"
     ]
   }
 }

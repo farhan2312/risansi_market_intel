@@ -5,6 +5,7 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 import { revokeUser, reapproveUser } from '@/app/actions/admin';
 import { ApprovalRow, type RepOption } from '@/components/risansi/ApprovalRow';
+import { Topbar } from '@/components/risansi';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
@@ -65,35 +66,14 @@ export default async function AdminPage() {
   ]);
 
   return (
-    <div style={{
-      minHeight: '100vh', background: '#F4F6FB',
-      fontFamily: '"IBM Plex Sans", system-ui, sans-serif',
-      WebkitFontSmoothing: 'antialiased',
-      fontSize: 13, color: '#0D1B2E',
-    }}>
-      {/* Header */}
-      <div style={{
-        background: '#0A1628', color: '#fff',
-        padding: '0 32px', height: 56,
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        borderBottom: '1px solid rgba(255,255,255,0.08)',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <span style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-0.01em' }}>Risansi</span>
-          <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 18 }}>·</span>
-          <span style={{ fontSize: 13, color: '#B8C9E8' }}>System Administration</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <span style={{ fontSize: 12, color: '#6B7FA3' }}>
-            {session.user.email}
-          </span>
-          <a href="/api/auth/signout" style={{ fontSize: 12, color: '#B8C9E8', textDecoration: 'none' }}>
-            Sign out
-          </a>
-        </div>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Sticky topbar */}
+      <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
+        <Topbar crumbs={['Risansi', 'System Administration']} />
       </div>
 
-      <div style={{ padding: '28px 32px', maxWidth: 1100, margin: '0 auto' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>
+        <div style={{ maxWidth: 1100, margin: '0 auto' }}>
 
         {/* Pending banner */}
         {pending.length > 0 && (
@@ -206,6 +186,7 @@ export default async function AdminPage() {
           )}
         </div>
 
+        </div>
       </div>
     </div>
   );
