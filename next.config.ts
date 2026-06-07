@@ -4,6 +4,11 @@ const nextConfig: NextConfig = {
   experimental: {
     optimizePackageImports: ['@/components/risansi'],
   },
+  compiler: {
+    removeConsole: process.env.NODE_ENV === 'production'
+      ? { exclude: ['error'] }
+      : false,
+  },
   async headers() {
     return [
       {

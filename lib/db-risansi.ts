@@ -14,11 +14,12 @@ const risansiPool: Pool =
     user:     process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     ssl:      { rejectUnauthorized: false },
-    // Serverless-friendly settings: time out fast, keep pool small,
-    // release idle connections quickly.
-    connectionTimeoutMillis: 5_000,
-    idleTimeoutMillis:       10_000,
-    max:                     3,
+    // Keep connections warm between requests so we don't pay a TLS
+    // handshake to a far-region DB on every page load. A larger pool
+    // lets multi-query pages (e.g. 6 parallel queries) run in one wave.
+    connectionTimeoutMillis: 10_000,
+    idleTimeoutMillis:       300_000, // 5 min — hold idle connections open
+    max:                     15,
   });
 
 if (process.env.NODE_ENV !== 'production') {
