@@ -3,8 +3,14 @@
 import { useState, useRef, useEffect } from 'react';
 import { signOut } from 'next-auth/react';
 import { useTheme } from 'next-themes';
-import { Sun, Moon } from 'lucide-react';
-import type { CSSProperties } from 'react';
+import { Sun, Moon, KeyRound } from 'lucide-react';
+import type { CSSProperties, FormEvent } from 'react';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+  DialogDescription, DialogFooter,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 
 type UserMenuProps = {
   name: string;
@@ -27,6 +33,48 @@ export function UserMenu({ name, email, role }: UserMenuProps) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   const isDark = mounted && resolvedTheme === 'dark';
+
+  // ── Change-password modal state ──────────────────────────────
+  const [pwOpen,    setPwOpen]    = useState(false);
+  const [currentPw, setCurrentPw] = useState('');
+  const [newPw,     setNewPw]     = useState('');
+  const [confirmPw, setConfirmPw] = useState('');
+  const [loading,   setLoading]   = useState(false);
+  const [error,     setError]     = useState('');
+  const [success,   setSuccess]   = useState(false);
+
+  const resetForm = () => {
+    setCurrentPw(''); setNewPw('');
+    setConfirmPw(''); setError('');
+    setSuccess(false);
+  };
+
+  const handleChangePassword = async (e: FormEvent) => {
+    e.preventDefault();
+    if (newPw !== confirmPw) return;
+    if (newPw.length < 8) return;
+    setLoading(true); setError('');
+    try {
+      const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPw, newPw }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Failed');
+      setSuccess(true);
+      setCurrentPw(''); setNewPw(''); setConfirmPw('');
+      // Close the modal a couple of seconds after success.
+      setTimeout(() => {
+        setPwOpen(false);
+        setSuccess(false);
+      }, 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to change password');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const roleLabel = ROLE_LABELS[role] ?? role;
 
@@ -77,6 +125,18 @@ export function UserMenu({ name, email, role }: UserMenuProps) {
             </button>
           </div>
 
+          {/* Change password */}
+          <div style={{ padding: '6px 8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+            <button
+              type="button"
+              onClick={() => { setOpen(false); resetForm(); setPwOpen(true); }}
+              style={CHANGE_PW_BTN}
+            >
+              <KeyRound size={13} style={{ flexShrink: 0 }} />
+              Change Password
+            </button>
+          </div>
+
           <div style={{ padding: '6px 8px' }}>
             <button
               onClick={() => signOut({ callbackUrl: '/api/auth/signin' })}
@@ -115,6 +175,92 @@ export function UserMenu({ name, email, role }: UserMenuProps) {
           <path d="M4 6.5 8 10.5 12 6.5"/>
         </svg>
       </button>
+
+      {/* Change-password modal — kept outside the popup so it survives the
+          popup closing on outside-click. Portals to <body>, so it renders in
+          the app (light/dark) theme, not the dark sidebar chrome. */}
+      <Dialog open={pwOpen} onOpenChange={(o) => { setPwOpen(o); if (!o) resetForm(); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change Password</DialogTitle>
+            <DialogDescription>
+              Enter your current password and choose a new one.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleChangePassword}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '8px 0' }}>
+              <div>
+                <label style={LABEL}>Current Password *</label>
+                <Input
+                  type="password"
+                  value={currentPw}
+                  onChange={e => setCurrentPw(e.target.value)}
+                  required
+                  placeholder="Enter current password"
+                />
+              </div>
+
+              <div>
+                <label style={LABEL}>New Password *</label>
+                <Input
+                  type="password"
+                  value={newPw}
+                  onChange={e => setNewPw(e.target.value)}
+                  required
+                  minLength={8}
+                  placeholder="Min 8 characters"
+                />
+              </div>
+
+              <div>
+                <label style={LABEL}>Confirm New Password *</label>
+                <Input
+                  type="password"
+                  value={confirmPw}
+                  onChange={e => setConfirmPw(e.target.value)}
+                  required
+                  placeholder="Repeat new password"
+                />
+                {confirmPw && newPw !== confirmPw && (
+                  <p style={{ fontSize: 11, color: 'var(--neg)', marginTop: 4 }}>
+                    Passwords do not match
+                  </p>
+                )}
+              </div>
+
+              {error && (
+                <div style={{ padding: '8px 12px', background: 'var(--neg-soft)', border: '1px solid var(--neg)', borderRadius: 6, fontSize: 12, color: 'var(--neg)' }}>
+                  {error}
+                </div>
+              )}
+
+              {success && (
+                <div style={{ padding: '8px 12px', background: 'var(--pos-soft)', border: '1px solid var(--pos)', borderRadius: 6, fontSize: 12, color: 'var(--pos)' }}>
+                  ✓ Password changed successfully
+                </div>
+              )}
+            </div>
+
+            <DialogFooter style={{ marginTop: 16 }}>
+              <Button type="button" variant="outline" onClick={() => { setPwOpen(false); resetForm(); }}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={
+                  loading ||
+                  !currentPw || !newPw || !confirmPw ||
+                  newPw !== confirmPw ||
+                  newPw.length < 8
+                }
+              >
+                {loading ? 'Changing…' : 'Change Password'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -196,6 +342,30 @@ const SWITCH_KNOB: CSSProperties = {
   borderRadius: '50%',
   background: '#fff',
   transition: 'transform 0.18s',
+};
+
+const CHANGE_PW_BTN: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  width: '100%',
+  padding: '8px 10px',
+  background: 'transparent',
+  border: 'none',
+  borderRadius: 5,
+  fontSize: 12,
+  color: '#C9D6EC',
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+  textAlign: 'left',
+};
+
+const LABEL: CSSProperties = {
+  display: 'block',
+  fontSize: 12,
+  fontWeight: 500,
+  color: 'var(--fg-2)',
+  marginBottom: 6,
 };
 
 const SIGNOUT_BTN: CSSProperties = {
