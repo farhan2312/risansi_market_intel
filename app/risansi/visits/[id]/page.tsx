@@ -156,7 +156,7 @@ export default async function VisitReportPage({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
-        <Topbar crumbs={['Field Activity', visit.legal_name, 'Visit Report']} />
+        <Topbar crumbs={['Field Activity', { label: visit.legal_name, href: `/risansi/clients/${visit.code}` }, 'Visit Report']} />
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', background: 'var(--bg)' }}>

@@ -73,13 +73,18 @@ const PATH_TO_ID: [string, string][] = [
   ['/risansi/clients',          'client360'],
   ['/risansi/pipeline',         'pipeline'],
   ['/risansi/field',            'field'],
+  ['/risansi/visits',           'field'],   // visit report/coverage routes belong to Field Activity
   ['/risansi/revenue',          'revenue'],
   ['/risansi',                  'dash'],
 ];
 
 function deriveActive(pathname: string): string {
   for (const [path, id] of PATH_TO_ID) {
-    if (pathname === path || pathname.startsWith(path + '/')) return id;
+    // Exact match always wins. Prefix match (sub-routes) applies to every
+    // entry EXCEPT the dashboard root — otherwise '/risansi' would light up
+    // for every '/risansi/*' page.
+    if (pathname === path) return id;
+    if (path !== '/risansi' && pathname.startsWith(path + '/')) return id;
   }
   return '';
 }
