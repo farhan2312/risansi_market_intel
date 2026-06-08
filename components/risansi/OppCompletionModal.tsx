@@ -90,8 +90,11 @@ export function OppCompletionModal({ opp, stage, onSave, onCancel }: {
                     />
                   </div>
                   <div>
-                    <label style={LABEL}>PO Number *</label>
-                    <input name="po_number" required defaultValue={opp.po_number ?? ''} placeholder="e.g. PO-2024-0182" style={INPUT} />
+                    <label style={LABEL}>PO Number</label>
+                    <input name="po_number" defaultValue={opp.po_number ?? ''} placeholder="e.g. PO-2024-0182" style={INPUT} />
+                    <p style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 4 }}>
+                      Optional — can be added later by editing the opportunity
+                    </p>
                   </div>
                 </div>
                 <div>
