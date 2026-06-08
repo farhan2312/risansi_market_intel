@@ -32,7 +32,8 @@
       "Bash(grep -c \"followUpRepId\" app/actions/risansi-visits.ts)",
       "Bash(git status *)",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(git check-ignore *)"
     ]
   }
 }
