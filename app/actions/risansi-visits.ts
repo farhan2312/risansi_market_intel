@@ -302,13 +302,16 @@ export async function submitVisit(visitId: string) {
 
   // 4. Auto-create follow-up task
   if (visit.follow_up_required && visit.follow_up_text) {
+    // Owner: submitting rep first, client's primary as last resort — so the
+    // follow-up is never left unassigned (primaryRepId = client.primary ?? repId).
+    const followUpRepId = repId ?? primaryRepId;
     await risansiPool.query(
       `INSERT INTO tasks
          (visit_id, client_id, assigned_to_rep, title, description,
-          due_date, status, created_by, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,'open',$7,NOW(),NOW())`,
+          due_date, priority, status, created_by, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,'Medium','open',$7,NOW(),NOW())`,
       [
-        visitId, visit.client_id, repId,
+        visitId, visit.client_id, followUpRepId,
         `Follow up — ${visit.legal_name}`,
         visit.follow_up_text,
         visit.follow_up_due_date ?? null,
