@@ -76,7 +76,7 @@ export default async function VisitReportPage({
     if (visit.rep_id && repId && String(visit.rep_id) !== String(repId)) redirect('/risansi/field');
   }
 
-  const [contacts, equipment, sugarRes, nonsugarRes, oppsRes, tasksRes] = await Promise.all([
+  const [contacts, equipment, sugarRes, nonsugarRes, oppsRes, tasksRes, reps] = await Promise.all([
     q(async () => {
       const { rows } = await risansiPool.query<{
         id: number; name: string; designation: string | null;
@@ -126,11 +126,21 @@ export default async function VisitReportPage({
 
     q(async () => {
       const { rows } = await risansiPool.query(
-        `SELECT t.*, r.name AS assigned_to_name
+        `SELECT t.*, r.name AS assigned_rep_name
          FROM tasks t
          LEFT JOIN reps r ON t.assigned_to_rep = r.id
-         WHERE t.visit_id = $1`,
+         WHERE t.visit_id = $1
+         ORDER BY
+           CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END,
+           t.due_date ASC NULLS LAST`,
         [id],
+      );
+      return rows;
+    }, []),
+
+    q(async () => {
+      const { rows } = await risansiPool.query(
+        `SELECT id, name, zone FROM reps WHERE is_active = TRUE ORDER BY name ASC`,
       );
       return rows;
     }, []),
@@ -198,6 +208,7 @@ export default async function VisitReportPage({
             nonsugarReport={nonsugarRes[0] ?? null}
             opportunities={oppsRes}
             tasks={tasksRes}
+            reps={reps}
             isClosed={isClosed}
             isSugar={isSugar}
           />

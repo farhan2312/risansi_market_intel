@@ -1,8 +1,12 @@
 'use client';
 
-import { useState, useRef, useCallback, type CSSProperties } from 'react';
+import { useState, useRef, useCallback, type CSSProperties, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { saveVisitField, checkInVisit, addEquipment } from '@/app/actions/risansi-visits';
+import { addTask, updateTaskStatus, deleteTask } from '@/app/actions/risansi-tasks';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/button';
 import { FormErrorBoundary } from './FormErrorBoundary';
 
 // ── Types ──────────────────────────────────────────────────────
@@ -33,6 +37,21 @@ interface Contact {
   phone: string | null; is_primary: boolean;
 }
 
+interface TaskItem {
+  id: number;
+  title: string;
+  description: string | null;
+  due_date: string | null;
+  priority: string | null;
+  status: string;
+  assigned_to_rep: number | null;
+  assigned_to_external: string | null;
+  assigned_rep_name: string | null;
+  created_by: string | null;
+}
+
+interface TaskRep { id: number; name: string; zone: string | null }
+
 // ── Props ──────────────────────────────────────────────────────
 
 interface Props {
@@ -42,7 +61,8 @@ interface Props {
   sugarReport:    Record<string, unknown> | null;
   nonsugarReport: Record<string, unknown> | null;
   opportunities:  Record<string, unknown>[];
-  tasks:          Record<string, unknown>[];
+  tasks:          TaskItem[];
+  reps:           TaskRep[];
   isClosed:       boolean;
   isSugar:        boolean;
 }
@@ -78,10 +98,19 @@ function useAutoSave(visitId: string) {
 
 export function VisitReportForm({
   visit, contacts, equipment, sugarReport, nonsugarReport,
-  opportunities, tasks, isClosed, isSugar: initialIsSugar,
+  opportunities, tasks, reps, isClosed, isSugar: initialIsSugar,
 }: Props) {
   const { saveState, queueSave } = useAutoSave(visit.id);
   const router = useRouter();
+
+  const handleCompleteTask = async (taskId: number, status: 'open' | 'completed') => {
+    await updateTaskStatus(taskId, status);
+    router.refresh();
+  };
+  const handleDeleteTask = async (taskId: number) => {
+    await deleteTask(taskId);
+    router.refresh();
+  };
 
   // Local state for conditional fields
   const [isSugar, setIsSugar]         = useState(initialIsSugar);
@@ -560,6 +589,33 @@ export function VisitReportForm({
         </div>
       </FormSection>
 
+      {/* ── SECTION: Action Points ─────────────────────────── */}
+      <FormSection title="Action Points" icon="📋">
+        {tasks.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '24px', color: 'var(--fg-3)', fontSize: 13 }}>
+            No action points yet.{!isClosed && ' Click "+ Add Action Point" to create one.'}
+          </div>
+        ) : (
+          tasks.map(task => (
+            <TaskRow
+              key={task.id}
+              task={task}
+              isClosed={isClosed}
+              onComplete={handleCompleteTask}
+              onDelete={handleDeleteTask}
+            />
+          ))
+        )}
+        {!isClosed && (
+          <AddTaskForm
+            visitId={Number(visit.id)}
+            clientId={Number(visit.client_id)}
+            reps={reps}
+            onAdded={() => router.refresh()}
+          />
+        )}
+      </FormSection>
+
       {/* ── SECTION 7: Preview (before submit) ────────────── */}
       {!isClosed && willPreview && (
         <div style={{
@@ -588,31 +644,17 @@ export function VisitReportForm({
         </div>
       )}
 
-      {/* Existing auto-created items */}
-      {(opportunities.length > 0 || tasks.length > 0) && (
-        <FormSection title="Auto-Created Items" icon="⚡" defaultOpen={false}>
-          {opportunities.length > 0 && (
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--fg-3)', marginBottom: 8 }}>Opportunities</div>
-              {opportunities.map((o, i) => (
-                <div key={i} style={{ padding: '8px 10px', background: 'var(--bg-elev)', borderRadius: 6, fontSize: 12, marginBottom: 4 }}>
-                  <span style={{ fontWeight: 500 }}>{String(o.product ?? '—')}</span>
-                  <span style={{ color: 'var(--fg-3)', marginLeft: 8 }}>{String(o.stage ?? '')} · {String(o.auto_source ?? '')}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          {tasks.length > 0 && (
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--fg-3)', marginBottom: 8 }}>Tasks</div>
-              {tasks.map((t, i) => (
-                <div key={i} style={{ padding: '8px 10px', background: 'var(--bg-elev)', borderRadius: 6, fontSize: 12, marginBottom: 4 }}>
-                  <span style={{ fontWeight: 500 }}>{String(t.title ?? '—')}</span>
-                  {Boolean(t.due_date) && <span style={{ color: 'var(--fg-3)', marginLeft: 8 }}>due {String(t.due_date)}</span>}
-                </div>
-              ))}
-            </div>
-          )}
+      {/* Auto-created opportunities (tasks now live in the Action Points section above) */}
+      {opportunities.length > 0 && (
+        <FormSection title="Auto-Created Opportunities" icon="⚡" defaultOpen={false}>
+          <div>
+            {opportunities.map((o, i) => (
+              <div key={i} style={{ padding: '8px 10px', background: 'var(--bg-elev)', borderRadius: 6, fontSize: 12, marginBottom: 4 }}>
+                <span style={{ fontWeight: 500 }}>{String(o.product ?? '—')}</span>
+                <span style={{ color: 'var(--fg-3)', marginLeft: 8 }}>{String(o.stage ?? '')} · {String(o.auto_source ?? '')}</span>
+              </div>
+            ))}
+          </div>
         </FormSection>
       )}
     </div>
@@ -964,6 +1006,194 @@ function SummaryTextarea({
       <div style={{ textAlign: 'right', fontSize: 10, color: val.length > maxLength * 0.9 ? 'var(--neg)' : 'var(--fg-3)', marginTop: 2 }}>
         {val.length} / {maxLength}
       </div>
+    </div>
+  );
+}
+
+// ── Action Points sub-components ───────────────────────────────
+
+const TASK_PRIORITY_COLORS: Record<string, { bg: string; text: string }> = {
+  High:   { bg: 'var(--neg-soft)',  text: 'var(--neg)'  },
+  Medium: { bg: 'var(--warn-soft)', text: 'var(--warn)' },
+  Low:    { bg: 'var(--pos-soft)',  text: 'var(--pos)'  },
+};
+
+function TaskRow({ task, isClosed, onComplete, onDelete }: {
+  task: TaskItem;
+  isClosed: boolean;
+  onComplete: (id: number, status: 'open' | 'completed') => void;
+  onDelete: (id: number) => void;
+}) {
+  const isOverdue = !!task.due_date && task.status === 'open' && new Date(task.due_date) < new Date();
+  const pc = TASK_PRIORITY_COLORS[task.priority ?? 'Medium'] ?? TASK_PRIORITY_COLORS.Medium;
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 0',
+      borderBottom: '1px solid var(--line-2)',
+      opacity: task.status === 'completed' ? 0.6 : 1,
+    }}>
+      {!isClosed && (
+        <input
+          type="checkbox"
+          checked={task.status === 'completed'}
+          onChange={() => onComplete(task.id, task.status === 'open' ? 'completed' : 'open')}
+          style={{ marginTop: 3, flexShrink: 0 }}
+        />
+      )}
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{
+          fontSize: 13, fontWeight: 500, color: 'var(--fg)',
+          textDecoration: task.status === 'completed' ? 'line-through' : 'none',
+        }}>
+          {task.title}
+        </div>
+        {task.description && (
+          <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 2 }}>{task.description}</div>
+        )}
+        <div style={{ display: 'flex', gap: 8, marginTop: 5, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 10, background: pc.bg, color: pc.text }}>
+            {task.priority ?? 'Medium'}
+          </span>
+          {task.due_date && (
+            <span style={{
+              fontSize: 11, fontFamily: 'var(--font-mono)',
+              color: isOverdue ? 'var(--neg)' : 'var(--fg-3)', fontWeight: isOverdue ? 600 : 400,
+            }}>
+              📅 {isOverdue ? 'Overdue · ' : ''}
+              {new Date(task.due_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+            </span>
+          )}
+          <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>
+            → {task.assigned_rep_name ?? task.assigned_to_external ?? 'Unassigned'}
+          </span>
+          {task.created_by === 'system' && (
+            <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 4, background: 'var(--accent-soft)', color: 'var(--brand-blue)' }}>
+              AUTO
+            </span>
+          )}
+        </div>
+      </div>
+
+      {!isClosed && task.status !== 'completed' && (
+        <button
+          type="button"
+          onClick={() => onDelete(task.id)}
+          aria-label="Delete action point"
+          style={{ background: 'none', border: 'none', color: 'var(--fg-3)', cursor: 'pointer', fontSize: 16, padding: '0 4px', flexShrink: 0 }}
+        >
+          ×
+        </button>
+      )}
+    </div>
+  );
+}
+
+function AddTaskForm({ visitId, clientId, reps, onAdded }: {
+  visitId: number;
+  clientId: number;
+  reps: TaskRep[];
+  onAdded: () => void;
+}) {
+  const [open, setOpen]         = useState(false);
+  const [loading, setLoading]   = useState(false);
+  const [title, setTitle]       = useState('');
+  const [description, setDesc]  = useState('');
+  const [dueDate, setDueDate]   = useState('');
+  const [priority, setPriority] = useState('Medium');
+  const [repId, setRepId]       = useState('');
+  const [external, setExternal] = useState('');
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+    setLoading(true);
+    try {
+      await addTask({
+        visitId, clientId, title, description,
+        dueDate: dueDate || null,
+        priority,
+        assignedToRep: repId ? parseInt(repId, 10) : null,
+        assignedToExternal: external || null,
+      });
+      setTitle(''); setDesc(''); setDueDate('');
+      setPriority('Medium'); setRepId(''); setExternal('');
+      setOpen(false);
+      onAdded();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        style={{
+          marginTop: 8, fontSize: 12, color: 'var(--brand-blue)', background: 'none',
+          border: '1px dashed var(--accent-line)', borderRadius: 6, padding: '6px 14px',
+          cursor: 'pointer', width: '100%',
+        }}
+      >
+        + Add Action Point
+      </button>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 8, padding: '14px', background: 'var(--bg-elev)', borderRadius: 8, border: '1px solid var(--line)' }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg)', marginBottom: 12, display: 'flex', justifyContent: 'space-between' }}>
+        New Action Point
+        <button type="button" onClick={() => setOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fg-3)', fontSize: 16 }}>×</button>
+      </div>
+
+      <form onSubmit={handleSubmit}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <Input placeholder="Action title *" value={title} onChange={e => setTitle(e.target.value)} required />
+          <Textarea placeholder="Description (optional)" value={description} onChange={e => setDesc(e.target.value)} rows={2} />
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div>
+              <label style={LBL}>Due Date</label>
+              <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
+            </div>
+            <div>
+              <label style={LBL}>Priority</label>
+              <select value={priority} onChange={e => setPriority(e.target.value)} style={INP}>
+                <option>High</option>
+                <option>Medium</option>
+                <option>Low</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label style={LBL}>Assign To (Rep in system)</label>
+            <select value={repId} onChange={e => setRepId(e.target.value)} style={INP}>
+              <option value="">— Unassigned —</option>
+              {reps.map(r => (
+                <option key={r.id} value={r.id}>
+                  {r.name}{r.zone ? ` · ${r.zone}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label style={LBL}>Or Assign To (External / Not in system)</label>
+            <Input placeholder="e.g. Rajesh from Finance" value={external} onChange={e => setExternal(e.target.value)} />
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Button type="button" variant="outline" size="sm" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button type="submit" size="sm" disabled={loading || !title.trim()}>
+              {loading ? 'Adding…' : 'Add Action'}
+            </Button>
+          </div>
+        </div>
+      </form>
     </div>
   );
 }
