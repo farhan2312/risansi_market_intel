@@ -8,6 +8,7 @@ import { IndiaMapWrapper } from '@/components/risansi/IndiaMapWrapper';
 import { ClientCoverageList } from '@/components/risansi/ClientCoverageList';
 import { WeekNav } from '@/components/risansi/WeekNav';
 import { MonthNav } from '@/components/risansi/MonthNav';
+import { ActivitiesTab, type ActivityTask } from '@/components/risansi/ActivitiesTab';
 import { AssignVisitButton } from '@/components/risansi/AssignVisitButton';
 import AssignVisitDrawer, { AssignVisitRowBtn } from '@/components/risansi/AssignVisitDrawer';
 import type { DrawerRep } from '@/components/risansi/AssignVisitDrawer';
@@ -399,6 +400,30 @@ export default async function FieldActivityPage({
   // ── DEBUG: calendar data (server logs) ───────────────────────
   console.log('=== CALENDAR DEBUG ===');
   console.log('role:', role, '· isRep:', isRep, '· repId filter:', repId);
+
+  // Activities tab — reps see their own tasks (assigned to or created by them);
+  // admins/managers see all. Parameterized to avoid SQL injection.
+  const activityScope  = isRep && repId ? 'WHERE (t.assigned_to_rep = $1 OR t.created_by = $2)' : '';
+  const activityParams = isRep && repId ? [repId, session?.user?.email ?? ''] : [];
+  const activityTasks = await risansiPool.query<ActivityTask>(
+    `SELECT
+       t.id, t.title, t.description, t.due_date, t.priority, t.status,
+       t.assigned_to_external,
+       c.id AS client_id, c.code AS client_code, c.legal_name AS client_name,
+       v.id AS visit_id, v.visit_date,
+       COALESCE(r.name, '—') AS assigned_rep_name
+     FROM tasks t
+     LEFT JOIN clients c ON t.client_id = c.id
+     LEFT JOIN visits v ON t.visit_id = v.id
+     LEFT JOIN reps r ON t.assigned_to_rep = r.id
+     ${activityScope}
+     ORDER BY
+       CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END,
+       t.due_date ASC NULLS LAST
+     LIMIT 200`,
+    activityParams,
+  ).then(res => res.rows).catch(() => [] as ActivityTask[]);
+  const openTaskCount = activityTasks.filter(t => t.status !== 'completed').length;
   console.log('todayISO:', todayISO);
   console.log('weekStart:', weekStart, '· weekEnd (display):', weekEnd, '· weekEndExclusive (query):', weekEndExclusive);
   console.log('monthStart:', monthStart, '· monthEnd:', monthEnd);
@@ -469,6 +494,7 @@ export default async function FieldActivityPage({
             { id: 'calendar', label: 'Calendar' },
             { id: 'feed',     label: 'Visit Feed' },
             { id: 'reports',  label: 'Visit Reports' },
+            { id: 'activities', label: `Activities (${openTaskCount})` },
             { id: 'overdue',  label: `Overdue (${stats.overdue.toLocaleString('en-IN')})` },
             { id: 'map',      label: 'Map' },
           ].map(t => (
@@ -567,6 +593,10 @@ export default async function FieldActivityPage({
         {/* ── Tab: Visit Reports ───────────────────────────────── */}
         {tab === 'reports' && (
           <VisitReportsTab visits={reportsVisits} role={role} />
+        )}
+
+        {tab === 'activities' && (
+          <ActivitiesTab tasks={activityTasks} />
         )}
 
         {/* ── Tab: Calendar ────────────────────────────────────── */}

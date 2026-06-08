@@ -27,7 +27,12 @@
       "Bash(echo \"=== tsc exit: $? ===\")",
       "Bash(echo \"tsc exit: $?\")",
       "Bash(rm -rf .next/dev)",
-      "Bash(echo \"REAL tsc exit: $?\")"
+      "Bash(echo \"REAL tsc exit: $?\")",
+      "Bash(git grep *)",
+      "Bash(grep -c \"followUpRepId\" app/actions/risansi-visits.ts)",
+      "Bash(git status *)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
     ]
   }
 }

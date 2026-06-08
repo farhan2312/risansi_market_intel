@@ -6,6 +6,7 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, Sparkline, MiniBars, Donut, Tag } from '@/components/risansi';
 import { ExportPdfButton } from '@/components/risansi/ExportPdfButton';
 import { RefreshButton } from '@/components/risansi/RefreshButton';
+import { ActionQueueRow, type QueueTask } from '@/components/risansi/ActionQueueRow';
 import risansiPool from '@/lib/db-risansi';
 import {
   getCurrentFY, fyShortLabel,
@@ -18,6 +19,35 @@ import {
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
 }
+
+// ── Action Queue task queries ──────────────────────────────────
+// Columns are exactly what <ActionQueueRow> consumes (QueueTask).
+const TASK_SELECT = `
+    t.id, t.title, t.due_date, t.priority, t.status, t.assigned_to_external,
+    c.id AS client_id, c.code AS client_code, c.legal_name AS client_name,
+    COALESCE(r.name, '—') AS assigned_rep_name
+  FROM tasks t
+  LEFT JOIN clients c ON t.client_id = c.id
+  LEFT JOIN reps r ON t.assigned_to_rep = r.id`;
+
+const TASK_ORDER = `
+  ORDER BY
+    CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END,
+    t.due_date ASC NULLS LAST,
+    t.created_at DESC
+  LIMIT 50`;
+
+// Rep view: tasks assigned to / created by / on visits-or-clients owned by the rep.
+const REP_TASKS_QUERY = `SELECT ${TASK_SELECT}
+  WHERE (
+    t.assigned_to_rep = $1
+    OR t.created_by = $2
+    OR EXISTS (SELECT 1 FROM visits vs WHERE vs.id = t.visit_id AND vs.rep_id = $1)
+    OR EXISTS (SELECT 1 FROM clients cl WHERE cl.id = t.client_id AND cl.primary_rep_id = $1)
+  )${TASK_ORDER}`;
+
+// Admin/manager view: every task.
+const ADMIN_TASKS_QUERY = `SELECT ${TASK_SELECT}${TASK_ORDER}`;
 
 // ── Competitor colour palette ──────────────────────────────────
 
@@ -214,6 +244,15 @@ export default async function ExecDashboardPage({
       }, []),
     ]);
 
+    // Action Queue — tasks relevant to this rep.
+    const myTasks = await q<QueueTask[]>(async () => {
+      if (!repId) return [];
+      const { rows } = await risansiPool.query<QueueTask>(REP_TASKS_QUERY, [repId, email]);
+      return rows;
+    }, []);
+    const myOpenTasks    = myTasks.filter(t => t.status !== 'completed').length;
+    const myOverdueTasks = myTasks.filter(t => t.status === 'open' && !!t.due_date && new Date(t.due_date) < new Date()).length;
+
     return (
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
@@ -317,6 +356,28 @@ export default async function ExecDashboardPage({
             </div>
 
           </div>
+
+          {/* Action Queue — this rep's tasks */}
+          <div className="panel" style={{ marginTop: 14 }}>
+            <div className="panel-header">
+              <span className="panel-title">Action Queue</span>
+              <span style={{ fontSize: 12, color: 'var(--fg-3)' }}>
+                {myOpenTasks} open
+                {myOverdueTasks > 0 && (
+                  <span style={{ marginLeft: 8, color: 'var(--neg)', fontWeight: 600 }}>· {myOverdueTasks} overdue</span>
+                )}
+              </span>
+            </div>
+            <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+              {myTasks.length === 0 ? (
+                <div style={{ padding: '24px', textAlign: 'center', color: 'var(--fg-3)', fontSize: 13 }}>
+                  No action items — you&apos;re all caught up ✓
+                </div>
+              ) : (
+                myTasks.map(task => <ActionQueueRow key={task.id} task={task} />)
+              )}
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -329,6 +390,14 @@ export default async function ExecDashboardPage({
 
   const INR_TO_L = 100_000;
   const fyLabel  = 'FY 25–26';
+
+  // Action Queue (full / admin view): every task, open first.
+  const allTasks = await q<QueueTask[]>(async () => {
+    const { rows } = await risansiPool.query<QueueTask>(ADMIN_TASKS_QUERY);
+    return rows;
+  }, []);
+  const allOpenTasks    = allTasks.filter(t => t.status !== 'completed').length;
+  const allOverdueTasks = allTasks.filter(t => t.status === 'open' && !!t.due_date && new Date(t.due_date) < new Date()).length;
 
   // ── All queries in parallel — replaces 10 sequential awaits ──
   const [
@@ -891,6 +960,28 @@ export default async function ExecDashboardPage({
                 </div>
               </a>
             ))}
+          </div>
+        </div>
+
+        {/* ── Action Queue ────────────────────────────────────── */}
+        <div className="panel" style={{ marginBottom: 16 }}>
+          <div className="panel-header">
+            <span className="panel-title">Action Queue</span>
+            <span style={{ fontSize: 12, color: 'var(--fg-3)' }}>
+              {allOpenTasks} open
+              {allOverdueTasks > 0 && (
+                <span style={{ marginLeft: 8, color: 'var(--neg)', fontWeight: 600 }}>· {allOverdueTasks} overdue</span>
+              )}
+            </span>
+          </div>
+          <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+            {allTasks.length === 0 ? (
+              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--fg-3)', fontSize: 13 }}>
+                No action items — all caught up ✓
+              </div>
+            ) : (
+              allTasks.map(task => <ActionQueueRow key={task.id} task={task} />)
+            )}
           </div>
         </div>
 
