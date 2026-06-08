@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useRef, useCallback, type CSSProperties, type FormEvent } from 'react';
+import { useState, useRef, useEffect, useCallback, type CSSProperties, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { saveVisitField, checkInVisit, addEquipment } from '@/app/actions/risansi-visits';
+import { saveVisitField, checkInVisit, addEquipment, saveExpansionOpportunity } from '@/app/actions/risansi-visits';
 import { addTask, updateTaskStatus, deleteTask } from '@/app/actions/risansi-tasks';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -52,6 +52,18 @@ interface TaskItem {
 
 interface TaskRep { id: number; name: string; zone: string | null }
 
+interface ExpansionOpp {
+  id: number;
+  product: string | null;
+  product_type: string | null;
+  stage: string | null;
+  value_cr: string | number | null;
+  probability: number | null;
+  eta_text: string | null;
+  quote_ref: string | null;
+  notes: string | null;
+}
+
 // ── Props ──────────────────────────────────────────────────────
 
 interface Props {
@@ -63,6 +75,7 @@ interface Props {
   opportunities:  Record<string, unknown>[];
   tasks:          TaskItem[];
   reps:           TaskRep[];
+  expansionOpp:   ExpansionOpp | null;
   isClosed:       boolean;
   isSugar:        boolean;
 }
@@ -98,7 +111,7 @@ function useAutoSave(visitId: string) {
 
 export function VisitReportForm({
   visit, contacts, equipment, sugarReport, nonsugarReport,
-  opportunities, tasks, reps, isClosed, isSugar: initialIsSugar,
+  opportunities, tasks, reps, expansionOpp, isClosed, isSugar: initialIsSugar,
 }: Props) {
   const { saveState, queueSave } = useAutoSave(visit.id);
   const router = useRouter();
@@ -122,7 +135,6 @@ export function VisitReportForm({
   const [compActivity, setCompActivity] = useState(!!visit.competitor_activity_observed);
 
   // Sugar-specific state
-  const [hasExpansion, setHasExpansion]   = useState(!!(sugarReport?.has_expansion));
   const [hasComplaints, setHasComplaints] = useState(!!(sugarReport?.has_complaints));
 
   // Equipment
@@ -141,7 +153,7 @@ export function VisitReportForm({
   const rilEquipment  = equipment.filter(e => e.is_ril);
   const compEquipment = equipment.filter(e => !e.is_ril);
   const dispOpps      = equipment.filter(e => e.is_opportunity);
-  const willPreview   = hasExpansion || followUp || dispOpps.length > 0;
+  const willPreview   = followUp || dispOpps.length > 0;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -307,8 +319,6 @@ export function VisitReportForm({
             visitId={visit.id}
             disabled={disabled}
             queueSave={queueSave}
-            hasExpansion={hasExpansion}
-            setHasExpansion={setHasExpansion}
             hasComplaints={hasComplaints}
             setHasComplaints={setHasComplaints}
           />
@@ -490,6 +500,18 @@ export function VisitReportForm({
         )}
       </FormSection>
 
+      {/* ── SECTION: Expansion / New Business ───────────────── */}
+      <FormSection title="Expansion / New Business" icon="⚡" defaultOpen={false}>
+        <ExpansionOpportunityForm
+          visitId={Number(visit.id)}
+          clientId={Number(visit.client_id)}
+          clientName={visit.legal_name}
+          repId={visit.rep_id ? Number(visit.rep_id) : null}
+          isClosed={isClosed}
+          existingOpp={expansionOpp}
+        />
+      </FormSection>
+
       {/* ── SECTION 6: Visit Summary ───────────────────────── */}
       <FormSection title="Visit Summary" icon="📝">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -625,11 +647,6 @@ export function VisitReportForm({
           <div style={{ fontSize: 13, fontWeight: 600, color: '#0A3D8F', marginBottom: 10 }}>
             On Submit, the following will be created:
           </div>
-          {hasExpansion && (
-            <div style={{ fontSize: 12, marginBottom: 6 }}>
-              🎯 Opportunity from expansion plan (Suspect stage, auto-created)
-            </div>
-          )}
           {followUp && (
             <div style={{ fontSize: 12, marginBottom: 6 }}>
               ✅ Follow-up task for {visit.legal_name}
@@ -788,12 +805,11 @@ function CheckInButton({ visitId, onDone }: { visitId: string; onDone: () => voi
 }
 
 function SugarSection({
-  report, visitId, disabled, queueSave, hasExpansion, setHasExpansion, hasComplaints, setHasComplaints,
+  report, visitId, disabled, queueSave, hasComplaints, setHasComplaints,
 }: {
   report: Record<string, unknown> | null;
   visitId: string; disabled: boolean;
   queueSave: (field: string, value: unknown) => void;
-  hasExpansion: boolean; setHasExpansion: (v: boolean) => void;
   hasComplaints: boolean; setHasComplaints: (v: boolean) => void;
 }) {
   const SCREW_APPS = ['molasses', 'magma', 'syrup', 'massecuite', 'melt', 'dosing', 'other'];
@@ -850,17 +866,6 @@ function SugarSection({
       <div>
         <div style={{ fontSize: 12, fontWeight: 600, color: '#0A3D8F', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Commercial Discussion</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {/* Expansion */}
-          <YesNoField
-            label="Plans for expansion or new installation?"
-            value={hasExpansion}
-            disabled={disabled}
-            onChange={v => { setHasExpansion(v); queueSave('has_expansion', v); }}
-            detailLabel="Expansion details"
-            defaultDetail={String(report?.expansion_detail ?? '')}
-            onDetailChange={v => queueSave('expansion_detail', v)}
-            warningIfYes="⚡ An opportunity (Suspect stage) will auto-create on submit"
-          />
           {/* Complaints */}
           <YesNoField
             label="Running complaints?"
@@ -1006,6 +1011,143 @@ function SummaryTextarea({
       <div style={{ textAlign: 'right', fontSize: 10, color: val.length > maxLength * 0.9 ? 'var(--neg)' : 'var(--fg-3)', marginTop: 2 }}>
         {val.length} / {maxLength}
       </div>
+    </div>
+  );
+}
+
+// ── Expansion / New Business ───────────────────────────────────
+
+function ExpansionOpportunityForm({ visitId, clientId, clientName, repId, isClosed, existingOpp }: {
+  visitId: number;
+  clientId: number;
+  clientName: string;
+  repId: number | null;
+  isClosed: boolean;
+  existingOpp: ExpansionOpp | null;
+}) {
+  const [hasExpansion, setHasExpansion] = useState(!!existingOpp);
+  const [product, setProduct]           = useState(existingOpp?.product ?? '');
+  const [productType, setProductType]   = useState(existingOpp?.product_type ?? 'PCP');
+  const [stage, setStage]               = useState(existingOpp?.stage ?? 'Suspect');
+  const [valueLakh, setValueLakh]       = useState(
+    existingOpp?.value_cr ? String(parseFloat(String(existingOpp.value_cr)) * 100) : '',
+  );
+  const [probability, setProbability]   = useState(existingOpp?.probability != null ? String(existingOpp.probability) : '20');
+  const [etaText, setEtaText]           = useState(existingOpp?.eta_text ?? '');
+  const [quoteRef, setQuoteRef]         = useState(existingOpp?.quote_ref ?? '');
+  const [notes, setNotes]               = useState(existingOpp?.notes ?? '');
+
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const mounted   = useRef(false);
+
+  // Debounced live upsert: the opportunity is created/updated as the form is
+  // filled and deleted when toggled to No. Skips the initial mount so opening
+  // an existing report doesn't immediately re-write it.
+  useEffect(() => {
+    if (!mounted.current) { mounted.current = true; return; }
+    if (isClosed) return;
+    clearTimeout(saveTimer.current);
+    const snapshot = {
+      visitId, clientId, repId, hasExpansion,
+      product: product.trim() || `Expansion — ${clientName}`,
+      productType, stage,
+      valueLakh: valueLakh ? parseFloat(valueLakh) : null,
+      probability: probability ? parseInt(probability, 10) : 20,
+      etaText: etaText || null,
+      quoteRef: quoteRef || null,
+      notes: notes || null,
+    };
+    saveTimer.current = setTimeout(() => { saveExpansionOpportunity(snapshot).catch(() => {}); }, 900);
+    return () => clearTimeout(saveTimer.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasExpansion, product, productType, stage, valueLakh, probability, etaText, quoteRef, notes]);
+
+  const toggleStyle = (active: boolean): CSSProperties => ({
+    padding: '6px 16px', borderRadius: 6,
+    border: `1px solid ${active ? 'var(--brand-blue)' : 'var(--line-strong)'}`,
+    background: active ? 'var(--brand-blue)' : 'var(--bg-paper)',
+    color: active ? '#fff' : 'var(--fg-2)',
+    fontSize: 13, fontWeight: 500,
+    cursor: isClosed ? 'default' : 'pointer',
+  });
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <span style={{ fontSize: 13, color: 'var(--fg)' }}>
+          Any expansion plans or new installation opportunity?
+        </span>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button type="button" disabled={isClosed} onClick={() => setHasExpansion(true)} style={toggleStyle(hasExpansion)}>Yes</button>
+          <button type="button" disabled={isClosed} onClick={() => setHasExpansion(false)} style={toggleStyle(!hasExpansion)}>No</button>
+        </div>
+      </div>
+
+      {hasExpansion && (
+        <div style={{ padding: 16, background: 'var(--bg-elev)', borderRadius: 8, border: '1px solid var(--accent-line)', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ padding: '8px 12px', background: 'var(--accent-soft)', borderRadius: 6, fontSize: 12, color: 'var(--brand-blue)', fontWeight: 500 }}>
+            ⚡ An opportunity in <strong>{stage}</strong> stage is saved automatically as you fill this in.
+            {existingOpp && (
+              <span style={{ marginLeft: 8, color: 'var(--pos)' }}>· Saved (OPP-{String(existingOpp.id).padStart(4, '0')})</span>
+            )}
+          </div>
+
+          <div>
+            <label style={LBL}>Product / Description</label>
+            <Input
+              placeholder="e.g. PCP × 3 MX-80 · Spent Wash (leave blank for auto-title)"
+              value={product}
+              onChange={e => setProduct(e.target.value)}
+              disabled={isClosed}
+            />
+            <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3 }}>
+              Leave blank to use: &quot;Expansion — {clientName}&quot;
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={LBL}>Product Type</label>
+              <select value={productType} onChange={e => setProductType(e.target.value)} disabled={isClosed} style={INP}>
+                {['PCP', 'MMP', 'Spares', 'Service', 'Other'].map(t => <option key={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={LBL}>Stage</label>
+              <select value={stage} onChange={e => setStage(e.target.value)} disabled={isClosed} style={INP}>
+                {['Suspect', 'Prospect', 'Quoted', 'Negotiating'].map(s => <option key={s}>{s}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={LBL}>Value (₹ Lakhs)</label>
+              <Input type="number" step="0.1" min="0" placeholder="e.g. 12.5" value={valueLakh} onChange={e => setValueLakh(e.target.value)} disabled={isClosed} />
+            </div>
+            <div>
+              <label style={LBL}>Probability %</label>
+              <Input type="number" min="0" max="100" value={probability} onChange={e => setProbability(e.target.value)} disabled={isClosed} />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={LBL}>Expected Close</label>
+              <Input placeholder="e.g. Jun 2026 or Q3 FY27" value={etaText} onChange={e => setEtaText(e.target.value)} disabled={isClosed} />
+            </div>
+            <div>
+              <label style={LBL}>Quote Reference</label>
+              <Input placeholder="e.g. Q-2024-018" value={quoteRef} onChange={e => setQuoteRef(e.target.value)} disabled={isClosed} />
+            </div>
+          </div>
+
+          <div>
+            <label style={LBL}>Notes</label>
+            <Textarea placeholder="Key context, next steps…" value={notes} onChange={e => setNotes(e.target.value)} disabled={isClosed} rows={2} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

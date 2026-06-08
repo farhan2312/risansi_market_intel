@@ -76,7 +76,7 @@ export default async function VisitReportPage({
     if (visit.rep_id && repId && String(visit.rep_id) !== String(repId)) redirect('/risansi/field');
   }
 
-  const [contacts, equipment, sugarRes, nonsugarRes, oppsRes, tasksRes, reps] = await Promise.all([
+  const [contacts, equipment, sugarRes, nonsugarRes, oppsRes, tasksRes, reps, expansionOppRow] = await Promise.all([
     q(async () => {
       const { rows } = await risansiPool.query<{
         id: number; name: string; designation: string | null;
@@ -144,6 +144,17 @@ export default async function VisitReportPage({
       );
       return rows;
     }, []),
+
+    q(async () => {
+      const { rows } = await risansiPool.query(
+        `SELECT id, product, product_type, stage, value_cr, probability, eta_text, quote_ref, notes
+         FROM opportunities
+         WHERE visit_id = $1 AND auto_source = 'expansion_plan'
+         ORDER BY created_at DESC LIMIT 1`,
+        [id],
+      );
+      return rows[0] ?? null;
+    }, null),
   ]);
 
   const isClosed = !!visit.submitted_at;
@@ -209,6 +220,7 @@ export default async function VisitReportPage({
             opportunities={oppsRes}
             tasks={tasksRes}
             reps={reps}
+            expansionOpp={expansionOppRow}
             isClosed={isClosed}
             isSugar={isSugar}
           />

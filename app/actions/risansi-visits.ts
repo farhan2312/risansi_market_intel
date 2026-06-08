@@ -32,6 +32,92 @@ async function insertAutoOpp(fields: Record<string, unknown>) {
   );
 }
 
+// ── Expansion opportunity (visit form "Expansion / New Business") ──
+// Upserts a single auto_source='expansion_plan' opportunity for the visit as
+// the form is filled (debounced from the client); deletes it when toggled off.
+export async function saveExpansionOpportunity(input: {
+  visitId: number;
+  clientId: number;
+  repId: number | null;
+  hasExpansion: boolean;
+  product: string;
+  productType: string;
+  stage: string;
+  valueLakh: number | null;
+  probability: number;
+  etaText: string | null;
+  quoteRef: string | null;
+  notes: string | null;
+}) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) throw new Error('Unauthorized');
+
+  const existing = await risansiPool.query<{ id: number }>(
+    `SELECT id FROM opportunities
+     WHERE visit_id = $1 AND auto_source = 'expansion_plan'
+     ORDER BY created_at DESC LIMIT 1`,
+    [input.visitId],
+  );
+  const existingId = existing.rows[0]?.id ?? null;
+
+  // Toggled "No" → drop the draft expansion opp if one exists.
+  if (!input.hasExpansion) {
+    if (existingId) {
+      await risansiPool.query('DELETE FROM opportunities WHERE id = $1', [existingId]);
+      revalidatePath(`/risansi/visits/${input.visitId}`);
+      revalidatePath('/risansi/pipeline');
+    }
+    return;
+  }
+
+  // Resolve the owning rep so it's never null: passed-in → reps-by-email →
+  // session.repId → client's primary rep.
+  let repId = input.repId;
+  if (!repId) {
+    const r = await risansiPool.query<{ id: number }>(
+      'SELECT id FROM reps WHERE email = $1 AND is_active = TRUE LIMIT 1',
+      [session.user.email],
+    );
+    repId = r.rows[0]?.id ?? session.user.repId ?? null;
+  }
+  if (!repId) {
+    const c = await risansiPool.query<{ primary_rep_id: number | null }>(
+      'SELECT primary_rep_id FROM clients WHERE id = $1',
+      [input.clientId],
+    );
+    repId = c.rows[0]?.primary_rep_id ?? null;
+  }
+
+  const product = input.product.trim() || 'Expansion';
+  const valueCr = input.valueLakh && input.valueLakh > 0 ? input.valueLakh / 100 : null;
+
+  if (existingId) {
+    await risansiPool.query(
+      `UPDATE opportunities SET
+         rep_id = COALESCE($2, rep_id),
+         product = $3, product_type = $4, stage = $5,
+         value_cr = $6, probability = $7, eta_text = $8,
+         quote_ref = $9, notes = $10, updated_at = NOW()
+       WHERE id = $1`,
+      [existingId, repId, product, input.productType, input.stage,
+       valueCr, input.probability, input.etaText, input.quoteRef, input.notes],
+    );
+  } else {
+    await risansiPool.query(
+      `INSERT INTO opportunities (
+         client_id, rep_id, visit_id, product, product_type, stage,
+         value_cr, probability, eta_text, quote_ref, notes,
+         auto_created, auto_source, created_by, created_at, updated_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,TRUE,'expansion_plan',$12,NOW(),NOW())`,
+      [input.clientId, repId, input.visitId, product, input.productType, input.stage,
+       valueCr, input.probability, input.etaText, input.quoteRef, input.notes, session.user.email],
+    );
+  }
+
+  revalidatePath(`/risansi/visits/${input.visitId}`);
+  revalidatePath('/risansi/pipeline');
+}
+
 // ── Check In ───────────────────────────────────────────────────
 
 export async function checkInVisit({
@@ -268,20 +354,9 @@ export async function submitVisit(visitId: string) {
     [visitId],
   );
 
-  // 2. Auto-create expansion opportunity
-  if (sugar?.has_expansion && sugar?.expansion_detail) {
-    await insertAutoOpp({
-      client_id:   visit.client_id,
-      rep_id:      primaryRepId,
-      ...secondaryField,
-      visit_id:    visitId,
-      product:     `Expansion: ${String(sugar.expansion_detail).slice(0, 100)}`,
-      stage:       'Suspect',
-      notes:       `Auto-created from visit. ${sugar.expansion_detail}`,
-      auto_source: 'expansion_plan',
-      created_by:  session.user.email,
-    });
-  }
+  // 2. Expansion opportunities are now created live from the visit form's
+  //    "Expansion / New Business" section (saveExpansionOpportunity), so the
+  //    submit no longer creates one from visit_sugar_report.
 
   // 3. Auto-create displacement opportunities
   for (const equip of dispOpps) {
