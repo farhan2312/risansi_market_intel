@@ -628,16 +628,25 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
   const finalLakh = parseFloat((formData.get('final_value_lakh') as string | null) ?? '0');
   const num = (k: string) => (formData.get(k) ? parseInt(formData.get(k) as string, 10) : null);
 
-  // For rep_id: if empty/null, fall back to the client's primary rep
+  // For rep_id: if the form omits it, preserve the opportunity's EXISTING
+  // rep_id before falling back to the client's primary rep. (Marking Won via
+  // OppCompletionModal sends no rep_id, so without this the existing owner
+  // would be overwritten — and wiped to null if the client has no primary.)
   const rawRepId = formData.get('rep_id');
   let repId = rawRepId && rawRepId !== '' ? parseInt(rawRepId as string, 10) : null;
   if (!repId) {
-    const { rows } = await risansiPool.query<{ primary_rep_id: number | null }>(
-      `SELECT primary_rep_id FROM clients
-       WHERE id = (SELECT client_id FROM opportunities WHERE id = $1)`,
+    const { rows } = await risansiPool.query<{ rep_id: number | null; client_id: number | null }>(
+      `SELECT rep_id, client_id FROM opportunities WHERE id = $1`,
       [oppId],
     );
-    repId = rows[0]?.primary_rep_id ?? null;
+    repId = rows[0]?.rep_id ?? null;
+    if (!repId && rows[0]?.client_id) {
+      const { rows: cRows } = await risansiPool.query<{ primary_rep_id: number | null }>(
+        `SELECT primary_rep_id FROM clients WHERE id = $1`,
+        [rows[0].client_id],
+      );
+      repId = cRows[0]?.primary_rep_id ?? null;
+    }
   }
   // secondary_rep_id can be null
   const rawSecRepId = formData.get('secondary_rep_id');

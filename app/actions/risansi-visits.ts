@@ -235,13 +235,16 @@ export async function submitVisit(visitId: string) {
   const sugar     = sugarRes.rows[0];
   const dispOpps  = dispRes.rows;
 
-  const repRes = await risansiPool.query(
-    'SELECT id FROM reps WHERE email = $1 LIMIT 1',
+  const repRes = await risansiPool.query<{ id: number }>(
+    'SELECT id FROM reps WHERE email = $1 AND is_active = TRUE LIMIT 1',
     [session.user.email],
   );
-  const repId = repRes.rows[0]?.id ?? visit.rep_id;
+  // Resolve the submitting rep from multiple sources so it's never null:
+  // reps-by-email → session.repId → visit.rep_id.
+  const repId = repRes.rows[0]?.id ?? session.user.repId ?? visit.rep_id ?? null;
 
-  // Always assign both reps from the client (fall back to submitting rep)
+  // Assign both reps from the client, falling back to the (now hardened)
+  // submitting rep so an auto-created opp always has an owner.
   const clientRepRes = await risansiPool.query<{
     primary_rep_id: number | null; secondary_rep_id: number | null;
   }>(
@@ -249,6 +252,7 @@ export async function submitVisit(visitId: string) {
     [visit.client_id],
   );
   const primaryRepId   = clientRepRes.rows[0]?.primary_rep_id ?? repId;
+  console.log('submitVisit repId resolved:', { repId, primaryRepId });
   const secondaryRepId = clientRepRes.rows[0]?.secondary_rep_id ?? null;
   const hasSecondary   = await opportunitiesHasSecondaryRep();
   const secondaryField = hasSecondary ? { secondary_rep_id: secondaryRepId } : {};

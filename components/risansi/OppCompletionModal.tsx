@@ -38,6 +38,8 @@ export function OppCompletionModal({ opp, stage, onSave, onCancel }: {
       fd.set('product', opp.product);
       fd.set('product_type', opp.product_type ?? 'PCP');
       fd.set('value_lakh', lakhs(opp.value_cr) || '0');
+      // Carry the opp's existing owner through so the Won update doesn't blank it.
+      fd.set('rep_id', opp.rep_id ? String(opp.rep_id) : '');
       await updateOpportunity(Number(opp.id), fd);
       onSave();
     } catch (err: unknown) {
