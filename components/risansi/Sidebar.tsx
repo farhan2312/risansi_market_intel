@@ -55,7 +55,7 @@ const SALES_NAV: NavItem[] = [
 const ADMIN_NAV: NavItem[] = [
   { id: 'clients-admin', href: '/risansi/admin/clients', label: 'Client Master',  Icon: IcList },
   { id: 'revenue-admin', href: '/risansi/admin/revenue', label: 'Revenue Upload', Icon: IcBag },
-  { id: 'reps-admin',    href: '/risansi/admin/reps',    label: 'Reps & Routes',  Icon: IcUser },
+  { id: 'reps-admin',    href: '/risansi/admin/reps',    label: 'Reps & Tours',  Icon: IcUser },
 ];
 
 // GROUP 3 — System Admin (sysadmin only)

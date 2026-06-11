@@ -69,6 +69,6 @@ export async function updateRep(repId: number, formData: FormData) {
 
 export async function updateRouteRep(routeId: number, repId: number | null) {
   await requireAdmin();
-  await risansiPool.query('UPDATE tour_routes SET rep_id = $1 WHERE id = $2', [repId, routeId]);
+  await risansiPool.query('UPDATE tour_routes SET primary_rep_id = $1 WHERE id = $2', [repId, routeId]);
   revalidatePath('/risansi/admin/reps');
 }

@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react';
 import { Topbar } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
 import { RepRow, type RepData } from '@/components/risansi/RepRow';
-import { RouteRow, type RouteData } from '@/components/risansi/RouteRow';
+import { TourRow, type TourData } from '@/components/risansi/TourRow';
 import { AddRepButton } from '@/components/risansi/AddRepButton';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
@@ -36,18 +36,30 @@ export default async function RepsAdminPage() {
       return rows;
     }, []),
 
-    q<RouteData[]>(async () => {
-      const { rows } = await risansiPool.query<RouteData>(`
+    q<TourData[]>(async () => {
+      const { rows } = await risansiPool.query<TourData>(`
         SELECT
-          tr.*,
+          tr.id,
+          tr.name,
+          tr.zone,
+          tr.primary_rep_id,
+          tr.visit_freq_key_days,
+          tr.visit_freq_std_days,
+          tr.alert_key_days,
+          tr.alert_std_days,
           r.name AS rep_name,
-          COUNT(DISTINCT c.id)::text AS client_count
+          COUNT(DISTINCT c.id) AS client_count
         FROM tour_routes tr
-        LEFT JOIN reps r ON tr.rep_id = r.id
-        LEFT JOIN clients c ON c.tour_name = tr.name AND c.deleted_at IS NULL
-        GROUP BY tr.id, r.name
-        ORDER BY tr.zone ASC, tr.name ASC
+        LEFT JOIN reps r ON tr.primary_rep_id = r.id
+        LEFT JOIN clients c ON c.tour_name = tr.name
+          AND c.deleted_at IS NULL
+        GROUP BY tr.id, tr.name, tr.zone,
+          tr.primary_rep_id, tr.visit_freq_key_days,
+          tr.visit_freq_std_days, tr.alert_key_days,
+          tr.alert_std_days, r.name
+        ORDER BY tr.zone ASC NULLS LAST, tr.name ASC
       `);
+      console.log('Tours fetched:', rows.length);
       return rows;
     }, []),
 
@@ -70,10 +82,17 @@ export default async function RepsAdminPage() {
 
   const activeReps = reps.filter(r => r.is_active).length;
 
+  const toursByZone = ZONES.reduce((acc, zone) => {
+    acc[zone] = routes.filter(r => r.zone === zone);
+    return acc;
+  }, {} as Record<string, TourData[]>);
+
+  const unzoned = routes.filter(r => !r.zone);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
-        <Topbar crumbs={['Admin', 'Reps & Routes']} />
+        <Topbar crumbs={['Admin', 'Reps & Tours']} />
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>
@@ -82,10 +101,10 @@ export default async function RepsAdminPage() {
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 18 }}>
           <div>
             <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
-              Reps &amp; Routes
+              Reps &amp; Tours
             </div>
             <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>
-              {activeReps} active rep{activeReps !== 1 ? 's' : ''} · {routes.length} route{routes.length !== 1 ? 's' : ''}
+              {activeReps} active rep{activeReps !== 1 ? 's' : ''} · {routes.length} tour{routes.length !== 1 ? 's' : ''}
             </div>
           </div>
           <AddRepButton />
@@ -95,9 +114,10 @@ export default async function RepsAdminPage() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, marginBottom: 20 }}>
           {ZONES.map(zone => {
             const z = stats.find(s => s.zone === zone);
-            const repCount   = Number(z?.rep_count ?? 0);
+            const repCount    = Number(z?.rep_count ?? 0);
             const clientCount = Number(z?.client_count ?? 0);
-            const compliant  = Number(z?.compliant_clients ?? 0);
+            const compliant   = Number(z?.compliant_clients ?? 0);
+            const tourCount   = toursByZone[zone]?.length ?? 0;
             const pct = clientCount > 0 ? Math.round((compliant / clientCount) * 100) : 0;
             return (
               <div key={zone} style={PANEL_PAD}>
@@ -107,7 +127,9 @@ export default async function RepsAdminPage() {
                 <div style={{ fontSize: 20, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--fg)', marginBottom: 4 }}>
                   {repCount}
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--fg-3)' }}>{clientCount} clients</div>
+                <div style={{ fontSize: 11, color: 'var(--fg-3)' }}>
+                  {tourCount} tour{tourCount !== 1 ? 's' : ''} · {clientCount} clients
+                </div>
                 <div style={{ marginTop: 8, height: 4, background: 'var(--bg-sunk)', borderRadius: 2 }}>
                   <div style={{ height: '100%', borderRadius: 2, width: `${pct}%`, background: pct >= 70 ? 'var(--pos)' : pct >= 40 ? 'var(--warn)' : 'var(--neg)' }} />
                 </div>
@@ -117,68 +139,99 @@ export default async function RepsAdminPage() {
           })}
         </div>
 
-        {/* Two-column: Reps (60%) + Routes (40%) */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 14, alignItems: 'start' }}>
-
-          {/* Reps table */}
-          <div style={PANEL}>
-            <div style={{ ...PANEL_H, justifyContent: 'space-between' }}>
-              <span style={PANEL_TITLE}>Reps</span>
-            </div>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead>
-                  <tr style={{ background: 'var(--bg-elev)' }}>
-                    <th style={TH}>Name</th>
-                    <th style={TH}>Zone</th>
-                    <th style={TH}>Route</th>
-                    <th style={{ ...TH, textAlign: 'center' }}>Clients</th>
-                    <th style={{ ...TH, textAlign: 'center' }}>Visits (30d)</th>
-                    <th style={{ ...TH, textAlign: 'right' }}>Target</th>
-                    <th style={{ ...TH, textAlign: 'center' }}>Status</th>
-                    <th style={TH} />
-                  </tr>
-                </thead>
-                <tbody>
-                  {reps.length === 0 ? (
-                    <tr><td colSpan={8} style={{ padding: '32px', textAlign: 'center', color: 'var(--fg-3)', fontSize: 13 }}>No reps yet</td></tr>
-                  ) : reps.map(rep => <RepRow key={rep.id} rep={rep} />)}
-                </tbody>
-              </table>
-            </div>
+        {/* Reps table */}
+        <div style={{ ...PANEL, marginBottom: 20 }}>
+          <div style={{ ...PANEL_H, justifyContent: 'space-between' }}>
+            <span style={PANEL_TITLE}>Reps</span>
           </div>
-
-          {/* Routes table */}
-          <div style={PANEL}>
-            <div style={PANEL_H}>
-              <span style={PANEL_TITLE}>Tour Routes</span>
-            </div>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead>
-                  <tr style={{ background: 'var(--bg-elev)' }}>
-                    <th style={TH}>Route</th>
-                    <th style={TH}>Zone</th>
-                    <th style={TH}>Assigned Rep</th>
-                    <th style={{ ...TH, textAlign: 'center' }}>Clients</th>
-                    <th style={TH} />
-                  </tr>
-                </thead>
-                <tbody>
-                  {routes.length === 0 ? (
-                    <tr><td colSpan={5} style={{ padding: '32px', textAlign: 'center', color: 'var(--fg-3)', fontSize: 13 }}>No routes defined</td></tr>
-                  ) : routes.map(route => <RouteRow key={route.id} route={route} reps={reps} />)}
-                </tbody>
-              </table>
-            </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ background: 'var(--bg-elev)' }}>
+                  <th style={TH}>Name</th>
+                  <th style={TH}>Zone</th>
+                  <th style={TH}>Tour</th>
+                  <th style={{ ...TH, textAlign: 'center' }}>Clients</th>
+                  <th style={{ ...TH, textAlign: 'center' }}>Visits (30d)</th>
+                  <th style={{ ...TH, textAlign: 'right' }}>Target</th>
+                  <th style={{ ...TH, textAlign: 'center' }}>Status</th>
+                  <th style={TH} />
+                </tr>
+              </thead>
+              <tbody>
+                {reps.length === 0 ? (
+                  <tr><td colSpan={8} style={{ padding: '32px', textAlign: 'center', color: 'var(--fg-3)', fontSize: 13 }}>No reps yet</td></tr>
+                ) : reps.map(rep => <RepRow key={rep.id} rep={rep} />)}
+              </tbody>
+            </table>
           </div>
         </div>
+
+        {/* Tours grouped by zone */}
+        {ZONES.map(zone => {
+          const zoneTours = toursByZone[zone] ?? [];
+          if (zoneTours.length === 0) return null;
+          return (
+            <div key={zone} className="panel" style={{ ...PANEL, marginBottom: 16 }}>
+              <div style={PANEL_H}>
+                <span style={PANEL_TITLE}>{zone}</span>
+                <span style={{ fontSize: 12, color: 'var(--fg-3)' }}>
+                  {zoneTours.length} tour{zoneTours.length !== 1 ? 's' : ''} · {zoneTours.reduce((s, t) => s + parseInt(String(t.client_count) || '0', 10), 0)} clients
+                </span>
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg-elev)' }}>
+                    <th style={TH}>Tour</th>
+                    <th style={TH}>Assigned Rep</th>
+                    <th style={{ ...TH, textAlign: 'center' }}>Clients</th>
+                    <th style={{ ...TH, textAlign: 'center' }}>Key Visit (days)</th>
+                    <th style={{ ...TH, textAlign: 'center' }}>Std Visit (days)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {zoneTours.map(tour => (
+                    <TourRow key={tour.id} route={tour} reps={reps} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        })}
+
+        {/* Unzoned tours */}
+        {unzoned.length > 0 && (
+          <div className="panel" style={{ ...PANEL, marginBottom: 16 }}>
+            <div style={PANEL_H}>
+              <span style={PANEL_TITLE}>Unzoned</span>
+              <span style={{ fontSize: 12, color: 'var(--fg-3)' }}>
+                {unzoned.length} tour{unzoned.length !== 1 ? 's' : ''} · {unzoned.reduce((s, t) => s + parseInt(String(t.client_count) || '0', 10), 0)} clients
+              </span>
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ background: 'var(--bg-elev)' }}>
+                  <th style={TH}>Tour</th>
+                  <th style={TH}>Assigned Rep</th>
+                  <th style={{ ...TH, textAlign: 'center' }}>Clients</th>
+                  <th style={{ ...TH, textAlign: 'center' }}>Key Visit (days)</th>
+                  <th style={{ ...TH, textAlign: 'center' }}>Std Visit (days)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {unzoned.map(tour => (
+                  <TourRow key={tour.id} route={tour} reps={reps} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-// ── Styles ─────────────────────────────────────────────────────
+// -- Styles --
 
 const PANEL: CSSProperties = {
   background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', overflow: 'hidden',
