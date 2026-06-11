@@ -65,11 +65,18 @@ export function TourRow({ route, reps }: { route: TourData; reps: RepData[] }) {
         ) : (
           <div
             onClick={() => setEditing(true)}
-            title="Click to change rep"
-            style={{ cursor: 'pointer', fontSize: 12, color: route.rep_name ? 'var(--fg)' : 'var(--neg)', display: 'flex', alignItems: 'center', gap: 6 }}
+            title="Click to assign a rep"
+            style={{
+              cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6,
+              color: route.rep_name
+                ? 'var(--fg)'
+                : parseInt(String(route.client_count) || '0', 10) > 10
+                  ? 'var(--neg)'
+                  : 'var(--fg-3)',
+            }}
           >
-            {route.rep_name ?? '⚠ Unassigned'}
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ opacity: 0.4 }}>
+            {route.rep_name ?? '— Unassigned'}
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ opacity: 0.3 }}>
               <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
               <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
             </svg>
@@ -77,12 +84,12 @@ export function TourRow({ route, reps }: { route: TourData; reps: RepData[] }) {
         )}
       </td>
       <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>
-        {route.client_count}
+        {parseInt(String(route.client_count) || '0', 10) > 0 ? route.client_count : '—'}
       </td>
-      <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>
+      <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>
         {route.visit_freq_key_days ?? '—'}
       </td>
-      <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>
+      <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>
         {route.visit_freq_std_days ?? '—'}
       </td>
     </tr>
