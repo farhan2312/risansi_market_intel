@@ -114,6 +114,12 @@ export default function AssignVisitDrawer({
   const repOptions: Array<{ id: string; name: string; zone?: string | null; route?: string | null }> =
     fetchedReps.length ? fetchedReps : reps.map(r => ({ id: String(r.id), name: r.name, route: r.route ?? null }));
 
+  // Managers default the rep dropdown to themselves when no client-primary
+  // prefill is supplied (e.g. the header / calendar "Plan Visit" button).
+  // Applied in the open handlers below so it never fights a manual selection.
+  const managerDefaultRepId =
+    !isRepUser && role === 'manager' && repId != null ? String(repId) : '';
+
   // A rep is locked to themselves — fetch their own name for the read-only display.
   useEffect(() => {
     if (!isRepUser || repId == null) return;
@@ -148,7 +154,7 @@ export default function AssignVisitDrawer({
       const p = (e as CustomEvent<DrawerPayload>).detail;
       const lock = p.lockClient ?? false;
       setLockClientMode(lock);
-      setPrefillRepId(p.repId ?? '');
+      setPrefillRepId(p.repId ?? managerDefaultRepId);
       if (p.clientId && p.clientName) {
         setSelectedClient({
           id: p.clientId, code: p.clientCode ?? '',
@@ -169,6 +175,8 @@ export default function AssignVisitDrawer({
     }
     window.addEventListener(OPEN_VISIT_DRAWER, handleOpen);
     return () => window.removeEventListener(OPEN_VISIT_DRAWER, handleOpen);
+    // managerDefaultRepId is derived from stable server-session props.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Controlled open (Client 360 etc.) ─────────────────────
@@ -178,7 +186,7 @@ export default function AssignVisitDrawer({
     if (controlledOpen === undefined) return;
     if (controlledOpen) {
       setLockClientMode(lockClientProp ?? false);
-      setPrefillRepId(prefilledRepId != null ? String(prefilledRepId) : '');
+      setPrefillRepId(prefilledRepId != null ? String(prefilledRepId) : managerDefaultRepId);
       if (prefilledClient) {
         setSelectedClient({
           id: prefilledClient.id,

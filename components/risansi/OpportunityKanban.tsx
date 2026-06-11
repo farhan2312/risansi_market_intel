@@ -11,6 +11,7 @@ export interface KanbanOpp extends EditableOpp {
   probability: number | null;
   eta_text:   string | null;
   rep_name:   string | null;
+  can_edit?:  boolean;
 }
 
 const STAGES = ['Suspect', 'Prospect', 'Quoted', 'Negotiating', 'Won', 'Lost'] as const;
@@ -46,6 +47,8 @@ export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] })
   const handleDrop = (oppId: string, newStage: string) => {
     const current = opps.find(o => o.id === oppId);
     if (!current || current.stage === newStage) return;
+    // Ownership guard (server also enforces). Non-editable cards can't move.
+    if (current.can_edit === false) return;
 
     // Moving to Won/Lost needs completion details — open modal, don't save yet
     if (newStage === 'Won' || newStage === 'Lost') {
@@ -151,21 +154,32 @@ export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] })
                 {items.map(opp => {
                   const isWon  = opp.stage === 'Won';
                   const isLost = opp.stage === 'Lost';
+                  const canEdit = opp.can_edit !== false;
+                  const canDrag = canEdit && !isWon && !isLost;
                   return (
                   <div
                     key={opp.id}
-                    draggable={!isWon && !isLost}
-                    onDragStart={() => { if (!isWon && !isLost) setDragId(opp.id); }}
+                    draggable={canDrag}
+                    onDragStart={() => { if (canDrag) setDragId(opp.id); }}
                     onDragEnd={() => { setDragId(null); setOverStage(null); }}
                     onClick={() => setEditOpp(opp)}
                     style={{
+                      position: 'relative',
                       background: isWon ? 'var(--won-bg)' : isLost ? 'var(--bg-sunk)' : 'var(--bg-elev)',
                       border: '1px solid var(--line)',
                       borderLeft: `3px solid ${isWon ? '#0E9F6E' : isLost ? '#9CA3AF' : STAGE_COLOR[opp.stage] ?? 'var(--line)'}`,
                       borderRadius: 4, padding: 10, cursor: 'pointer',
-                      opacity: dragId === opp.id ? 0.4 : isLost ? 0.75 : 1,
+                      opacity: dragId === opp.id ? 0.4 : !canEdit ? 0.85 : isLost ? 0.75 : 1,
                     }}
                   >
+                    {!canEdit && !isWon && !isLost && (
+                      <div
+                        title="View only — assigned to another rep"
+                        style={{ position: 'absolute', top: 6, right: 6, fontSize: 11, color: 'var(--fg-3)', opacity: 0.6 }}
+                      >
+                        👁
+                      </div>
+                    )}
                     <div style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                       <span>{opp.client_code}</span>
                       <span>{opp.rep_name || '—'}</span>
@@ -212,7 +226,7 @@ export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] })
         })}
       </div>
 
-      {editOpp && <EditOppDrawer opp={editOpp} onClose={() => setEditOpp(null)} />}
+      {editOpp && <EditOppDrawer opp={editOpp} canEdit={editOpp.can_edit !== false} onClose={() => setEditOpp(null)} />}
 
       {completion && (
         <OppCompletionModal

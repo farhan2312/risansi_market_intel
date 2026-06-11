@@ -22,18 +22,44 @@ export interface RepOption {
   is_unlinked: boolean;
 }
 
-export function ApprovalRow({ request, reps }: { request: ApprovalRequest; reps: RepOption[] }) {
+export interface TourOption {
+  id: number;
+  name: string;
+  zone: string;
+}
+
+export function ApprovalRow({ request, reps, tours = [] }: {
+  request: ApprovalRequest;
+  reps: RepOption[];
+  tours?: TourOption[];
+}) {
   const router = useRouter();
   const [role, setRole]             = useState(request.requested_role ?? 'rep');
   const [repId, setRepId]           = useState('');
+  const [tourIds, setTourIds]       = useState<number[]>([]);
   const [loading, setLoading]       = useState(false);
   const [showNewRep, setShowNewRep] = useState(false);
   const [error, setError]           = useState('');
 
-  const isRep = role === 'rep';
+  // Rep & manager link to a rep record and can be assigned tours.
+  const linksRep = role === 'rep' || role === 'manager';
+
+  // Group tours by zone for the multi-select, preserving server order.
+  const toursByZone: [string, TourOption[]][] = (() => {
+    const map = new Map<string, TourOption[]>();
+    for (const t of tours) {
+      const z = t.zone || 'Unzoned';
+      if (!map.has(z)) map.set(z, []);
+      map.get(z)!.push(t);
+    }
+    return Array.from(map.entries());
+  })();
+
+  const toggleTour = (id: number) =>
+    setTourIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
   const handleApprove = async () => {
-    if (isRep && !repId) {
+    if (linksRep && !repId) {
       setError('Please link to an existing rep or create a new one');
       return;
     }
@@ -42,7 +68,8 @@ export function ApprovalRow({ request, reps }: { request: ApprovalRequest; reps:
       const fd = new FormData();
       fd.set('id', String(request.id));
       fd.set('role', role);
-      if (isRep && repId) fd.set('rep_id', repId);
+      if (linksRep && repId) fd.set('rep_id', repId);
+      if (linksRep) tourIds.forEach(t => fd.append('tour_ids[]', String(t)));
       await approveUser(fd);
       router.refresh();
     } catch (err: unknown) {
@@ -85,7 +112,7 @@ export function ApprovalRow({ request, reps }: { request: ApprovalRequest; reps:
       <td style={TD}>
         <select
           value={role}
-          onChange={e => { setRole(e.target.value); setRepId(''); setShowNewRep(false); setError(''); }}
+          onChange={e => { setRole(e.target.value); setRepId(''); setTourIds([]); setShowNewRep(false); setError(''); }}
           style={{ padding: '6px 8px', border: '1px solid #CBD5E1', borderRadius: 5, fontSize: 12, width: '100%', minWidth: 120, background: '#F4F6FB', fontFamily: 'inherit' }}
         >
           <option value="rep">Field Rep</option>
@@ -97,7 +124,7 @@ export function ApprovalRow({ request, reps }: { request: ApprovalRequest; reps:
 
       {/* Link to rep */}
       <td style={{ ...TD, minWidth: 240 }}>
-        {isRep ? (
+        {linksRep ? (
           <div>
             {!showNewRep ? (
               <>
@@ -137,6 +164,48 @@ export function ApprovalRow({ request, reps }: { request: ApprovalRequest; reps:
           </div>
         ) : (
           <span style={{ fontSize: 11, color: '#6B7F96', fontStyle: 'italic' }}>Not applicable</span>
+        )}
+      </td>
+
+      {/* Assign tours (rep / manager only) */}
+      <td style={{ ...TD, minWidth: 220 }}>
+        {linksRep ? (
+          tours.length === 0 ? (
+            <span style={{ fontSize: 11, color: '#6B7F96', fontStyle: 'italic' }}>No tours</span>
+          ) : (
+            <div style={{
+              maxHeight: 168, overflowY: 'auto', padding: '6px 8px',
+              border: '1px solid #DDE6F5', borderRadius: 6, background: '#F8FAFC',
+            }}>
+              {toursByZone.map(([zone, zoneTours]) => (
+                <div key={zone} style={{ marginBottom: 6 }}>
+                  <div style={{
+                    fontSize: 9, fontWeight: 700, color: '#1A5CB8',
+                    textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 3,
+                  }}>{zone}</div>
+                  {zoneTours.map(t => (
+                    <label key={t.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 6,
+                      fontSize: 11, color: '#2C3E5A', padding: '1px 0', cursor: 'pointer',
+                    }}>
+                      <input
+                        type="checkbox"
+                        checked={tourIds.includes(t.id)}
+                        onChange={() => toggleTour(t.id)}
+                        style={{ width: 13, height: 13, accentColor: '#1A5CB8', cursor: 'pointer' }}
+                      />
+                      {t.name}
+                    </label>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )
+        ) : (
+          <span style={{ fontSize: 11, color: '#6B7F96', fontStyle: 'italic' }}>Not applicable</span>
+        )}
+        {linksRep && tourIds.length > 0 && (
+          <div style={{ marginTop: 4, fontSize: 10, color: '#1A5CB8' }}>{tourIds.length} selected</div>
         )}
       </td>
 

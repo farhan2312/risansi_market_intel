@@ -3,11 +3,12 @@
 import { getServerSession } from 'next-auth/next';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+import { hasRole } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
-  if (!['admin', 'sysadmin'].includes(session?.user?.role ?? '')) {
+  if (!hasRole(session?.user?.role, 'admin')) {
     throw new Error('Admin access required');
   }
   return session!;

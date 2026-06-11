@@ -4,7 +4,8 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 import { revokeUser, reapproveUser } from '@/app/actions/admin';
-import { ApprovalRow, type RepOption } from '@/components/risansi/ApprovalRow';
+import { hasRole } from '@/lib/risansi-auth';
+import { ApprovalRow, type RepOption, type TourOption } from '@/components/risansi/ApprovalRow';
 import { Topbar } from '@/components/risansi';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
@@ -24,11 +25,12 @@ export default async function AdminPage() {
   const session = await getServerSession(authOptions);
   const role    = session?.user?.role ?? '';
 
-  if (!session?.user?.email || !['admin', 'sysadmin'].includes(role)) {
-    redirect('/api/auth/signin');
+  // Access Approval is sysadmin-only (mirrors the /admin proxy guard).
+  if (!session?.user?.email || !hasRole(role, 'sysadmin')) {
+    redirect('/risansi');
   }
 
-  const [pending, users, reps] = await Promise.all([
+  const [pending, users, reps, tours] = await Promise.all([
     q<PendingRow[]>(async () => {
       const { rows } = await risansiPool.query<PendingRow>(
         `SELECT id, user_email AS email, display_name,
@@ -60,6 +62,14 @@ export default async function AdminPage() {
          FROM reps r
          WHERE r.is_active = TRUE
          ORDER BY r.zone ASC, r.name ASC`,
+      );
+      return rows;
+    }, []),
+    q<TourOption[]>(async () => {
+      const { rows } = await risansiPool.query<TourOption>(
+        `SELECT id, name, COALESCE(zone, 'Unzoned') AS zone
+           FROM tour_routes
+          ORDER BY zone ASC, name ASC`,
       );
       return rows;
     }, []),
@@ -106,14 +116,14 @@ export default async function AdminPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: '#F4F6FB' }}>
-                  {['Name & Email', 'Requested', 'Assign Role', 'Link to Rep', 'Actions'].map(h => (
+                  {['Name & Email', 'Requested', 'Assign Role', 'Link to Rep', 'Assign Tours', 'Actions'].map(h => (
                     <th key={h} style={TH}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {pending.map(req => (
-                  <ApprovalRow key={req.id} request={req} reps={reps} />
+                  <ApprovalRow key={req.id} request={req} reps={reps} tours={tours} />
                 ))}
               </tbody>
             </table>

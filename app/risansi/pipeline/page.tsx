@@ -30,6 +30,7 @@ interface OppRow {
   industry:            string;
   rep_id:              number | null;
   rep_name:            string | null;
+  can_edit:            boolean;
   // Optional edit fields — may not exist on the table
   secondary_rep_id?:   number | null;
   quote_date?:         string | null;
@@ -134,6 +135,24 @@ export default async function PipelinePage({
   const openWhere   = `WHERE o.stage NOT IN ('Won', 'Lost')${filterClause}`;
   const closedWhere = `WHERE o.stage IN ('Won', 'Lost') AND o.updated_at >= NOW() - INTERVAL '12 months'${filterClause}`;
 
+  // Per-opportunity edit permission, evaluated in SQL:
+  //   admin/sysadmin → all · assigned rep → own · manager → reps sharing a tour.
+  // Params are appended AFTER the filter args so the filter $-indices are unchanged.
+  const ceRoleIdx = vals.length + 1;
+  const ceRepIdx  = vals.length + 2;
+  vals.push(role, currentRepId ?? 0);
+  const CAN_EDIT_CASE = `
+        CASE
+          WHEN $${ceRoleIdx} IN ('admin','sysadmin') THEN TRUE
+          WHEN o.rep_id = $${ceRepIdx} THEN TRUE
+          WHEN EXISTS (
+            SELECT 1 FROM tour_assignments ta1
+            JOIN tour_assignments ta2 ON ta1.tour_id = ta2.tour_id
+            WHERE ta1.rep_id = $${ceRepIdx} AND ta2.rep_id = o.rep_id
+          ) THEN TRUE
+          ELSE FALSE
+        END AS can_edit`;
+
   const [openOpps, closedOpps, bookedYTD, annualTarget, winLossRows, lostToRows, stageOptions, productTypeOptions, repOptions, industryOptions] = await Promise.all([
 
     // 1. Open opportunities with filters + sort (feeds KPIs + Active Opportunities table).
@@ -142,7 +161,8 @@ export default async function PipelinePage({
       const { rows } = await risansiPool.query(`
         SELECT o.*,
                c.legal_name AS client_name, c.code AS client_code, c.industry,
-               COALESCE(r.name, '—') AS rep_name
+               COALESCE(r.name, '—') AS rep_name,
+               ${CAN_EDIT_CASE}
         FROM opportunities o
         JOIN clients c ON c.id = o.client_id
         LEFT JOIN reps r ON r.id = o.rep_id
@@ -162,7 +182,8 @@ export default async function PipelinePage({
       const { rows } = await risansiPool.query(`
         SELECT o.*,
                c.legal_name AS client_name, c.code AS client_code, c.industry,
-               COALESCE(r.name, '—') AS rep_name
+               COALESCE(r.name, '—') AS rep_name,
+               ${CAN_EDIT_CASE}
         FROM opportunities o
         JOIN clients c ON c.id = o.client_id
         LEFT JOIN reps r ON r.id = o.rep_id

@@ -3,6 +3,7 @@
 import { getServerSession } from 'next-auth/next';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+import { hasRole } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 
 const MONTH_MAP: Record<string, string> = {
@@ -31,7 +32,7 @@ interface UploadRow {
 export async function uploadRevenue(rows: UploadRow[]): Promise<{ inserted: number; skipped: number }> {
   const session = await getServerSession(authOptions);
   const role    = session?.user?.role ?? '';
-  if (!['admin', 'sysadmin'].includes(role)) throw new Error('Unauthorized');
+  if (!hasRole(role, 'admin')) throw new Error('Unauthorized');
 
   let inserted = 0;
   let skipped  = 0;

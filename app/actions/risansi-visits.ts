@@ -5,6 +5,22 @@ import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 
+// Resolve the signed-in user's rep id: prefer the session's linked rep_id,
+// fall back to a reps-by-email lookup for accounts linked after token issue.
+async function callerRepId(session: {
+  user?: { repId?: number | null; email?: string | null };
+}): Promise<number | null> {
+  let repId = session.user?.repId ?? null;
+  if (repId == null && session.user?.email) {
+    const r = await risansiPool.query<{ id: number }>(
+      'SELECT id FROM reps WHERE email = $1 AND is_active = TRUE LIMIT 1',
+      [session.user.email],
+    );
+    repId = r.rows[0]?.id ?? null;
+  }
+  return repId;
+}
+
 // Cached check: does opportunities.secondary_rep_id exist?
 let _oppHasSecondaryRep: boolean | null = null;
 async function opportunitiesHasSecondaryRep(): Promise<boolean> {
@@ -201,11 +217,18 @@ export async function saveVisitField(
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) throw new Error('Unauthorized');
 
-  const { rows } = await risansiPool.query(
-    'SELECT submitted_at FROM visits WHERE id = $1',
+  const { rows } = await risansiPool.query<{ rep_id: number | null; submitted_at: string | null }>(
+    'SELECT rep_id, submitted_at FROM visits WHERE id = $1',
     [visitId],
   );
-  if (rows[0]?.submitted_at) throw new Error('Visit is already closed');
+  const visit = rows[0];
+  if (visit?.submitted_at) throw new Error('Visit is already closed');
+
+  // Ownership: only the assigned rep may save fields.
+  const myRepId = await callerRepId(session);
+  if (visit && (myRepId == null || visit.rep_id == null || Number(visit.rep_id) !== Number(myRepId))) {
+    throw new Error('You are not the assigned rep for this visit.');
+  }
 
   const visitFields:   Record<string, unknown> = {};
   const sugarFields:   Record<string, unknown> = {};
@@ -317,6 +340,12 @@ export async function submitVisit(visitId: string) {
 
   const visit = visitRes.rows[0];
   if (!visit) throw new Error('Visit not found or already closed');
+
+  // Ownership: only the assigned rep may submit (close) the visit.
+  const submitterRepId = await callerRepId(session);
+  if (visit.rep_id == null || submitterRepId == null || Number(visit.rep_id) !== Number(submitterRepId)) {
+    throw new Error('Only the assigned rep can submit this visit.');
+  }
 
   const sugar     = sugarRes.rows[0];
   const dispOpps  = dispRes.rows;

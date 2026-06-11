@@ -272,6 +272,9 @@ export default async function ExecDashboardPage({
             </div>
           </div>
 
+          {/* Account-not-linked warning */}
+          {!repId && <RepNotLinkedWarning />}
+
           {/* View toggle (reps only) */}
           <RepViewToggle view={view} />
 
@@ -1389,6 +1392,24 @@ function RepKpi({ label, value, sub, neg = false }: { label: string; value: stri
         <div style={{ ...METRIC_VAL, fontSize: 32 }}>{value}</div>
         <div style={{ fontSize: 11, color: neg ? 'var(--neg)' : 'var(--fg-3)', marginTop: 4 }}>{sub}</div>
       </div>
+    </div>
+  );
+}
+
+// Shown on the rep dashboard when the signed-in user has no linked rep record.
+function RepNotLinkedWarning() {
+  return (
+    <div style={{
+      padding: '11px 16px', marginBottom: 18,
+      background: '#FEF3C7', border: '1px solid rgba(217,119,6,0.30)',
+      borderRadius: 6, fontSize: 13, color: '#92400E', fontWeight: 500,
+      display: 'flex', gap: 8, alignItems: 'flex-start',
+    }}>
+      <span aria-hidden style={{ flexShrink: 0 }}>⚠</span>
+      <span>
+        Your account is not linked to a rep record. Some features may not work
+        correctly. Please contact your system administrator.
+      </span>
     </div>
   );
 }

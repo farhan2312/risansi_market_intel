@@ -4,6 +4,7 @@ import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+import { getManagerAssignableReps, hasRole } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 
 // ── Helper ─────────────────────────────────────────────────────
@@ -12,6 +13,71 @@ async function requireSession() {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) redirect('/api/auth/signin');
   return session.user;
+}
+
+// Resolve which rep a visit/opportunity is assigned to, enforcing role rules:
+//   rep      → ALWAYS themselves (session repId, email fallback); errors if the
+//              account isn't linked to a rep — the form's rep_id is ignored.
+//   manager  → the submitted rep_id, validated to fall within their tours;
+//              falls back to the client's primary rep when blank.
+//   admin/+  → the submitted rep_id, falling back to the client's primary rep.
+async function resolveAssignableRepId(
+  user: { role?: string; repId?: number | null; email?: string | null },
+  formRepId: string | null,
+  clientId: string | number | null,
+): Promise<number | null> {
+  const role = user.role ?? 'rep';
+
+  if (role === 'rep') {
+    let repId = typeof user.repId === 'number' ? user.repId : null;
+    if (!repId && user.email) {
+      const { rows } = await risansiPool.query<{ id: number }>(
+        'SELECT id FROM reps WHERE email = $1 AND is_active = TRUE LIMIT 1',
+        [user.email],
+      );
+      repId = rows[0]?.id ?? null;
+    }
+    if (!repId) {
+      throw new Error('Your account is not linked to a rep. Please contact the system administrator.');
+    }
+    return repId;
+  }
+
+  const parsed = formRepId ? parseInt(formRepId, 10) : NaN;
+  let repId: number | null = Number.isInteger(parsed) ? parsed : null;
+
+  if (role === 'manager' && repId && typeof user.repId === 'number') {
+    const allowed = await getManagerAssignableReps(user.repId);
+    if (!allowed.includes(repId)) {
+      throw new Error('You can only assign visits to reps in your assigned tours.');
+    }
+  }
+
+  if (!repId && clientId != null) {
+    const { rows } = await risansiPool.query<{ primary_rep_id: number | null }>(
+      'SELECT primary_rep_id FROM clients WHERE id = $1',
+      [clientId],
+    );
+    repId = rows[0]?.primary_rep_id ?? null;
+  }
+
+  return repId;
+}
+
+// Can this user move / edit an opportunity owned by `oppRepId`?
+//   admin/sysadmin → always · assigned rep → own · manager → reps sharing a tour.
+async function userCanEditOpp(
+  user: { role?: string; repId?: number | null },
+  oppRepId: number | null,
+): Promise<boolean> {
+  const role = user.role ?? 'rep';
+  if (hasRole(role, 'admin')) return true;
+  if (user.repId != null && oppRepId != null && Number(oppRepId) === Number(user.repId)) return true;
+  if (role === 'manager' && user.repId != null && oppRepId != null) {
+    const assignable = await getManagerAssignableReps(user.repId);
+    return assignable.includes(Number(oppRepId));
+  }
+  return false;
 }
 
 // Cached set of columns that actually exist on the opportunities table.
@@ -259,7 +325,7 @@ function parseDeletedIds(raw: FormDataEntryValue | null): number[] {
 
 export async function updateClient(clientId: number, formData: FormData): Promise<void> {
   const session = await getServerSession(authOptions);
-  if (!['admin', 'sysadmin'].includes(session?.user?.role ?? '')) {
+  if (!hasRole(session?.user?.role, 'admin')) {
     throw new Error('Unauthorized');
   }
   const email = session!.user.email ?? 'system';
@@ -367,27 +433,16 @@ export async function planVisit(clientId: string, formData: FormData) {
 
   const visitDate = (formData.get('visit_date') as string | null)?.trim();
   const purpose   = (formData.get('purpose')    as string | null)?.trim() ?? 'Routine';
-  const repId     = (formData.get('rep_id')     as string | null)?.trim() ?? null;
 
   const date = visitDate ?? new Date().toISOString().slice(0, 10);
 
-  // Resolve rep_id — use selected rep, fall back to client's primary rep, then any active rep
-  let resolvedRepId: number | null = repId ? parseInt(repId) : null;
-
-  if (!resolvedRepId) {
-    const clientData = await risansiPool.query<{ primary_rep_id: number | null }>(
-      'SELECT primary_rep_id FROM clients WHERE id = $1',
-      [clientId],
-    );
-    resolvedRepId = clientData.rows[0]?.primary_rep_id ?? null;
-  }
-
-  if (!resolvedRepId) {
-    const anyRep = await risansiPool.query<{ id: number }>(
-      'SELECT id FROM reps WHERE is_active = TRUE LIMIT 1',
-    );
-    resolvedRepId = anyRep.rows[0]?.id ?? null;
-  }
+  // Rep → locked to self; manager → validated within tours; admin → form value
+  // (all with a client-primary fallback). See resolveAssignableRepId.
+  const resolvedRepId = await resolveAssignableRepId(
+    user,
+    (formData.get('rep_id') as string | null)?.trim() ?? null,
+    clientId,
+  );
 
   await risansiPool.query(
     `INSERT INTO visits (client_id, rep_id, visit_date, purpose, status, created_at)
@@ -412,12 +467,13 @@ export async function createOpportunity(clientId: string, formData: FormData) {
   const eta      = (formData.get('eta_text') as string | null)?.trim() ||
                    (formData.get('expected_close') as string | null)?.trim() || null;
 
-  // Resolve rep — fall back to client's primary rep
-  const clientData = await risansiPool.query<{ primary_rep_id: number | null }>(
-    'SELECT primary_rep_id FROM clients WHERE id = $1',
-    [clientId],
+  // Rep → locked to self; manager → validated within tours; admin → form value
+  // (all with a client-primary fallback). See resolveAssignableRepId.
+  const resolvedRepId = await resolveAssignableRepId(
+    session.user,
+    (formData.get('rep_id') as string | null)?.trim() ?? null,
+    clientId,
   );
-  const resolvedRepId = clientData.rows[0]?.primary_rep_id ?? null;
 
   const { rows } = await risansiPool.query<{ id: string }>(
     `INSERT INTO opportunities (
@@ -539,6 +595,14 @@ export async function createPipelineOpportunity(formData: FormData) {
     primaryRepId   = Number.isInteger(parsedRep) ? parsedRep : null;
     secondaryRepId = Number.isInteger(parsedSec) ? parsedSec : null;
 
+    // A manager may only assign to reps that share one of their tours.
+    if (role === 'manager' && primaryRepId && typeof user.repId === 'number') {
+      const allowed = await getManagerAssignableReps(user.repId);
+      if (!allowed.includes(primaryRepId)) {
+        throw new Error('You can only assign opportunities to reps in your assigned tours.');
+      }
+    }
+
     // Fallback to the client's reps when the dropdown was left blank
     if (!primaryRepId) {
       const { rows } = await risansiPool.query<{ primary_rep_id: number | null; secondary_rep_id: number | null }>(
@@ -599,6 +663,15 @@ export async function updateOpportunityStage(id: string, formData: FormData) {
 
   const stage = (formData.get('stage') as string | null)?.trim() ?? 'Suspect';
 
+  // Ownership — assigned rep, their tour manager, or admin/sysadmin only.
+  const { rows: oppRows } = await risansiPool.query<{ rep_id: number | null }>(
+    'SELECT rep_id FROM opportunities WHERE id = $1', [id],
+  );
+  if (!oppRows[0]) throw new Error('Opportunity not found');
+  if (!(await userCanEditOpp(user, oppRows[0].rep_id))) {
+    throw new Error('You do not have permission to edit this opportunity.');
+  }
+
   await risansiPool.query(
     `UPDATE opportunities SET stage = $1, updated_at = NOW() WHERE id = $2`,
     [stage, id],
@@ -615,9 +688,16 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
   const user = await requireSession();
 
   // Lock guard — a Won/Lost opp can't be edited unless it's being moved out of that stage
-  const { rows: cur } = await risansiPool.query<{ stage: string }>(
-    'SELECT stage FROM opportunities WHERE id = $1', [oppId],
+  const { rows: cur } = await risansiPool.query<{ stage: string; rep_id: number | null }>(
+    'SELECT stage, rep_id FROM opportunities WHERE id = $1', [oppId],
   );
+  if (!cur[0]) throw new Error('Opportunity not found');
+
+  // Ownership — assigned rep, their tour manager, or admin/sysadmin only.
+  if (!(await userCanEditOpp(user, cur[0].rep_id))) {
+    throw new Error('You do not have permission to edit this opportunity.');
+  }
+
   const currentStage = cur[0]?.stage;
   const newStage     = (formData.get('stage') as string | null) ?? currentStage;
   if ((currentStage === 'Won' || currentStage === 'Lost') && newStage === currentStage) {
@@ -751,6 +831,13 @@ export async function assignVisit(formData: FormData) {
     const rawRepId = (formData.get('rep_id') as string | null)?.trim();
     const parsed   = rawRepId ? parseInt(rawRepId, 10) : NaN;
     repId = Number.isInteger(parsed) ? parsed : null;
+    // A manager may only assign to reps that share one of their tours.
+    if (role === 'manager' && repId && typeof user.repId === 'number') {
+      const allowed = await getManagerAssignableReps(user.repId);
+      if (!allowed.includes(repId)) {
+        throw new Error('You can only assign visits to reps in your assigned tours.');
+      }
+    }
     if (!repId) {
       const { rows } = await risansiPool.query<{ primary_rep_id: number | null }>(
         'SELECT primary_rep_id FROM clients WHERE id = $1', [clientId],
@@ -1088,7 +1175,7 @@ export async function submitOpportunity(formData: FormData) {
 
 export async function addClient(formData: FormData): Promise<void> {
   const session = await getServerSession(authOptions);
-  if (!['admin', 'sysadmin'].includes(session?.user?.role ?? '')) {
+  if (!hasRole(session?.user?.role, 'admin')) {
     throw new Error('Unauthorized');
   }
   const email = session!.user.email ?? 'system';

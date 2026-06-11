@@ -4,6 +4,7 @@ import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+import { hasRole } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 
 const VALID_ROLES = ['rep', 'manager', 'admin', 'sysadmin'];
@@ -12,7 +13,7 @@ async function requireAdmin() {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) redirect('/api/auth/signin');
   const role = session.user.role ?? '';
-  if (!['admin', 'sysadmin'].includes(role)) redirect('/api/auth/signin');
+  if (!hasRole(role, 'admin')) redirect('/api/auth/signin');
   return session.user;
 }
 
@@ -22,6 +23,11 @@ export async function approveUser(formData: FormData) {
   const role     = formData.get('role') as string;
   const safeRole = VALID_ROLES.includes(role) ? role : 'rep';
   const repId    = formData.get('rep_id') ? parseInt(formData.get('rep_id') as string) : null;
+
+  // Only rep & manager roles link to a rep record and receive tour assignments.
+  // (tour_assignments.role has a CHECK constraint allowing only 'rep'|'manager'.)
+  const linksRep    = safeRole === 'rep' || safeRole === 'manager';
+  const linkedRepId = linksRep ? repId : null;
 
   // Resolve the user's email so we can link it to the reps table
   let userEmail: string | null = null;
@@ -44,7 +50,7 @@ export async function approveUser(formData: FormData) {
          reviewed_at   = NOW(),
          reviewed_by   = $3
        WHERE id = $4`,
-      [safeRole, safeRole === 'rep' ? repId : null, admin.email, id],
+      [safeRole, linkedRepId, admin.email, id],
     );
   } catch {
     await risansiPool.query(
@@ -59,14 +65,14 @@ export async function approveUser(formData: FormData) {
     );
   }
 
-  // Link the approved rep onto the reps row:
+  // Link the approved user onto the reps row:
   //   1. email      → so they can log in
   //   2. name       → overwrite the migrated Excel name with the
   //                   user's display name (more accurate). COALESCE
   //                   keeps the existing name if display_name is null.
   //   3. everything else (zone/route/target_cr) is left untouched so
   //      existing client/visit relationships (joined on rep_id) stay intact.
-  if (safeRole === 'rep' && repId && userEmail) {
+  if (linksRep && linkedRepId && userEmail) {
     try {
       const userRes = await risansiPool.query<{ display_name: string | null }>(
         'SELECT display_name FROM access_requests WHERE id = $1',
@@ -80,9 +86,30 @@ export async function approveUser(formData: FormData) {
            name       = COALESCE($2, name),
            updated_at = NOW()
          WHERE id = $3`,
-        [userEmail, displayName, repId],
+        [userEmail, displayName, linkedRepId],
       );
     } catch { /* ignore */ }
+  }
+
+  // Assign tours. The role stored on each assignment mirrors the user's role
+  // ('rep' or 'manager'). Idempotent via the (tour_id, rep_id) unique key.
+  const tourIds = formData.getAll('tour_ids[]')
+    .map(v => parseInt(v as string, 10))
+    .filter(n => !isNaN(n));
+
+  if (linksRep && linkedRepId && tourIds.length > 0) {
+    for (const tourId of tourIds) {
+      try {
+        await risansiPool.query(
+          `INSERT INTO tour_assignments (tour_id, rep_id, role, assigned_by)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (tour_id, rep_id) DO UPDATE SET
+             role        = EXCLUDED.role,
+             assigned_by = EXCLUDED.assigned_by`,
+          [tourId, linkedRepId, safeRole, admin.email],
+        );
+      } catch { /* skip a bad tour id, keep the rest */ }
+    }
   }
 
   revalidatePath('/admin');

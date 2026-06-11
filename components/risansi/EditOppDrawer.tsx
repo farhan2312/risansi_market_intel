@@ -41,7 +41,7 @@ const STAGE_COLORS: Record<string, string> = {
   Lost:        '#E02424',
 };
 
-export function EditOppDrawer({ opp, onClose }: { opp: EditableOpp; onClose: () => void }) {
+export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableOpp; onClose: () => void; canEdit?: boolean }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
@@ -82,6 +82,8 @@ export function EditOppDrawer({ opp, onClose }: { opp: EditableOpp; onClose: () 
     cr != null && cr !== '' ? (parseFloat(String(cr)) * 100).toFixed(1) : '';
 
   const isLocked = opp.stage === 'Won' || opp.stage === 'Lost';
+  // View-only when locked (Won/Lost) OR the viewer lacks edit rights.
+  const readOnly = isLocked || !canEdit;
 
   return (
     <>
@@ -98,7 +100,7 @@ export function EditOppDrawer({ opp, onClose }: { opp: EditableOpp; onClose: () 
         }}>
           <div>
             <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--fg)' }}>
-              {isLocked ? 'Opportunity' : 'Edit Opportunity'}
+              {readOnly ? 'Opportunity' : 'Edit Opportunity'}
             </div>
             <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               {opp.client_name}
@@ -145,8 +147,20 @@ export function EditOppDrawer({ opp, onClose }: { opp: EditableOpp; onClose: () 
           </div>
         )}
 
-        {/* Read-only view for locked opps */}
-        {isLocked ? (
+        {/* View-only notice — editable stage, but not the viewer's to edit */}
+        {!canEdit && !isLocked && (
+          <div style={{
+            padding: '10px 16px', background: 'var(--warn-soft, #FEF3C7)',
+            borderBottom: '1px solid var(--line)', fontSize: 12,
+            color: 'var(--warn, #92400E)', fontWeight: 500,
+            display: 'flex', alignItems: 'center', gap: 8,
+          }}>
+            👁 View only — assigned to <strong>{opp.rep_name ?? 'another rep'}</strong>. Only they or their tour manager can edit.
+          </div>
+        )}
+
+        {/* Read-only view for locked or view-only opps */}
+        {readOnly ? (
           <div style={{ flex: 1, overflowY: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
             <ReadOnlyRow label="Stage" value={opp.stage} />
             <ReadOnlyRow label="Product" value={opp.product} />

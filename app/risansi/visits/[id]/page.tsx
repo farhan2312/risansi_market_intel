@@ -63,18 +63,19 @@ export default async function VisitReportPage({
   const visit = visitRes.rows[0];
   if (!visit) notFound();
 
-  // Rep can only see their own visits — prefer session rep_id, fall back to email
-  if (session.user.role === 'rep') {
-    let repId: string | null = session.user.repId != null ? String(session.user.repId) : null;
-    if (!repId) {
-      const repRes = await risansiPool.query<{ id: string }>(
-        'SELECT id FROM reps WHERE email = $1 LIMIT 1',
-        [session.user.email],
-      );
-      repId = repRes.rows[0]?.id ?? null;
-    }
-    if (visit.rep_id && repId && String(visit.rep_id) !== String(repId)) redirect('/risansi/field');
+  // Ownership: only the assigned rep may fill / edit / submit this visit.
+  // Everyone else (other reps, managers, admins) gets read-only VIEW access.
+  const isSubmitted = !!visit.submitted_at;
+  let myRepId: number | null = session.user.repId ?? null;
+  if (myRepId == null && session.user.email) {
+    const repRes = await risansiPool.query<{ id: number }>(
+      'SELECT id FROM reps WHERE email = $1 LIMIT 1',
+      [session.user.email],
+    );
+    myRepId = repRes.rows[0]?.id ?? null;
   }
+  const isAssignedRep = myRepId != null && visit.rep_id != null && String(visit.rep_id) === String(myRepId);
+  const canEdit = !isSubmitted && isAssignedRep;
 
   const [contacts, equipment, sugarRes, nonsugarRes, oppsRes, tasksRes, reps, expansionOppRow] = await Promise.all([
     q(async () => {
@@ -157,7 +158,10 @@ export default async function VisitReportPage({
     }, null),
   ]);
 
-  const isClosed = !!visit.submitted_at;
+  // Drives the whole form's read-only state: locked when submitted OR when the
+  // viewer isn't the assigned rep. VisitReportForm already disables every field,
+  // the auto-save triggers, and inline add-buttons off this single flag.
+  const isClosed = isSubmitted || !canEdit;
   const isSugar  = visit.industry_format === 'sugar' || (!visit.industry_format && visit.is_sugar);
 
   const visitDate = new Date(visit.visit_date).toLocaleDateString('en-IN', {
@@ -187,7 +191,7 @@ export default async function VisitReportPage({
                   {visit.legal_name}
                 </Link>
                 <StatusBadge status={visit.status} />
-                {isClosed && (
+                {isSubmitted && (
                   <span style={{
                     fontSize: 11, padding: '2px 8px', borderRadius: 10,
                     background: '#F3F4F6', color: '#6B7280', fontWeight: 600,
@@ -206,9 +210,26 @@ export default async function VisitReportPage({
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-              {!isClosed && <SubmitVisitButton visitId={id} />}
+              {canEdit && <SubmitVisitButton visitId={id} />}
             </div>
           </div>
+
+          {/* View-only notice — not submitted, just not the assigned rep */}
+          {!isSubmitted && !isAssignedRep && (
+            <div style={{
+              padding: '10px 16px', marginBottom: 16,
+              background: 'var(--warn-soft, #FEF3C7)',
+              border: '1px solid var(--warn, rgba(217,119,6,0.35))',
+              borderRadius: 8, fontSize: 12, color: 'var(--warn, #92400E)',
+              fontWeight: 500, display: 'flex', alignItems: 'center', gap: 8,
+            }}>
+              <span aria-hidden>👁</span>
+              <span>
+                View only — this visit is assigned to <strong>{visit.rep_name}</strong>.
+                Only they can fill in this form.
+              </span>
+            </div>
+          )}
 
           {/* Main form */}
           <VisitReportForm

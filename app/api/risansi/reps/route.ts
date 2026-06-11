@@ -1,38 +1,65 @@
 import { NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+import { getManagerAssignableReps } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
+
+// Columns every consumer of this endpoint relies on. id is text so client-side
+// String(id) comparisons stay stable.
+const REP_COLS = `id::text AS id, name, zone, route, initials, rep_code, email, role`;
 
 export async function GET() {
   try {
-    const { rows } = await risansiPool.query<{
-      id: string; name: string; zone: string | null; route: string | null;
-    }>(
-      `SELECT id::text AS id, name, zone, route
-       FROM reps
-       WHERE is_active = TRUE
-       ORDER BY name ASC`,
-    );
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json([], { status: 401 });
+    }
 
-    if (rows.length > 0) {
+    const role  = session.user.role;
+    const repId = session.user.repId;
+
+    // Admin / Sysadmin → all active reps.
+    if (['admin', 'sysadmin'].includes(role)) {
+      const { rows } = await risansiPool.query(
+        `SELECT ${REP_COLS} FROM reps WHERE is_active = TRUE ORDER BY name ASC`,
+      );
       return NextResponse.json(rows);
     }
 
-    // Fallback: distinct rep names from clients if reps table is empty
-    const { rows: fallback } = await risansiPool.query<{
-      id: null; name: string; zone: null; route: null;
-    }>(
-      `SELECT DISTINCT
-         NULL::text        AS id,
-         primary_rep_name  AS name,
-         NULL::text        AS zone,
-         NULL::text        AS route
-       FROM clients
-       WHERE primary_rep_name IS NOT NULL
-         AND primary_rep_name != ''
-         AND deleted_at IS NULL
-       ORDER BY name ASC`,
-    );
+    // Manager → reps in their assigned tours, including themselves (sorted first).
+    if (role === 'manager' && repId) {
+      const assignableIds = await getManagerAssignableReps(repId);
 
-    return NextResponse.json(fallback);
+      if (assignableIds.length === 0) {
+        const { rows } = await risansiPool.query(
+          `SELECT ${REP_COLS} FROM reps WHERE id = $1`,
+          [repId],
+        );
+        return NextResponse.json(rows);
+      }
+
+      const { rows } = await risansiPool.query(
+        `SELECT ${REP_COLS}
+           FROM reps
+          WHERE id = ANY($1::int[])
+            AND is_active = TRUE
+          ORDER BY CASE WHEN id = $2 THEN 0 ELSE 1 END, name ASC`,
+        [assignableIds, repId],
+      );
+      return NextResponse.json(rows);
+    }
+
+    // Rep → only themselves.
+    if (role === 'rep' && repId) {
+      const { rows } = await risansiPool.query(
+        `SELECT ${REP_COLS} FROM reps WHERE id = $1`,
+        [repId],
+      );
+      return NextResponse.json(rows);
+    }
+
+    // Authenticated but not linked to a rep (e.g. unlinked rep/manager) → empty.
+    return NextResponse.json([]);
   } catch (err) {
     console.error('Reps API error:', err);
     return NextResponse.json([], { status: 500 });

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+import { hasRole, getManagerAssignableReps } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 
 const VALID = ['Suspect', 'Prospect', 'Quoted', 'Negotiating', 'Won', 'Lost'];
@@ -19,6 +20,31 @@ export async function PATCH(
 
   if (!VALID.includes(stage)) {
     return NextResponse.json({ error: 'Invalid stage' }, { status: 400 });
+  }
+
+  // Ownership — assigned rep, their tour manager, or admin/sysadmin only.
+  const oppRes = await risansiPool.query<{ rep_id: number | null }>(
+    'SELECT rep_id FROM opportunities WHERE id = $1', [id],
+  );
+  if (!oppRes.rows[0]) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+  const oppRepId = oppRes.rows[0].rep_id;
+  const role  = session.user.role;
+  const repId = session.user.repId;
+  let allowed = hasRole(role, 'admin');
+  if (!allowed && repId != null && oppRepId != null && Number(oppRepId) === Number(repId)) {
+    allowed = true;
+  }
+  if (!allowed && role === 'manager' && repId != null && oppRepId != null) {
+    const assignable = await getManagerAssignableReps(repId);
+    allowed = assignable.includes(Number(oppRepId));
+  }
+  if (!allowed) {
+    return NextResponse.json(
+      { error: 'You do not have permission to move this opportunity.' },
+      { status: 403 },
+    );
   }
 
   try {

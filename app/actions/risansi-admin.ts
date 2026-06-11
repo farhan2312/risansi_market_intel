@@ -4,13 +4,14 @@ import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+import { hasRole } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) redirect('/api/auth/signin');
   const role = session.user.role ?? '';
-  if (!['admin', 'sysadmin'].includes(role)) redirect('/risansi');
+  if (!hasRole(role, 'admin')) redirect('/risansi');
   return session.user;
 }
 

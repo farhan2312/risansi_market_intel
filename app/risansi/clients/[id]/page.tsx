@@ -5,6 +5,7 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, Tag, StatusDot } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
 import { fyShortLabel, fmtCr, formatRev, formatLastVisit } from '@/lib/risansi-utils';
+import { hasRole } from '@/lib/risansi-auth';
 import { ClientActionButtons, PipelineOppBtn, EditDrawerTrigger } from '@/components/risansi/ClientActionButtons';
 import { AddContactButton } from '@/components/risansi/AddContactButton';
 import { EditContactButton } from '@/components/risansi/EditContactButton';
@@ -122,7 +123,7 @@ export default async function ClientProfilePage({
 
   const session  = await getServerSession(authOptions);
   const role     = session?.user?.role ?? '';
-  const canEdit  = ['admin', 'sysadmin'].includes(role);
+  const canEdit  = hasRole(role, 'admin');
 
   // ── Dual-key client fetch (numeric id OR code string) ─────
   const isNumeric = /^\d+$/.test(id);
