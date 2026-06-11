@@ -23,8 +23,12 @@ export function RepsToursTabs({ repsCount, toursCount, repsContent, toursContent
   };
 
   return (
-    <Tabs value={currentTab} onValueChange={handleTabChange} className="">
-      <TabsList variant="line" style={{ gap: 0, marginBottom: 16 }}>
+    <Tabs
+      value={currentTab}
+      onValueChange={handleTabChange}
+      style={{ display: 'flex', flexDirection: 'column' }}
+    >
+      <TabsList variant="line" style={{ width: 'fit-content', marginBottom: 16 }}>
         <TabsTrigger value="reps" style={TAB_TRIGGER}>
           Reps ({repsCount})
         </TabsTrigger>

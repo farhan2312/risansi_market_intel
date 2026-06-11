@@ -93,65 +93,32 @@ export default async function RepsAdminPage() {
 
   /* ── Reps tab content ── */
   const repsContent = (
-    <>
-      {/* Zone summary strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, marginBottom: 20 }}>
-        {ZONES.map(zone => {
-          const z = stats.find(s => s.zone === zone);
-          const repCount    = Number(z?.rep_count ?? 0);
-          const clientCount = Number(z?.client_count ?? 0);
-          const compliant   = Number(z?.compliant_clients ?? 0);
-          const tourCount   = toursByZone[zone]?.length ?? 0;
-          const pct = clientCount > 0 ? Math.round((compliant / clientCount) * 100) : 0;
-          return (
-            <div key={zone} style={PANEL_PAD}>
-              <div style={{ fontSize: 10, fontWeight: 600, color: '#0A3D8F', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
-                {zone}
-              </div>
-              <div style={{ fontSize: 20, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--fg)', marginBottom: 4 }}>
-                {repCount}
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--fg-3)' }}>
-                {tourCount} tour{tourCount !== 1 ? 's' : ''} · {clientCount} clients
-              </div>
-              <div style={{ marginTop: 8, height: 4, background: 'var(--bg-sunk)', borderRadius: 2 }}>
-                <div style={{ height: '100%', borderRadius: 2, width: `${pct}%`, background: pct >= 70 ? 'var(--pos)' : pct >= 40 ? 'var(--warn)' : 'var(--neg)' }} />
-              </div>
-              <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3 }}>{pct}% compliant</div>
-            </div>
-          );
-        })}
+    <div style={{ ...PANEL }}>
+      <div style={{ ...PANEL_H, justifyContent: 'space-between' }}>
+        <span style={PANEL_TITLE}>Reps</span>
       </div>
-
-      {/* Reps table */}
-      <div style={{ ...PANEL }}>
-        <div style={{ ...PANEL_H, justifyContent: 'space-between' }}>
-          <span style={PANEL_TITLE}>Reps</span>
-          <AddRepButton />
-        </div>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-            <thead>
-              <tr style={{ background: 'var(--bg-elev)' }}>
-                <th style={TH}>Name</th>
-                <th style={TH}>Zone</th>
-                <th style={TH}>Tour</th>
-                <th style={{ ...TH, textAlign: 'center' }}>Clients</th>
-                <th style={{ ...TH, textAlign: 'center' }}>Visits (30d)</th>
-                <th style={{ ...TH, textAlign: 'right' }}>Target</th>
-                <th style={{ ...TH, textAlign: 'center' }}>Status</th>
-                <th style={TH} />
-              </tr>
-            </thead>
-            <tbody>
-              {reps.length === 0 ? (
-                <tr><td colSpan={8} style={{ padding: '32px', textAlign: 'center', color: 'var(--fg-3)', fontSize: 13 }}>No reps yet</td></tr>
-              ) : reps.map(rep => <RepRow key={rep.id} rep={rep} />)}
-            </tbody>
-          </table>
-        </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr style={{ background: 'var(--bg-elev)' }}>
+              <th style={TH}>Name</th>
+              <th style={TH}>Zone</th>
+              <th style={TH}>Tour</th>
+              <th style={{ ...TH, textAlign: 'center' }}>Clients</th>
+              <th style={{ ...TH, textAlign: 'center' }}>Visits (30d)</th>
+              <th style={{ ...TH, textAlign: 'right' }}>Target</th>
+              <th style={{ ...TH, textAlign: 'center' }}>Status</th>
+              <th style={TH} />
+            </tr>
+          </thead>
+          <tbody>
+            {reps.length === 0 ? (
+              <tr><td colSpan={8} style={{ padding: '32px', textAlign: 'center', color: 'var(--fg-3)', fontSize: 13 }}>No reps yet</td></tr>
+            ) : reps.map(rep => <RepRow key={rep.id} rep={rep} />)}
+          </tbody>
+        </table>
       </div>
-    </>
+    </div>
   );
 
   /* ── Tours tab content ── */
@@ -232,7 +199,7 @@ export default async function RepsAdminPage() {
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 20 }}>
           <div>
             <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
               Reps &amp; Tours
@@ -241,8 +208,39 @@ export default async function RepsAdminPage() {
               {activeReps} active rep{activeReps !== 1 ? 's' : ''} · {routes.length} tour{routes.length !== 1 ? 's' : ''}
             </div>
           </div>
+          <AddRepButton />
         </div>
 
+        {/* Zone summary strip — always visible */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, marginBottom: 20 }}>
+          {ZONES.map(zone => {
+            const z = stats.find(s => s.zone === zone);
+            const repCount    = Number(z?.rep_count ?? 0);
+            const clientCount = Number(z?.client_count ?? 0);
+            const compliant   = Number(z?.compliant_clients ?? 0);
+            const tourCount   = toursByZone[zone]?.length ?? 0;
+            const pct = clientCount > 0 ? Math.round((compliant / clientCount) * 100) : 0;
+            return (
+              <div key={zone} style={PANEL_PAD}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: '#0A3D8F', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
+                  {zone}
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--fg)', marginBottom: 4 }}>
+                  {repCount}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--fg-3)' }}>
+                  {tourCount} tour{tourCount !== 1 ? 's' : ''} · {clientCount} clients
+                </div>
+                <div style={{ marginTop: 8, height: 4, background: 'var(--bg-sunk)', borderRadius: 2 }}>
+                  <div style={{ height: '100%', borderRadius: 2, width: `${pct}%`, background: pct >= 70 ? 'var(--pos)' : pct >= 40 ? 'var(--warn)' : 'var(--neg)' }} />
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3 }}>{pct}% compliant</div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Tabs — horizontal at top */}
         <Suspense fallback={null}>
           <RepsToursTabs
             repsCount={activeReps}
