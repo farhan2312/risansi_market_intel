@@ -50,11 +50,15 @@ export default async function RepsAdminPage() {
       const { rows } = await risansiPool.query<RepData>(`
         SELECT
           r.*,
-          COUNT(DISTINCT c.id)::text AS client_count,
+          (SELECT COUNT(DISTINCT ca.client_id)
+             FROM client_assignments ca
+             JOIN clients c2 ON c2.id = ca.client_id
+            WHERE ca.user_id = r.id
+              AND c2.deleted_at IS NULL
+              AND c2.status = 'ACTIVE')::text AS client_count,
           COUNT(DISTINCT v.id) FILTER (WHERE v.visit_date >= CURRENT_DATE - INTERVAL '30 days')::text AS visits_last_30d,
           MAX(v.visit_date)::text AS last_visit_date
-        FROM reps r
-        LEFT JOIN clients c ON c.primary_rep_id = r.id AND c.deleted_at IS NULL AND c.status = 'ACTIVE'
+        FROM users r
         LEFT JOIN visits v ON v.rep_id = r.id
         GROUP BY r.id
         ORDER BY r.zone ASC, r.name ASC
@@ -76,8 +80,8 @@ export default async function RepsAdminPage() {
           r.name AS rep_name,
           COUNT(DISTINCT c.id) AS client_count
         FROM tour_routes tr
-        LEFT JOIN reps r ON tr.primary_rep_id = r.id
-        LEFT JOIN clients c ON c.tour_name = tr.name
+        LEFT JOIN users r ON tr.primary_rep_id = r.id
+        LEFT JOIN clients c ON c.tour_id = tr.id
           AND c.deleted_at IS NULL
         GROUP BY tr.id, tr.name, tr.zone,
           tr.primary_rep_id, tr.visit_freq_key_days,
@@ -95,8 +99,9 @@ export default async function RepsAdminPage() {
           COUNT(DISTINCT r.id)::text AS rep_count,
           COUNT(DISTINCT c.id)::text AS client_count,
           COUNT(DISTINCT c.id) FILTER (WHERE c.last_visit_date >= CURRENT_DATE - INTERVAL '90 days')::text AS compliant_clients
-        FROM reps r
-        LEFT JOIN clients c ON c.primary_rep_id = r.id AND c.deleted_at IS NULL AND c.status = 'ACTIVE'
+        FROM users r
+        LEFT JOIN client_assignments ca ON ca.user_id = r.id
+        LEFT JOIN clients c ON c.id = ca.client_id AND c.deleted_at IS NULL AND c.status = 'ACTIVE'
         WHERE r.is_active = TRUE
         GROUP BY r.zone
         ORDER BY r.zone ASC
@@ -113,7 +118,7 @@ export default async function RepsAdminPage() {
           COUNT(*) FILTER (WHERE zone = 'West')::text    AS west_reps,
           COUNT(*) FILTER (WHERE zone = 'South')::text   AS south_reps,
           COUNT(*) FILTER (WHERE zone = 'Export')::text  AS export_reps
-        FROM reps
+        FROM users
         WHERE is_active = TRUE
       `);
       return rows[0];
@@ -134,8 +139,8 @@ export default async function RepsAdminPage() {
       const { rows } = await risansiPool.query<ClientStats>(`
         SELECT
           COUNT(*)::text AS total_clients,
-          COUNT(*) FILTER (WHERE primary_rep_id IS NOT NULL)::text AS clients_with_rep,
-          COUNT(*) FILTER (WHERE primary_rep_id IS NULL)::text AS clients_without_rep
+          COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM client_assignments ca WHERE ca.client_id = clients.id))::text AS clients_with_rep,
+          COUNT(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM client_assignments ca WHERE ca.client_id = clients.id))::text AS clients_without_rep
         FROM clients
         WHERE deleted_at IS NULL
           AND status = 'ACTIVE'

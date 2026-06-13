@@ -2,6 +2,7 @@ import { notFound, redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
+import { getCurrentUser, ownerVisibilitySql } from '@/lib/risansi-auth';
 import { Topbar } from '@/components/risansi';
 import Link from 'next/link';
 import { VisitReportForm } from '@/components/risansi/VisitReportForm';
@@ -55,7 +56,7 @@ export default async function VisitReportPage({
        r.email AS rep_email
      FROM visits v
      JOIN clients c ON v.client_id = c.id
-     LEFT JOIN reps r ON v.rep_id = r.id
+     LEFT JOIN users r ON v.rep_id = r.id
      WHERE v.id = $1`,
     [id],
   );
@@ -63,13 +64,25 @@ export default async function VisitReportPage({
   const visit = visitRes.rows[0];
   if (!visit) notFound();
 
+  // Visibility guard — viewer must be able to SEE this visit (own / shared tour),
+  // or be admin/sysadmin. ownerVisibilitySql returns null for admin (no restriction).
+  const viewer  = await getCurrentUser();
+  const ownPred = ownerVisibilitySql(viewer, 'v.rep_id');
+  if (ownPred) {
+    const { rows: visRows } = await risansiPool.query<{ ok: boolean }>(
+      `SELECT (${ownPred}) AS ok FROM visits v WHERE v.id = $1`,
+      [id],
+    );
+    if (!visRows[0]?.ok) notFound();
+  }
+
   // Ownership: only the assigned rep may fill / edit / submit this visit.
   // Everyone else (other reps, managers, admins) gets read-only VIEW access.
   const isSubmitted = !!visit.submitted_at;
   let myRepId: number | null = session.user.repId ?? null;
   if (myRepId == null && session.user.email) {
     const repRes = await risansiPool.query<{ id: number }>(
-      'SELECT id FROM reps WHERE email = $1 LIMIT 1',
+      'SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1',
       [session.user.email],
     );
     myRepId = repRes.rows[0]?.id ?? null;
@@ -129,7 +142,7 @@ export default async function VisitReportPage({
       const { rows } = await risansiPool.query(
         `SELECT t.*, r.name AS assigned_rep_name
          FROM tasks t
-         LEFT JOIN reps r ON t.assigned_to_rep = r.id
+         LEFT JOIN users r ON t.assigned_to_rep = r.id
          WHERE t.visit_id = $1
          ORDER BY
            CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END,
@@ -141,7 +154,7 @@ export default async function VisitReportPage({
 
     q(async () => {
       const { rows } = await risansiPool.query(
-        `SELECT id, name, zone FROM reps WHERE is_active = TRUE ORDER BY name ASC`,
+        `SELECT id, name, zone FROM users WHERE is_active = TRUE ORDER BY name ASC`,
       );
       return rows;
     }, []),

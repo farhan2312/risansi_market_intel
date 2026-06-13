@@ -4,6 +4,7 @@ import { getServerSession } from 'next-auth/next';
 import { Topbar, Tag } from '@/components/risansi';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
+import { getCurrentUser, clientVisibilitySql, ownerVisibilitySql } from '@/lib/risansi-auth';
 import { IndiaMapWrapper } from '@/components/risansi/IndiaMapWrapper';
 import { ClientCoverageList } from '@/components/risansi/ClientCoverageList';
 import { WeekNav } from '@/components/risansi/WeekNav';
@@ -171,11 +172,19 @@ export default async function FieldActivityPage({
   let repId: string | null = session?.user?.repId != null ? String(session.user.repId) : null;
   if (isRep && !repId && session?.user?.email) {
     const { rows } = await risansiPool.query<{ id: string }>(
-      `SELECT id FROM reps WHERE email = $1 LIMIT 1`,
+      `SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1`,
       [session.user.email],
     );
     repId = rows[0]?.id ?? null;
   }
+
+  // Per-user visibility predicates (inline integer ids, no params).
+  //   clients aliased c · visits aliased v · these replace the old repId-only scoping.
+  const currentUser   = await getCurrentUser();
+  const cVis          = clientVisibilitySql(currentUser, 'c');
+  const cVisAnd       = cVis ? ` AND (${cVis})` : '';
+  const vVis          = ownerVisibilitySql(currentUser, 'v.rep_id');
+  const vVisAnd       = vVis ? ` AND (${vVis})` : '';
 
   // ── Queries ──────────────────────────────────────────────────
 
@@ -183,8 +192,8 @@ export default async function FieldActivityPage({
 
     // 1. Visit feed — filtered by sub-tab (upcoming / today / past)
     q<VisitFeedRow[]>(async () => {
-      const repCond = (isRep && repId) ? `AND r.id = $1` : '';
-      const params  = (isRep && repId) ? [repId] : [];
+      const repCond = vVisAnd;
+      const params: (string | null)[] = [];
       const filter =
         feedTab === 'upcoming' ? `v.status = 'planned' AND v.visit_date >= CURRENT_DATE`
         : feedTab === 'today'  ? `v.visit_date = CURRENT_DATE`
@@ -214,7 +223,7 @@ export default async function FieldActivityPage({
            COALESCE(r.name, '—')       AS rep_name
          FROM visits v
          JOIN clients c ON c.id = v.client_id
-         LEFT JOIN reps r ON r.id = v.rep_id
+         LEFT JOIN users r ON r.id = v.rep_id
          WHERE ${filter} ${repCond}
          ORDER BY ${orderBy}
          LIMIT 50`,
@@ -225,8 +234,6 @@ export default async function FieldActivityPage({
 
     // 2. Overdue accounts
     q<OverdueRow[]>(async () => {
-      const repCond = (isRep && repId) ? `AND c.primary_rep_id = $1` : '';
-      const params  = (isRep && repId) ? [repId] : [];
       const { rows } = await risansiPool.query<OverdueRow>(
         `SELECT
            c.id::text, c.code, c.legal_name, c.industry, c.tier, c.status,
@@ -235,10 +242,13 @@ export default async function FieldActivityPage({
              WHEN c.last_visit_date IS NULL THEN NULL
              ELSE (CURRENT_DATE - c.last_visit_date)
            END AS days_overdue,
-           COALESCE(r.name, c.primary_rep_name, '—') AS rep_name,
-           c.primary_rep_id::text AS primary_rep_id
+           COALESCE(
+             (SELECT string_agg(u.name, ', ' ORDER BY u.name)
+                FROM client_assignments ca JOIN users u ON u.id = ca.user_id
+               WHERE ca.client_id = c.id),
+             '—') AS rep_name,
+           NULL::text AS primary_rep_id
          FROM clients c
-         LEFT JOIN reps r ON c.primary_rep_id = r.id
          WHERE c.status = 'ACTIVE'
            AND c.deleted_at IS NULL
            -- exclude future dates (planned visits that leaked into last_visit_date)
@@ -246,11 +256,9 @@ export default async function FieldActivityPage({
            AND (
              c.last_visit_date IS NULL OR
              c.last_visit_date < CURRENT_DATE - INTERVAL '90 days'
-           )
-           ${repCond}
+           )${cVisAnd}
          ORDER BY ${sortCol} ${sortDir} NULLS FIRST
          LIMIT 200`,
-        params,
       );
       return rows;
     }, []),
@@ -258,8 +266,8 @@ export default async function FieldActivityPage({
     // 3. Calendar visits (week for admin, month for rep)
     q<CalendarVisit[]>(async () => {
       const [from, to] = isRep ? [monthStart, monthEnd] : [weekStart, weekEndExclusive];
-      const repCond    = (isRep && repId) ? `AND r.id = $3` : '';
-      const params: (string | null)[] = isRep && repId ? [from, to, repId] : [from, to];
+      const repCond    = vVisAnd;
+      const params: (string | null)[] = [from, to];
       const { rows } = await risansiPool.query<CalendarVisit>(
         `SELECT
            v.id::text,
@@ -275,7 +283,7 @@ export default async function FieldActivityPage({
            COALESCE(r.name, '—')       AS rep_name
          FROM visits v
          JOIN clients c ON c.id = v.client_id
-         LEFT JOIN reps r ON r.id = v.rep_id
+         LEFT JOIN users r ON r.id = v.rep_id
          WHERE v.visit_date >= $1
            AND v.visit_date < $2
            ${repCond}
@@ -289,15 +297,13 @@ export default async function FieldActivityPage({
     q<DrawerRep[]>(async () => {
       if (isRep) return [];
       const { rows } = await risansiPool.query<{ id: string; name: string; route: string | null }>(
-        `SELECT id::text AS id, name, route FROM reps WHERE is_active = TRUE ORDER BY name ASC`,
+        `SELECT id::text AS id, name, route FROM users WHERE is_active = TRUE ORDER BY name ASC`,
       );
       return rows;
     }, []),
 
     // 5. Map data
     q<MapClient[]>(async () => {
-      const repCond = (isRep && repId) ? `AND c.primary_rep_id = $1` : '';
-      const params  = (isRep && repId) ? [repId] : [];
       const { rows } = await risansiPool.query<MapClient>(
         `SELECT
            c.id::text, c.code, c.legal_name,
@@ -305,35 +311,32 @@ export default async function FieldActivityPage({
            c.last_visit_date::text,
            EXTRACT(DAY FROM NOW() - c.last_visit_date)::int AS days_since,
            c.tier,
-           COALESCE(r.name, c.primary_rep_name) AS rep_name
+           (SELECT string_agg(u.name, ', ' ORDER BY u.name)
+              FROM client_assignments ca JOIN users u ON u.id = ca.user_id
+             WHERE ca.client_id = c.id) AS rep_name
          FROM clients c
-         LEFT JOIN reps r ON c.primary_rep_id = r.id
-         WHERE c.status = 'ACTIVE' AND c.deleted_at IS NULL ${repCond}
+         WHERE c.status = 'ACTIVE' AND c.deleted_at IS NULL${cVisAnd}
          ORDER BY c.last_visit_date ASC NULLS FIRST`,
-        params,
       );
       return rows;
     }, []),
 
     // 6. Stats
     q<StatsRow>(async () => {
-      const repCond = (isRep && repId) ? `AND primary_rep_id = $1` : '';
-      const params  = (isRep && repId) ? [repId] : [];
       const { rows } = await risansiPool.query<{
         total_active: string; visited_fy: string; overdue: string; never_visited: string;
       }>(
         `SELECT
-           COUNT(*) FILTER (WHERE status = 'ACTIVE')::text                                        AS total_active,
-           COUNT(*) FILTER (WHERE status = 'ACTIVE'
-             AND last_visit_date >= CURRENT_DATE - INTERVAL '90 days')::text                      AS visited_fy,
-           COUNT(*) FILTER (WHERE status = 'ACTIVE'
-             AND (last_visit_date IS NULL
-               OR last_visit_date < CURRENT_DATE - INTERVAL '90 days'))::text                     AS overdue,
-           COUNT(*) FILTER (WHERE status = 'ACTIVE'
-             AND last_visit_date IS NULL)::text                                                    AS never_visited
-         FROM clients
-         WHERE deleted_at IS NULL ${repCond}`,
-        params,
+           COUNT(*) FILTER (WHERE c.status = 'ACTIVE')::text                                        AS total_active,
+           COUNT(*) FILTER (WHERE c.status = 'ACTIVE'
+             AND c.last_visit_date >= CURRENT_DATE - INTERVAL '90 days')::text                      AS visited_fy,
+           COUNT(*) FILTER (WHERE c.status = 'ACTIVE'
+             AND (c.last_visit_date IS NULL
+               OR c.last_visit_date < CURRENT_DATE - INTERVAL '90 days'))::text                     AS overdue,
+           COUNT(*) FILTER (WHERE c.status = 'ACTIVE'
+             AND c.last_visit_date IS NULL)::text                                                    AS never_visited
+         FROM clients c
+         WHERE c.deleted_at IS NULL${cVisAnd}`,
       );
       const r = rows[0];
       return {
@@ -348,8 +351,7 @@ export default async function FieldActivityPage({
     //    Rep scope is parameterized; search/purpose/rep filtering happens client-side.
     q<VisitReportRow[]>(async () => {
       if (tab !== 'reports') return [];
-      const repScope = (isRep && repId) ? 'AND v.rep_id = $1' : '';
-      const params   = (isRep && repId) ? [repId] : [];
+      const repScope = vVisAnd;
       const { rows } = await risansiPool.query(
         `SELECT
            v.id::text AS id, v.visit_date::text AS visit_date, v.status,
@@ -381,7 +383,7 @@ export default async function FieldActivityPage({
            MAX(CASE WHEN vsr.competitor_prices_captured THEN 1 ELSE 0 END) AS competitor_prices_captured
          FROM visits v
          JOIN clients c ON v.client_id = c.id
-         LEFT JOIN reps r ON v.rep_id = r.id
+         LEFT JOIN users r ON v.rep_id = r.id
          LEFT JOIN equipment e ON e.visit_id = v.id
          LEFT JOIN opportunities o ON o.visit_id = v.id
          LEFT JOIN tasks t ON t.visit_id = v.id
@@ -391,7 +393,6 @@ export default async function FieldActivityPage({
          GROUP BY v.id, c.id, r.id, r.name
          ORDER BY v.visit_date DESC, v.submitted_at DESC
          LIMIT 100`,
-        params,
       );
       return rows as VisitReportRow[];
     }, []),
@@ -415,7 +416,7 @@ export default async function FieldActivityPage({
      FROM tasks t
      LEFT JOIN clients c ON t.client_id = c.id
      LEFT JOIN visits v ON t.visit_id = v.id
-     LEFT JOIN reps r ON t.assigned_to_rep = r.id
+     LEFT JOIN users r ON t.assigned_to_rep = r.id
      ${activityScope}
      ORDER BY
        CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END,

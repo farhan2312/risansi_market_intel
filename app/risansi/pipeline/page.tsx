@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, MultiSelectFilter, ActiveFilterBar } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
+import { getCurrentUser, ownerVisibilitySql } from '@/lib/risansi-auth';
 import { getCurrentFY, fmtCr } from '@/lib/risansi-utils';
 import { NewOpportunityButton } from '@/components/risansi/NewOpportunityButton';
 import { OpportunityKanban } from '@/components/risansi/OpportunityKanban';
@@ -80,7 +81,7 @@ export default async function PipelinePage({
   let currentRepId: number | null = session?.user?.repId ?? null;
   if (role === 'rep' && currentRepId == null && session?.user?.email) {
     const repRes = await risansiPool.query<{ id: number }>(
-      'SELECT id FROM reps WHERE email = $1 LIMIT 1',
+      'SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1',
       [session.user.email],
     );
     currentRepId = repRes.rows[0]?.id ?? null;
@@ -131,7 +132,17 @@ export default async function PipelinePage({
     vals.push(indFilts); idx++;
   }
 
-  const filterClause = conds.length ? ` AND ${conds.join(' AND ')}` : '';
+  // Per-user owner visibility — null for admin/sysadmin (no restriction).
+  // Appended as raw text (integers inlined, no params) so $-indices are unchanged.
+  const visUser     = await getCurrentUser();
+  const ownerVis    = ownerVisibilitySql(visUser, 'o.rep_id');
+  const ownerVisAnd = ownerVis ? ` AND (${ownerVis})` : '';
+  const ownerVisPo  = ownerVisibilitySql(visUser, 'po.rep_id');
+  const ownerVisPoAnd = ownerVisPo ? ` AND (${ownerVisPo})` : '';
+  const ownerVisBare  = ownerVisibilitySql(visUser, 'rep_id');
+  const ownerVisBareAnd = ownerVisBare ? ` AND (${ownerVisBare})` : '';
+
+  const filterClause = (conds.length ? ` AND ${conds.join(' AND ')}` : '') + ownerVisAnd;
   const openWhere   = `WHERE o.stage NOT IN ('Won', 'Lost')${filterClause}`;
   const closedWhere = `WHERE o.stage IN ('Won', 'Lost') AND o.updated_at >= NOW() - INTERVAL '12 months'${filterClause}`;
 
@@ -165,7 +176,7 @@ export default async function PipelinePage({
                ${CAN_EDIT_CASE}
         FROM opportunities o
         JOIN clients c ON c.id = o.client_id
-        LEFT JOIN reps r ON r.id = o.rep_id
+        LEFT JOIN users r ON r.id = o.rep_id
         ${openWhere}
         ORDER BY ${sortCol} ${orderDir} NULLS LAST
         LIMIT 200
@@ -186,7 +197,7 @@ export default async function PipelinePage({
                ${CAN_EDIT_CASE}
         FROM opportunities o
         JOIN clients c ON c.id = o.client_id
-        LEFT JOIN reps r ON r.id = o.rep_id
+        LEFT JOIN users r ON r.id = o.rep_id
         ${closedWhere}
         ORDER BY o.updated_at DESC NULLS LAST
         LIMIT 200
@@ -212,7 +223,7 @@ export default async function PipelinePage({
     q<number>(async () => {
       const { rows } = await risansiPool.query<{ total_target_cr: string }>(
         `SELECT COALESCE(SUM(target_cr), 32)::text AS total_target_cr
-         FROM reps WHERE is_active = TRUE`,
+         FROM users WHERE is_active = TRUE`,
       );
       return Number(rows[0]?.total_target_cr ?? 32);
     }, 32),
@@ -226,7 +237,7 @@ export default async function PipelinePage({
         FROM opportunities po
         JOIN clients c ON c.id = po.client_id
         WHERE po.stage IN ('Won', 'Lost')
-          AND po.updated_at >= NOW() - INTERVAL '12 months'
+          AND po.updated_at >= NOW() - INTERVAL '12 months'${ownerVisPoAnd}
         GROUP BY c.industry
         ORDER BY (COUNT(*) FILTER (WHERE po.stage = 'Won') +
                   COUNT(*) FILTER (WHERE po.stage = 'Lost')) DESC
@@ -243,7 +254,7 @@ export default async function PipelinePage({
                COALESCE(SUM(value_cr), 0)::text AS value
         FROM opportunities
         WHERE stage = 'Lost'
-          AND updated_at >= NOW() - INTERVAL '12 months'
+          AND updated_at >= NOW() - INTERVAL '12 months'${ownerVisBareAnd}
         GROUP BY COALESCE(lost_to_competitor, 'Others')
         ORDER BY SUM(value_cr) DESC NULLS LAST
         LIMIT 5
@@ -268,7 +279,7 @@ export default async function PipelinePage({
 
     q<string[]>(async () => {
       const { rows } = await risansiPool.query<{ name: string }>(
-        `SELECT DISTINCT r.name FROM reps r WHERE r.deleted_at IS NULL ORDER BY r.name`,
+        `SELECT DISTINCT r.name FROM users r WHERE r.is_active = TRUE ORDER BY r.name`,
       );
       return rows.map(r => r.name);
     }, []),

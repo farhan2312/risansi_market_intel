@@ -14,31 +14,34 @@ async function requireAdmin() {
   return session!;
 }
 
+function deriveInitials(name: string): string {
+  return name.split(/\s+/).map(w => w[0]?.toUpperCase() ?? '').join('').slice(0, 3) || 'R';
+}
+
 export async function createRep(formData: FormData) {
   await requireAdmin();
 
   const name     = (formData.get('name')     as string | null)?.trim() ?? '';
-  const repCode  = (formData.get('rep_code') as string | null)?.trim() ?? '';
-  const initials = (formData.get('initials') as string | null)?.trim() ?? '';
-  const email    = (formData.get('email')    as string | null)?.trim() || null;
+  const repCode  = (formData.get('rep_code') as string | null)?.trim() || null;
+  const email    = (formData.get('email')    as string | null)?.trim().toLowerCase() || null;
   const zone     = (formData.get('zone')     as string | null)?.trim() || null;
   const route    = (formData.get('route')    as string | null)?.trim() || null;
   const role     = (formData.get('role')     as string | null)?.trim() || 'rep';
   const targetCr = formData.get('target_cr') ? parseFloat(formData.get('target_cr') as string) : null;
+  const initials = (formData.get('initials') as string | null)?.trim() || deriveInitials(name);
 
-  if (!name || !repCode || !initials) {
-    throw new Error('Name, rep code and initials are required');
-  }
+  if (!name)  throw new Error('Name is required');
+  if (!email) throw new Error('Email is required');
 
-  const existing = await risansiPool.query('SELECT id FROM reps WHERE rep_code = $1', [repCode]);
+  const existing = await risansiPool.query('SELECT id FROM users WHERE lower(email) = lower($1)', [email]);
   if (existing.rows.length > 0) {
-    throw new Error(`Rep code "${repCode}" already exists`);
+    throw new Error(`A user with email "${email}" already exists`);
   }
 
   await risansiPool.query(
-    `INSERT INTO reps
-       (rep_code, name, initials, email, zone, route, target_cr, role, is_active, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,TRUE,NOW(),NOW())`,
+    `INSERT INTO users
+       (rep_code, name, initials, email, zone, route, target_cr, role, status, is_active, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Approved',TRUE,NOW(),NOW())`,
     [repCode, name, initials, email, zone, route, targetCr, role],
   );
 
@@ -51,18 +54,19 @@ export async function updateRep(repId: number, formData: FormData) {
   const name     = (formData.get('name')  as string | null)?.trim() ?? '';
   const zone     = (formData.get('zone')  as string | null)?.trim() || null;
   const route    = (formData.get('route') as string | null)?.trim() || null;
-  const email    = (formData.get('email') as string | null)?.trim() || null;
+  const email    = (formData.get('email') as string | null)?.trim().toLowerCase() || null;
+  const role     = (formData.get('role')  as string | null)?.trim() || 'rep';
   const targetCr = formData.get('target_cr') ? parseFloat(formData.get('target_cr') as string) : null;
   const isActive = formData.get('is_active') === 'true';
 
   if (!name) throw new Error('Name is required');
 
   await risansiPool.query(
-    `UPDATE reps SET
+    `UPDATE users SET
        name = $1, zone = $2, route = $3, email = $4,
-       target_cr = $5, is_active = $6, updated_at = NOW()
-     WHERE id = $7`,
-    [name, zone, route, email, targetCr, isActive, repId],
+       target_cr = $5, is_active = $6, role = $7, updated_at = NOW()
+     WHERE id = $8`,
+    [name, zone, route, email, targetCr, isActive, role, repId],
   );
 
   revalidatePath('/risansi/admin/reps');

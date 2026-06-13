@@ -10,6 +10,7 @@ declare module 'next-auth' {
       risansiAccess: string;
       role: string;
       repId: number | null;
+      mustChange: boolean;
     };
   }
 }
@@ -19,5 +20,6 @@ declare module 'next-auth/jwt' {
     risansiAccess: string;
     role: string;
     repId: number | null;
+    mustChange: boolean;
   }
 }

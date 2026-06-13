@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, Donut, Tag, KpiCard, MultiSelectFilter, ActiveFilterBar, SortableTH } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
+import { getCurrentUser, clientVisibilitySql, ownerVisibilitySql } from '@/lib/risansi-auth';
 import { fmtCr } from '@/lib/risansi-utils';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
@@ -76,7 +77,7 @@ const SORT_MAP: Record<string, string> = {
   competitor_pcp: '(cib.total_pcp - COALESCE(cib.ril_pcp, 0))',
   total_pcp:      'cib.total_pcp',
   share:          '(COALESCE(cib.ril_pcp,0)::float / NULLIF(cib.total_pcp,0))',
-  rep:            'r.name',
+  rep:            'rep_name',
 };
 
 export default async function CompetePage({
@@ -93,7 +94,7 @@ export default async function CompetePage({
   let repId: number | null = session?.user?.repId ?? null;
   if (isRep && repId == null && session?.user?.email) {
     const r = await risansiPool.query<{ id: number }>(
-      'SELECT id FROM reps WHERE email = $1 LIMIT 1', [session.user.email],
+      'SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1', [session.user.email],
     );
     repId = r.rows[0]?.id ?? null;
   }
@@ -125,9 +126,17 @@ export default async function CompetePage({
   }
 
   const dispWhere = `WHERE ${dispConds.join(' AND ')}`;
+  // (cVisAnd is appended to dispWhere at query time below.)
 
-  // Rep scope fragment for visit-sourced queries (parameterised as $1)
-  const repScope = (isRep && repId) ? true : false;
+  // Per-user visibility predicates (inline integer ids, no params).
+  //   visits aliased v · opportunities aliased o · clients aliased c.
+  const currentUser  = await getCurrentUser();
+  const vOwnerVis    = ownerVisibilitySql(currentUser, 'v.rep_id');
+  const vOwnerAnd    = vOwnerVis ? ` AND (${vOwnerVis})` : '';
+  const oOwnerVis    = ownerVisibilitySql(currentUser, 'o.rep_id');
+  const oOwnerAnd    = oOwnerVis ? ` AND (${oOwnerVis})` : '';
+  const cVis         = clientVisibilitySql(currentUser, 'c');
+  const cVisAnd      = cVis ? ` AND (${cVis})` : '';
 
   const [
     totals, displacementAccounts, industryShare, zoneOptions, repOptions,
@@ -142,15 +151,16 @@ export default async function CompetePage({
         tushaco_pcp: string; total_pcp: string;
       }>(
         `SELECT
-           COALESCE(SUM(ril_pcp),0)::text     AS ril_pcp,
-           COALESCE(SUM(roto_pcp),0)::text    AS roto_pcp,
-           COALESCE(SUM(rotomac_pcp),0)::text AS rotomac_pcp,
-           COALESCE(SUM(netzsch_pcp),0)::text AS netzsch_pcp,
-           COALESCE(SUM(gita_pcp),0)::text    AS gita_pcp,
-           COALESCE(SUM(psp_pcp),0)::text     AS psp_pcp,
-           COALESCE(SUM(tushaco_pcp),0)::text AS tushaco_pcp,
-           COALESCE(SUM(total_pcp),0)::text   AS total_pcp
-         FROM competitor_installed_base`,
+           COALESCE(SUM(cib.ril_pcp),0)::text     AS ril_pcp,
+           COALESCE(SUM(cib.roto_pcp),0)::text    AS roto_pcp,
+           COALESCE(SUM(cib.rotomac_pcp),0)::text AS rotomac_pcp,
+           COALESCE(SUM(cib.netzsch_pcp),0)::text AS netzsch_pcp,
+           COALESCE(SUM(cib.gita_pcp),0)::text    AS gita_pcp,
+           COALESCE(SUM(cib.psp_pcp),0)::text     AS psp_pcp,
+           COALESCE(SUM(cib.tushaco_pcp),0)::text AS tushaco_pcp,
+           COALESCE(SUM(cib.total_pcp),0)::text   AS total_pcp
+         FROM competitor_installed_base cib
+         ${cVis ? `JOIN clients c ON c.code = cib.client_code WHERE (${cVis})` : ''}`,
       );
       const r = rows[0];
       return {
@@ -176,11 +186,12 @@ export default async function CompetePage({
                 cib.ril_pcp::text,
                 cib.total_pcp::text,
                 (cib.total_pcp - COALESCE(cib.ril_pcp, 0))::text AS competitor_pcp,
-                r.name AS rep_name
+                (SELECT string_agg(u.name, ', ' ORDER BY u.name)
+                   FROM client_assignments ca JOIN users u ON u.id = ca.user_id
+                  WHERE ca.client_id = c.id) AS rep_name
          FROM competitor_installed_base cib
          JOIN clients c ON c.code = cib.client_code
-         LEFT JOIN reps r ON r.id = c.primary_rep_id
-         ${dispWhere}
+         ${dispWhere}${cVisAnd}
          ORDER BY ${sortCol} ${orderDir} NULLS LAST
          LIMIT 50`,
         dispVals as string[],
@@ -203,7 +214,7 @@ export default async function CompetePage({
                 COALESCE(SUM(cib.total_pcp),0)::text AS total
          FROM competitor_installed_base cib
          JOIN clients c ON c.code = cib.client_code
-         WHERE c.industry IS NOT NULL
+         WHERE c.industry IS NOT NULL${cVisAnd}
          GROUP BY c.industry
          ORDER BY SUM(cib.total_pcp) DESC
          LIMIT 8`,
@@ -229,7 +240,7 @@ export default async function CompetePage({
     // 5. Rep options for filter
     q<string[]>(async () => {
       const { rows } = await risansiPool.query<{ name: string }>(
-        `SELECT DISTINCT name FROM reps WHERE deleted_at IS NULL ORDER BY name`,
+        `SELECT DISTINCT name FROM users WHERE is_active = TRUE ORDER BY name`,
       );
       return rows.map(r => r.name);
     }, []),
@@ -249,12 +260,10 @@ export default async function CompetePage({
          FROM equipment e
          JOIN visits  v ON v.id = e.visit_id
          JOIN clients c ON c.id = e.client_id
-         LEFT JOIN reps r ON r.id = v.rep_id
-         WHERE e.is_ril = FALSE
-           ${repScope ? 'AND v.rep_id = $1' : ''}
+         LEFT JOIN users r ON r.id = v.rep_id
+         WHERE e.is_ril = FALSE${vOwnerAnd}
          ORDER BY v.visit_date DESC NULLS LAST
          LIMIT 100`,
-        repScope ? [repId] : [],
       );
       return rows;
     }, []),
@@ -268,12 +277,10 @@ export default async function CompetePage({
                 COALESCE(r.name, '—') AS rep_name
          FROM visits v
          JOIN clients c ON c.id = v.client_id
-         LEFT JOIN reps r ON r.id = v.rep_id
-         WHERE v.competitor_activity_observed = TRUE
-           ${repScope ? 'AND v.rep_id = $1' : ''}
+         LEFT JOIN users r ON r.id = v.rep_id
+         WHERE v.competitor_activity_observed = TRUE${vOwnerAnd}
          ORDER BY v.visit_date DESC NULLS LAST
          LIMIT 20`,
-        repScope ? [repId] : [],
       );
       return rows;
     }, []),
@@ -285,12 +292,10 @@ export default async function CompetePage({
                 COUNT(*)::text AS losses,
                 COALESCE(SUM(o.value_cr), 0)::text AS value_cr
          FROM opportunities o
-         WHERE o.lost_to_competitor IS NOT NULL AND TRIM(o.lost_to_competitor) <> ''
-           ${repScope ? 'AND o.rep_id = $1' : ''}
+         WHERE o.lost_to_competitor IS NOT NULL AND TRIM(o.lost_to_competitor) <> ''${oOwnerAnd}
          GROUP BY o.lost_to_competitor
          ORDER BY COUNT(*) DESC, SUM(o.value_cr) DESC NULLS LAST
          LIMIT 10`,
-        repScope ? [repId] : [],
       );
       return rows.map(r => ({ competitor: r.competitor, losses: Number(r.losses), value_cr: Number(r.value_cr) }));
     }, []),
@@ -308,12 +313,10 @@ export default async function CompetePage({
          FROM visit_sugar_report vsr
          JOIN visits  v ON v.id = vsr.visit_id
          JOIN clients c ON c.id = v.client_id
-         LEFT JOIN reps r ON r.id = v.rep_id
-         WHERE vsr.competitor_prices_captured = TRUE
-           ${repScope ? 'AND v.rep_id = $1' : ''}
+         LEFT JOIN users r ON r.id = v.rep_id
+         WHERE vsr.competitor_prices_captured = TRUE${vOwnerAnd}
          ORDER BY v.visit_date DESC NULLS LAST
          LIMIT 20`,
-        repScope ? [repId] : [],
       );
       return rows.map(r => ({ ...r, pics: Number(r.pics ?? 0) }));
     }, []),

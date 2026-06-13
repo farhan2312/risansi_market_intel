@@ -28,13 +28,96 @@ export async function requireSession() {
   return session;
 }
 
-/** Tour ids assigned to a rep/manager. */
+/** Tour ids assigned to a rep/manager. (tour_assignments.rep_id holds a users.id.) */
 export async function getRepTours(repId: number): Promise<number[]> {
   const res = await risansiPool.query<{ tour_id: number }>(
     `SELECT tour_id FROM tour_assignments WHERE rep_id = $1`,
     [repId],
   );
   return res.rows.map(r => r.tour_id);
+}
+
+// ── Current user + visibility (post-unification on `users`) ───────
+
+export interface CurrentUser {
+  id:    number | null;   // users.id (same integer space as the old reps.id)
+  email: string | null;
+  role:  RisansiRole;
+}
+
+/** Resolve the signed-in user from the session. role defaults to 'rep'. */
+export async function getCurrentUser(): Promise<CurrentUser> {
+  const session = await getServerSession(authOptions);
+  return {
+    id:    (session?.user?.repId as number | null) ?? null,
+    email: session?.user?.email ?? null,
+    role:  ((session?.user?.role as RisansiRole) ?? 'rep'),
+  };
+}
+
+// All ids below come from the trusted session (integers), so inlining them
+// into SQL is injection-safe and keeps callers free of param-index juggling.
+function intOrNull(v: unknown): number | null {
+  const n = Number(v);
+  return Number.isInteger(n) ? n : null;
+}
+
+/**
+ * SQL predicate restricting a `clients` query (aliased `alias`) to what the
+ * user may SEE:
+ *   rep      → clients they're assigned to (client_assignments)
+ *   manager  → assigned clients OR clients whose tour is one of their tours
+ *   admin/+  → everything (returns null = no restriction)
+ * A user with no linked id sees nothing ('FALSE').
+ */
+export function clientVisibilitySql(user: CurrentUser, alias = 'c'): string | null {
+  if (hasRole(user.role, 'admin')) return null;
+  const uid = intOrNull(user.id);
+  if (uid == null) return 'FALSE';
+  const assigned = `${alias}.id IN (SELECT client_id FROM client_assignments WHERE user_id = ${uid})`;
+  if (user.role === 'manager') {
+    return `(${assigned} OR ${alias}.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = ${uid}))`;
+  }
+  return assigned;
+}
+
+/**
+ * SQL predicate restricting a visits/opportunities query to what the user may
+ * SEE, keyed on the owner column (e.g. 'v.rep_id', 'o.rep_id'):
+ *   rep      → only their own
+ *   manager  → own + anyone sharing one of their tours
+ *   admin/+  → everything (null = no restriction)
+ */
+export function ownerVisibilitySql(user: CurrentUser, ownerCol: string): string | null {
+  if (hasRole(user.role, 'admin')) return null;
+  const uid = intOrNull(user.id);
+  if (uid == null) return 'FALSE';
+  if (user.role === 'manager') {
+    return `${ownerCol} IN (
+      SELECT DISTINCT ta2.rep_id FROM tour_assignments ta1
+      JOIN tour_assignments ta2 ON ta1.tour_id = ta2.tour_id
+      WHERE ta1.rep_id = ${uid}
+      UNION SELECT ${uid}
+    )`;
+  }
+  return `${ownerCol} = ${uid}`;
+}
+
+/** Can this user SEE a single client? (mirrors clientVisibilitySql.) */
+export async function canViewClient(user: CurrentUser, clientId: number): Promise<boolean> {
+  if (hasRole(user.role, 'admin')) return true;
+  const uid = intOrNull(user.id);
+  if (uid == null) return false;
+  const { rows } = await risansiPool.query<{ ok: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM client_assignments WHERE client_id = $1 AND user_id = $2
+     ) OR ($3 = 'manager' AND EXISTS (
+       SELECT 1 FROM clients c
+       WHERE c.id = $1 AND c.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = $2)
+     )) AS ok`,
+    [clientId, uid, user.role],
+  );
+  return rows[0]?.ok ?? false;
 }
 
 /**

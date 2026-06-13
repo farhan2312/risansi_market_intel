@@ -20,21 +20,19 @@ export async function POST(req: NextRequest) {
     const safeRole = VALID_ROLES.includes(role) ? role : 'rep';
 
     const hashed = await bcrypt.hash(password, 10);
+    const lcEmail = email.toLowerCase().trim();
 
+    // Self-service signups land as Pending users for a sysadmin to approve.
     await risansiPool.query(
-      `INSERT INTO access_requests (user_email, display_name, role, status, requested_at)
-       VALUES ($1, $2, $3, 'Pending', NOW())
-       ON CONFLICT (user_email) DO UPDATE SET
-         display_name = EXCLUDED.display_name,
-         role         = EXCLUDED.role,
-         status       = 'Pending',
-         requested_at = NOW()`,
-      [email, name.trim(), safeRole],
-    );
-
-    await risansiPool.query(
-      `UPDATE access_requests SET password_hash = $1 WHERE user_email = $2`,
-      [hashed, email],
+      `INSERT INTO users (email, name, role, status, password_hash)
+       VALUES ($1, $2, $3, 'Pending', $4)
+       ON CONFLICT (lower(email)) DO UPDATE SET
+         name          = EXCLUDED.name,
+         role          = EXCLUDED.role,
+         status        = 'Pending',
+         password_hash = EXCLUDED.password_hash,
+         updated_at    = NOW()`,
+      [lcEmail, name.trim(), safeRole, hashed],
     );
 
     return NextResponse.json({ ok: true });

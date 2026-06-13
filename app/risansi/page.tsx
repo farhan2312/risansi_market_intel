@@ -8,6 +8,7 @@ import { ExportPdfButton } from '@/components/risansi/ExportPdfButton';
 import { RefreshButton } from '@/components/risansi/RefreshButton';
 import { ActionQueueRow, type QueueTask } from '@/components/risansi/ActionQueueRow';
 import risansiPool from '@/lib/db-risansi';
+import { getCurrentUser, clientVisibilitySql, ownerVisibilitySql } from '@/lib/risansi-auth';
 import {
   getCurrentFY, fyShortLabel,
   fyYtdPct, fyDaysLeft, formatIndianDate, formatTime, fmtCr, fmtL,
@@ -28,7 +29,7 @@ const TASK_SELECT = `
     COALESCE(r.name, '—') AS assigned_rep_name
   FROM tasks t
   LEFT JOIN clients c ON t.client_id = c.id
-  LEFT JOIN reps r ON t.assigned_to_rep = r.id`;
+  LEFT JOIN users r ON t.assigned_to_rep = r.id`;
 
 const TASK_ORDER = `
   ORDER BY
@@ -43,7 +44,7 @@ const REP_TASKS_QUERY = `SELECT ${TASK_SELECT}
     t.assigned_to_rep = $1
     OR t.created_by = $2
     OR EXISTS (SELECT 1 FROM visits vs WHERE vs.id = t.visit_id AND vs.rep_id = $1)
-    OR EXISTS (SELECT 1 FROM clients cl WHERE cl.id = t.client_id AND cl.primary_rep_id = $1)
+    OR EXISTS (SELECT 1 FROM client_assignments ca WHERE ca.client_id = t.client_id AND ca.user_id = $1)
   )${TASK_ORDER}`;
 
 // Admin/manager view: every task.
@@ -122,6 +123,15 @@ export default async function ExecDashboardPage({
   const role        = session?.user?.role ?? '';
   const isRep       = role === 'rep';
 
+  // Per-user visibility predicates (inline integer ids, no params).
+  const currentUser = await getCurrentUser();
+  const cVis = clientVisibilitySql(currentUser, 'c');               // clients aliased c
+  const cVisAnd = cVis ? ` AND (${cVis})` : '';
+  const oppOwnerVis = ownerVisibilitySql(currentUser, 'o.rep_id');  // opportunities aliased o
+  const oppOwnerAnd = oppOwnerVis ? ` AND (${oppOwnerVis})` : '';
+  const visitOwnerVis = ownerVisibilitySql(currentUser, 'v.rep_id'); // visits aliased v
+  const visitOwnerAnd = visitOwnerVis ? ` AND (${visitOwnerVis})` : '';
+
   const sp       = await searchParams;
   const view     = typeof sp.view === 'string' ? sp.view : 'personal';
   // Reps default to their personal dashboard; admins/managers always see full.
@@ -136,7 +146,7 @@ export default async function ExecDashboardPage({
     // for reps approved before rep-linking existed.
     const repRow = await q<{ id: string } | null>(async () => {
       const { rows } = await risansiPool.query<{ id: string }>(
-        'SELECT id::text AS id FROM reps WHERE email = $1 LIMIT 1',
+        'SELECT id::text AS id FROM users WHERE lower(email) = lower($1) LIMIT 1',
         [email],
       );
       return rows[0] ?? null;
@@ -145,59 +155,50 @@ export default async function ExecDashboardPage({
 
     const [myVisitsCount, myOverdueCount, myPipelineValue, myClientsCount, myRecentVisits, myOverdueClients] = await Promise.all([
 
-      // My visits this week
+      // My visits this week — owner visibility on v.rep_id
       q<number>(async () => {
         if (!repId) return 0;
         const { rows } = await risansiPool.query<{ cnt: string }>(
-          `SELECT COUNT(*)::text AS cnt FROM visits
-           WHERE rep_id = $1
-             AND visit_date >= CURRENT_DATE - INTERVAL '7 days'
-             AND status IN ('completed','checked-in')`,
-          [repId],
+          `SELECT COUNT(*)::text AS cnt FROM visits v
+           WHERE v.visit_date >= CURRENT_DATE - INTERVAL '7 days'
+             AND v.status IN ('completed','checked-in')${visitOwnerAnd}`,
         );
         return Number(rows[0]?.cnt ?? 0);
       }, 0),
 
-      // My overdue clients (no visit 90+ days)
+      // My overdue clients (no visit 90+ days) — client visibility
       q<number>(async () => {
         if (!repId) return 0;
         const { rows } = await risansiPool.query<{ cnt: string }>(
-          `SELECT COUNT(*)::text AS cnt FROM clients
-           WHERE primary_rep_id = $1
-             AND status = 'ACTIVE' AND deleted_at IS NULL
-             AND (last_visit_date IS NULL OR last_visit_date < CURRENT_DATE - INTERVAL '90 days')`,
-          [repId],
+          `SELECT COUNT(*)::text AS cnt FROM clients c
+           WHERE c.status = 'ACTIVE' AND c.deleted_at IS NULL
+             AND (c.last_visit_date IS NULL OR c.last_visit_date < CURRENT_DATE - INTERVAL '90 days')${cVisAnd}`,
         );
         return Number(rows[0]?.cnt ?? 0);
       }, 0),
 
-      // My pipeline value (Crores)
+      // My pipeline value (Crores) — owner visibility on o.rep_id
       q<number>(async () => {
         if (!repId) return 0;
         const { rows } = await risansiPool.query<{ total: string }>(
           `SELECT COALESCE(SUM(o.value_cr),0)::text AS total
            FROM opportunities o
-           JOIN clients c ON c.id = o.client_id
-           WHERE c.primary_rep_id = $1
-             AND o.stage NOT IN ('Won','Lost')`,
-          [repId],
+           WHERE o.stage NOT IN ('Won','Lost')${oppOwnerAnd}`,
         );
         return Number(rows[0]?.total ?? 0);
       }, 0),
 
-      // My active client count
+      // My active client count — client visibility
       q<number>(async () => {
         if (!repId) return 0;
         const { rows } = await risansiPool.query<{ cnt: string }>(
-          `SELECT COUNT(*)::text AS cnt FROM clients
-           WHERE primary_rep_id = $1
-             AND status = 'ACTIVE' AND deleted_at IS NULL`,
-          [repId],
+          `SELECT COUNT(*)::text AS cnt FROM clients c
+           WHERE c.status = 'ACTIVE' AND c.deleted_at IS NULL${cVisAnd}`,
         );
         return Number(rows[0]?.cnt ?? 0);
       }, 0),
 
-      // My recent visits (last 10)
+      // My recent visits (last 10) — owner visibility on v.rep_id
       q<VisitEntry[]>(async () => {
         if (!repId) return [];
         const { rows } = await risansiPool.query<{
@@ -210,12 +211,10 @@ export default async function ExecDashboardPage({
                   v.visit_date, v.outcome, v.purpose, v.status
            FROM visits v
            JOIN clients c ON c.id = v.client_id
-           LEFT JOIN reps r ON r.id = v.rep_id
-           WHERE v.rep_id = $1
-             AND v.status IN ('completed','checked-in')
+           LEFT JOIN users r ON r.id = v.rep_id
+           WHERE v.status IN ('completed','checked-in')${visitOwnerAnd}
            ORDER BY v.visit_date DESC
            LIMIT 10`,
-          [repId],
         );
         return rows.map(r => ({
           id: r.id, rep_name: r.rep_name,
@@ -224,7 +223,7 @@ export default async function ExecDashboardPage({
         }));
       }, []),
 
-      // My overdue clients list
+      // My overdue clients list — client visibility
       q<{ id: string; code: string; legal_name: string; days_overdue: number }[]>(async () => {
         if (!repId) return [];
         const { rows } = await risansiPool.query<{
@@ -233,12 +232,10 @@ export default async function ExecDashboardPage({
           `SELECT c.id::text AS id, c.code, c.legal_name,
                   COALESCE(EXTRACT(DAY FROM NOW() - c.last_visit_date)::int, 999) AS days_overdue
            FROM clients c
-           WHERE c.primary_rep_id = $1
-             AND c.status = 'ACTIVE' AND c.deleted_at IS NULL
-             AND (c.last_visit_date IS NULL OR c.last_visit_date < CURRENT_DATE - INTERVAL '90 days')
+           WHERE c.status = 'ACTIVE' AND c.deleted_at IS NULL
+             AND (c.last_visit_date IS NULL OR c.last_visit_date < CURRENT_DATE - INTERVAL '90 days')${cVisAnd}
            ORDER BY 4 DESC
            LIMIT 20`,
-          [repId],
         );
         return rows;
       }, []),
@@ -449,7 +446,7 @@ export default async function ExecDashboardPage({
     q<number>(async () => {
       const { rows } = await risansiPool.query<{ total_target_cr: string }>(
         `SELECT COALESCE(SUM(target_cr), 32)::text AS total_target_cr
-         FROM reps WHERE is_active = TRUE`,
+         FROM users WHERE is_active = TRUE`,
       );
       return Number(rows[0]?.total_target_cr ?? 32);
     }, 32),
@@ -498,7 +495,7 @@ export default async function ExecDashboardPage({
          FROM client_revenue_monthly crm
          JOIN clients c ON crm.client_id = c.id
          WHERE crm.month >= '2025-04-01' AND crm.month < '2026-04-01'
-           AND c.deleted_at IS NULL
+           AND c.deleted_at IS NULL${cVisAnd}
          GROUP BY COALESCE(c.industry, 'Other')
          ORDER BY 2::numeric DESC
          LIMIT 8`,
@@ -515,7 +512,7 @@ export default async function ExecDashboardPage({
          FROM client_revenue_monthly crm
          JOIN clients c ON crm.client_id = c.id
          WHERE crm.month >= '2025-04-01' AND crm.month < '2026-04-01'
-           AND c.deleted_at IS NULL`,
+           AND c.deleted_at IS NULL${cVisAnd}`,
       );
       const r = rows[0];
       return {
@@ -527,10 +524,10 @@ export default async function ExecDashboardPage({
     // 7. Pipeline funnel
     q<FunnelRow[]>(async () => {
       const { rows } = await risansiPool.query<{ stage: string; cnt: string; val: string }>(
-        `SELECT stage, COUNT(*)::text AS cnt, COALESCE(SUM(value_cr),0)::text AS val
-         FROM opportunities
-         WHERE stage IN ('Suspect','Prospect','Quoted','Negotiating')
-         GROUP BY stage`,
+        `SELECT o.stage AS stage, COUNT(*)::text AS cnt, COALESCE(SUM(o.value_cr),0)::text AS val
+         FROM opportunities o
+         WHERE o.stage IN ('Suspect','Prospect','Quoted','Negotiating')${oppOwnerAnd}
+         GROUP BY o.stage`,
       );
       return ['Suspect','Prospect','Quoted','Negotiating'].map(stage => {
         const row = rows.find(r => r.stage === stage);
@@ -577,7 +574,7 @@ export default async function ExecDashboardPage({
          WHERE c.status = 'ACTIVE'
            AND c.deleted_at IS NULL
            AND (c.last_visit_date IS NULL OR c.last_visit_date < CURRENT_DATE - INTERVAL '18 months')
-           AND EXISTS (SELECT 1 FROM client_revenue_monthly r2 WHERE r2.client_id = c.id)`,
+           AND EXISTS (SELECT 1 FROM client_revenue_monthly r2 WHERE r2.client_id = c.id)${cVisAnd}`,
       );
       return {
         count:    Number(rows[0]?.cnt      ?? 0),
@@ -614,7 +611,7 @@ export default async function ExecDashboardPage({
          ) prev ON prev.client_id = c.id
          WHERE c.deleted_at IS NULL
            AND c.status = 'ACTIVE'
-           AND COALESCE(curr.total_inr, 0) > 0
+           AND COALESCE(curr.total_inr, 0) > 0${cVisAnd}
          ORDER BY curr.total_inr DESC NULLS LAST
          LIMIT 7`,
       );
@@ -645,9 +642,9 @@ export default async function ExecDashboardPage({
                 v.status
          FROM visits v
          JOIN clients c ON c.id = v.client_id
-         LEFT JOIN reps r ON r.id = v.rep_id
+         LEFT JOIN users r ON r.id = v.rep_id
          WHERE v.status IN ('completed','checked-in')
-           AND v.visit_date >= CURRENT_DATE - INTERVAL '7 days'
+           AND v.visit_date >= CURRENT_DATE - INTERVAL '7 days'${visitOwnerAnd}
          ORDER BY v.visit_date DESC, v.check_in_time DESC NULLS LAST
          LIMIT 10`,
       );
@@ -675,10 +672,10 @@ export default async function ExecDashboardPage({
            COALESCE(r.name, '—') AS rep_name
          FROM visits v
          JOIN clients c ON c.id = v.client_id
-         LEFT JOIN reps r ON r.id = v.rep_id
+         LEFT JOIN users r ON r.id = v.rep_id
          WHERE v.status = 'planned'
            AND v.visit_date >= CURRENT_DATE
-           AND v.visit_date <= CURRENT_DATE + INTERVAL '7 days'
+           AND v.visit_date <= CURRENT_DATE + INTERVAL '7 days'${visitOwnerAnd}
          ORDER BY v.visit_date ASC
          LIMIT 5`,
       );
@@ -699,7 +696,7 @@ export default async function ExecDashboardPage({
          FROM opportunities o
          JOIN clients c ON o.client_id = c.id
          WHERE o.auto_created = TRUE
-           AND o.created_at >= NOW() - INTERVAL '7 days'
+           AND o.created_at >= NOW() - INTERVAL '7 days'${oppOwnerAnd}
          ORDER BY o.created_at DESC
          LIMIT 5`,
       );

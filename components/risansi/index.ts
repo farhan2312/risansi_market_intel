@@ -10,7 +10,7 @@ export { MultiSelectFilter }  from './MultiSelectFilter';
 export { ActiveFilterBar }    from './ActiveFilterBar';
 export { SortableTH }         from './SortableTH';
 export { useSortableTable }   from './useSortableTable';
-export { RepSelector }        from './RepSelector';
+export { RepSelector, OwnerSelector } from './RepSelector';
 export { ClientFormDrawer, AddClientButton } from './ClientFormDrawer';
 export { AddContactDrawer } from './AddContactDrawer';
 export { AddContactButton } from './AddContactButton';

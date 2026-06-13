@@ -23,13 +23,12 @@ export async function POST(req: Request) {
       );
     }
 
-    // Passwords live in access_requests.password_hash (same table the
-    // credentials provider authenticates against). Match its lookup exactly.
+    // Credentials live in the unified users table.
     const email = session.user.email.toLowerCase().trim();
 
     const userRes = await risansiPool.query<{ password_hash: string | null }>(
-      `SELECT password_hash FROM access_requests
-       WHERE user_email = $1 AND status = 'Approved'
+      `SELECT password_hash FROM users
+       WHERE lower(email) = $1 AND status = 'Approved'
        LIMIT 1`,
       [email],
     );
@@ -47,9 +46,10 @@ export async function POST(req: Request) {
     // Cost factor 10 to match the existing signup flow (app/api/auth/signup/submit).
     const newHash = await bcrypt.hash(newPw, 10);
 
+    // Clear the forced-reset flag once the user sets their own password.
     await risansiPool.query(
-      `UPDATE access_requests SET password_hash = $1
-       WHERE user_email = $2 AND status = 'Approved'`,
+      `UPDATE users SET password_hash = $1, must_change_password = false, updated_at = NOW()
+       WHERE lower(email) = $2`,
       [newHash, email],
     );
 

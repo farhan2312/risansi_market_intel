@@ -5,7 +5,7 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, Tag, StatusDot } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
 import { fyShortLabel, fmtCr, formatRev, formatLastVisit } from '@/lib/risansi-utils';
-import { hasRole } from '@/lib/risansi-auth';
+import { hasRole, getCurrentUser, canViewClient } from '@/lib/risansi-auth';
 import { ClientActionButtons, PipelineOppBtn, EditDrawerTrigger } from '@/components/risansi/ClientActionButtons';
 import { AddContactButton } from '@/components/risansi/AddContactButton';
 import { EditContactButton } from '@/components/risansi/EditContactButton';
@@ -24,7 +24,7 @@ interface Client {
   // Core identity
   id: string; code: string; legal_name: string; trade_name: string | null;
   group_name: string | null; business_category: string | null;
-  industry: string | null; zone: string; tour_name: string | null;
+  industry: string | null; zone: string; tour_name: string | null; tour_zone: string | null;
   status: string; tier: string | null;
   market_type: string | null; client_type: string | null;
   is_sugar: boolean; is_tender: boolean;
@@ -35,7 +35,6 @@ interface Client {
   tcd: number | null; klpd: number | null;
   // Reps (DB columns + joined)
   primary_rep_id: string | null; primary_rep_name: string | null;
-  secondary_rep_id: string | null; secondary_rep_name: string | null;
   rep_name: string | null;
   rep_zone: string | null; rep_route: string | null; rep_email: string | null;
   secondary_rep_joined: string | null; secondary_rep_zone: string | null; secondary_rep_route: string | null;
@@ -132,15 +131,21 @@ export default async function ClientProfilePage({
   const client = await q<Client | null>(async () => {
     const { rows } = await risansiPool.query<Client>(
       `SELECT c.*,
-              COALESCE(r.name,  c.primary_rep_name, '—') AS rep_name,
-              r.zone  AS rep_zone,
-              r.route AS rep_route,
-              r2.name  AS secondary_rep_joined,
-              r2.zone  AS secondary_rep_zone,
-              r2.route AS secondary_rep_route
+              COALESCE(
+                (SELECT string_agg(u.name, ', ' ORDER BY u.name)
+                   FROM client_assignments ca JOIN users u ON u.id = ca.user_id
+                  WHERE ca.client_id = c.id),
+                '—') AS rep_name,
+              (SELECT string_agg(u.name, ', ' ORDER BY u.name)
+                 FROM client_assignments ca JOIN users u ON u.id = ca.user_id
+                WHERE ca.client_id = c.id) AS primary_rep_name,
+              (SELECT ca.user_id FROM client_assignments ca
+                WHERE ca.client_id = c.id
+                ORDER BY ca.assigned_at, ca.user_id LIMIT 1) AS primary_rep_id,
+              tr.name AS tour_name,
+              tr.zone AS tour_zone
        FROM clients c
-       LEFT JOIN reps r  ON c.primary_rep_id   = r.id
-       LEFT JOIN reps r2 ON c.secondary_rep_id  = r2.id
+       LEFT JOIN tour_routes tr ON tr.id = c.tour_id
        WHERE ${whereClause} AND c.deleted_at IS NULL`,
       [id],
     );
@@ -148,6 +153,10 @@ export default async function ClientProfilePage({
   }, null);
 
   if (!client) notFound();
+
+  // Visibility guard — viewer must be able to SEE this client (admin/sysadmin always can).
+  const currentUser = await getCurrentUser();
+  if (!(await canViewClient(currentUser, Number(client.id)))) notFound();
 
   // ── Fetch supporting data in parallel ─────────────────────
 
@@ -239,7 +248,7 @@ export default async function ClientProfilePage({
         `SELECT v.id, COALESCE(r.name, '—') AS rep_name, v.visit_date,
                 v.purpose, v.outcome, v.summary, v.status
          FROM visits v
-         LEFT JOIN reps r ON r.id = v.rep_id
+         LEFT JOIN users r ON r.id = v.rep_id
          WHERE v.client_id = $1
          ORDER BY v.visit_date DESC
          LIMIT 20`,
@@ -280,7 +289,7 @@ export default async function ClientProfilePage({
     // 8. Reps for Plan Visit drawer
     q<DrawerRep[]>(async () => {
       const { rows } = await risansiPool.query<{ id: string; name: string; route: string | null }>(
-        `SELECT id, name, route FROM reps WHERE is_active = TRUE ORDER BY name`,
+        `SELECT id, name, route FROM users WHERE is_active = TRUE ORDER BY name`,
       );
       return rows;
     }, []),
@@ -389,50 +398,29 @@ export default async function ClientProfilePage({
               {client.since_year && <><span style={{ margin: '0 8px' }}>·</span>Customer since {client.since_year}</>}
             </div>
 
-            {/* Rep display row */}
+            {/* Owner + tour display row (flat client_assignments / tour_routes) */}
             <div style={{ display: 'flex', gap: 16, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              {/* Primary rep */}
+              {/* Owners — all equal, from client_assignments */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 500 }}>Primary</span>
-                {client.primary_rep_id ? (
-                  <span style={{ fontSize: 12, fontWeight: 500 }}>
-                    {client.rep_name}
-                    {(client.rep_zone || client.rep_route) && (
-                      <span style={{ fontWeight: 400, color: 'var(--fg-3)', marginLeft: 4 }}>
-                        · {[client.rep_zone, client.rep_route].filter(Boolean).join(' · ')}
-                      </span>
-                    )}
-                  </span>
-                ) : client.primary_rep_name ? (
-                  <span style={{ fontSize: 12 }}>
-                    {client.primary_rep_name}
-                    <span style={{ fontSize: 10, color: 'var(--fg-3)', marginLeft: 4 }}>(Excel import)</span>
-                  </span>
+                <span style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 500 }}>Owners</span>
+                {client.rep_name && client.rep_name !== '—' ? (
+                  <span style={{ fontSize: 12, fontWeight: 500 }}>{client.rep_name}</span>
                 ) : (
                   <span style={{ fontSize: 12, color: 'var(--neg)' }}>Unassigned</span>
                 )}
                 {canEdit && <EditDrawerTrigger />}
               </div>
 
-              {/* Secondary rep (only if set) */}
-              {(client.secondary_rep_id || client.secondary_rep_name) && (
+              {/* Tour route */}
+              {client.tour_name && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 500 }}>Secondary</span>
-                  {client.secondary_rep_id ? (
-                    <span style={{ fontSize: 12, fontWeight: 500 }}>
-                      {client.secondary_rep_joined ?? client.secondary_rep_name}
-                      {(client.secondary_rep_zone || client.secondary_rep_route) && (
-                        <span style={{ fontWeight: 400, color: 'var(--fg-3)', marginLeft: 4 }}>
-                          · {[client.secondary_rep_zone, client.secondary_rep_route].filter(Boolean).join(' · ')}
-                        </span>
-                      )}
-                    </span>
-                  ) : (
-                    <span style={{ fontSize: 12 }}>
-                      {client.secondary_rep_name}
-                      <span style={{ fontSize: 10, color: 'var(--fg-3)', marginLeft: 4 }}>(Excel import)</span>
-                    </span>
-                  )}
+                  <span style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 500 }}>Tour</span>
+                  <span style={{ fontSize: 12, fontWeight: 500 }}>
+                    {client.tour_name}
+                    {client.tour_zone && (
+                      <span style={{ fontWeight: 400, color: 'var(--fg-3)', marginLeft: 4 }}>· {client.tour_zone}</span>
+                    )}
+                  </span>
                 </div>
               )}
 

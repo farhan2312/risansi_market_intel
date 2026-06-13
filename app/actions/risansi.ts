@@ -15,53 +15,88 @@ async function requireSession() {
   return session.user;
 }
 
-// Resolve which rep a visit/opportunity is assigned to, enforcing role rules:
-//   rep      → ALWAYS themselves (session repId, email fallback); errors if the
-//              account isn't linked to a rep — the form's rep_id is ignored.
-//   manager  → the submitted rep_id, validated to fall within their tours;
-//              falls back to the client's primary rep when blank.
-//   admin/+  → the submitted rep_id, falling back to the client's primary rep.
+// Resolve which user a visit/opportunity is owned by, enforcing role rules:
+//   rep      → ALWAYS themselves (session id, email fallback); errors if the
+//              account isn't linked — the form's rep_id is ignored.
+//   manager  → the submitted rep_id, REQUIRED and validated to fall within
+//              their tours. No client-primary fallback (flat owner model).
+//   admin/+  → the submitted rep_id, REQUIRED.
 async function resolveAssignableRepId(
   user: { role?: string; repId?: number | null; email?: string | null },
   formRepId: string | null,
-  clientId: string | number | null,
-): Promise<number | null> {
+): Promise<number> {
   const role = user.role ?? 'rep';
 
   if (role === 'rep') {
     let repId = typeof user.repId === 'number' ? user.repId : null;
     if (!repId && user.email) {
       const { rows } = await risansiPool.query<{ id: number }>(
-        'SELECT id FROM reps WHERE email = $1 AND is_active = TRUE LIMIT 1',
+        'SELECT id FROM users WHERE lower(email) = lower($1) AND is_active = TRUE LIMIT 1',
         [user.email],
       );
       repId = rows[0]?.id ?? null;
     }
     if (!repId) {
-      throw new Error('Your account is not linked to a rep. Please contact the system administrator.');
+      throw new Error('Your account is not linked to a user record. Please contact the system administrator.');
     }
     return repId;
   }
 
   const parsed = formRepId ? parseInt(formRepId, 10) : NaN;
-  let repId: number | null = Number.isInteger(parsed) ? parsed : null;
+  const repId: number | null = Number.isInteger(parsed) ? parsed : null;
+  if (!repId) {
+    throw new Error('Please select an owner for this visit/opportunity.');
+  }
 
-  if (role === 'manager' && repId && typeof user.repId === 'number') {
+  if (role === 'manager' && typeof user.repId === 'number') {
     const allowed = await getManagerAssignableReps(user.repId);
     if (!allowed.includes(repId)) {
-      throw new Error('You can only assign visits to reps in your assigned tours.');
+      throw new Error('You can only assign to people in your assigned tours.');
     }
   }
 
-  if (!repId && clientId != null) {
-    const { rows } = await risansiPool.query<{ primary_rep_id: number | null }>(
-      'SELECT primary_rep_id FROM clients WHERE id = $1',
-      [clientId],
+  return repId;
+}
+
+// Replace a client's owner set (flat, all-equal) in client_assignments, and
+// writes an assignment_audit row. actorEmail is the acting user.
+async function syncClientAssignments(
+  clientId: number,
+  ownerIds: number[],
+  actorEmail: string,
+): Promise<void> {
+  const ids = [...new Set(ownerIds.filter(n => Number.isInteger(n) && n > 0))];
+
+  const { rows: before } = await risansiPool.query<{ user_id: number }>(
+    'SELECT user_id FROM client_assignments WHERE client_id = $1', [clientId],
+  );
+  const beforeIds = before.map(r => r.user_id);
+
+  await risansiPool.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
+  for (const uid of ids) {
+    await risansiPool.query(
+      `INSERT INTO client_assignments (client_id, user_id, assigned_by, assigned_at)
+       VALUES ($1, $2, (SELECT id FROM users WHERE lower(email) = lower($3)), NOW())
+       ON CONFLICT (client_id, user_id) DO NOTHING`,
+      [clientId, uid, actorEmail],
     );
-    repId = rows[0]?.primary_rep_id ?? null;
   }
 
-  return repId;
+  if (JSON.stringify(beforeIds.sort()) !== JSON.stringify([...ids].sort())) {
+    await risansiPool.query(
+      `INSERT INTO assignment_audit (entity_type, entity_id, action, old_value, new_value, changed_by)
+       VALUES ('client_owner', $1, 'update', $2::jsonb, $3::jsonb, $4)`,
+      [String(clientId), JSON.stringify(beforeIds), JSON.stringify(ids), actorEmail],
+    );
+  }
+}
+
+// Parse a JSON array of owner user ids from a form field.
+function parseOwnerIds(raw: FormDataEntryValue | null): number[] {
+  try {
+    const parsed = JSON.parse((raw as string) || '[]');
+    return Array.isArray(parsed) ? parsed.map(n => parseInt(String(n), 10)).filter(Number.isInteger) : [];
+  } catch { return []; }
 }
 
 // Can this user move / edit an opportunity owned by `oppRepId`?
@@ -121,13 +156,14 @@ export async function requestAccess(_formData: FormData) {
     redirect('/api/auth/signin');
   }
 
-  const email = session.user.email;
+  const email = session.user.email.toLowerCase().trim();
   const displayName = session.user.name ?? email;
 
+  // Self-service access requests land as Pending users for a sysadmin to approve.
   await risansiPool.query(
-    `INSERT INTO access_requests (email, display_name, status, created_at)
-     VALUES ($1, $2, 'Pending', NOW())
-     ON CONFLICT (email) DO NOTHING`,
+    `INSERT INTO users (email, name, status, role)
+     VALUES ($1, $2, 'Pending', 'rep')
+     ON CONFLICT (lower(email)) DO NOTHING`,
     [email, displayName],
   );
 
@@ -362,14 +398,10 @@ export async function updateClient(clientId: number, formData: FormData): Promis
        status             = $17,
        tier               = $18,
        since_year         = $19,
-       tour_name          = $20,
-       primary_rep_id     = $21,
-       primary_rep_name   = $22,
-       secondary_rep_id   = $23,
-       secondary_rep_name = $24,
-       updated_by         = $25,
+       tour_id            = $20,
+       updated_by         = $21,
        updated_at         = NOW()
-     WHERE id = $26`,
+     WHERE id = $22`,
     [
       (formData.get('legal_name')        as string | null)?.trim() || null,
       (formData.get('trade_name')        as string | null)?.trim() || null,
@@ -390,15 +422,14 @@ export async function updateClient(clientId: number, formData: FormData): Promis
       newStatus,
       (formData.get('tier')              as string | null)?.trim() || 'Standard',
       (formData.get('since_year')        as string | null)?.trim() || null,
-      (formData.get('tour_name')         as string | null)?.trim() || null,
-      formData.get('primary_rep_id')   ? parseInt(formData.get('primary_rep_id')   as string) : null,
-      (formData.get('primary_rep_name')  as string | null)?.trim() || null,
-      formData.get('secondary_rep_id') ? parseInt(formData.get('secondary_rep_id') as string) : null,
-      (formData.get('secondary_rep_name') as string | null)?.trim() || null,
+      formData.get('tour_id') ? parseInt(formData.get('tour_id') as string, 10) : null,
       email,
       clientId,
     ],
   );
+
+  // Owners (flat multi-owner model) + legacy shim + audit.
+  await syncClientAssignments(clientId, parseOwnerIds(formData.get('owner_ids')), email);
 
   // Save contacts
   await saveContacts(
@@ -436,12 +467,11 @@ export async function planVisit(clientId: string, formData: FormData) {
 
   const date = visitDate ?? new Date().toISOString().slice(0, 10);
 
-  // Rep → locked to self; manager → validated within tours; admin → form value
-  // (all with a client-primary fallback). See resolveAssignableRepId.
+  // Rep → locked to self; manager → validated within tours; admin → form value.
+  // Owner is required (no client-primary fallback). See resolveAssignableRepId.
   const resolvedRepId = await resolveAssignableRepId(
     user,
     (formData.get('rep_id') as string | null)?.trim() ?? null,
-    clientId,
   );
 
   await risansiPool.query(
@@ -467,12 +497,11 @@ export async function createOpportunity(clientId: string, formData: FormData) {
   const eta      = (formData.get('eta_text') as string | null)?.trim() ||
                    (formData.get('expected_close') as string | null)?.trim() || null;
 
-  // Rep → locked to self; manager → validated within tours; admin → form value
-  // (all with a client-primary fallback). See resolveAssignableRepId.
+  // Rep → locked to self; manager → validated within tours; admin → form value.
+  // Owner is required (no client-primary fallback). See resolveAssignableRepId.
   const resolvedRepId = await resolveAssignableRepId(
     session.user,
     (formData.get('rep_id') as string | null)?.trim() ?? null,
-    clientId,
   );
 
   const { rows } = await risansiPool.query<{ id: string }>(
@@ -577,47 +606,13 @@ export async function createPipelineOpportunity(formData: FormData) {
   //                       never the submitted rep_id; no secondary rep.
   //   admin/manager/...  → the submitted dropdown selections, falling back to
   //                       the client's primary/secondary rep when left blank.
-  const role = user.role ?? 'rep';
-  let primaryRepId: number | null = null;
-  let secondaryRepId: number | null = null;
-
-  if (role === 'rep') {
-    const { rows } = await risansiPool.query<{ id: number }>(
-      'SELECT id FROM reps WHERE email = $1 AND is_active = TRUE LIMIT 1',
-      [user.email],
-    );
-    primaryRepId = rows[0]?.id ?? (typeof user.repId === 'number' ? user.repId : null);
-  } else {
-    const rawRep    = (formData.get('rep_id')           as string | null)?.trim();
-    const rawSecRep = (formData.get('secondary_rep_id') as string | null)?.trim();
-    const parsedRep = rawRep ? parseInt(rawRep, 10) : NaN;
-    const parsedSec = rawSecRep ? parseInt(rawSecRep, 10) : NaN;
-    primaryRepId   = Number.isInteger(parsedRep) ? parsedRep : null;
-    secondaryRepId = Number.isInteger(parsedSec) ? parsedSec : null;
-
-    // A manager may only assign to reps that share one of their tours.
-    if (role === 'manager' && primaryRepId && typeof user.repId === 'number') {
-      const allowed = await getManagerAssignableReps(user.repId);
-      if (!allowed.includes(primaryRepId)) {
-        throw new Error('You can only assign opportunities to reps in your assigned tours.');
-      }
-    }
-
-    // Fallback to the client's reps when the dropdown was left blank
-    if (!primaryRepId) {
-      const { rows } = await risansiPool.query<{ primary_rep_id: number | null; secondary_rep_id: number | null }>(
-        'SELECT primary_rep_id, secondary_rep_id FROM clients WHERE id = $1', [clientId],
-      );
-      primaryRepId   = rows[0]?.primary_rep_id ?? null;
-      secondaryRepId = secondaryRepId ?? rows[0]?.secondary_rep_id ?? null;
-    }
-  }
-
-  if (!primaryRepId) {
-    throw new Error('No rep assigned. Please select a rep or assign a Primary Rep to this client first.');
-  }
-
-  console.log('createPipelineOpportunity: role=', role, 'repId=', primaryRepId, 'secRepId=', secondaryRepId, 'clientId=', clientId);
+  // Single explicit owner (flat model). resolveAssignableRepId enforces:
+  //   rep → self; manager → required & within tours; admin → required.
+  const primaryRepId = await resolveAssignableRepId(
+    user,
+    (formData.get('rep_id') as string | null)?.trim() ?? null,
+  );
+  const secondaryRepId: number | null = null;
 
   const hasSecondary = await opportunitiesHasSecondaryRep();
   let oppRows: { id: string }[];
@@ -722,7 +717,9 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
     repId = rows[0]?.rep_id ?? null;
     if (!repId && rows[0]?.client_id) {
       const { rows: cRows } = await risansiPool.query<{ primary_rep_id: number | null }>(
-        `SELECT primary_rep_id FROM clients WHERE id = $1`,
+        `SELECT (SELECT ca.user_id FROM client_assignments ca
+                  WHERE ca.client_id = $1
+                  ORDER BY ca.assigned_at, ca.user_id LIMIT 1) AS primary_rep_id`,
         [rows[0].client_id],
       );
       repId = cRows[0]?.primary_rep_id ?? null;
@@ -807,7 +804,6 @@ export async function assignVisit(formData: FormData) {
   const visitDate = (formData.get('visit_date')  as string | null)?.trim();
   const purpose   = (formData.get('purpose')     as string | null)?.trim() ?? 'Routine';
   const notes     = (formData.get('notes')       as string | null)?.trim() || null;
-  const role      = user.role ?? 'rep';
 
   // A missing client must surface as an error — never report a fake success.
   if (!clientId) throw new Error('Please select a client before scheduling a visit.');
@@ -820,32 +816,12 @@ export async function assignVisit(formData: FormData) {
   //                       never the submitted rep_id.
   //   admin/manager/...  → the submitted dropdown selection, falling back to the
   //                       client's primary rep when left blank.
-  let repId: number | null = null;
-  if (role === 'rep') {
-    const { rows } = await risansiPool.query<{ id: number }>(
-      'SELECT id FROM reps WHERE email = $1 AND is_active = TRUE LIMIT 1',
-      [user.email],
-    );
-    repId = rows[0]?.id ?? (typeof user.repId === 'number' ? user.repId : null);
-  } else {
-    const rawRepId = (formData.get('rep_id') as string | null)?.trim();
-    const parsed   = rawRepId ? parseInt(rawRepId, 10) : NaN;
-    repId = Number.isInteger(parsed) ? parsed : null;
-    // A manager may only assign to reps that share one of their tours.
-    if (role === 'manager' && repId && typeof user.repId === 'number') {
-      const allowed = await getManagerAssignableReps(user.repId);
-      if (!allowed.includes(repId)) {
-        throw new Error('You can only assign visits to reps in your assigned tours.');
-      }
-    }
-    if (!repId) {
-      const { rows } = await risansiPool.query<{ primary_rep_id: number | null }>(
-        'SELECT primary_rep_id FROM clients WHERE id = $1', [clientId],
-      );
-      repId = rows[0]?.primary_rep_id ?? null;
-    }
-  }
-  console.log('assignVisit: role=', role, 'repId=', repId, 'clientId=', clientId, 'date=', date);
+  // Single explicit owner (flat model): rep → self; manager → required & within
+  // tours; admin → required. No client-primary fallback.
+  const repId = await resolveAssignableRepId(
+    user,
+    (formData.get('rep_id') as string | null)?.trim() ?? null,
+  );
 
   // Try full insert with optional columns; fall back to minimal ONLY if the
   // full insert fails (e.g. a column is missing). Errors propagate to the UI.
@@ -1110,15 +1086,12 @@ export async function submitOpportunity(formData: FormData) {
 
   if (!clientId) throw new Error('Client ID required');
 
-  // Resolve primary rep for this client (non-fatal)
-  let repId: string | null = null;
-  try {
-    const { rows } = await risansiPool.query<{ primary_rep_id: string | null }>(
-      'SELECT primary_rep_id FROM clients WHERE id = $1',
-      [clientId],
-    );
-    repId = rows[0]?.primary_rep_id ?? null;
-  } catch { /* ignore */ }
+  // Single explicit owner: rep → self; manager → required & within tours;
+  // admin → required. (No client-primary fallback.)
+  const repId = await resolveAssignableRepId(
+    user,
+    (formData.get('rep_id') as string | null)?.trim() ?? null,
+  );
 
   // Try full insert into opportunities table (with all spec columns)
   let newId: string | null = null;
@@ -1200,14 +1173,12 @@ export async function addClient(formData: FormData): Promise<void> {
        country, state, city, address, google_maps_url,
        market_type, industry, is_sugar, client_type,
        is_tender, capacity_bracket, tcd, klpd,
-       status, tier, since_year, tour_name,
-       primary_rep_id, primary_rep_name,
-       secondary_rep_id, secondary_rep_name,
+       status, tier, since_year, tour_id,
        created_by, created_at, updated_at
      ) VALUES (
        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
        $11,$12,$13,$14,$15,$16,$17,$18,$19,
-       $20,$21,$22,$23,$24,$25,$26,NOW(),NOW()
+       $20,$21,$22,NOW(),NOW()
      ) RETURNING id`,
     [
       code,
@@ -1230,16 +1201,15 @@ export async function addClient(formData: FormData): Promise<void> {
       (formData.get('status')            as string | null)?.trim() || 'ACTIVE',
       (formData.get('tier')              as string | null)?.trim() || 'Standard',
       (formData.get('since_year')        as string | null)?.trim() || null,
-      (formData.get('tour_name')         as string | null)?.trim() || null,
-      formData.get('primary_rep_id')   ? parseInt(formData.get('primary_rep_id')   as string) : null,
-      (formData.get('primary_rep_name')  as string | null)?.trim() || null,
-      formData.get('secondary_rep_id') ? parseInt(formData.get('secondary_rep_id') as string) : null,
-      (formData.get('secondary_rep_name') as string | null)?.trim() || null,
+      formData.get('tour_id') ? parseInt(formData.get('tour_id') as string, 10) : null,
       email,
     ],
   );
 
   const clientId = result.rows[0].id;
+
+  // Owners (flat multi-owner model) + legacy shim + audit.
+  await syncClientAssignments(clientId, parseOwnerIds(formData.get('owner_ids')), email);
 
   // Save contacts
   await saveContacts(

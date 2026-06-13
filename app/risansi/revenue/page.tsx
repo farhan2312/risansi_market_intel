@@ -4,6 +4,7 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, Donut } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
+import { getCurrentUser, clientVisibilitySql } from '@/lib/risansi-auth';
 import { formatRev } from '@/lib/risansi-utils';
 import { RevenueTopClients, type RevenueClientRow } from '@/components/risansi/RevenueTopClients';
 
@@ -54,18 +55,22 @@ export default async function RevenuePage({
   const isRep   = role === 'rep';
   let repId: number | null = session?.user?.repId ?? null;
   if (isRep && repId == null && session?.user?.email) {
-    const r = await risansiPool.query<{ id: number }>('SELECT id FROM reps WHERE email = $1 LIMIT 1', [session.user.email]);
+    const r = await risansiPool.query<{ id: number }>('SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1', [session.user.email]);
     repId = r.rows[0]?.id ?? null;
   }
   const personal = isRep && sp.view !== 'full';
-  const scoped   = personal && repId != null;
-  const repCond  = scoped ? ` AND c.primary_rep_id = $REP` : '';
 
-  // Build a query's param list, substituting the $REP placeholder with the next index.
+  // Per-user client visibility (inline integer ids, no params). Replaces the old
+  // primary_rep_id-based personal scoping: rep → own clients, manager → tour scope,
+  // admin/sysadmin → null (everything). Applied to every clients-joined query below.
+  const currentUser = await getCurrentUser();
+  const cVis    = clientVisibilitySql(currentUser, 'c');
+  const repCond = cVis ? ` AND (${cVis})` : '';
+
+  // The visibility predicate carries no params, so this just strips the legacy
+  // $REP placeholder and passes the base params through unchanged.
   function withRep(sql: string, baseParams: (string | number)[]): [string, (string | number)[]] {
-    if (!scoped) return [sql.replace(/ AND c\.primary_rep_id = \$REP/g, ''), baseParams];
-    const idx = baseParams.length + 1;
-    return [sql.replace(/\$REP/g, String(idx)), [...baseParams, repId as number]];
+    return [sql.replace(/ AND c\.primary_rep_id = \$REP/g, repCond), baseParams];
   }
 
   // ── Period (month filter or full FY) ────────────────────────
@@ -169,18 +174,20 @@ export default async function RevenuePage({
       return rows.map(r => ({ industry: r.industry, clients: Number(r.clients), pump: Number(r.pump), spare: Number(r.spare), total: Number(r.total) }));
     }, []),
 
-    // 6. By rep / zone (period) + target
+    // 6. By owner / zone (period) + target — owners from client_assignments → users.
+    //    Revenue is attributed to each assigned owner (a client may have several).
     q<ByRep[]>(async () => {
       const [sql, params] = withRep(
-        `SELECT COALESCE(r.name, c.primary_rep_name, 'Unassigned') AS rep,
-                r.zone, r.target_cr::text AS target_cr,
+        `SELECT COALESCE(u.name, 'Unassigned') AS rep,
+                u.zone, u.target_cr::text AS target_cr,
                 COUNT(DISTINCT crm.client_id)::text AS clients,
                 COALESCE(SUM(crm.total_value),0)::text AS total
          FROM client_revenue_monthly crm
          JOIN clients c ON c.id = crm.client_id
-         LEFT JOIN reps r ON r.id = c.primary_rep_id
+         LEFT JOIN client_assignments ca ON ca.client_id = c.id
+         LEFT JOIN users u ON u.id = ca.user_id
          WHERE c.deleted_at IS NULL AND crm.month >= $1 AND crm.month < $2${repCond}
-         GROUP BY COALESCE(r.name, c.primary_rep_name, 'Unassigned'), r.zone, r.target_cr
+         GROUP BY COALESCE(u.name, 'Unassigned'), u.zone, u.target_cr
          HAVING SUM(crm.total_value) > 0 ORDER BY SUM(crm.total_value) DESC LIMIT 30`,
         [periodStart, periodEnd],
       );
@@ -192,16 +199,19 @@ export default async function RevenuePage({
     q<RevenueClientRow[]>(async () => {
       const [sql, params] = withRep(
         `SELECT c.id::text AS id, c.code, c.legal_name, c.industry, c.state, c.tier,
-                COALESCE(r.name, c.primary_rep_name, '—') AS rep_name,
+                COALESCE(
+                  (SELECT string_agg(u.name, ', ' ORDER BY u.name)
+                     FROM client_assignments ca JOIN users u ON u.id = ca.user_id
+                    WHERE ca.client_id = c.id),
+                  '—') AS rep_name,
                 COALESCE(SUM(crm.pump_value)  FILTER (WHERE crm.month >= $1 AND crm.month < $2),0)::text AS pump,
                 COALESCE(SUM(crm.spare_value) FILTER (WHERE crm.month >= $1 AND crm.month < $2),0)::text AS spare,
                 COALESCE(SUM(crm.total_value) FILTER (WHERE crm.month >= $1 AND crm.month < $2),0)::text AS total,
                 COALESCE(SUM(crm.total_value) FILTER (WHERE crm.month >= $3 AND crm.month < $4),0)::text AS prev_total
          FROM client_revenue_monthly crm
          JOIN clients c ON c.id = crm.client_id
-         LEFT JOIN reps r ON r.id = c.primary_rep_id
          WHERE c.deleted_at IS NULL${repCond}
-         GROUP BY c.id, c.code, c.legal_name, c.industry, c.state, c.tier, r.name, c.primary_rep_name
+         GROUP BY c.id, c.code, c.legal_name, c.industry, c.state, c.tier
          HAVING SUM(crm.total_value) FILTER (WHERE crm.month >= $1 AND crm.month < $2) > 0
          ORDER BY SUM(crm.total_value) FILTER (WHERE crm.month >= $1 AND crm.month < $2) DESC
          LIMIT 100`,

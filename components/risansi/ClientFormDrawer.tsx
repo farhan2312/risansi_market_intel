@@ -3,7 +3,7 @@
 import { useState, useEffect, useTransition, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { addClient, updateClient } from '@/app/actions/risansi';
-import { RepSelector } from './RepSelector';
+import { OwnerSelector } from './RepSelector';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -54,6 +54,11 @@ export function ClientFormDrawer({ mode, client, existingContacts, onClose }: Pr
   const [isSugar, setIsSugar]       = useState<boolean>(Boolean(client?.is_sugar));
   const [mapsUrl, setMapsUrl]       = useState<string>(client?.google_maps_url ?? '');
 
+  // Tours (dropdown bound to tour_routes) + current owners (multi-owner picker)
+  const [tours, setTours]   = useState<Array<{ id: string; name: string; zone: string | null }>>([]);
+  const [tourId, setTourId] = useState<string>(client?.tour_id != null ? String(client.tour_id) : '');
+  const [ownerIds, setOwnerIds] = useState<number[]>([]);
+
   const [contacts, setContacts] = useState<ContactRow[]>(
     (existingContacts ?? []).map((c: any) => ({
       id:          c.id,
@@ -81,6 +86,23 @@ export function ClientFormDrawer({ mode, client, existingContacts, onClose }: Pr
       .then(d => setIndustries(Array.isArray(d) ? d : []))
       .catch(() => {});
   }, []);
+
+  // Fetch tour routes for the dropdown
+  useEffect(() => {
+    fetch('/api/risansi/tours')
+      .then(r => r.json())
+      .then(d => setTours(Array.isArray(d) ? d : []))
+      .catch(() => {});
+  }, []);
+
+  // On edit, prefill the current owners from client_assignments
+  useEffect(() => {
+    if (mode !== 'edit' || !client?.id) return;
+    fetch(`/api/risansi/client-owners?clientId=${client.id}`)
+      .then(r => r.json())
+      .then(d => setOwnerIds(Array.isArray(d?.owner_ids) ? d.owner_ids : []))
+      .catch(() => {});
+  }, [mode, client?.id]);
 
   function handleIndustryChange(val: string) {
     setIndustry(val);
@@ -344,9 +366,16 @@ export function ClientFormDrawer({ mode, client, existingContacts, onClose }: Pr
               </Field>
             </Row>
             <Row>
-              <Field label="Tour Name">
-                <input type="text" name="tour_name" maxLength={100}
-                  defaultValue={client?.tour_name ?? ''} style={INP} />
+              <Field label="Tour">
+                <select name="tour_id" style={INP}
+                  value={tourId} onChange={e => setTourId(e.target.value)}>
+                  <option value="">— No tour —</option>
+                  {tours.map(t => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}{t.zone ? ` · ${t.zone}` : ''}
+                    </option>
+                  ))}
+                </select>
               </Field>
               <Field label="Since Year">
                 <input type="text" name="since_year" maxLength={10}
@@ -354,19 +383,10 @@ export function ClientFormDrawer({ mode, client, existingContacts, onClose }: Pr
                   placeholder='e.g. 2019 or 21-22' style={INP} />
               </Field>
             </Row>
-            <RepSelector
-              label="Primary Rep"
-              paramName="primary_rep_id"
-              nameName="primary_rep_name"
-              defaultId={client?.primary_rep_id}
-              defaultName={client?.primary_rep_name}
-            />
-            <RepSelector
-              label="Secondary Rep"
-              paramName="secondary_rep_id"
-              nameName="secondary_rep_name"
-              defaultId={client?.secondary_rep_id}
-              defaultName={client?.secondary_rep_name}
+            <OwnerSelector
+              label="Owners"
+              paramName="owner_ids"
+              defaultIds={ownerIds}
             />
           </Section>
 

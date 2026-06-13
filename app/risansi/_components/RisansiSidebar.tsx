@@ -18,6 +18,14 @@ const NAV_INTEL = [
   { href: '/risansi/admin',   label: 'Admin',   icon: IconCog },
 ];
 
+// System Admin — sysadmin only
+const NAV_SYSADMIN = [
+  { href: '/risansi/admin/users',      label: 'User Management', icon: IconClient },
+  { href: '/risansi/admin/tours',      label: 'Tour Mapping',    icon: IconMap },
+  { href: '/risansi/admin/unassigned', label: 'Unassigned',      icon: IconNote },
+  { href: '/risansi/admin/audit',      label: 'Audit Log',       icon: IconNote },
+];
+
 interface SidebarUser {
   name: string;
   email: string;
@@ -124,6 +132,32 @@ export function RisansiSidebar({ user }: { user: SidebarUser }) {
           </Link>
         ))}
       </div>
+
+      {/* System Admin group — sysadmin only */}
+      {user.role === 'sysadmin' && (
+        <div style={{ padding: '14px 12px 4px' }}>
+          <div style={{ padding: '0 8px 6px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#00B4D8', fontWeight: 500 }}>
+            System Admin
+          </div>
+          {NAV_SYSADMIN.map(({ href, label, icon: Icon }) => (
+            <Link key={href} href={href} style={{ textDecoration: 'none' }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '7px 10px', borderRadius: 5, fontSize: 13,
+                color: isActive(href) ? '#fff' : '#b7b1a3',
+                background: isActive(href) ? 'rgba(255,255,255,0.06)' : 'transparent',
+                position: 'relative', cursor: 'pointer',
+              }}>
+                {isActive(href) && (
+                  <span style={{ position: 'absolute', left: -12, top: 6, bottom: 6, width: 2, borderRadius: 1, background: '#1A5CB8' }} />
+                )}
+                <Icon />
+                <span>{label}</span>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
 
       {/* User */}
       <div style={{

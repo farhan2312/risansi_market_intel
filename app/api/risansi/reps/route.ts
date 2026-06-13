@@ -18,21 +18,21 @@ export async function GET() {
     const role  = session.user.role;
     const repId = session.user.repId;
 
-    // Admin / Sysadmin → all active reps.
+    // Admin / Sysadmin → all active users.
     if (['admin', 'sysadmin'].includes(role)) {
       const { rows } = await risansiPool.query(
-        `SELECT ${REP_COLS} FROM reps WHERE is_active = TRUE ORDER BY name ASC`,
+        `SELECT ${REP_COLS} FROM users WHERE is_active = TRUE ORDER BY name ASC`,
       );
       return NextResponse.json(rows);
     }
 
-    // Manager → reps in their assigned tours, including themselves (sorted first).
+    // Manager → users in their assigned tours, including themselves (sorted first).
     if (role === 'manager' && repId) {
       const assignableIds = await getManagerAssignableReps(repId);
 
       if (assignableIds.length === 0) {
         const { rows } = await risansiPool.query(
-          `SELECT ${REP_COLS} FROM reps WHERE id = $1`,
+          `SELECT ${REP_COLS} FROM users WHERE id = $1`,
           [repId],
         );
         return NextResponse.json(rows);
@@ -40,7 +40,7 @@ export async function GET() {
 
       const { rows } = await risansiPool.query(
         `SELECT ${REP_COLS}
-           FROM reps
+           FROM users
           WHERE id = ANY($1::int[])
             AND is_active = TRUE
           ORDER BY CASE WHEN id = $2 THEN 0 ELSE 1 END, name ASC`,
@@ -52,7 +52,7 @@ export async function GET() {
     // Rep → only themselves.
     if (role === 'rep' && repId) {
       const { rows } = await risansiPool.query(
-        `SELECT ${REP_COLS} FROM reps WHERE id = $1`,
+        `SELECT ${REP_COLS} FROM users WHERE id = $1`,
         [repId],
       );
       return NextResponse.json(rows);

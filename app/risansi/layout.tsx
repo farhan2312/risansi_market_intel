@@ -54,6 +54,14 @@ export default async function RisansiLayout({ children }: { children: React.Reac
     redirect('/api/auth/signin');
   }
 
+  // Force temp-password users to set their own password before using the app.
+  // The change-password page lives outside /risansi so this never loops; the
+  // jwt callback re-reads must_change_password each request, so the flag clears
+  // automatically once they change it.
+  if (session.user.mustChange) {
+    redirect('/change-password');
+  }
+
   const headersList = await headers();
   const ua = headersList.get('user-agent') ?? '';
   const _isMobile = isMobileUA(ua);
@@ -67,7 +75,7 @@ export default async function RisansiLayout({ children }: { children: React.Reac
   if (['admin', 'sysadmin'].includes(role)) {
     try {
       const res = await risansiPool.query<{ count: string }>(
-        `SELECT COUNT(*)::text AS count FROM access_requests WHERE status = 'Pending'`,
+        `SELECT COUNT(*)::text AS count FROM users WHERE status = 'Pending'`,
       );
       pendingCount = parseInt(res.rows[0]?.count ?? '0', 10);
     } catch { /* non-fatal */ }

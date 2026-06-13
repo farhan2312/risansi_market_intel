@@ -2,6 +2,7 @@ import type { CSSProperties } from 'react';
 import { Topbar } from '@/components/risansi';
 import { CoverageMapSvg, type ClientPin } from '@/components/risansi/CoverageMapSvg';
 import risansiPool from '@/lib/db-risansi';
+import { getCurrentUser, clientVisibilitySql } from '@/lib/risansi-auth';
 
 // ── Safe query wrapper ─────────────────────────────────────────
 
@@ -21,6 +22,11 @@ interface TourRow {
 // ── Page ───────────────────────────────────────────────────────
 
 export default async function CoverageMapPage() {
+  // Per-user client visibility (inline integer ids, no params).
+  const currentUser = await getCurrentUser();
+  const cVis    = clientVisibilitySql(currentUser, 'c');
+  const cVisAnd = cVis ? ` AND (${cVis})` : '';
+
   const [clients, tours] = await Promise.all([
 
     // All active clients with location + visit data
@@ -38,10 +44,13 @@ export default async function CoverageMapPage() {
            c.state, c.city,
            c.status, c.tier, c.last_visit_date::text,
            (CURRENT_DATE - c.last_visit_date::date)::text AS days_since,
-           COALESCE(r.name, c.primary_rep_name, '—') AS rep_name
+           COALESCE(
+             (SELECT string_agg(u.name, ', ' ORDER BY u.name)
+                FROM client_assignments ca JOIN users u ON u.id = ca.user_id
+               WHERE ca.client_id = c.id),
+             '—') AS rep_name
          FROM clients c
-         LEFT JOIN reps r ON c.primary_rep_id = r.id
-         WHERE c.deleted_at IS NULL AND c.status = 'ACTIVE'
+         WHERE c.deleted_at IS NULL AND c.status = 'ACTIVE'${cVisAnd}
          ORDER BY c.last_visit_date ASC NULLS FIRST`,
       );
       return rows.map(r => ({
@@ -64,16 +73,17 @@ export default async function CoverageMapPage() {
         tour: string; client_count: string; compliant: string; overdue: string;
       }>(
         `SELECT
-           COALESCE(tour_name, 'Unassigned') AS tour,
+           COALESCE(tr.name, 'Unassigned') AS tour,
            COUNT(*)::text AS client_count,
-           COUNT(*) FILTER (WHERE last_visit_date >= NOW() - INTERVAL '100 days')::text AS compliant,
+           COUNT(*) FILTER (WHERE c.last_visit_date >= NOW() - INTERVAL '100 days')::text AS compliant,
            COUNT(*) FILTER (
-             WHERE last_visit_date < NOW() - INTERVAL '100 days'
-               OR last_visit_date IS NULL
+             WHERE c.last_visit_date < NOW() - INTERVAL '100 days'
+               OR c.last_visit_date IS NULL
            )::text AS overdue
-         FROM clients
-         WHERE deleted_at IS NULL AND status = 'ACTIVE'
-         GROUP BY tour_name
+         FROM clients c
+         LEFT JOIN tour_routes tr ON tr.id = c.tour_id
+         WHERE c.deleted_at IS NULL AND c.status = 'ACTIVE'${cVisAnd}
+         GROUP BY tr.name
          ORDER BY COUNT(*) DESC`,
       );
       return rows.map(r => ({

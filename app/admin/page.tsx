@@ -33,24 +33,24 @@ export default async function AdminPage() {
   const [pending, users, reps, tours] = await Promise.all([
     q<PendingRow[]>(async () => {
       const { rows } = await risansiPool.query<PendingRow>(
-        `SELECT id, user_email AS email, display_name,
+        `SELECT id, email AS email, name AS display_name,
                 COALESCE(role,'rep') AS requested_role,
-                requested_at::text AS requested_at
-         FROM access_requests
+                created_at::text AS requested_at
+         FROM users
          WHERE status = 'Pending'
-         ORDER BY requested_at ASC`,
+         ORDER BY created_at ASC`,
       );
       return rows;
     }, []),
     q<UserRow[]>(async () => {
       const { rows } = await risansiPool.query<UserRow>(
-        `SELECT id, user_email AS email, display_name,
+        `SELECT id, email AS email, name AS display_name,
                 COALESCE(role,'rep') AS role,
-                status, requested_at::text AS requested_at,
-                reviewed_at::text AS reviewed_at
-         FROM access_requests
+                status, created_at::text AS requested_at,
+                updated_at::text AS reviewed_at
+         FROM users
          WHERE status != 'Pending'
-         ORDER BY COALESCE(reviewed_at, requested_at) DESC`,
+         ORDER BY COALESCE(updated_at, created_at) DESC`,
       );
       return rows;
     }, []),
@@ -59,7 +59,7 @@ export default async function AdminPage() {
         `SELECT r.id, r.name, r.zone, r.route,
                 r.email AS rep_email, r.is_active,
                 (r.email IS NULL) AS is_unlinked
-         FROM reps r
+         FROM users r
          WHERE r.is_active = TRUE
          ORDER BY r.zone ASC, r.name ASC`,
       );

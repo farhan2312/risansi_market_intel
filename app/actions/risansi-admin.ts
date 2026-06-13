@@ -32,20 +32,12 @@ export async function approveAccessRequest(formData: FormData) {
   const email = (formData.get('email') as string | null)?.trim() ?? '';
   if (!email) return;
 
-  try {
-    await risansiPool.query(
-      `UPDATE access_requests
-       SET status = 'Approved', reviewed_at = NOW(), reviewed_by = $2
-       WHERE user_email = $1`,
-      [email, admin.email],
-    );
-  } catch {
-    // reviewed_at / reviewed_by columns may not exist yet — fall back
-    await risansiPool.query(
-      `UPDATE access_requests SET status = 'Approved' WHERE user_email = $1`,
-      [email],
-    );
-  }
+  await risansiPool.query(
+    `UPDATE users
+     SET status = 'Approved', updated_at = NOW()
+     WHERE lower(email) = lower($1)`,
+    [email],
+  );
 
   await logActivity('access_request', email, 'approved', admin.email!);
   revalidatePath('/risansi/admin');
@@ -58,19 +50,12 @@ export async function rejectAccessRequest(formData: FormData) {
   const email = (formData.get('email') as string | null)?.trim() ?? '';
   if (!email) return;
 
-  try {
-    await risansiPool.query(
-      `UPDATE access_requests
-       SET status = 'Rejected', reviewed_at = NOW(), reviewed_by = $2
-       WHERE user_email = $1`,
-      [email, admin.email],
-    );
-  } catch {
-    await risansiPool.query(
-      `UPDATE access_requests SET status = 'Rejected' WHERE user_email = $1`,
-      [email],
-    );
-  }
+  await risansiPool.query(
+    `UPDATE users
+     SET status = 'Rejected', updated_at = NOW()
+     WHERE lower(email) = lower($1)`,
+    [email],
+  );
 
   await logActivity('access_request', email, 'rejected', admin.email!);
   revalidatePath('/risansi/admin');
@@ -83,19 +68,13 @@ export async function revokeAccess(formData: FormData) {
   const email = (formData.get('email') as string | null)?.trim() ?? '';
   if (!email) return;
 
-  try {
-    await risansiPool.query(
-      `UPDATE access_requests
-       SET status = 'Revoked', reviewed_at = NOW(), reviewed_by = $2
-       WHERE user_email = $1`,
-      [email, admin.email],
-    );
-  } catch {
-    await risansiPool.query(
-      `UPDATE access_requests SET status = 'Revoked' WHERE user_email = $1`,
-      [email],
-    );
-  }
+  // No 'Revoked' status in the CHECK constraint — use 'Rejected'.
+  await risansiPool.query(
+    `UPDATE users
+     SET status = 'Rejected', updated_at = NOW()
+     WHERE lower(email) = lower($1)`,
+    [email],
+  );
 
   await logActivity('access_request', email, 'revoked', admin.email!);
   revalidatePath('/risansi/admin');

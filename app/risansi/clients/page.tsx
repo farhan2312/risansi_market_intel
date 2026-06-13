@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Topbar, Tag, StatusDot, MultiSelectFilter, ActiveFilterBar, SortableTH } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
 import { formatLastVisitShort } from '@/lib/risansi-utils';
+import { getCurrentUser, clientVisibilitySql } from '@/lib/risansi-auth';
 import { FilterBar } from './FilterBar';
 
 const PAGE_SIZE = 50;
@@ -16,8 +17,13 @@ const SORT_MAP: Record<string, string> = {
   last_visit: 'c.last_visit_date',
   status:     'c.status',
   tier:       'c.tier',
-  rep:        'r.name',
+  rep:        'rep_name',
 };
+
+// Owners aggregated from the flat client_assignments many-to-many.
+const OWNERS_SUBQUERY = `(SELECT string_agg(u.name, ', ' ORDER BY u.name)
+     FROM client_assignments ca JOIN users u ON u.id = ca.user_id
+    WHERE ca.client_id = c.id)`;
 
 export default async function ClientListPage({
   searchParams,
@@ -25,6 +31,8 @@ export default async function ClientListPage({
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>
 }) {
   const sp = await searchParams;
+
+  const user = await getCurrentUser();
 
   const q_str     = typeof sp.q        === 'string' ? sp.q.trim()        : '';
   const sugarFilt = typeof sp.sugar    === 'string' ? sp.sugar.trim()    : '';
@@ -70,11 +78,16 @@ export default async function ClientListPage({
   if (repFilts.length > 0) {
     const rIdx = params.push(repFilts);
     whereConditions.push(
-      `(c.primary_rep_name = ANY($${rIdx}::text[]) OR r.name = ANY($${rIdx}::text[]))`
+      `EXISTS (SELECT 1 FROM client_assignments ca JOIN users u ON u.id = ca.user_id
+                WHERE ca.client_id = c.id AND u.name = ANY($${rIdx}::text[]))`
     );
   }
   if (sugarFilt === 'true')  whereConditions.push('c.is_sugar = TRUE');
   if (sugarFilt === 'false') whereConditions.push('(c.is_sugar = FALSE OR c.is_sugar IS NULL)');
+
+  // Per-user visibility — append as raw text (predicate inlines integers, no params).
+  const visPred = clientVisibilitySql(user, 'c');
+  if (visPred) whereConditions.push(`(${visPred})`);
 
   const whereClause = whereConditions.join(' AND ');
   const countParams = [...params]; // snapshot before limit/offset are pushed
@@ -98,6 +111,7 @@ export default async function ClientListPage({
     last_visit_date: Date | null;
     zone:            string | null;
     tour_name:       string | null;
+    tour_zone:       string | null;
     rep_name:        string | null;
   }
 
@@ -115,10 +129,11 @@ export default async function ClientListPage({
              c.status, c.tier,
              c.last_visit_date,
              c.zone,
-             c.tour_name,
-             COALESCE(r.name, c.primary_rep_name, '—') AS rep_name
+             tr.name AS tour_name,
+             tr.zone AS tour_zone,
+             COALESCE(${OWNERS_SUBQUERY}, '—') AS rep_name
            FROM clients c
-           LEFT JOIN reps r ON c.primary_rep_id = r.id
+           LEFT JOIN tour_routes tr ON tr.id = c.tour_id
            WHERE ${whereClause}
            ORDER BY ${sortCol} ${orderDir} ${orderDir === 'ASC' ? 'NULLS FIRST' : 'NULLS LAST'}
            LIMIT  $${limIdx}
@@ -137,7 +152,6 @@ export default async function ClientListPage({
         const { rows } = await risansiPool.query<{ count: string }>(
           `SELECT COUNT(DISTINCT c.id)::text AS count
            FROM clients c
-           LEFT JOIN reps r ON c.primary_rep_id = r.id
            WHERE ${whereClause}`,
           countParams as (string | number)[],
         );
@@ -177,16 +191,19 @@ export default async function ClientListPage({
 
     (async (): Promise<RepOption[]> => {
       try {
+        // Owner names sourced from users (active), counted via client_assignments,
+        // restricted to the clients this user may see.
+        const visForOptions = clientVisibilitySql(user, 'c');
+        const ownerVisClause = visForOptions ? `AND (${visForOptions})` : '';
         const { rows } = await risansiPool.query<RepOption>(
-          `SELECT
-             COALESCE(r.name, c.primary_rep_name) AS rep_name,
-             COUNT(*)::int AS client_count
-           FROM clients c
-           LEFT JOIN reps r ON c.primary_rep_id = r.id
-           WHERE c.deleted_at IS NULL
-             AND (c.primary_rep_name IS NOT NULL OR r.name IS NOT NULL)
-           GROUP BY COALESCE(r.name, c.primary_rep_name)
-           HAVING COALESCE(r.name, c.primary_rep_name) IS NOT NULL
+          `SELECT u.name AS rep_name, COUNT(DISTINCT c.id)::int AS client_count
+           FROM users u
+           JOIN client_assignments ca ON ca.user_id = u.id
+           JOIN clients c ON c.id = ca.client_id
+           WHERE u.is_active = TRUE
+             AND c.deleted_at IS NULL
+             ${ownerVisClause}
+           GROUP BY u.name
            ORDER BY client_count DESC
            LIMIT 30`,
         );

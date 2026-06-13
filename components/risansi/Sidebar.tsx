@@ -63,9 +63,20 @@ const SYSADMIN_ITEM: NavItem = {
   id: 'access', href: '/admin', label: 'Access Approval', Icon: IcKey, isAlert: true,
 };
 
+const SYSADMIN_NAV: NavItem[] = [
+  { id: 'users-admin',      href: '/risansi/admin/users',      label: 'User Management', Icon: IcUser },
+  { id: 'tours-admin',      href: '/risansi/admin/tours',      label: 'Tour Mapping',    Icon: IcMap },
+  { id: 'unassigned-admin', href: '/risansi/admin/unassigned', label: 'Unassigned',      Icon: IcList },
+  { id: 'audit-admin',      href: '/risansi/admin/audit',      label: 'Audit Log',       Icon: IcClipboard },
+];
+
 // Path → id mapping for URL-based active derivation
 const PATH_TO_ID: [string, string][] = [
   ['/admin',                    'access'],
+  ['/risansi/admin/users',      'users-admin'],
+  ['/risansi/admin/tours',      'tours-admin'],
+  ['/risansi/admin/unassigned', 'unassigned-admin'],
+  ['/risansi/admin/audit',      'audit-admin'],
   ['/risansi/admin/clients',    'clients-admin'],
   ['/risansi/admin/revenue',    'revenue-admin'],
   ['/risansi/admin/reps',       'reps-admin'],
@@ -154,6 +165,13 @@ export function Sidebar({ active, role, user, alerts = {}, pendingCount = 0 }: S
               isActive={resolvedActive === 'access'}
               badge={pendingCount > 0 ? pendingCount : undefined}
             />
+            {SYSADMIN_NAV.map(item => (
+              <NavLink
+                key={item.id}
+                item={item}
+                isActive={item.id === resolvedActive}
+              />
+            ))}
           </div>
         </div>
       )}
@@ -260,3 +278,4 @@ function IcBag()      { return ic(<><path d="M3 6h10l-1 8H4z"/><path d="M6 6V4a2
 function IcList()     { return ic(<><path d="M3 4h10M3 8h10M3 12h6"/></>)(); }
 function IcUser()     { return ic(<><circle cx="8" cy="6" r="3"/><path d="M2 14c0-3 2.7-5 6-5s6 2 6 5"/></>)(); }
 function IcKey()      { return ic(<><circle cx="6.5" cy="9.5" r="3.5"/><path d="M10 6l4-4M12 4l2 2M10 8l1.5-1.5"/></>)(); }
+function IcClipboard(){ return ic(<><rect x="3" y="3" width="10" height="11" rx="1.5"/><path d="M6 3V2h4v1M5.5 7h5M5.5 10h3"/></>)(); }

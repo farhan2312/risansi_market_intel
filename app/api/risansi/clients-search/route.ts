@@ -1,4 +1,5 @@
 import risansiPool from '@/lib/db-risansi';
+import { getCurrentUser, clientVisibilitySql } from '@/lib/risansi-auth';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -6,14 +7,22 @@ export async function GET(request: Request) {
   if (q.length < 2) return Response.json([]);
 
   try {
+    // Per-user visibility — predicate inlines integers, so it needs no params.
+    const user = await getCurrentUser();
+    const visPred = clientVisibilitySql(user, 'c');
+    const visClause = visPred ? `AND (${visPred})` : '';
+
     const res = await risansiPool.query(
       `SELECT c.id, c.code, c.legal_name, c.city, c.state, c.industry,
-              c.primary_rep_id, c.secondary_rep_id,
-              COALESCE(r1.name, c.primary_rep_name)   AS primary_rep_name,
-              COALESCE(r2.name, c.secondary_rep_name) AS secondary_rep_name
+              -- first owner (by assignment order) stands in for the legacy primary rep
+              (SELECT ca.user_id FROM client_assignments ca
+                WHERE ca.client_id = c.id ORDER BY ca.assigned_at, ca.user_id LIMIT 1) AS primary_rep_id,
+              NULL::int                                                     AS secondary_rep_id,
+              (SELECT string_agg(u.name, ', ' ORDER BY u.name)
+                 FROM client_assignments ca JOIN users u ON u.id = ca.user_id
+                WHERE ca.client_id = c.id)                                  AS primary_rep_name,
+              NULL::text                                                    AS secondary_rep_name
        FROM clients c
-       LEFT JOIN reps r1 ON c.primary_rep_id   = r1.id
-       LEFT JOIN reps r2 ON c.secondary_rep_id = r2.id
        WHERE c.deleted_at IS NULL
          AND c.status = 'ACTIVE'
          AND (
@@ -21,6 +30,7 @@ export async function GET(request: Request) {
            OR c.code     ILIKE $1
            OR c.city     ILIKE $1
          )
+         ${visClause}
        ORDER BY c.legal_name ASC
        LIMIT 20`,
       [`%${q}%`],

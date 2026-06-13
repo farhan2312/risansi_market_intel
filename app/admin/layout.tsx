@@ -67,7 +67,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (['admin', 'sysadmin'].includes(role)) {
     try {
       const res = await risansiPool.query<{ count: string }>(
-        `SELECT COUNT(*)::text AS count FROM access_requests WHERE status = 'Pending'`,
+        `SELECT COUNT(*)::text AS count FROM users WHERE status = 'Pending'`,
       );
       pendingCount = parseInt(res.rows[0]?.count ?? '0', 10);
     } catch { /* non-fatal */ }
