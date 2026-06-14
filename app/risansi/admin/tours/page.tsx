@@ -24,7 +24,8 @@ export default async function ToursAdminPage() {
           tr.name,
           tr.zone,
           tr.primary_rep_id::int    AS primary_rep_id,
-          COUNT(DISTINCT c.id)::int AS client_count,
+          (SELECT COUNT(*) FROM clients c
+             WHERE c.tour_id = tr.id AND c.deleted_at IS NULL)::int AS client_count,
           COALESCE(
             json_agg(
               json_build_object('user_id', u.id, 'name', u.name, 'role', ta.role)
@@ -35,7 +36,6 @@ export default async function ToursAdminPage() {
         FROM tour_routes tr
         LEFT JOIN tour_assignments ta ON ta.tour_id = tr.id
         LEFT JOIN users u             ON u.id = ta.rep_id
-        LEFT JOIN clients c           ON c.tour_id = tr.id AND c.deleted_at IS NULL
         GROUP BY tr.id, tr.name, tr.zone, tr.primary_rep_id
         ORDER BY tr.zone ASC NULLS LAST, tr.name ASC
       `);
