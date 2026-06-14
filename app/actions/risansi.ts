@@ -775,6 +775,81 @@ export async function deleteOpportunity(oppId: number) {
   revalidatePath('/risansi');
 }
 
+// ── Visit plan: edit / delete (planned, not-yet-submitted visits) ──
+
+// Permission for both: admin/sysadmin · the assigned rep · the rep's tour manager.
+// Edits are refused once the visit report has been submitted.
+export async function updateVisitPlan(visitId: string, formData: FormData) {
+  const user = await requireSession();
+
+  const { rows } = await risansiPool.query<{ rep_id: number | null; submitted_at: string | null; client_id: number }>(
+    'SELECT rep_id, submitted_at, client_id FROM visits WHERE id = $1', [visitId],
+  );
+  const visit = rows[0];
+  if (!visit) throw new Error('Visit not found.');
+  if (visit.submitted_at) throw new Error('A submitted visit can no longer be edited.');
+  if (!(await userCanEditOpp(user, visit.rep_id))) {
+    throw new Error('You do not have permission to edit this visit.');
+  }
+
+  const visitDate = (formData.get('visit_date') as string | null)?.trim();
+  if (!visitDate) throw new Error('Visit date is required.');
+  const purpose = (formData.get('purpose') as string | null)?.trim() || 'Routine';
+
+  // Owner: reps stay locked to themselves; managers/admins may reassign within
+  // their allowed set. Blank → keep the current owner.
+  let repId = visit.rep_id;
+  const role = user.role ?? 'rep';
+  if (role !== 'rep') {
+    const raw = (formData.get('rep_id') as string | null)?.trim();
+    const parsed = raw ? parseInt(raw, 10) : NaN;
+    if (Number.isInteger(parsed)) {
+      if (role === 'manager' && typeof user.repId === 'number') {
+        const allowed = await getManagerAssignableReps(user.repId);
+        if (!allowed.includes(parsed)) {
+          throw new Error('You can only assign to people in your assigned tours.');
+        }
+      }
+      repId = parsed;
+    }
+  }
+
+  await risansiPool.query(
+    `UPDATE visits SET visit_date = $1, purpose = $2, rep_id = $3, updated_at = NOW()
+     WHERE id = $4 AND submitted_at IS NULL`,
+    [visitDate, purpose, repId, visitId],
+  );
+
+  await logActivity('client', String(visit.client_id), `visit plan updated · ${visitDate} · ${purpose}`, user.email!);
+  revalidatePath('/risansi/field');
+  revalidatePath('/risansi/visits');
+  revalidatePath(`/risansi/visits/${visitId}`);
+  revalidatePath(`/risansi/clients/${visit.client_id}`);
+}
+
+export async function deleteVisitPlan(visitId: string) {
+  const user = await requireSession();
+
+  const { rows } = await risansiPool.query<{ rep_id: number | null; submitted_at: string | null; client_id: number }>(
+    'SELECT rep_id, submitted_at, client_id FROM visits WHERE id = $1', [visitId],
+  );
+  const visit = rows[0];
+  if (!visit) throw new Error('Visit not found.');
+  if (visit.submitted_at) throw new Error('A submitted visit cannot be deleted.');
+  if (!(await userCanEditOpp(user, visit.rep_id))) {
+    throw new Error('You do not have permission to delete this visit.');
+  }
+
+  // Guard again in SQL so a concurrent submit can't be deleted out from under.
+  const res = await risansiPool.query('DELETE FROM visits WHERE id = $1 AND submitted_at IS NULL', [visitId]);
+  if (res.rowCount === 0) throw new Error('Visit could not be deleted (it may have been submitted).');
+
+  await logActivity('client', String(visit.client_id), 'visit plan deleted', user.email!);
+  revalidatePath('/risansi/field');
+  revalidatePath('/risansi/visits');
+  revalidatePath(`/risansi/clients/${visit.client_id}`);
+}
+
 // ── Pipeline: update value / probability ──────────────────────
 
 export async function updateOpportunityValue(id: string, formData: FormData) {

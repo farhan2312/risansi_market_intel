@@ -14,6 +14,7 @@ import { AssignVisitButton } from '@/components/risansi/AssignVisitButton';
 import AssignVisitDrawer, { AssignVisitRowBtn } from '@/components/risansi/AssignVisitDrawer';
 import type { DrawerRep } from '@/components/risansi/AssignVisitDrawer';
 import { VisitReportsTab, type VisitReportRow } from '@/components/risansi/VisitReportsTab';
+import { EditVisitButton } from '@/components/risansi/EditVisitButton';
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -35,7 +36,7 @@ interface VisitFeedRow {
   check_in_time: string | null; submitted_at: string | null;
   client_id: string; legal_name: string; code: string; industry: string | null;
   city: string | null; tier: string | null;
-  rep_name: string;
+  rep_id: string; rep_name: string;
 }
 
 interface OverdueRow {
@@ -220,6 +221,7 @@ export default async function FieldActivityPage({
            c.industry,
            c.city,
            c.tier,
+           COALESCE(v.rep_id::text, '') AS rep_id,
            COALESCE(r.name, '—')       AS rep_name
          FROM visits v
          JOIN clients c ON c.id = v.client_id
@@ -562,11 +564,17 @@ export default async function FieldActivityPage({
                             {v.rep_name} · {v.visit_date} {v.city ? `· ${v.city}` : ''}{v.purpose ? ` · ${v.purpose}` : ''}
                           </div>
                         </div>
-                        <div style={{
-                          fontSize: 11, flexShrink: 0, fontWeight: 500,
-                          color: isClosed ? 'var(--fg-3)' : '#0A3D8F',
-                        }}>
-                          {cta}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                          {v.status !== 'completed' && !v.submitted_at && (
+                            <EditVisitButton
+                              role={role}
+                              visit={{ id: v.id, visit_date: v.visit_date, purpose: v.purpose || 'Routine',
+                                       client_name: v.legal_name, rep_id: v.rep_id, rep_name: v.rep_name }}
+                            />
+                          )}
+                          <span style={{ fontSize: 11, fontWeight: 500, color: isClosed ? 'var(--fg-3)' : '#0A3D8F' }}>
+                            {cta}
+                          </span>
                         </div>
                       </div>
                       {(v.outcome || v.summary) && (
@@ -694,7 +702,7 @@ export default async function FieldActivityPage({
                                 borderRight: '1px solid rgba(0,0,0,0.04)', minHeight: 60,
                               }}>
                                 {dayVisits.length > 0
-                                  ? dayVisits.map(v => <CalendarVisitCard key={v.id} visit={v} />)
+                                  ? dayVisits.map(v => <CalendarVisitCard key={v.id} visit={v} role={role} />)
                                   : <div style={{ height: 50, margin: 2, border: '1px dashed rgba(0,0,0,0.08)', borderRadius: 4 }} />
                                 }
                               </td>
@@ -787,7 +795,7 @@ export default async function FieldActivityPage({
                         </div>
 
                         {/* Visit cards */}
-                        {dayVisits.map(v => <CalendarVisitCard key={v.id} visit={v} compact />)}
+                        {dayVisits.map(v => <CalendarVisitCard key={v.id} visit={v} compact role={role} />)}
 
                         {/* Empty placeholder */}
                         {dayVisits.length === 0 && !day.isWeekend && (
@@ -928,7 +936,7 @@ export default async function FieldActivityPage({
 
 // ── Sub-components ─────────────────────────────────────────────
 
-function CalendarVisitCard({ visit, compact = false }: { visit: CalendarVisit; compact?: boolean }) {
+function CalendarVisitCard({ visit, compact = false, role }: { visit: CalendarVisit; compact?: boolean; role: string }) {
   const color = PURPOSE_COLORS[visit.purpose] ?? '#6B7FA3';
   const bg    = STATUS_BG[visit.status] ?? 'var(--bg-elev)';
   const statusColor =
@@ -938,35 +946,47 @@ function CalendarVisitCard({ visit, compact = false }: { visit: CalendarVisit; c
     'var(--fg-3)';
 
   return (
-    <Link
-      href={`/risansi/visits/${visit.id}`}
-      style={{
-        display: 'block', margin: '2px', padding: compact ? '3px 5px' : '5px 7px',
-        borderRadius: 4, borderLeft: `3px solid ${color}`,
-        background: bg, textDecoration: 'none',
-      }}
-    >
-      <div style={{
-        fontSize: compact ? 10 : 11, fontWeight: 600, color: 'var(--fg)',
-        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-        maxWidth: compact ? 100 : 130,
-      }}>
-        {visit.client_name}
-      </div>
-      {!compact && (
-        <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 1 }}>
-          {visit.purpose || 'Visit'}
+    <div style={{ position: 'relative' }}>
+      <Link
+        href={`/risansi/visits/${visit.id}`}
+        style={{
+          display: 'block', margin: '2px', padding: compact ? '3px 5px' : '5px 7px',
+          borderRadius: 4, borderLeft: `3px solid ${color}`,
+          background: bg, textDecoration: 'none',
+        }}
+      >
+        <div style={{
+          fontSize: compact ? 10 : 11, fontWeight: 600, color: 'var(--fg)',
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          maxWidth: compact ? 100 : 130, paddingRight: 14,
+        }}>
+          {visit.client_name}
+        </div>
+        {!compact && (
+          <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 1 }}>
+            {visit.purpose || 'Visit'}
+          </div>
+        )}
+        <div style={{ marginTop: 2 }}>
+          <span style={{
+            fontSize: 9, fontWeight: 600, textTransform: 'uppercase' as const,
+            letterSpacing: '0.06em', color: statusColor,
+          }}>
+            {visit.status}
+          </span>
+        </div>
+      </Link>
+      {visit.status !== 'completed' && (
+        <div style={{ position: 'absolute', top: 3, right: 3 }}>
+          <EditVisitButton
+            role={role}
+            compact
+            visit={{ id: visit.id, visit_date: visit.visit_date, purpose: visit.purpose || 'Routine',
+                     client_name: visit.client_name, rep_id: visit.rep_id, rep_name: visit.rep_name }}
+          />
         </div>
       )}
-      <div style={{ marginTop: 2 }}>
-        <span style={{
-          fontSize: 9, fontWeight: 600, textTransform: 'uppercase' as const,
-          letterSpacing: '0.06em', color: statusColor,
-        }}>
-          {visit.status}
-        </span>
-      </div>
-    </Link>
+    </div>
   );
 }
 
