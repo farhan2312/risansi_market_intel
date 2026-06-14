@@ -445,8 +445,12 @@ export default async function FieldActivityPage({
     'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
     'Dadra & Nagar Haveli',
   ]);
-  const indiaMapClients = mapClients.filter(c => c.state && INDIAN_STATES.has(c.state));
-  const intlMapClients  = mapClients.filter(c => !c.state || !INDIAN_STATES.has(c.state));
+  // State values in the DB are uppercase (e.g. "MAHARASHTRA"), so match
+  // case-insensitively — otherwise no client lands on the India map.
+  const INDIAN_STATES_UC = new Set([...INDIAN_STATES].map(s => s.toUpperCase()));
+  const isIndianState = (s: string | null) => !!s && INDIAN_STATES_UC.has(s.trim().toUpperCase());
+  const indiaMapClients = mapClients.filter(c => isIndianState(c.state));
+  const intlMapClients  = mapClients.filter(c => !isIndianState(c.state));
 
   // Calendar stats (for week view header)
   const calPlanned   = calendarVisits.filter(v => v.status !== 'cancelled').length;
