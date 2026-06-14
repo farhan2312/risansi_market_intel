@@ -49,6 +49,28 @@ async function audit(
   }
 }
 
+// ── App settings ───────────────────────────────────────────────
+
+// Company-wide annual revenue target (in Crores), shown on the dashboard.
+export async function setAnnualTarget(formData: FormData): Promise<void> {
+  const email = await requireSysadmin();
+  const raw = (formData.get('annual_target_cr') as string | null)?.trim() ?? '';
+  const val = parseFloat(raw);
+  if (!Number.isFinite(val) || val <= 0) {
+    throw new Error('Enter a valid annual target in Crores (e.g. 32).');
+  }
+  const { rows: before } = await risansiPool.query<{ value: string }>(
+    `SELECT value FROM app_settings WHERE key = 'annual_target_cr'`);
+  await risansiPool.query(
+    `INSERT INTO app_settings (key, value, updated_by, updated_at)
+     VALUES ('annual_target_cr', $1, $2, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+    [String(val), email]);
+  await audit('setting', 'annual_target_cr', 'update', before[0]?.value ?? null, String(val), email);
+  revalidatePath('/risansi');
+  revalidatePath('/risansi/admin/settings');
+}
+
 function parseIntArray(raw: FormDataEntryValue | null): number[] {
   try {
     const parsed = JSON.parse((raw as string) || '[]');

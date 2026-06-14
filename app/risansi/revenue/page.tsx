@@ -13,10 +13,6 @@ async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
 }
 
 const INR_TO_L = 100_000;
-const CUR_FY_START = '2025-04-01';
-const CUR_FY_END   = '2026-04-01';
-const PREV_FY_START = '2024-04-01';
-const PREV_FY_END   = '2025-04-01';
 
 // 'YYYY-MM-01' + n months (n may be negative)
 function addMonths(ymd: string, n: number): string {
@@ -73,6 +69,21 @@ export default async function RevenuePage({
     return [sql.replace(/ AND c\.primary_rep_id = \$REP/g, repCond), baseParams];
   }
 
+  // ── Fiscal year selection (data spans multiple FYs) ─────────
+  const availableFys = await q<number[]>(async () => {
+    const { rows } = await risansiPool.query<{ fy: number }>(
+      `SELECT DISTINCT (CASE WHEN EXTRACT(MONTH FROM month) >= 4 THEN EXTRACT(YEAR FROM month) ELSE EXTRACT(YEAR FROM month) - 1 END)::int AS fy
+         FROM client_revenue_monthly ORDER BY fy DESC`);
+    return rows.map(r => r.fy);
+  }, []);
+  const fyList = availableFys.length ? availableFys : [2025];
+  const reqFy = typeof sp.fy === 'string' ? parseInt(sp.fy, 10) : NaN;
+  const selectedFy = fyList.includes(reqFy) ? reqFy : fyList[0];
+  const CUR_FY_START  = `${selectedFy}-04-01`;
+  const CUR_FY_END    = `${selectedFy + 1}-04-01`;
+  const PREV_FY_START = `${selectedFy - 1}-04-01`;
+  const PREV_FY_END   = `${selectedFy}-04-01`;
+
   // ── Period (month filter or full FY) ────────────────────────
   const monthSel = typeof sp.month === 'string' && /^\d{4}-\d{2}-01$/.test(sp.month) ? sp.month : null;
   const periodStart = monthSel ?? CUR_FY_START;
@@ -80,11 +91,13 @@ export default async function RevenuePage({
   const prevStart   = monthSel ? addMonths(monthSel, -12) : PREV_FY_START;
   const prevEnd     = monthSel ? addMonths(periodEnd, -12) : PREV_FY_END;
 
-  function buildUrl(over: { view?: string | null; month?: string | null }): string {
+  function buildUrl(over: { view?: string | null; month?: string | null; fy?: number | null }): string {
     const view  = 'view' in over ? over.view  : (personal ? null : (isRep ? 'full' : null));
     const month = 'month' in over ? over.month : monthSel;
+    const fy    = 'fy' in over ? over.fy : selectedFy;
     const p = new URLSearchParams();
     if (view) p.set('view', view);
+    if (fy && fy !== fyList[0]) p.set('fy', String(fy));
     if (month) p.set('month', month);
     const qs = p.toString();
     return `/risansi/revenue${qs ? `?${qs}` : ''}`;
@@ -261,7 +274,7 @@ export default async function RevenuePage({
   const catTotal    = byCat.reduce((s, r) => s + r.total, 0);
   const hasAnyData  = summary.total > 0 || byIndustry.length > 0 || topClients.length > 0 || yoy.some(y => y.total > 0);
 
-  const subtitle = monthSel ? `Showing ${monthLabelLong(monthSel)}` : 'FY 25-26 · All months';
+  const subtitle = monthSel ? `Showing ${monthLabelLong(monthSel)}` : `${fyLabel(selectedFy)} · All months`;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -298,6 +311,16 @@ export default async function RevenuePage({
           </div>
         ) : (
           <>
+            {/* Section 0b — fiscal year selector */}
+            {fyList.length > 1 && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: 'var(--fg-3)', marginRight: 4, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>Financial Year</span>
+                {fyList.map(fy => (
+                  <a key={fy} href={buildUrl({ fy, month: null })} style={tile(selectedFy === fy)}>{fyLabel(fy)}</a>
+                ))}
+              </div>
+            )}
+
             {/* Section 1 — month tiles */}
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
               <a href={buildUrl({ month: null })} style={tile(!monthSel)}>All</a>
@@ -308,8 +331,8 @@ export default async function RevenuePage({
 
             {/* Section 2 — KPI strip */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 14 }}>
-              <Kpi label={monthSel ? 'Period Total' : 'FY 25-26 Total'} value={formatRev(summary.total)}
-                sub={delta != null ? `${delta >= 0 ? '▲' : '▼'} ${delta >= 0 ? '+' : ''}${delta.toFixed(1)}% vs ${monthSel ? 'LY' : 'FY 24-25'}` : 'no prior-period data'}
+              <Kpi label={monthSel ? 'Period Total' : `${fyLabel(selectedFy)} Total`} value={formatRev(summary.total)}
+                sub={delta != null ? `${delta >= 0 ? '▲' : '▼'} ${delta >= 0 ? '+' : ''}${delta.toFixed(1)}% vs ${monthSel ? 'LY' : fyLabel(selectedFy - 1)}` : 'no prior-period data'}
                 subColor={delta == null ? 'var(--fg-3)' : delta >= 0 ? 'var(--pos)' : 'var(--neg)'} />
               <Kpi label="Pump Revenue" value={formatRev(summary.pump)} sub={`${pumpPct.toFixed(0)}% of total`} />
               <Kpi label="Spare Revenue" value={formatRev(summary.spare)} sub={`${sparePct.toFixed(0)}% of total`} />
@@ -321,7 +344,7 @@ export default async function RevenuePage({
               <div style={PANEL}>
                 <div style={PANEL_H}><span style={PANEL_TITLE}>Year-on-Year Revenue</span><span style={META}>Pump vs Spare · ₹ Lakhs</span></div>
                 <div style={{ padding: '16px 18px' }}>
-                  {yoy.some(y => y.total > 0) ? <YoYChart rows={yoy} curFyStart={2025} /> : <Empty>No historical data</Empty>}
+                  {yoy.some(y => y.total > 0) ? <YoYChart rows={yoy} curFyStart={selectedFy} /> : <Empty>No historical data</Empty>}
                   <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginTop: 8, fontSize: 11, color: 'var(--fg-3)' }}>
                     <span><span style={{ display: 'inline-block', width: 8, height: 8, background: '#0A3D8F', borderRadius: 2, marginRight: 5 }} />Pump</span>
                     <span><span style={{ display: 'inline-block', width: 8, height: 8, background: '#00A3C4', borderRadius: 2, marginRight: 5 }} />Spare</span>

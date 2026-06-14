@@ -442,13 +442,13 @@ export default async function ExecDashboardPage({
       return Number(rows[0]?.total ?? 0) / INR_TO_L;
     }, 0),
 
-    // 3. Annual target (Crores) — from reps table, fallback 32 Cr
+    // 3. Annual target (Crores) — sysadmin-editable app setting, fallback 32 Cr
     q<number>(async () => {
-      const { rows } = await risansiPool.query<{ total_target_cr: string }>(
-        `SELECT COALESCE(SUM(target_cr), 32)::text AS total_target_cr
-         FROM users WHERE is_active = TRUE`,
+      const { rows } = await risansiPool.query<{ value: string }>(
+        `SELECT value FROM app_settings WHERE key = 'annual_target_cr' LIMIT 1`,
       );
-      return Number(rows[0]?.total_target_cr ?? 32);
+      const v = parseFloat(rows[0]?.value ?? '');
+      return Number.isFinite(v) && v > 0 ? v : 32;
     }, 32),
 
     // 4. Historical YoY revenue from client_revenue_monthly
