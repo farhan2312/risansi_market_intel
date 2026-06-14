@@ -486,10 +486,11 @@ export default async function FieldActivityPage({
           <StatCard label="Never Visited"    value={stats.never_visited} color="var(--neg)" />
         </div>
 
-        {/* AssignVisit drawer — always mounted for overdue row buttons (rep locked to self) */}
-        <div style={{ display: 'none' }}>
-          <AssignVisitDrawer reps={calendarReps} hideButton={true} role={role} repId={repId ?? undefined} currentUserName={session?.user?.name ?? undefined} />
-        </div>
+        {/* AssignVisit drawer — always mounted so overdue-row buttons can open it
+            via the OPEN_VISIT_DRAWER event. It hides itself when closed (off-screen
+            transform) and hideButton suppresses its own trigger, so no wrapper that
+            sets display:none — that previously stopped the drawer from ever showing. */}
+        <AssignVisitDrawer reps={calendarReps} hideButton={true} role={role} repId={repId ?? undefined} currentUserName={session?.user?.name ?? undefined} />
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--line)', paddingBottom: 0 }}>

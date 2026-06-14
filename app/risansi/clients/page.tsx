@@ -48,8 +48,9 @@ export default async function ClientListPage({
   const tierFilts = typeof sp.tier     === 'string' && sp.tier     ? sp.tier.split(',').filter(Boolean)     : [];
   const statFilts = typeof sp.status   === 'string' && sp.status   ? sp.status.split(',').filter(Boolean).map(s => s.toUpperCase()) : [];
   const repFilts  = typeof sp.rep      === 'string' && sp.rep      ? sp.rep.split(',').filter(Boolean)      : [];
+  const fyFilts   = typeof sp.fy       === 'string' && sp.fy       ? sp.fy.split(',').filter(Boolean)       : [];
 
-  const hasActiveFilters = !!(q_str || sugarFilt || indFilts.length || zoneFilts.length || tierFilts.length || statFilts.length || repFilts.length);
+  const hasActiveFilters = !!(q_str || sugarFilt || indFilts.length || zoneFilts.length || tierFilts.length || statFilts.length || repFilts.length || fyFilts.length);
   const sortCol = SORT_MAP[sortKey] ?? 'c.last_visit_date';
 
   // ── Build parameterised WHERE conditions ──────────────────────
@@ -81,6 +82,10 @@ export default async function ClientListPage({
       `EXISTS (SELECT 1 FROM client_assignments ca JOIN users u ON u.id = ca.user_id
                 WHERE ca.client_id = c.id AND u.name = ANY($${rIdx}::text[]))`
     );
+  }
+  if (fyFilts.length > 0) {
+    // Financial Year filter keys on the client's "since" year (clients.since_year).
+    whereConditions.push(`c.since_year = ANY($${params.push(fyFilts)}::text[])`);
   }
   if (sugarFilt === 'true')  whereConditions.push('c.is_sugar = TRUE');
   if (sugarFilt === 'false') whereConditions.push('(c.is_sugar = FALSE OR c.is_sugar IS NULL)');
@@ -118,7 +123,7 @@ export default async function ClientListPage({
   interface RepOption { rep_name: string; client_count: number; }
 
   // ── All queries in parallel ────────────────────────────────────
-  const [clients, total, industries, zones, tiers, repOptions] = await Promise.all([
+  const [clients, total, industries, zones, tiers, repOptions, fyYears] = await Promise.all([
 
     (async (): Promise<ClientRow[]> => {
       try {
@@ -211,6 +216,24 @@ export default async function ClientListPage({
         return rows;
       } catch { return []; }
     })(),
+
+    // Financial-year options from clients.since_year, shown as FY labels.
+    (async (): Promise<{ value: string; label: string; count: number }[]> => {
+      try {
+        const { rows } = await risansiPool.query<{ y: string; n: string }>(
+          `SELECT since_year AS y, COUNT(*)::text AS n FROM clients
+           WHERE since_year IS NOT NULL AND since_year <> '' AND deleted_at IS NULL
+           GROUP BY since_year ORDER BY since_year DESC`,
+        );
+        return rows.map(r => {
+          const yr = parseInt(r.y, 10);
+          const label = Number.isFinite(yr)
+            ? `FY ${String(yr % 100).padStart(2, '0')}-${String((yr + 1) % 100).padStart(2, '0')}`
+            : r.y;
+          return { value: r.y, label, count: Number(r.n) };
+        });
+      } catch { return []; }
+    })(),
   ]);
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
@@ -223,6 +246,7 @@ export default async function ClientListPage({
     if (tierFilts.length)   base.tier     = tierFilts.join(',');
     if (statFilts.length)   base.status   = statFilts.join(',');
     if (repFilts.length)    base.rep      = repFilts.join(',');
+    if (fyFilts.length)     base.fy       = fyFilts.join(',');
     if (sugarFilt)          base.sugar    = sugarFilt;
     if (sortKey)            base.sort     = sortKey;
     if (orderDir === 'DESC') base.order   = 'desc';
@@ -282,6 +306,7 @@ export default async function ClientListPage({
           <MultiSelectFilter param="tier"     label="Tier"      options={tiers}           selected={tierFilts} />
           <MultiSelectFilter param="status"   label="Status"    options={STATUS_OPTIONS}  selected={statFilts} />
           <MultiSelectFilter param="rep"      label="Rep"       options={repOptions.map(r => ({ value: r.rep_name, label: r.rep_name, count: r.client_count }))} selected={repFilts} />
+          <MultiSelectFilter param="fy"       label="Financial Year" options={fyYears} selected={fyFilts} />
         </div>
 
         {/* ── Active filter pills ───────────────────────────────── */}
@@ -291,6 +316,7 @@ export default async function ClientListPage({
           { param: 'tier',     label: 'Tier',     values: tierFilts },
           { param: 'status',   label: 'Status',   values: statFilts },
           { param: 'rep',      label: 'Rep',      values: repFilts  },
+          { param: 'fy',       label: 'Financial Year', values: fyFilts },
         ]} />
 
         {/* ── Table ────────────────────────────────────────────── */}

@@ -54,6 +54,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     redirect('/api/auth/signin');
   }
 
+  // Access Approval (/admin) is sysadmin-only — admins/managers/reps who reach
+  // the URL directly are bounced back to the app.
+  if ((session.user.role ?? 'rep') !== 'sysadmin') {
+    redirect('/risansi');
+  }
+
   const headersList = await headers();
   const ua = headersList.get('user-agent') ?? '';
   const _isMobile = isMobileUA(ua);
