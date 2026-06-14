@@ -738,6 +738,37 @@ export default async function ClientProfilePage({
           {/* Right column */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
+            {/* Location */}
+            <div style={PANEL}>
+              <div style={PANEL_H}><span style={PANEL_TITLE}>Location</span></div>
+              {(client.address || client.city || client.state || client.country || client.google_maps_url) ? (
+                <div style={{ padding: '14px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {client.address && (
+                    <div>
+                      <div style={LOC_LBL}>Address</div>
+                      <div style={{ fontSize: 13, color: 'var(--fg)', lineHeight: 1.5 }}>{client.address}</div>
+                    </div>
+                  )}
+                  {(client.city || client.state || client.country) && (
+                    <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+                      {client.city    && <div><div style={LOC_LBL}>City</div><div style={LOC_VAL}>{client.city}</div></div>}
+                      {client.state   && <div><div style={LOC_LBL}>State</div><div style={LOC_VAL}>{client.state}</div></div>}
+                      {client.country && <div><div style={LOC_LBL}>Country</div><div style={LOC_VAL}>{client.country}</div></div>}
+                    </div>
+                  )}
+                  {client.google_maps_url && (
+                    <a href={client.google_maps_url} target="_blank" rel="noreferrer" style={MAPS_BTN}>
+                      📍 View on Google Maps
+                    </a>
+                  )}
+                </div>
+              ) : (
+                <div style={{ padding: '20px 0', textAlign: 'center', fontSize: 12, color: 'var(--fg-3)' }}>
+                  No location on file
+                </div>
+              )}
+            </div>
+
             {/* Contacts */}
             <div style={PANEL}>
               <div style={{
@@ -1086,4 +1117,18 @@ const CONTACT_LINK: CSSProperties = {
   fontSize: 12, color: '#1A5CB8',
   textDecoration: 'none', display: 'flex',
   alignItems: 'center', gap: 4,
+};
+
+const LOC_LBL: CSSProperties = {
+  fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase',
+  letterSpacing: '0.10em', fontWeight: 500, marginBottom: 3,
+};
+
+const LOC_VAL: CSSProperties = { fontSize: 13, color: 'var(--fg)' };
+
+const MAPS_BTN: CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
+  padding: '8px 12px', fontSize: 12, fontWeight: 500,
+  background: '#EBF1FB', color: '#0A3D8F', border: '1px solid #C7D9F5',
+  borderRadius: 6, textDecoration: 'none',
 };
