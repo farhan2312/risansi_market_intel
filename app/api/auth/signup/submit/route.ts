@@ -23,17 +23,22 @@ export async function POST(req: NextRequest) {
     const lcEmail = email.toLowerCase().trim();
 
     // Self-service signups land as Pending users for a sysadmin to approve.
-    await risansiPool.query(
+    // Reject if the email is already registered — DO NOTHING + RETURNING makes
+    // the duplicate check atomic (no silent overwrite of an existing account).
+    const ins = await risansiPool.query(
       `INSERT INTO users (email, name, role, status, password_hash)
        VALUES ($1, $2, $3, 'Pending', $4)
-       ON CONFLICT (lower(email)) DO UPDATE SET
-         name          = EXCLUDED.name,
-         role          = EXCLUDED.role,
-         status        = 'Pending',
-         password_hash = EXCLUDED.password_hash,
-         updated_at    = NOW()`,
+       ON CONFLICT (lower(email)) DO NOTHING
+       RETURNING id`,
       [lcEmail, name.trim(), safeRole, hashed],
     );
+
+    if (ins.rowCount === 0) {
+      return NextResponse.json(
+        { error: 'An account with this email already exists. Please sign in, or contact your administrator if you need access.' },
+        { status: 409 },
+      );
+    }
 
     return NextResponse.json({ ok: true });
   } catch (err: unknown) {
