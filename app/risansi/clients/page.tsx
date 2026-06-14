@@ -306,7 +306,7 @@ export default async function ClientListPage({
           <MultiSelectFilter param="tier"     label="Tier"      options={tiers}           selected={tierFilts} />
           <MultiSelectFilter param="status"   label="Status"    options={STATUS_OPTIONS}  selected={statFilts} />
           <MultiSelectFilter param="rep"      label="Rep"       options={repOptions.map(r => ({ value: r.rep_name, label: r.rep_name, count: r.client_count }))} selected={repFilts} />
-          <MultiSelectFilter param="fy"       label="Financial Year" options={fyYears} selected={fyFilts} />
+          <MultiSelectFilter param="fy"       label="Customer Since (Financial Year)" options={fyYears} selected={fyFilts} />
         </div>
 
         {/* ── Active filter pills ───────────────────────────────── */}
@@ -316,7 +316,7 @@ export default async function ClientListPage({
           { param: 'tier',     label: 'Tier',     values: tierFilts },
           { param: 'status',   label: 'Status',   values: statFilts },
           { param: 'rep',      label: 'Rep',      values: repFilts  },
-          { param: 'fy',       label: 'Financial Year', values: fyFilts },
+          { param: 'fy',       label: 'Customer Since (Financial Year)', values: fyFilts },
         ]} />
 
         {/* ── Table ────────────────────────────────────────────── */}
