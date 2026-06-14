@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition, type CSSProperties } from 'react';
+import { useState, useTransition, useRef, useEffect, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { Tag } from '@/components/risansi';
 import { mapClients } from '@/app/actions/sysadmin';
@@ -30,6 +30,17 @@ export function UnassignedClient({ clients, users, tours }: {
   const [tourId, setTourId] = useState('');
   const [err, setErr] = useState('');
   const [ok, setOk] = useState('');
+  const [ownerOpen, setOwnerOpen] = useState(false);
+  const ownerRef = useRef<HTMLDivElement>(null);
+
+  // Close the owner dropdown when clicking outside it.
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      if (ownerRef.current && !ownerRef.current.contains(e.target as Node)) setOwnerOpen(false);
+    }
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
 
   const allSelected = clients.length > 0 && selected.size === clients.length;
 
@@ -79,26 +90,28 @@ export function UnassignedClient({ clients, users, tours }: {
         </div>
         <div style={{ flex: 1 }} />
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-          {/* Owner multi-select */}
-          <details style={{ position: 'relative' }}>
-            <summary style={DROPDOWN_SUMMARY}>
-              Owners{ownerIds.length ? ` (${ownerIds.length})` : ''} ▾
-            </summary>
-            <div style={DROPDOWN_PANEL}>
-              {users.map(u => (
-                <label key={u.id} style={CHECK_ROW}>
-                  <input type="checkbox" checked={ownerIds.includes(String(u.id))}
-                    onChange={() => toggleOwner(String(u.id))}
-                    style={{ accentColor: '#1A5CB8' }} />
-                  <span>{u.name}{u.zone ? ` · ${u.zone}` : ''}</span>
-                </label>
-              ))}
-              {users.length === 0 && <div style={{ padding: 8, fontSize: 12, color: 'var(--fg-3)' }}>No users</div>}
-            </div>
-          </details>
+          {/* Rep / Manager multi-select */}
+          <div ref={ownerRef} style={{ position: 'relative' }}>
+            <button type="button" onClick={() => setOwnerOpen(o => !o)} style={CONTROL}>
+              {ownerIds.length ? `Rep / Manager (${ownerIds.length})` : '— Rep / Manager —'}
+            </button>
+            {ownerOpen && (
+              <div style={DROPDOWN_PANEL}>
+                {users.map(u => (
+                  <label key={u.id} style={CHECK_ROW}>
+                    <input type="checkbox" checked={ownerIds.includes(String(u.id))}
+                      onChange={() => toggleOwner(String(u.id))}
+                      style={{ accentColor: '#1A5CB8' }} />
+                    <span>{u.name}{u.zone ? ` · ${u.zone}` : ''}</span>
+                  </label>
+                ))}
+                {users.length === 0 && <div style={{ padding: 8, fontSize: 12, color: 'var(--fg-3)' }}>No users</div>}
+              </div>
+            )}
+          </div>
 
-          <select value={tourId} onChange={e => setTourId(e.target.value)} style={{ ...INP, maxWidth: 220 }}>
-            <option value="">— No tour change —</option>
+          <select value={tourId} onChange={e => setTourId(e.target.value)} style={CONTROL}>
+            <option value="">— Tour —</option>
             {tours.map(t => <option key={t.id} value={String(t.id)}>{t.name}{t.zone ? ` · ${t.zone}` : ''}</option>)}
           </select>
 
@@ -155,9 +168,19 @@ const PANEL: CSSProperties = { background: 'var(--bg-paper)', border: '1px solid
 const BAR: CSSProperties = { display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', marginBottom: 12, background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 'var(--radius)' };
 const TH: CSSProperties = { padding: '9px 12px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, color: 'var(--fg-3)', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
 const TD: CSSProperties = { padding: '10px 12px', verticalAlign: 'middle' };
-const INP: CSSProperties = { padding: '7px 10px', fontSize: 13, fontFamily: 'inherit', background: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: 6, color: '#0D1B2A', outline: 'none', boxSizing: 'border-box' };
 const PRIMARY_BTN: CSSProperties = { padding: '7px 14px', fontSize: 12, fontWeight: 600, background: '#0A3D8F', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 };
-const DROPDOWN_SUMMARY: CSSProperties = { listStyle: 'none', cursor: 'pointer', padding: '7px 12px', fontSize: 13, background: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: 6, color: '#0D1B2A', userSelect: 'none' };
+// Shared look for the rep/manager dropdown button and the tour <select> so both
+// match: same border/height + the same custom chevron (native select chevron
+// suppressed via appearance:none).
+const CONTROL: CSSProperties = {
+  width: 210, textAlign: 'left',
+  padding: '7px 28px 7px 10px', fontSize: 13, fontFamily: 'inherit',
+  background: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: 6,
+  color: '#0D1B2A', outline: 'none', boxSizing: 'border-box', cursor: 'pointer',
+  appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none',
+  backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 16 16' fill='none' stroke='%236B7FA3' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4 6.5 8 10.5 12 6.5'/></svg>")`,
+  backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center',
+};
 const DROPDOWN_PANEL: CSSProperties = { position: 'absolute', top: '100%', right: 0, zIndex: 60, marginTop: 4, minWidth: 220, maxHeight: 260, overflowY: 'auto', background: '#fff', border: '1px solid #CBD5E1', borderRadius: 6, boxShadow: '0 4px 20px rgba(10,22,40,0.13)', padding: 6 };
 const CHECK_ROW: CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer', borderRadius: 4 };
 const ERR_BOX: CSSProperties = { padding: '9px 12px', background: '#FEE2E2', border: '1px solid rgba(220,38,38,0.20)', borderRadius: 5, fontSize: 12, color: '#9B1C1C', marginBottom: 12 };
