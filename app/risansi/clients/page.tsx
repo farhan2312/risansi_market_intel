@@ -13,7 +13,7 @@ const SORT_MAP: Record<string, string> = {
   code:       'c.code',
   name:       'c.legal_name',
   industry:   'c.industry',
-  zone:       'c.zone',
+  zone:       'tr.zone',
   last_visit: 'c.last_visit_date',
   status:     'c.status',
   tier:       'c.tier',
@@ -66,8 +66,8 @@ export default async function ClientListPage({
     whereConditions.push(`c.industry = ANY($${params.push(indFilts)}::text[])`);
   }
   if (zoneFilts.length > 0) {
-    // Filter on client's own zone only — reps.zone may not exist
-    whereConditions.push(`c.zone = ANY($${params.push(zoneFilts)}::text[])`);
+    // Zone lives on the tour (clients.zone is unused), so filter on tr.zone.
+    whereConditions.push(`tr.zone = ANY($${params.push(zoneFilts)}::text[])`);
   }
   if (tierFilts.length > 0) {
     whereConditions.push(`c.tier = ANY($${params.push(tierFilts)}::text[])`);
@@ -152,6 +152,7 @@ export default async function ClientListPage({
         const { rows } = await risansiPool.query<{ count: string }>(
           `SELECT COUNT(DISTINCT c.id)::text AS count
            FROM clients c
+           LEFT JOIN tour_routes tr ON tr.id = c.tour_id
            WHERE ${whereClause}`,
           countParams as (string | number)[],
         );
@@ -174,7 +175,7 @@ export default async function ClientListPage({
     (async (): Promise<string[]> => {
       try {
         const { rows } = await risansiPool.query<{ zone: string }>(
-          `SELECT DISTINCT zone FROM clients WHERE zone IS NOT NULL AND deleted_at IS NULL ORDER BY zone`,
+          `SELECT DISTINCT zone FROM tour_routes WHERE zone IS NOT NULL AND zone <> '' ORDER BY zone`,
         );
         return rows.map(r => r.zone);
       } catch { return []; }
@@ -371,7 +372,7 @@ export default async function ClientListPage({
 
                         {/* Zone / Route */}
                         <td style={{ ...TD, whiteSpace: 'nowrap' }}>
-                          <div style={{ fontSize: 12 }}>{c.zone ?? '—'}</div>
+                          <div style={{ fontSize: 12 }}>{c.zone || c.tour_zone || '—'}</div>
                           {c.tour_name && (
                             <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 1 }}>{c.tour_name}</div>
                           )}
