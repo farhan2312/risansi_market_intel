@@ -1,0 +1,315 @@
+import { notFound, redirect } from 'next/navigation';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+import risansiPool from '@/lib/db-risansi';
+import { getCurrentUser, canViewClient } from '@/lib/risansi-auth';
+import { formatRev, fmtCr, formatLastVisit } from '@/lib/risansi-utils';
+import { AutoPrint } from '@/components/risansi/AutoPrint';
+import {
+  PRINT_CSS, ROOT, C, Section, Facts, TextBlock, TH, TD, DocHeader,
+} from '@/components/risansi/print-shared';
+
+async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
+  try { return await fn(); } catch { return fallback; }
+}
+
+const COMPETITOR_PCP: Record<string, string> = {
+  roto_pcp: 'Roto', rotomac_pcp: 'Rotomac', gita_pcp: 'Gita', psp_pcp: 'PSP',
+  syno_pcp: 'Syno', ropman_pcp: 'Ropman', myto_pcp: 'Myto', vikas_pcp: 'Vikas',
+  newpumps_pcp: 'Newpumps', indopump_pcp: 'Indopump', tushaco_pcp: 'Tushaco',
+  yaswant_pcp: 'Yaswant', shivam_pcp: 'Shivam', saksham_pcp: 'Saksham', alpha_pcp: 'Alpha',
+  gajanan_pcp: 'Gajanan', chandra_helicon_pcp: 'Chandra Helicon', netzsch_pcp: 'Netzsch',
+  akanshi_pcp: 'Akanshi', pragati_pcp: 'Pragati', ropar_pcp: 'Ropar', rotor_flow_pcp: 'Rotor Flow',
+  naishit_pcp: 'Naishit', delta_pcp: 'Delta', varun_pcp: 'Varun', npi_pcp: 'NPI',
+  hydroprocav_pcp: 'Hydroprocav', sre_pcp: 'SRE', span_engg_pcp: 'Span Engg',
+  pandey_pcp: 'Pandey', mahalaxmi_pcp: 'Mahalaxmi', ravalgoan_pcp: 'Ravalgoan', others_pcp: 'Others',
+};
+
+function fmtDate(v: string | Date | null | undefined): string {
+  if (!v) return '—';
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+export default async function ClientPrintPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) redirect('/api/auth/signin');
+
+  const isNumeric = /^\d+$/.test(id);
+  const whereClause = isNumeric ? 'c.id = $1::bigint' : 'c.code = $1';
+
+  const client = await q<Record<string, unknown> | null>(async () => {
+    const { rows } = await risansiPool.query<Record<string, unknown>>(
+      `SELECT c.*,
+              COALESCE((SELECT string_agg(u.name, ', ' ORDER BY u.name)
+                FROM client_assignments ca JOIN users u ON u.id = ca.user_id
+                WHERE ca.client_id = c.id), '—') AS rep_name,
+              tr.name AS tour_name, tr.zone AS tour_zone
+       FROM clients c
+       LEFT JOIN tour_routes tr ON tr.id = c.tour_id
+       WHERE ${whereClause} AND c.deleted_at IS NULL`,
+      [id],
+    );
+    return rows[0] ?? null;
+  }, null);
+  if (!client) notFound();
+
+  const currentUser = await getCurrentUser();
+  if (!(await canViewClient(currentUser, Number(client.id)))) notFound();
+
+  const [contacts, clientRevByFY, compRow, visits, openOpps] = await Promise.all([
+    q(async () => (await risansiPool.query<Record<string, unknown>>(
+      `SELECT name, designation, is_primary, phone, email, whatsapp, notes
+         FROM contacts WHERE client_id = $1 ORDER BY is_primary DESC, created_at ASC`, [client.id],
+    )).rows, [] as Record<string, unknown>[]),
+    q(async () => (await risansiPool.query<{ fy: string; pump_inr: string; spare_inr: string; total_inr: string }>(
+      `SELECT LPAD((EXTRACT(YEAR FROM month)::int % 100)::text,2,'0')||'-'||LPAD(((EXTRACT(YEAR FROM month)::int + 1) % 100)::text,2,'0') AS fy,
+              COALESCE(SUM(pump_value),0)::text AS pump_inr, COALESCE(SUM(spare_value),0)::text AS spare_inr, COALESCE(SUM(total_value),0)::text AS total_inr
+         FROM client_revenue_monthly WHERE client_id = $1 AND EXTRACT(MONTH FROM month) >= 4 GROUP BY 1
+       UNION ALL
+       SELECT LPAD(((EXTRACT(YEAR FROM month)::int - 1) % 100)::text,2,'0')||'-'||LPAD((EXTRACT(YEAR FROM month)::int % 100)::text,2,'0') AS fy,
+              COALESCE(SUM(pump_value),0)::text, COALESCE(SUM(spare_value),0)::text, COALESCE(SUM(total_value),0)::text
+         FROM client_revenue_monthly WHERE client_id = $1 AND EXTRACT(MONTH FROM month) < 4 GROUP BY 1
+       ORDER BY fy ASC`, [client.id],
+    )).rows, [] as { fy: string; pump_inr: string; spare_inr: string; total_inr: string }[]),
+    q(async () => (await risansiPool.query<Record<string, number | string | null>>(
+      `SELECT * FROM competitor_installed_base WHERE client_code = $1 LIMIT 1`, [client.code],
+    )).rows[0] ?? null, null as Record<string, number | string | null> | null),
+    q(async () => (await risansiPool.query<Record<string, unknown>>(
+      `SELECT v.visit_date, COALESCE(r.name,'—') AS rep_name, v.purpose, v.outcome, v.summary, v.status
+         FROM visits v LEFT JOIN users r ON r.id = v.rep_id
+         WHERE v.client_id = $1 ORDER BY v.visit_date DESC LIMIT 30`, [client.id],
+    )).rows, [] as Record<string, unknown>[]),
+    q(async () => (await risansiPool.query<Record<string, unknown>>(
+      `SELECT product, stage, value_cr::text AS value_cr, probability, expected_close_date
+         FROM opportunities WHERE client_id = $1 AND stage NOT IN ('Won','Lost') ORDER BY value_cr DESC`, [client.id],
+    )).rows, [] as Record<string, unknown>[]),
+  ]);
+
+  // ── Revenue rollup ──
+  const INR_TO_L = 100_000;
+  const revByFY: Record<string, { pump: number; spare: number }> = {};
+  for (const r of clientRevByFY) {
+    revByFY[r.fy] = { pump: Number(r.pump_inr) / INR_TO_L, spare: Number(r.spare_inr) / INR_TO_L };
+  }
+  const chartFYs = Object.keys(revByFY).sort();
+  let lifePump = 0, lifeSpare = 0;
+  for (const v of Object.values(revByFY)) { lifePump += v.pump; lifeSpare += v.spare; }
+  const lifeTotal = lifePump + lifeSpare;
+
+  // ── Competition ──
+  const rilUnits = Number(compRow?.ril_pcp ?? 0);
+  const makers = compRow
+    ? Object.entries(COMPETITOR_PCP).map(([col, name]) => ({ name, units: Number(compRow[col] ?? 0) })).filter(m => m.units > 0).sort((a, b) => b.units - a.units)
+    : [];
+  const sumNamed = rilUnits + makers.reduce((s, m) => s + m.units, 0);
+  const totalUnits = Math.max(Number(compRow?.total_pcp ?? 0), sumNamed);
+  const rilSharePct = totalUnits > 0 ? Math.round((rilUnits / totalUnits) * 100) : 0;
+
+  const pipelineTotal = openOpps.reduce((s, o) => s + Number(o.value_cr), 0);
+  const lastVisit = formatLastVisit(client.last_visit_date as string | null);
+  const c = client as Record<string, unknown>;
+  const str = (k: string) => (c[k] == null || c[k] === '' ? null : String(c[k]));
+
+  return (
+    <>
+      <style dangerouslySetInnerHTML={{ __html: PRINT_CSS }} />
+      <div className="print-root" style={{ background: '#fff', minHeight: '100vh', padding: '16px' }}>
+        <AutoPrint label="Save Client Profile as PDF" />
+        <div style={ROOT}>
+          <DocHeader
+            kind="Client Profile"
+            title={String(client.legal_name)}
+            subtitle={<>
+              <span style={{ fontFamily: 'monospace' }}>{String(client.code)}</span>
+              {str('industry') ? ` · ${str('industry')}` : ''}
+              {str('tcd') ? ` · ${str('tcd')} TCD` : ''}
+              {str('since_year') ? ` · Customer since ${str('since_year')}` : ''}
+            </>}
+            meta={<>
+              <div style={{ fontWeight: 700, color: client.status === 'ACTIVE' ? C.pos : C.fg3 }}>{String(client.status)}</div>
+              {str('tier') ? <div style={{ marginTop: 2 }}>{str('tier')}</div> : null}
+              {str('zone') ? <div style={{ marginTop: 2 }}>{str('zone')}</div> : null}
+            </>}
+          />
+
+          {/* KPI strip */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 14 }} className="avoid-break">
+            {[
+              ['Lifetime Revenue', formatRev(lifeTotal * 100_000)],
+              ['Last Visit', lastVisit.label],
+              ['PCP Installed Base', totalUnits > 0 ? `${rilUnits} / ${totalUnits}  ·  ${rilSharePct}% RIL` : '—'],
+              ['Open Pipeline', openOpps.length > 0 ? `${fmtCr(pipelineTotal)} · ${openOpps.length}` : '—'],
+            ].map(([l, v]) => (
+              <div key={l} style={{ border: `1px solid ${C.line}`, borderRadius: 8, padding: 10 }}>
+                <div style={{ fontSize: 9, color: C.fg3, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>{l}</div>
+                <div style={{ fontSize: 15, fontWeight: 700, marginTop: 3, color: C.ink }}>{v}</div>
+              </div>
+            ))}
+          </div>
+
+          <Section title="Account Overview">
+            <Facts rows={[
+              ['Legal Name', String(client.legal_name)],
+              ['Trade Name', str('trade_name')],
+              ['Group', str('group_name')],
+              ['Client Code', String(client.code)],
+              ['Industry', str('industry')],
+              ['Business Category', str('business_category')],
+              ['Market Type', str('market_type')],
+              ['Client Type', str('client_type')],
+              ['Capacity', [str('tcd') ? `${str('tcd')} TCD` : null, str('klpd') ? `${str('klpd')} KLPD` : null].filter(Boolean).join(' · ') || str('capacity_bracket')],
+              ['Owners', str('rep_name')],
+              ['Tour', str('tour_name') ? `${str('tour_name')}${str('tour_zone') ? ` · ${str('tour_zone')}` : ''}` : null],
+              ['Zone', str('zone')],
+              ['Customer Since', str('since_year')],
+              ['Total Outstanding', c.total_outstanding != null ? formatRev(Number(c.total_outstanding)) : null],
+            ]} cols={3} />
+          </Section>
+
+          <Section title="Location">
+            <Facts rows={[
+              ['Address', str('address')],
+              ['City', str('city')],
+              ['State', str('state')],
+              ['Country', str('country')],
+              ['Google Maps', str('google_maps_url')],
+            ]} />
+          </Section>
+
+          {chartFYs.length > 0 && (
+            <Section title="Year-on-Year Revenue" right="₹ Lakhs">
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead><tr>
+                  <th style={TH}></th>
+                  {chartFYs.map(f => <th key={f} style={{ ...TH, textAlign: 'right' }}>FY {f}</th>)}
+                  <th style={{ ...TH, textAlign: 'right' }}>Total</th>
+                </tr></thead>
+                <tbody>
+                  {([['Pump', 'pump', lifePump], ['Spare', 'spare', lifeSpare]] as const).map(([lbl, key, total]) => (
+                    <tr key={lbl}>
+                      <td style={{ ...TD, color: C.fg3 }}>{lbl} (₹ L)</td>
+                      {chartFYs.map(f => <td key={f} style={{ ...TD, textAlign: 'right', fontFamily: 'monospace' }}>{revByFY[f][key] > 0 ? revByFY[f][key].toFixed(1) : '—'}</td>)}
+                      <td style={{ ...TD, textAlign: 'right', fontFamily: 'monospace', fontWeight: 700 }}>{total.toFixed(1)}</td>
+                    </tr>
+                  ))}
+                  <tr style={{ background: C.bgElev }}>
+                    <td style={{ ...TD, fontWeight: 700 }}>Total</td>
+                    {chartFYs.map(f => { const t = revByFY[f].pump + revByFY[f].spare; return <td key={f} style={{ ...TD, textAlign: 'right', fontFamily: 'monospace', fontWeight: 700 }}>{t > 0 ? t.toFixed(1) : '—'}</td>; })}
+                    <td style={{ ...TD, textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: C.accent }}>{lifeTotal.toFixed(1)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </Section>
+          )}
+
+          <Section title={`Competition · PCP Installed Base${totalUnits > 0 ? ` · ${totalUnits} pumps` : ''}`} right={totalUnits > 0 ? `RIL share ${rilSharePct}%` : undefined}>
+            {totalUnits > 0 ? (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead><tr>{['Make', 'Units', 'Share'].map(h => <th key={h} style={{ ...TH, textAlign: h === 'Make' ? 'left' : 'right' }}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {[{ name: 'RIL (us)', units: rilUnits, isRil: true }, ...makers.map(m => ({ ...m, isRil: false }))].filter(m => m.units > 0).map(m => (
+                    <tr key={m.name}>
+                      <td style={{ ...TD, fontWeight: m.isRil ? 700 : 400, color: m.isRil ? C.accent : C.ink }}>{m.name}</td>
+                      <td style={{ ...TD, textAlign: 'right', fontFamily: 'monospace' }}>{m.units}</td>
+                      <td style={{ ...TD, textAlign: 'right', fontFamily: 'monospace' }}>{Math.round((m.units / totalUnits) * 100)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : <div style={{ color: C.fg3 }}>No competitor installed-base data for this client</div>}
+          </Section>
+
+          {(str('action_points') || c.expected_to_pump != null || c.expected_to_spare != null || str('constraints_notes') || !!c.mgmt_intervention) && (
+            <Section title="Plan of Action">
+              <Facts rows={[
+                ['Expected Pump', c.expected_to_pump != null ? formatRev(Number(c.expected_to_pump)) : null],
+                ['Expected Spare', c.expected_to_spare != null ? formatRev(Number(c.expected_to_spare)) : null],
+                ['Mgmt Intervention', c.mgmt_intervention ? 'Yes' : null],
+                ['PCP Competitor', str('pcp_competitor')],
+              ]} cols={3} />
+              <div style={{ marginTop: 10 }}>
+                <TextBlock label="Action Points" value={str('action_points')} />
+                <TextBlock label="Constraints" value={str('constraints_notes')} />
+                <TextBlock label="Competitors Observed" value={str('competitors_observed')} />
+              </div>
+            </Section>
+          )}
+
+          {(str('performance_feedback') || str('last_visit_summary') || str('open_remarks') || str('complaint_notes') || str('major_remarks')) && (
+            <Section title="Field Intelligence" right={str('performance_feedback') ?? undefined}>
+              <TextBlock label="Last Visit Summary" value={str('last_visit_summary')} />
+              <TextBlock label="Open Remarks" value={str('open_remarks')} />
+              <TextBlock label="Major Remarks" value={str('major_remarks')} />
+              <TextBlock label="Open Complaints" value={str('complaint_notes')} />
+            </Section>
+          )}
+
+          <Section title="Contacts" right={`${contacts.length}`}>
+            {contacts.length === 0 ? <div style={{ color: C.fg3 }}>No contacts recorded</div> : (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead><tr>{['Name', 'Designation', 'Phone', 'Email', 'WhatsApp'].map(h => <th key={h} style={TH}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {contacts.map((ct, i) => (
+                    <tr key={i}>
+                      <td style={TD}>{String(ct.name ?? '—')}{ct.is_primary ? ' ★' : ''}</td>
+                      <td style={TD}>{String(ct.designation ?? '—')}</td>
+                      <td style={TD}>{String(ct.phone ?? '—')}</td>
+                      <td style={TD}>{String(ct.email ?? '—')}</td>
+                      <td style={TD}>{String(ct.whatsapp ?? '—')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Section>
+
+          {openOpps.length > 0 && (
+            <Section title="Open Pipeline" right={`${fmtCr(pipelineTotal)} total`}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead><tr>{['Product', 'Stage', 'Probability', 'Expected Close', 'Value'].map(h => <th key={h} style={TH}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {openOpps.map((o, i) => (
+                    <tr key={i}>
+                      <td style={TD}>{String(o.product ?? '—')}</td>
+                      <td style={TD}>{String(o.stage ?? '—')}</td>
+                      <td style={TD}>{o.probability != null ? `${o.probability}%` : '—'}</td>
+                      <td style={TD}>{o.expected_close_date ? String(o.expected_close_date) : '—'}</td>
+                      <td style={{ ...TD, fontFamily: 'monospace' }}>{fmtCr(Number(o.value_cr))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Section>
+          )}
+
+          <Section title="Visit Timeline" right={visits.length > 0 ? `${visits.length} visits` : undefined}>
+            {visits.length === 0 ? <div style={{ color: C.fg3 }}>No visit history</div> : (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead><tr>{['Date', 'Rep', 'Purpose', 'Outcome', 'Summary'].map(h => <th key={h} style={TH}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {visits.map((v, i) => (
+                    <tr key={i}>
+                      <td style={{ ...TD, whiteSpace: 'nowrap', fontFamily: 'monospace' }}>{fmtDate(v.visit_date as string)}</td>
+                      <td style={TD}>{String(v.rep_name ?? '—')}</td>
+                      <td style={TD}>{String(v.purpose ?? '—')}</td>
+                      <td style={TD}>{String(v.outcome ?? '—')}</td>
+                      <td style={TD}>{String(v.summary ?? '—')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Section>
+
+          <div style={{ marginTop: 16, paddingTop: 8, borderTop: `1px solid ${C.line}`, fontSize: 9, color: C.fg3, display: 'flex', justifyContent: 'space-between' }}>
+            <span>Risansi Intelligence Platform — Client Profile · {String(client.code)}</span>
+            <span>Generated {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}

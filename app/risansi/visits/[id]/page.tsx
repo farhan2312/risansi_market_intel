@@ -223,6 +223,21 @@ export default async function VisitReportPage({
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+              {isSubmitted && (
+                <a
+                  href={`/print/visit/${id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    padding: '8px 14px', fontSize: 13, fontWeight: 600,
+                    background: '#EBF1FB', color: '#0A3D8F',
+                    border: '1px solid #C7D9F5', borderRadius: 6, textDecoration: 'none',
+                  }}
+                >
+                  🖨 Export PDF
+                </a>
+              )}
               {canEdit && <SubmitVisitButton visitId={id} />}
             </div>
           </div>

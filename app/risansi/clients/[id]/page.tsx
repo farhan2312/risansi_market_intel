@@ -450,6 +450,20 @@ export default async function ClientProfilePage({
               )}
             </div>
           </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <a
+            href={`/print/client/${client.code}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '8px 14px', fontSize: 13, fontWeight: 600,
+              background: '#EBF1FB', color: '#0A3D8F',
+              border: '1px solid #C7D9F5', borderRadius: 6, textDecoration: 'none',
+            }}
+          >
+            🖨 Export PDF
+          </a>
           <ClientActionButtons
             clientId={client.id}
             clientName={client.legal_name}
@@ -465,6 +479,7 @@ export default async function ClientProfilePage({
             currentUserRepId={session?.user?.repId ?? null}
             currentUserRole={role}
           />
+          </div>
         </div>
 
         {/* ── KPI cards ────────────────────────────────────────── */}
