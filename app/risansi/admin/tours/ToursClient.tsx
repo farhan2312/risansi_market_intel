@@ -56,11 +56,11 @@ export function ToursClient({ tours, users }: { tours: TourMappingRow[]; users: 
     <>
       {/* KPI cards */}
       <div style={KPI_ROW}>
-        <Kpi label="Total Tours"      value={kpi.total} />
-        <Kpi label="Managed"          value={kpi.managed} color="var(--pos)" />
-        <Kpi label="No Manager"       value={kpi.noManager} color={kpi.noManager ? 'var(--warn)' : undefined} />
-        <Kpi label="No Users At All"  value={kpi.noUsers} color={kpi.noUsers ? 'var(--neg)' : undefined} />
-        <Kpi label="Clients on Tours" value={kpi.clients} />
+        <Kpi label="Total Tours"        value={kpi.total} />
+        <Kpi label="With a Manager"     value={kpi.managed} color="var(--pos)" />
+        <Kpi label="Missing a Manager"  value={kpi.noManager} color={kpi.noManager ? 'var(--warn)' : undefined} />
+        <Kpi label="No One Assigned"    value={kpi.noUsers} color={kpi.noUsers ? 'var(--neg)' : undefined} />
+        <Kpi label="Clients on Tours"   value={kpi.clients} />
       </div>
 
       {/* Filter bar */}
