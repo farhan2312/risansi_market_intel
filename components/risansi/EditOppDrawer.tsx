@@ -39,6 +39,7 @@ const STAGE_COLORS: Record<string, string> = {
   Negotiating: '#F97316',
   Won:         '#0E9F6E',
   Lost:        '#E02424',
+  Dropped:     '#64748B',
 };
 
 export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableOpp; onClose: () => void; canEdit?: boolean }) {
@@ -193,7 +194,7 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
             <div>
               <label style={LABEL_STYLE}>Stage *</label>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {['Suspect', 'Prospect', 'Quoted', 'Negotiating', 'Won', 'Lost'].map(s => (
+                {['Suspect', 'Prospect', 'Quoted', 'Negotiating', 'Won', 'Lost', 'Dropped'].map(s => (
                   <button
                     key={s} type="button" onClick={() => setStage(s)}
                     style={{

@@ -14,7 +14,7 @@ export interface KanbanOpp extends EditableOpp {
   can_edit?:  boolean;
 }
 
-const STAGES = ['Suspect', 'Prospect', 'Quoted', 'Negotiating', 'Won', 'Lost'] as const;
+const STAGES = ['Suspect', 'Prospect', 'Quoted', 'Negotiating', 'Won', 'Lost', 'Dropped'] as const;
 
 const STAGE_COLOR: Record<string, string> = {
   Suspect:     'var(--info)',
@@ -23,6 +23,14 @@ const STAGE_COLOR: Record<string, string> = {
   Negotiating: 'var(--accent)',
   Won:         'var(--pos)',
   Lost:        'var(--neg)',
+  Dropped:     '#64748B',
+};
+
+// Friendlier column headers (timeframe hints / clarifications).
+const STAGE_LABEL: Record<string, string> = {
+  Suspect:  'Suspect (1-2 years +)',
+  Prospect: 'Prospect (6 months +)',
+  Dropped:  'Dropped (cancelled by client)',
 };
 
 export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] }) {
@@ -113,7 +121,7 @@ export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] })
         </span>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 10 }}>
         {STAGES.map(stage => {
           const items = byStage[stage] ?? [];
           const stageTotal = items.reduce((s, o) => s + o.value_cr, 0);
@@ -140,7 +148,7 @@ export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] })
               <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--line)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <span style={{ fontSize: 11, fontWeight: 500, color, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                    {stage}
+                    {STAGE_LABEL[stage] ?? stage}
                   </span>
                   <span style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
                     {items.length}

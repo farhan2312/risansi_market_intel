@@ -143,8 +143,10 @@ export default async function PipelinePage({
   const ownerVisBareAnd = ownerVisBare ? ` AND (${ownerVisBare})` : '';
 
   const filterClause = (conds.length ? ` AND ${conds.join(' AND ')}` : '') + ownerVisAnd;
-  const openWhere   = `WHERE o.stage NOT IN ('Won', 'Lost')${filterClause}`;
-  const closedWhere = `WHERE o.stage IN ('Won', 'Lost') AND o.updated_at >= NOW() - INTERVAL '12 months'${filterClause}`;
+  // Dropped is terminal (client-cancelled) — excluded from open pipeline, shown
+  // in the kanban alongside Won/Lost via the closed query.
+  const openWhere   = `WHERE o.stage NOT IN ('Won', 'Lost', 'Dropped')${filterClause}`;
+  const closedWhere = `WHERE o.stage IN ('Won', 'Lost', 'Dropped') AND o.updated_at >= NOW() - INTERVAL '12 months'${filterClause}`;
 
   // Per-opportunity edit permission, evaluated in SQL:
   //   admin/sysadmin → all · assigned rep → own · manager → reps sharing a tour.
@@ -265,7 +267,7 @@ export default async function PipelinePage({
     // 6. Filter options
     q<string[]>(async () => {
       const { rows } = await risansiPool.query<{ stage: string }>(
-        `SELECT DISTINCT stage FROM opportunities WHERE stage NOT IN ('Won','Lost') ORDER BY stage`,
+        `SELECT DISTINCT stage FROM opportunities WHERE stage NOT IN ('Won','Lost','Dropped') ORDER BY stage`,
       );
       return rows.map(r => r.stage);
     }, ['Suspect', 'Prospect', 'Quoted', 'Negotiating']),

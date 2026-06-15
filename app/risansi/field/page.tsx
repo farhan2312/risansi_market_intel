@@ -502,7 +502,7 @@ export default async function FieldActivityPage({
             { id: 'calendar', label: 'Calendar' },
             { id: 'feed',     label: 'Visit Feed' },
             { id: 'reports',  label: 'Visit Reports' },
-            { id: 'activities', label: `Activities (${openTaskCount})` },
+            { id: 'activities', label: `Action Register (${openTaskCount})` },
             { id: 'overdue',  label: `Overdue (${stats.overdue.toLocaleString('en-IN')})` },
             { id: 'map',      label: 'Map' },
           ].map(t => (

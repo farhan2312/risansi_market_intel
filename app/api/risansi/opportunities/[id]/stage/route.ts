@@ -4,7 +4,7 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { hasRole, getManagerAssignableReps } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 
-const VALID = ['Suspect', 'Prospect', 'Quoted', 'Negotiating', 'Won', 'Lost'];
+const VALID = ['Suspect', 'Prospect', 'Quoted', 'Negotiating', 'Won', 'Lost', 'Dropped'];
 
 export async function PATCH(
   req: Request,
