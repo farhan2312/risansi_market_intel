@@ -603,7 +603,7 @@ export function VisitReportForm({
       </FormSection>
 
       {/* ── SECTION: Action Points ─────────────────────────── */}
-      <FormSection title="Action Points" icon="📋">
+      <FormSection title="Action Register" icon="📋">
         {tasks.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '24px', color: 'var(--fg-3)', fontSize: 13 }}>
             No action points yet.{!isClosed && ' Click "+ Add Action Point" to create one.'}
