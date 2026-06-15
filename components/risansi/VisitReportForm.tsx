@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, type CSSProperties, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { saveVisitField, checkInVisit, addEquipment, saveExpansionOpportunity } from '@/app/actions/risansi-visits';
+import { saveVisitField, checkInVisit, addEquipment, updateEquipment, saveExpansionOpportunity } from '@/app/actions/risansi-visits';
 import { addTask, updateTaskStatus, deleteTask } from '@/app/actions/risansi-tasks';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -151,6 +151,8 @@ export function VisitReportForm({
   // Equipment
   const [eqTab, setEqTab]   = useState<'ril' | 'competitor'>('ril');
   const [showEqForm, setShowEqForm] = useState(false);
+  // id of the equipment row being edited (null = adding a new row)
+  const [editingEqId, setEditingEqId] = useState<number | null>(null);
   // true when the competitor make isn't in COMPETITOR_MAKES (free-text entry)
   const [supplierOther, setSupplierOther] = useState(false);
   const [newEq, setNewEq] = useState({
@@ -412,6 +414,7 @@ export function VisitReportForm({
                 {['Type', 'Supplier/Model', 'Application', 'Qty', 'Condition', eqTab === 'ril' ? 'Feedback' : 'Reason'].map(h => (
                   <th key={h} style={{ padding: '7px 10px', textAlign: 'left', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--fg-3)', borderBottom: '1px solid var(--line)' }}>{h}</th>
                 ))}
+                {!disabled && <th style={{ padding: '7px 10px', borderBottom: '1px solid var(--line)' }} />}
               </tr>
             </thead>
             <tbody>
@@ -434,6 +437,34 @@ export function VisitReportForm({
                   <td style={{ padding: '8px 10px', color: 'var(--fg-3)', fontSize: 11 }}>
                     {eqTab === 'ril' ? String(e.performance_feedback ?? '—') : String(e.reason_for_competitor ?? '—')}
                   </td>
+                  {!disabled && (
+                    <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const sup = String(e.supplier ?? '');
+                          setEditingEqId(Number(e.id));
+                          setShowEqForm(true);
+                          setSupplierOther(eqTab === 'competitor' && sup !== '' && !COMPETITOR_MAKES.includes(sup));
+                          setNewEq({
+                            pump_type: String(e.pump_type ?? 'PCP'),
+                            supplier: sup,
+                            model: String(e.model ?? ''),
+                            qty: Number(e.qty ?? 1),
+                            application: String(e.application ?? ''),
+                            condition: String(e.condition ?? 'Good'),
+                            is_ril: Boolean(e.is_ril),
+                            reason_for_competitor: String(e.reason_for_competitor ?? ''),
+                            competitor_activity_type: String(e.competitor_activity_type ?? ''),
+                            performance_feedback: String(e.performance_feedback ?? ''),
+                          });
+                        }}
+                        style={{ fontSize: 11, color: '#0A3D8F', background: 'none', border: '1px solid #0A3D8F', borderRadius: 5, padding: '3px 10px', cursor: 'pointer', fontFamily: 'inherit' }}
+                      >
+                        Edit
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -443,7 +474,7 @@ export function VisitReportForm({
         {/* Add equipment form */}
         {!disabled && !showEqForm && (
           <button
-            onClick={() => { setShowEqForm(true); setSupplierOther(false); setNewEq(prev => ({ ...prev, is_ril: eqTab === 'ril', supplier: eqTab === 'ril' ? 'RIL' : '' })); }}
+            onClick={() => { setShowEqForm(true); setEditingEqId(null); setSupplierOther(false); setNewEq(prev => ({ ...prev, is_ril: eqTab === 'ril', supplier: eqTab === 'ril' ? 'RIL' : '' })); }}
             style={{ fontSize: 12, color: '#0A3D8F', background: 'none', border: '1px dashed #0A3D8F', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontFamily: 'inherit' }}
           >
             + Add {eqTab === 'ril' ? 'RIL' : 'Competitor'} Equipment
@@ -515,17 +546,22 @@ export function VisitReportForm({
             <div style={{ display: 'flex', gap: 8 }}>
               <button
                 onClick={async () => {
-                  await addEquipment(visit.id, visit.client_id, { ...newEq });
+                  if (editingEqId != null) {
+                    await updateEquipment(editingEqId, visit.id, { ...newEq });
+                  } else {
+                    await addEquipment(visit.id, visit.client_id, { ...newEq });
+                  }
                   setShowEqForm(false);
+                  setEditingEqId(null);
                   setSupplierOther(false);
                   setNewEq({ pump_type: 'PCP', supplier: '', model: '', qty: 1, application: '', condition: 'Good', is_ril: true, reason_for_competitor: '', competitor_activity_type: '', performance_feedback: '' });
                 }}
                 style={{ padding: '7px 14px', background: '#0A3D8F', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}
               >
-                Save Equipment
+                {editingEqId != null ? 'Update Equipment' : 'Save Equipment'}
               </button>
               <button
-                onClick={() => setShowEqForm(false)}
+                onClick={() => { setShowEqForm(false); setEditingEqId(null); setSupplierOther(false); }}
                 style={{ padding: '7px 14px', background: 'none', border: '1px solid var(--line-strong)', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}
               >
                 Cancel

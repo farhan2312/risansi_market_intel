@@ -323,6 +323,54 @@ export async function addEquipment(
   revalidatePath(`/risansi/visits/${visitId}`);
 }
 
+// ── Edit equipment (only while the visit is still open) ─────────
+
+export async function updateEquipment(
+  equipmentId: string | number,
+  visitId: string,
+  data: {
+    pump_type: string; supplier: string; is_ril: boolean;
+    model?: string; qty?: number; application?: string;
+    capacity_m3h?: number; head_m?: number; kw?: number;
+    drive_system?: string; moc?: string; condition?: string;
+    performance_feedback?: string;
+    reason_for_competitor?: string;
+    competitor_activity_type?: string;
+  },
+) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) throw new Error('Unauthorized');
+
+  // Equipment is only editable until the visit is submitted (closed).
+  const vis = await risansiPool.query<{ submitted_at: string | null }>(
+    'SELECT submitted_at FROM visits WHERE id = $1', [visitId],
+  );
+  if (!vis.rows[0]) throw new Error('Visit not found');
+  if (vis.rows[0].submitted_at) throw new Error('Visit already submitted — equipment is locked.');
+
+  const isOpp = !data.is_ril && data.condition === 'EOL';
+
+  await risansiPool.query(
+    `UPDATE equipment SET
+       pump_type = $1, supplier = $2, is_ril = $3, model = $4, qty = $5,
+       application = $6, capacity_m3h = $7, head_m = $8, kw = $9,
+       drive_system = $10, moc = $11, condition = $12, performance_feedback = $13,
+       reason_for_competitor = $14, competitor_activity_type = $15, is_opportunity = $16
+     WHERE id = $17 AND visit_id = $18`,
+    [
+      data.pump_type, data.supplier, data.is_ril,
+      data.model ?? null, data.qty ?? 1, data.application ?? null,
+      data.capacity_m3h ?? null, data.head_m ?? null, data.kw ?? null,
+      data.drive_system ?? null, data.moc ?? null,
+      data.condition ?? null, data.performance_feedback ?? null,
+      data.reason_for_competitor ?? null, data.competitor_activity_type ?? null,
+      isOpp, equipmentId, visitId,
+    ],
+  );
+
+  revalidatePath(`/risansi/visits/${visitId}`);
+}
+
 // ── Submit (close) visit ───────────────────────────────────────
 
 export async function submitVisit(visitId: string) {
