@@ -596,11 +596,6 @@ export function VisitReportForm({
           </div>
 
           <div>
-            <label style={LBL}>Action Points</label>
-            <textarea defaultValue={visit.action_points ?? ''} disabled={disabled} onChange={e => queueSave('action_points', e.target.value)} rows={3} style={{ ...INP, height: 'auto', resize: 'vertical', lineHeight: 1.5 }} />
-          </div>
-
-          <div>
             <label style={LBL}>Open Remarks</label>
             <textarea defaultValue={visit.open_remarks ?? ''} disabled={disabled} onChange={e => queueSave('open_remarks', e.target.value)} rows={2} style={{ ...INP, height: 'auto', resize: 'vertical', lineHeight: 1.5 }} />
           </div>

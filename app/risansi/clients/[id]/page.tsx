@@ -89,11 +89,21 @@ interface ClientRevFY {
   fy: string; pump_inr: string; spare_inr: string; total_inr: string;
 }
 
-interface Equipment {
-  id: string; station: string | null; equipment_type: string;
-  supplier: string; model: string | null; quantity: number;
-  condition: string; opportunity: boolean;
-}
+interface CompMaker { name: string; units: number; }
+interface CompBreakdown { rilUnits: number; totalUnits: number; makers: CompMaker[]; }
+
+// competitor_installed_base PCP columns → display label (RIL handled separately, as "us").
+const COMPETITOR_PCP: Record<string, string> = {
+  roto_pcp: 'Roto', rotomac_pcp: 'Rotomac', gita_pcp: 'Gita', psp_pcp: 'PSP',
+  syno_pcp: 'Syno', ropman_pcp: 'Ropman', myto_pcp: 'Myto', vikas_pcp: 'Vikas',
+  newpumps_pcp: 'Newpumps', indopump_pcp: 'Indopump', tushaco_pcp: 'Tushaco',
+  yaswant_pcp: 'Yaswant', shivam_pcp: 'Shivam', saksham_pcp: 'Saksham', alpha_pcp: 'Alpha',
+  gajanan_pcp: 'Gajanan', chandra_helicon_pcp: 'Chandra Helicon', netzsch_pcp: 'Netzsch',
+  akanshi_pcp: 'Akanshi', pragati_pcp: 'Pragati', ropar_pcp: 'Ropar', rotor_flow_pcp: 'Rotor Flow',
+  naishit_pcp: 'Naishit', delta_pcp: 'Delta', varun_pcp: 'Varun', npi_pcp: 'NPI',
+  hydroprocav_pcp: 'Hydroprocav', sre_pcp: 'SRE', span_engg_pcp: 'Span Engg',
+  pandey_pcp: 'Pandey', mahalaxmi_pcp: 'Mahalaxmi', ravalgoan_pcp: 'Ravalgoan', others_pcp: 'Others',
+};
 
 interface Visit {
   id: string; rep_name: string; visit_date: Date;
@@ -160,7 +170,7 @@ export default async function ClientProfilePage({
 
   // ── Fetch supporting data in parallel ─────────────────────
 
-  const [contacts, revRows, clientRevByFY, equipment, visits, openOpps, activityLog, reps] = await Promise.all([
+  const [contacts, revRows, clientRevByFY, comp, visits, openOpps, activityLog, reps] = await Promise.all([
 
     // 2. Contacts — single source of truth
     q<Contact[]>(async () => {
@@ -220,23 +230,24 @@ export default async function ClientProfilePage({
       return rows;
     }, []),
 
-    // 4. Competitor installed base
-    q<Equipment[]>(async () => {
-      const { rows } = await risansiPool.query<{
-        id: string; station: string | null; equipment_type: string;
-        supplier: string; model: string | null; quantity: string;
-        condition: string; opportunity: boolean;
-      }>(
-        `SELECT id, station, equipment_type, supplier, model,
-                COALESCE(quantity, 1)::int AS quantity,
-                COALESCE(condition, 'Unknown') AS condition,
-                COALESCE(opportunity, false) AS opportunity
-         FROM competitor_installed_base
-         WHERE client_code = $1`,
+    // 4. Competitor installed base (PCP units by maker, from competitor_installed_base)
+    q<CompBreakdown>(async () => {
+      const { rows } = await risansiPool.query<Record<string, number | string | null>>(
+        `SELECT * FROM competitor_installed_base WHERE client_code = $1 LIMIT 1`,
         [client.code],
       );
-      return rows.map(r => ({ ...r, quantity: Number(r.quantity) }));
-    }, []),
+      const row = rows[0];
+      if (!row) return { rilUnits: 0, totalUnits: 0, makers: [] };
+      const rilUnits = Number(row.ril_pcp ?? 0);
+      const total    = Number(row.total_pcp ?? 0);
+      const makers = Object.entries(COMPETITOR_PCP)
+        .map(([col, name]) => ({ name, units: Number(row[col] ?? 0) }))
+        .filter(m => m.units > 0)
+        .sort((a, b) => b.units - a.units);
+      // Total should be at least RIL + named competitors even if total_pcp is blank.
+      const sumNamed = rilUnits + makers.reduce((s, m) => s + m.units, 0);
+      return { rilUnits, totalUnits: Math.max(total, sumNamed), makers };
+    }, { rilUnits: 0, totalUnits: 0, makers: [] }),
 
     // 5. Visit timeline (last 20)
     q<Visit[]>(async () => {
@@ -340,9 +351,11 @@ export default async function ClientProfilePage({
     return ((last / first) ** (1 / years) - 1) * 100;
   })();
 
-  // Equipment KPIs — from field assessments
-  const rilUnits   = equipment.filter(e => e.supplier === 'RIL').reduce((s, e) => s + e.quantity, 0);
-  const totalUnits = equipment.reduce((s, e) => s + e.quantity, 0);
+  // Competition KPIs — from competitor_installed_base (PCP units by maker)
+  const rilUnits        = comp.rilUnits;
+  const totalUnits      = comp.totalUnits;
+  const competitorUnits = Math.max(0, totalUnits - rilUnits);
+  const rilSharePct     = totalUnits > 0 ? Math.round((rilUnits / totalUnits) * 100) : 0;
 
   // Last visit — from clients.last_visit_date (most recent COMPLETED visit only;
   // planned future visits never count). formatLastVisit treats future dates as "never".
@@ -550,45 +563,45 @@ export default async function ClientProfilePage({
               </div>
             </div>
 
-            {/* Installed Base · PCP Summary */}
+            {/* Competition · PCP installed base (RIL vs competitors at this client) */}
             <div style={PANEL}>
               <div style={PANEL_H}>
-                <span style={PANEL_TITLE}>PCP Installed Base · {totalUnits} pump{totalUnits !== 1 ? 's' : ''}</span>
-                {(totalUnits - rilUnits) > 0 && (
+                <span style={PANEL_TITLE}>Competition · PCP Installed Base · {totalUnits} pump{totalUnits !== 1 ? 's' : ''}</span>
+                {competitorUnits > 0 && (
                   <div style={{ marginLeft: 'auto' }}>
-                    <Tag kind="warn">{totalUnits - rilUnits} competitor unit{(totalUnits - rilUnits) !== 1 ? 's' : ''}</Tag>
+                    <Tag kind="warn">{competitorUnits} competitor unit{competitorUnits !== 1 ? 's' : ''}</Tag>
                   </div>
                 )}
               </div>
-              {equipment.length > 0 ? (
-                // Fall back to field assessment detail table
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                    <thead>
-                      <tr style={{ background: 'var(--bg-elev)' }}>
-                        {['Station', 'Type', 'Supplier', 'Model', 'Qty', 'Condition', ''].map(h => (
-                          <th key={h} style={TH}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {equipment.map((e, i) => (
-                        <tr key={e.id} style={{ borderBottom: i < equipment.length - 1 ? '1px solid var(--line)' : 'none', background: e.opportunity ? 'rgba(26,92,184,0.05)' : 'transparent' }}>
-                          <td style={{ ...TD, fontSize: 11, color: 'var(--fg-2)' }}>{e.station ?? '—'}</td>
-                          <td style={TD}><Tag>{e.equipment_type}</Tag></td>
-                          <td style={{ ...TD, fontWeight: e.supplier === 'RIL' ? 500 : 400, color: e.supplier === 'RIL' ? 'var(--accent)' : 'inherit' }}>{e.supplier}</td>
-                          <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)' }}>{e.model ?? '—'}</td>
-                          <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{e.quantity}</td>
-                          <td style={TD}><Tag kind={e.condition === 'Good' ? 'pos' : e.condition === 'End of Life' ? 'neg' : 'warn'} dot>{e.condition}</Tag></td>
-                          <td style={TD}>{e.opportunity && <Tag kind="accent">REPLACE</Tag>}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              {totalUnits > 0 ? (
+                <div style={{ padding: 14 }}>
+                  <div style={{ fontSize: 12, color: 'var(--fg-3)', marginBottom: 12 }}>
+                    RIL share at this account: <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: rilSharePct >= 50 ? 'var(--pos)' : 'var(--neg)' }}>{rilSharePct}%</span>
+                    {' '}· {rilUnits} of {totalUnits} pumps
+                  </div>
+                  {[{ name: 'RIL', units: rilUnits, isRil: true }, ...comp.makers.map(m => ({ ...m, isRil: false }))]
+                    .filter(m => m.units > 0)
+                    .map(m => {
+                      const pct = totalUnits > 0 ? (m.units / totalUnits) * 100 : 0;
+                      const color = m.isRil ? '#1A5CB8' : '#94A3B8';
+                      return (
+                        <div key={m.name} style={{ marginBottom: 8 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 3 }}>
+                            <span style={{ fontWeight: m.isRil ? 600 : 400, color: m.isRil ? 'var(--accent)' : 'var(--fg-2)' }}>
+                              {m.name}{m.isRil ? ' (us)' : ''}
+                            </span>
+                            <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>{m.units} · {pct.toFixed(0)}%</span>
+                          </div>
+                          <div style={{ height: 6, background: 'var(--bg-sunk)', borderRadius: 3, overflow: 'hidden' }}>
+                            <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 3 }} />
+                          </div>
+                        </div>
+                      );
+                    })}
                 </div>
               ) : (
                 <div style={{ padding: '24px 0', textAlign: 'center', fontSize: 12, color: 'var(--fg-3)' }}>
-                  No PCP data recorded
+                  No competitor installed-base data for this client
                 </div>
               )}
             </div>
