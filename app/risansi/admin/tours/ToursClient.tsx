@@ -28,22 +28,87 @@ export interface AssignableUser {
 export function ToursClient({ tours, users }: { tours: TourMappingRow[]; users: AssignableUser[] }) {
   const router = useRouter();
   const [err, setErr] = useState('');
+  const [search, setSearch] = useState('');
+  const [zone, setZone] = useState('');
+  const [status, setStatus] = useState('all'); // all | managed | nomanager | nousers
+
+  const hasMgr = (t: TourMappingRow) => t.members.some(m => m.role === 'manager');
+  const zones = [...new Set(tours.map(t => t.zone).filter(Boolean) as string[])].sort();
+
+  const kpi = {
+    total:     tours.length,
+    managed:   tours.filter(hasMgr).length,
+    noManager: tours.filter(t => !hasMgr(t)).length,
+    noUsers:   tours.filter(t => t.members.length === 0).length,
+    clients:   tours.reduce((s, t) => s + (t.client_count || 0), 0),
+  };
+
+  const visible = tours.filter(t => {
+    if (search && !t.name.toLowerCase().includes(search.toLowerCase())) return false;
+    if (zone && t.zone !== zone) return false;
+    if (status === 'managed'   && !hasMgr(t)) return false;
+    if (status === 'nomanager' &&  hasMgr(t)) return false;
+    if (status === 'nousers'   && t.members.length > 0) return false;
+    return true;
+  });
 
   return (
     <>
+      {/* KPI cards */}
+      <div style={KPI_ROW}>
+        <Kpi label="Total Tours"      value={kpi.total} />
+        <Kpi label="Managed"          value={kpi.managed} color="var(--pos)" />
+        <Kpi label="No Manager"       value={kpi.noManager} color={kpi.noManager ? 'var(--warn)' : undefined} />
+        <Kpi label="No Users At All"  value={kpi.noUsers} color={kpi.noUsers ? 'var(--neg)' : undefined} />
+        <Kpi label="Clients on Tours" value={kpi.clients} />
+      </div>
+
+      {/* Filter bar */}
+      <div style={FILTER_BAR}>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search tour…" style={SEARCH_INP} />
+        <select value={zone} onChange={e => setZone(e.target.value)} style={SEL}>
+          <option value="">All zones</option>
+          {zones.map(z => <option key={z} value={z}>{z}</option>)}
+        </select>
+        <select value={status} onChange={e => setStatus(e.target.value)} style={SEL}>
+          <option value="all">All statuses</option>
+          <option value="managed">Has manager</option>
+          <option value="nomanager">No manager</option>
+          <option value="nousers">No users at all</option>
+        </select>
+        <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--fg-3)' }}>
+          {visible.length} of {tours.length} tours
+        </span>
+      </div>
+
       {err && <div style={ERR_BOX}>{err}</div>}
       {tours.length === 0 ? (
         <div style={{ ...PANEL, padding: '40px 0', textAlign: 'center', color: 'var(--fg-3)' }}>
           No tours yet. Create tours from the Reps &amp; Tours page.
         </div>
+      ) : visible.length === 0 ? (
+        <div style={{ ...PANEL, padding: '40px 0', textAlign: 'center', color: 'var(--fg-3)' }}>
+          No tours match the current filters.
+        </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {tours.map(t => (
+          {visible.map(t => (
             <TourCard key={t.id} tour={t} users={users} onError={setErr} onDone={() => router.refresh()} />
           ))}
         </div>
       )}
     </>
+  );
+}
+
+function Kpi({ label, value, color }: { label: string; value: number; color?: string }) {
+  return (
+    <div style={KPI_CARD}>
+      <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fg-3)' }}>{label}</div>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 24, fontWeight: 700, color: color ?? 'var(--fg)', lineHeight: 1.1, marginTop: 4 }}>
+        {value.toLocaleString('en-IN')}
+      </div>
+    </div>
   );
 }
 
@@ -145,6 +210,11 @@ function TourCard({ tour, users, onError, onDone }: {
   );
 }
 
+const KPI_ROW: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 14 };
+const KPI_CARD: CSSProperties = { background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', padding: '12px 14px' };
+const FILTER_BAR: CSSProperties = { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 };
+const SEARCH_INP: CSSProperties = { padding: '7px 10px', fontSize: 13, fontFamily: 'inherit', background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', borderRadius: 6, color: 'var(--fg)', outline: 'none', minWidth: 200 };
+const SEL: CSSProperties = { padding: '7px 10px', fontSize: 13, fontFamily: 'inherit', background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', borderRadius: 6, color: 'var(--fg)', outline: 'none', cursor: 'pointer' };
 const PANEL: CSSProperties = { background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', overflow: 'hidden' };
 const PANEL_H: CSSProperties = { padding: '12px 16px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' };
 const SECTION_LBL: CSSProperties = { fontSize: 10, fontWeight: 700, color: '#0A3D8F', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 };

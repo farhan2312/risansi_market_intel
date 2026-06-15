@@ -36,7 +36,7 @@ export default async function UnassignedAdminPage() {
             OR c.tour_id IS NULL
           )
         ORDER BY c.legal_name ASC
-        LIMIT 500
+        LIMIT 2000
       `);
       return rows;
     }, []),
@@ -57,16 +57,27 @@ export default async function UnassignedAdminPage() {
       return rows;
     }, []),
 
-    q<{ no_owner: number; no_tour: number }>(async () => {
-      const { rows } = await risansiPool.query<{ no_owner: string; no_tour: string }>(`
+    q<{ no_owner: number; no_tour: number; both: number; needing: number }>(async () => {
+      const { rows } = await risansiPool.query<{ no_owner: string; no_tour: string; both: string; needing: string }>(`
         SELECT
-          COUNT(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM client_assignments ca WHERE ca.client_id = c.id))::text AS no_owner,
-          COUNT(*) FILTER (WHERE c.tour_id IS NULL)::text AS no_tour
-        FROM clients c
-        WHERE c.deleted_at IS NULL
+          COUNT(*) FILTER (WHERE no_owner)::text             AS no_owner,
+          COUNT(*) FILTER (WHERE no_tour)::text              AS no_tour,
+          COUNT(*) FILTER (WHERE no_owner AND no_tour)::text AS both,
+          COUNT(*) FILTER (WHERE no_owner OR  no_tour)::text AS needing
+        FROM (
+          SELECT
+            (NOT EXISTS (SELECT 1 FROM client_assignments ca WHERE ca.client_id = c.id)) AS no_owner,
+            (c.tour_id IS NULL) AS no_tour
+          FROM clients c WHERE c.deleted_at IS NULL
+        ) s
       `);
-      return { no_owner: Number(rows[0]?.no_owner ?? 0), no_tour: Number(rows[0]?.no_tour ?? 0) };
-    }, { no_owner: 0, no_tour: 0 }),
+      return {
+        no_owner: Number(rows[0]?.no_owner ?? 0),
+        no_tour:  Number(rows[0]?.no_tour ?? 0),
+        both:     Number(rows[0]?.both ?? 0),
+        needing:  Number(rows[0]?.needing ?? 0),
+      };
+    }, { no_owner: 0, no_tour: 0, both: 0, needing: 0 }),
   ]);
 
   return (
@@ -84,7 +95,7 @@ export default async function UnassignedAdminPage() {
           </div>
         </div>
 
-        <UnassignedClient clients={clients} users={users} tours={tours} />
+        <UnassignedClient clients={clients} users={users} tours={tours} counts={counts} />
       </div>
     </div>
   );

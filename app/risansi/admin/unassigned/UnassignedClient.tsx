@@ -17,11 +17,13 @@ export interface UnassignedRow {
 }
 export interface OwnerOption { id: number; name: string; zone: string | null; }
 export interface TourOption  { id: number; name: string; zone: string | null; }
+export interface UnassignedCounts { no_owner: number; no_tour: number; both: number; needing: number; }
 
-export function UnassignedClient({ clients, users, tours }: {
+export function UnassignedClient({ clients, users, tours, counts }: {
   clients: UnassignedRow[];
   users: OwnerOption[];
   tours: TourOption[];
+  counts: UnassignedCounts;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -42,7 +44,25 @@ export function UnassignedClient({ clients, users, tours }: {
     return () => document.removeEventListener('mousedown', onDoc);
   }, []);
 
-  const allSelected = clients.length > 0 && selected.size === clients.length;
+  // Filters
+  const [search, setSearch]   = useState('');
+  const [zoneF, setZoneF]     = useState('');
+  const [missing, setMissing] = useState('all'); // all | noowner | notour | both
+  const zones = [...new Set(clients.map(c => c.zone).filter(Boolean) as string[])].sort();
+
+  const visible = clients.filter(c => {
+    if (search) {
+      const qq = search.toLowerCase();
+      if (!c.legal_name.toLowerCase().includes(qq) && !c.code.toLowerCase().includes(qq)) return false;
+    }
+    if (zoneF && c.zone !== zoneF) return false;
+    if (missing === 'noowner' && !c.no_owner) return false;
+    if (missing === 'notour'  && !c.no_tour) return false;
+    if (missing === 'both'    && !(c.no_owner && c.no_tour)) return false;
+    return true;
+  });
+
+  const allSelected = visible.length > 0 && visible.every(c => selected.has(c.id));
 
   function toggle(id: number) {
     setSelected(s => {
@@ -52,7 +72,7 @@ export function UnassignedClient({ clients, users, tours }: {
     });
   }
   function toggleAll() {
-    setSelected(allSelected ? new Set() : new Set(clients.map(c => c.id)));
+    setSelected(allSelected ? new Set() : new Set(visible.map(c => c.id)));
   }
 
   function toggleOwner(id: string) {
@@ -83,6 +103,32 @@ export function UnassignedClient({ clients, users, tours }: {
 
   return (
     <>
+      {/* KPI cards */}
+      <div style={KPI_ROW}>
+        <Kpi label="To Map" value={counts.needing} color={counts.needing ? 'var(--warn)' : 'var(--pos)'} />
+        <Kpi label="No Rep / Manager" value={counts.no_owner} color={counts.no_owner ? 'var(--warn)' : undefined} />
+        <Kpi label="No Tour" value={counts.no_tour} color={counts.no_tour ? 'var(--warn)' : undefined} />
+        <Kpi label="Missing Both" value={counts.both} color={counts.both ? 'var(--neg)' : undefined} />
+      </div>
+
+      {/* Filter bar */}
+      <div style={FILTER_BAR}>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or code…" style={SEARCH_INP} />
+        <select value={zoneF} onChange={e => setZoneF(e.target.value)} style={SEL}>
+          <option value="">All zones</option>
+          {zones.map(z => <option key={z} value={z}>{z}</option>)}
+        </select>
+        <select value={missing} onChange={e => setMissing(e.target.value)} style={SEL}>
+          <option value="all">Missing: any</option>
+          <option value="noowner">Missing rep</option>
+          <option value="notour">Missing tour</option>
+          <option value="both">Missing both</option>
+        </select>
+        <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--fg-3)' }}>
+          {visible.length} shown
+        </span>
+      </div>
+
       {/* Bulk action bar */}
       <div style={BAR}>
         <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg)' }}>
@@ -137,12 +183,12 @@ export function UnassignedClient({ clients, users, tours }: {
               </tr>
             </thead>
             <tbody>
-              {clients.length === 0 ? (
+              {visible.length === 0 ? (
                 <tr><td colSpan={6} style={{ padding: '40px 0', textAlign: 'center', color: 'var(--fg-3)' }}>
-                  All clients have an owner and a tour. 🎉
+                  {clients.length === 0 ? 'All clients have an owner and a tour. 🎉' : 'No clients match the current filters.'}
                 </td></tr>
-              ) : clients.map((c, i) => (
-                <tr key={c.id} style={{ borderBottom: i < clients.length - 1 ? '1px solid var(--line)' : 'none', background: selected.has(c.id) ? 'rgba(26,92,184,0.05)' : undefined }}>
+              ) : visible.map((c, i) => (
+                <tr key={c.id} style={{ borderBottom: i < visible.length - 1 ? '1px solid var(--line)' : 'none', background: selected.has(c.id) ? 'rgba(26,92,184,0.05)' : undefined }}>
                   <td style={TD}>
                     <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggle(c.id)} style={{ accentColor: '#1A5CB8' }} />
                   </td>
@@ -164,6 +210,22 @@ export function UnassignedClient({ clients, users, tours }: {
   );
 }
 
+function Kpi({ label, value, color }: { label: string; value: number; color?: string }) {
+  return (
+    <div style={KPI_CARD}>
+      <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fg-3)' }}>{label}</div>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 24, fontWeight: 700, color: color ?? 'var(--fg)', lineHeight: 1.1, marginTop: 4 }}>
+        {value.toLocaleString('en-IN')}
+      </div>
+    </div>
+  );
+}
+
+const KPI_ROW: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 14 };
+const KPI_CARD: CSSProperties = { background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', padding: '12px 14px' };
+const FILTER_BAR: CSSProperties = { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 };
+const SEARCH_INP: CSSProperties = { padding: '7px 10px', fontSize: 13, fontFamily: 'inherit', background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', borderRadius: 6, color: 'var(--fg)', outline: 'none', minWidth: 200 };
+const SEL: CSSProperties = { padding: '7px 10px', fontSize: 13, fontFamily: 'inherit', background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', borderRadius: 6, color: 'var(--fg)', outline: 'none', cursor: 'pointer' };
 const PANEL: CSSProperties = { background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', overflow: 'hidden' };
 const BAR: CSSProperties = { display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', marginBottom: 12, background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 'var(--radius)' };
 const TH: CSSProperties = { padding: '9px 12px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, color: 'var(--fg-3)', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
