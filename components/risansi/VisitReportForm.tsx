@@ -515,7 +515,7 @@ export function VisitReportForm({
       {/* ── SECTION 6: Visit Summary ───────────────────────── */}
       <FormSection title="Visit Summary" icon="📝">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
               <label style={LBL}>Performance Feedback</label>
               <select defaultValue={visit.performance_feedback ?? ''} disabled={disabled} onChange={e => queueSave('performance_feedback', e.target.value)} style={{ ...INP, appearance: 'none' }}>
@@ -529,10 +529,6 @@ export function VisitReportForm({
                 <option value="">—</option>
                 {['YES', 'NO', 'NIL'].map(m => <option key={m}>{m}</option>)}
               </select>
-            </div>
-            <div>
-              <label style={LBL}>PCP Competitor</label>
-              <input type="text" defaultValue={visit.pcp_competitor ?? ''} disabled={disabled} onChange={e => queueSave('pcp_competitor', e.target.value)} style={INP} />
             </div>
           </div>
 
