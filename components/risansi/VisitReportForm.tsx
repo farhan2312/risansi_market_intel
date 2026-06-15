@@ -9,6 +9,17 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { FormErrorBoundary } from './FormErrorBoundary';
 
+// Major competitor makes for the Competitor Equipment dropdown. Mirrors the
+// per-maker columns tracked in competitor_installed_base. Pick "Other" to type
+// a make that isn't listed.
+const COMPETITOR_MAKES = [
+  'Roto', 'Rotomac', 'Gita', 'PSP', 'Syno', 'Ropman', 'Myto', 'Vikas',
+  'Newpumps', 'Indopump', 'Tushaco', 'Yaswant', 'Shivam', 'Saksham', 'Alpha',
+  'Gajanan', 'Chandra Helicon', 'Netzsch', 'Akanshi', 'Pragati', 'Ropar',
+  'Rotor Flow', 'Naishit', 'Delta', 'Varun', 'NPI', 'Hydroprocav', 'SRE',
+  'Span Engg', 'Pandey', 'Mahalaxmi', 'Ravalgoan',
+];
+
 // ── Types ──────────────────────────────────────────────────────
 
 interface VisitData {
@@ -140,6 +151,8 @@ export function VisitReportForm({
   // Equipment
   const [eqTab, setEqTab]   = useState<'ril' | 'competitor'>('ril');
   const [showEqForm, setShowEqForm] = useState(false);
+  // true when the competitor make isn't in COMPETITOR_MAKES (free-text entry)
+  const [supplierOther, setSupplierOther] = useState(false);
   const [newEq, setNewEq] = useState({
     pump_type: 'PCP', supplier: '', model: '', qty: 1,
     application: '', condition: 'Good', is_ril: true,
@@ -430,7 +443,7 @@ export function VisitReportForm({
         {/* Add equipment form */}
         {!disabled && !showEqForm && (
           <button
-            onClick={() => { setShowEqForm(true); setNewEq(prev => ({ ...prev, is_ril: eqTab === 'ril', supplier: eqTab === 'ril' ? 'RIL' : '' })); }}
+            onClick={() => { setShowEqForm(true); setSupplierOther(false); setNewEq(prev => ({ ...prev, is_ril: eqTab === 'ril', supplier: eqTab === 'ril' ? 'RIL' : '' })); }}
             style={{ fontSize: 12, color: '#0A3D8F', background: 'none', border: '1px dashed #0A3D8F', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontFamily: 'inherit' }}
           >
             + Add {eqTab === 'ril' ? 'RIL' : 'Competitor'} Equipment
@@ -448,8 +461,29 @@ export function VisitReportForm({
               </div>
               {eqTab === 'competitor' && (
                 <div>
-                  <label style={LBL}>Supplier / Make</label>
-                  <input type="text" value={newEq.supplier} onChange={e => setNewEq(p => ({ ...p, supplier: e.target.value }))} style={INP} placeholder="e.g. Netzsch" />
+                  <label style={LBL}>Competitor / Make</label>
+                  <select
+                    value={supplierOther ? '__other__' : newEq.supplier}
+                    onChange={e => {
+                      const v = e.target.value;
+                      if (v === '__other__') { setSupplierOther(true); setNewEq(p => ({ ...p, supplier: '' })); }
+                      else { setSupplierOther(false); setNewEq(p => ({ ...p, supplier: v })); }
+                    }}
+                    style={{ ...INP, appearance: 'none' }}
+                  >
+                    <option value="">Select competitor…</option>
+                    {COMPETITOR_MAKES.map(m => <option key={m} value={m}>{m}</option>)}
+                    <option value="__other__">Other (specify)…</option>
+                  </select>
+                  {supplierOther && (
+                    <input
+                      type="text"
+                      value={newEq.supplier}
+                      onChange={e => setNewEq(p => ({ ...p, supplier: e.target.value }))}
+                      style={{ ...INP, marginTop: 6 }}
+                      placeholder="Enter competitor name"
+                    />
+                  )}
                 </div>
               )}
               <div>
@@ -483,6 +517,7 @@ export function VisitReportForm({
                 onClick={async () => {
                   await addEquipment(visit.id, visit.client_id, { ...newEq });
                   setShowEqForm(false);
+                  setSupplierOther(false);
                   setNewEq({ pump_type: 'PCP', supplier: '', model: '', qty: 1, application: '', condition: 'Good', is_ril: true, reason_for_competitor: '', competitor_activity_type: '', performance_feedback: '' });
                 }}
                 style={{ padding: '7px 14px', background: '#0A3D8F', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}
