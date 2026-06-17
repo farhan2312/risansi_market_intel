@@ -2,7 +2,7 @@ import { notFound, redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, ownerVisibilitySql } from '@/lib/risansi-auth';
+import { getCurrentUser, ownerVisibilitySql, canViewClient } from '@/lib/risansi-auth';
 import { Topbar } from '@/components/risansi';
 import Link from 'next/link';
 import { VisitReportForm } from '@/components/risansi/VisitReportForm';
@@ -66,6 +66,8 @@ export default async function VisitReportPage({
 
   // Visibility guard — viewer must be able to SEE this visit (own / shared tour),
   // or be admin/sysadmin. ownerVisibilitySql returns null for admin (no restriction).
+  // Fallback: anyone who can SEE the client (Client 360) may read its visit
+  // reports too, so the Client-360 visit timeline links always open (read-only).
   const viewer  = await getCurrentUser();
   const ownPred = ownerVisibilitySql(viewer, 'v.rep_id');
   if (ownPred) {
@@ -73,7 +75,7 @@ export default async function VisitReportPage({
       `SELECT (${ownPred}) AS ok FROM visits v WHERE v.id = $1`,
       [id],
     );
-    if (!visRows[0]?.ok) notFound();
+    if (!visRows[0]?.ok && !(await canViewClient(viewer, Number(visit.client_id)))) notFound();
   }
 
   // Ownership: only the assigned rep may fill / edit / submit this visit.

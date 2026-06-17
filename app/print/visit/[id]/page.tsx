@@ -2,7 +2,7 @@ import { notFound, redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, ownerVisibilitySql } from '@/lib/risansi-auth';
+import { getCurrentUser, ownerVisibilitySql, canViewClient } from '@/lib/risansi-auth';
 import { AutoPrint } from '@/components/risansi/AutoPrint';
 import {
   PRINT_CSS, ROOT, C, Section, Facts, TextBlock, TH, TD, DocHeader, RowFacts,
@@ -42,14 +42,15 @@ export default async function VisitPrintPage({ params }: { params: Promise<{ id:
   const visit = visitRes.rows[0];
   if (!visit) notFound();
 
-  // Visibility guard — viewer must be able to SEE this visit.
+  // Visibility guard — viewer must be able to SEE this visit, or (fallback) the
+  // client it belongs to, so the Client-360 timeline PDF links always open.
   const viewer  = await getCurrentUser();
   const ownPred = ownerVisibilitySql(viewer, 'v.rep_id');
   if (ownPred) {
     const { rows } = await risansiPool.query<{ ok: boolean }>(
       `SELECT (${ownPred}) AS ok FROM visits v WHERE v.id = $1`, [id],
     );
-    if (!rows[0]?.ok) notFound();
+    if (!rows[0]?.ok && !(await canViewClient(viewer, Number(visit.client_id)))) notFound();
   }
 
   // Only a closed (submitted) visit may be exported. Otherwise bounce back.

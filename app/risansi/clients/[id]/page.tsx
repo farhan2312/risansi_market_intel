@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
@@ -109,6 +110,7 @@ interface Visit {
   id: string; rep_name: string; visit_date: Date;
   purpose: string | null; outcome: string | null;
   summary: string | null; status: string; synced: boolean;
+  submitted_at: string | null;
 }
 
 interface Opportunity {
@@ -254,10 +256,10 @@ export default async function ClientProfilePage({
       const { rows } = await risansiPool.query<{
         id: string; rep_name: string; visit_date: Date;
         purpose: string | null; outcome: string | null;
-        summary: string | null; status: string;
+        summary: string | null; status: string; submitted_at: string | null;
       }>(
         `SELECT v.id, COALESCE(r.name, '—') AS rep_name, v.visit_date,
-                v.purpose, v.outcome, v.summary, v.status
+                v.purpose, v.outcome, v.summary, v.status, v.submitted_at
          FROM visits v
          LEFT JOIN users r ON r.id = v.rep_id
          WHERE v.client_id = $1
@@ -728,6 +730,7 @@ export default async function ClientProfilePage({
                   {visits.map((v, i) => {
                     const d = new Date(v.visit_date);
                     const dateStr = d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+                    const submitted = !!v.submitted_at;
                     return (
                       <div
                         key={v.id}
@@ -737,24 +740,48 @@ export default async function ClientProfilePage({
                           alignItems: 'flex-start',
                         }}
                       >
-                        <div style={{ width: 110, flexShrink: 0 }}>
-                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 500 }}>{dateStr}</div>
-                          <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 2 }}>
-                            {v.rep_name?.split(' ').map(p => p[0]).join('').toUpperCase().slice(0, 3)}
+                        {/* Clickable area → opens this visit report */}
+                        <Link
+                          href={`/risansi/visits/${v.id}`}
+                          style={{ flex: 1, minWidth: 0, display: 'flex', gap: 14, alignItems: 'flex-start', textDecoration: 'none', color: 'inherit' }}
+                        >
+                          <div style={{ width: 110, flexShrink: 0 }}>
+                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 500 }}>{dateStr}</div>
+                            <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 2 }}>
+                              {v.rep_name?.split(' ').map(p => p[0]).join('').toUpperCase().slice(0, 3)}
+                            </div>
                           </div>
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: v.summary ? 6 : 0 }}>
-                            <span style={{ fontWeight: 500, fontSize: 12 }}>{v.purpose ?? 'Visit'}</span>
-                            {v.outcome && <Tag kind={outcomeKind(v.outcome)} dot>{v.outcome}</Tag>}
-                            {v.synced && (
-                              <span style={{ fontSize: 10, color: 'var(--pos)', fontFamily: 'var(--font-mono)' }}>✓ GPS verified</span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: v.summary ? 6 : 0 }}>
+                              <span style={{ fontWeight: 500, fontSize: 12, color: 'var(--accent)' }}>{v.purpose ?? 'Visit'}</span>
+                              {v.outcome && <Tag kind={outcomeKind(v.outcome)} dot>{v.outcome}</Tag>}
+                              {submitted
+                                ? <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--pos)', fontFamily: 'var(--font-mono)' }}>● Submitted</span>
+                                : <span style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', textTransform: 'capitalize' }}>{v.status?.replace('-', ' ')}</span>}
+                            </div>
+                            {v.summary && (
+                              <div style={{ fontSize: 12, color: 'var(--fg-2)', lineHeight: 1.5 }}>{v.summary}</div>
                             )}
                           </div>
-                          {v.summary && (
-                            <div style={{ fontSize: 12, color: 'var(--fg-2)', lineHeight: 1.5 }}>{v.summary}</div>
-                          )}
-                        </div>
+                        </Link>
+
+                        {/* Direct PDF — only for submitted (closed) reports */}
+                        {submitted && (
+                          <a
+                            href={`/print/visit/${v.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Open PDF of this visit report"
+                            style={{
+                              flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4,
+                              padding: '4px 9px', fontSize: 11, fontWeight: 600,
+                              background: '#EBF1FB', color: '#0A3D8F',
+                              border: '1px solid #C7D9F5', borderRadius: 6, textDecoration: 'none',
+                            }}
+                          >
+                            📄 PDF
+                          </a>
+                        )}
                       </div>
                     );
                   })}
