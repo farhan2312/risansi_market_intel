@@ -168,7 +168,13 @@ export default async function ClientProfilePage({
 
   // Visibility guard — viewer must be able to SEE this client (admin/sysadmin always can).
   const currentUser = await getCurrentUser();
-  if (!(await canViewClient(currentUser, Number(client.id)))) notFound();
+  const canViewThisClient = await canViewClient(currentUser, Number(client.id));
+  if (!canViewThisClient) notFound();
+
+  // Contacts may be managed by admins and by any rep/manager who can see this
+  // client. canViewClient restricts reps to clients assigned to them, so a rep
+  // can only add/edit/remove contacts for their own assigned clients.
+  const canManageContacts = canViewThisClient;
 
   // ── Fetch supporting data in parallel ─────────────────────
 
@@ -843,7 +849,7 @@ export default async function ClientProfilePage({
                     </span>
                   )}
                 </div>
-                {canEdit && <AddContactButton clientId={Number(client.id)} clientCode={client.code} />}
+                {canManageContacts && <AddContactButton clientId={Number(client.id)} clientCode={client.code} />}
               </div>
 
               {contacts.length === 0 ? (
@@ -940,7 +946,7 @@ export default async function ClientProfilePage({
                         )}
 
                         {/* Edit — live contacts only (Excel-imported show the Imported badge, no edit) */}
-                        {canEdit && c.added_by !== 'excel_import' && (
+                        {canManageContacts && c.added_by !== 'excel_import' && (
                           <EditContactButton
                             contact={{
                               id: c.id,
