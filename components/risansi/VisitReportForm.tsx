@@ -8,6 +8,8 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { FormErrorBoundary } from './FormErrorBoundary';
+import { AddContactButton } from './AddContactButton';
+import { EditContactButton } from './EditContactButton';
 
 // Major competitor makes for the Competitor Equipment dropdown. Mirrors the
 // per-maker columns tracked in competitor_installed_base. Pick "Other" to type
@@ -46,6 +48,7 @@ interface VisitData {
 interface Contact {
   id: number; name: string; designation: string | null;
   phone: string | null; is_primary: boolean;
+  email: string | null; whatsapp: string | null; notes: string | null;
 }
 
 interface TaskItem {
@@ -324,6 +327,50 @@ export function VisitReportForm({
             </div>
           </div>
         )}
+      </FormSection>
+
+      {/* ── SECTION: Contacts (live client contacts — synced with Client 360) ── */}
+      <FormSection title="Contacts" icon="👤" defaultOpen={false}>
+        <div style={{ fontSize: 11, color: 'var(--fg-3)', marginBottom: 12 }}>
+          Add, update, or remove the client&apos;s contacts here — changes save to the client
+          and appear in Client 360 automatically.
+        </div>
+        {contacts.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '16px', color: 'var(--fg-3)', fontSize: 13 }}>
+            No contacts on file yet.
+          </div>
+        ) : (
+          <div style={{ marginBottom: 12 }}>
+            {contacts.map((c, i) => (
+              <div
+                key={c.id}
+                style={{
+                  padding: '10px 0',
+                  borderBottom: i < contacts.length - 1 ? '1px solid var(--line)' : 'none',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>{c.name}</span>
+                  {c.is_primary && (
+                    <span style={{ fontSize: 10, fontWeight: 600, color: '#0A3D8F', background: 'rgba(26,92,184,0.08)', border: '1px solid rgba(26,92,184,0.2)', borderRadius: 10, padding: '1px 7px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Primary</span>
+                  )}
+                  {c.designation && <span style={{ fontSize: 12, color: 'var(--fg-3)' }}>· {c.designation}</span>}
+                </div>
+                <div style={{ display: 'flex', gap: 14, marginTop: 4, flexWrap: 'wrap', fontSize: 12, color: 'var(--fg-2)' }}>
+                  {c.phone && <span>📞 {c.phone}</span>}
+                  {c.email && <span>✉ {c.email}</span>}
+                  {c.whatsapp && <span>💬 {c.whatsapp}</span>}
+                </div>
+                {c.notes && <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 4, fontStyle: 'italic', lineHeight: 1.4 }}>{c.notes}</div>}
+                <EditContactButton
+                  contact={{ id: c.id, name: c.name, designation: c.designation, phone: c.phone, email: c.email, whatsapp: c.whatsapp, notes: c.notes, is_primary: c.is_primary }}
+                  clientId={Number(visit.client_id)}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+        <AddContactButton clientId={Number(visit.client_id)} clientCode={visit.code} />
       </FormSection>
 
       {/* ── SECTION 3: Sugar Form ──────────────────────────── */}

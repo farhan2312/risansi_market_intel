@@ -95,8 +95,9 @@ export default async function VisitReportPage({
       const { rows } = await risansiPool.query<{
         id: number; name: string; designation: string | null;
         phone: string | null; is_primary: boolean;
+        email: string | null; whatsapp: string | null; notes: string | null;
       }>(
-        `SELECT id, name, designation, phone, is_primary
+        `SELECT id, name, designation, phone, is_primary, email, whatsapp, notes
          FROM contacts WHERE client_id = $1
          ORDER BY is_primary DESC, name ASC`,
         [visit.client_id],
