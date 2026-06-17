@@ -332,8 +332,9 @@ export function VisitReportForm({
       {/* ── SECTION: Contacts (live client contacts — synced with Client 360) ── */}
       <FormSection title="Contacts" icon="👤" defaultOpen={false}>
         <div style={{ fontSize: 11, color: 'var(--fg-3)', marginBottom: 12 }}>
-          Add, update, or remove the client&apos;s contacts here — changes save to the client
-          and appear in Client 360 automatically.
+          {disabled
+            ? 'This visit is closed — contacts are read-only.'
+            : 'Add, update, or remove the client’s contacts here — changes save to the client and appear in Client 360 automatically.'}
         </div>
         {contacts.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '16px', color: 'var(--fg-3)', fontSize: 13 }}>
@@ -362,15 +363,17 @@ export function VisitReportForm({
                   {c.whatsapp && <span>💬 {c.whatsapp}</span>}
                 </div>
                 {c.notes && <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 4, fontStyle: 'italic', lineHeight: 1.4 }}>{c.notes}</div>}
-                <EditContactButton
-                  contact={{ id: c.id, name: c.name, designation: c.designation, phone: c.phone, email: c.email, whatsapp: c.whatsapp, notes: c.notes, is_primary: c.is_primary }}
-                  clientId={Number(visit.client_id)}
-                />
+                {!disabled && (
+                  <EditContactButton
+                    contact={{ id: c.id, name: c.name, designation: c.designation, phone: c.phone, email: c.email, whatsapp: c.whatsapp, notes: c.notes, is_primary: c.is_primary }}
+                    clientId={Number(visit.client_id)}
+                  />
+                )}
               </div>
             ))}
           </div>
         )}
-        <AddContactButton clientId={Number(visit.client_id)} clientCode={visit.code} />
+        {!disabled && <AddContactButton clientId={Number(visit.client_id)} clientCode={visit.code} />}
       </FormSection>
 
       {/* ── SECTION 3: Sugar Form ──────────────────────────── */}
