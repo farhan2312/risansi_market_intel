@@ -7,6 +7,7 @@ import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, clientVisibilitySql } from '@/lib/risansi-auth';
 import { formatRev } from '@/lib/risansi-utils';
 import { RevenueTopClients, type RevenueClientRow } from '@/components/risansi/RevenueTopClients';
+import { UrlSelect } from '@/components/risansi/UrlSelect';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
@@ -311,22 +312,33 @@ export default async function RevenuePage({
           </div>
         ) : (
           <>
-            {/* Section 0b — fiscal year selector */}
+            {/* Section 0b — fiscal year selector (chips on desktop, dropdown on mobile) */}
             {fyList.length > 1 && (
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
-                <span style={{ fontSize: 11, color: 'var(--fg-3)', marginRight: 4, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>Financial Year</span>
-                {fyList.map(fy => (
-                  <a key={fy} href={buildUrl({ fy, month: null })} style={tile(selectedFy === fy)}>{fyLabel(fy)}</a>
-                ))}
-              </div>
+              <>
+                <div className="r-desktop-only" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
+                  <span style={{ fontSize: 11, color: 'var(--fg-3)', marginRight: 4, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>Financial Year</span>
+                  {fyList.map(fy => (
+                    <a key={fy} href={buildUrl({ fy, month: null })} style={tile(selectedFy === fy)}>{fyLabel(fy)}</a>
+                  ))}
+                </div>
+                <div className="r-mobile-only" style={{ marginBottom: 10 }}>
+                  <UrlSelect prefix="FY" ariaLabel="Financial Year" value={String(selectedFy)}
+                    options={fyList.map(fy => ({ value: String(fy), label: fyLabel(fy), href: buildUrl({ fy, month: null }) }))} />
+                </div>
+              </>
             )}
 
-            {/* Section 1 — month tiles */}
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
+            {/* Section 1 — month tiles (chips on desktop, dropdown on mobile) */}
+            <div className="r-desktop-only" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
               <a href={buildUrl({ month: null })} style={tile(!monthSel)}>All</a>
               {monthTiles.map(m => (
                 <a key={m} href={buildUrl({ month: m })} style={tile(monthSel === m)}>{monthLabel(m)}</a>
               ))}
+            </div>
+            <div className="r-mobile-only" style={{ marginBottom: 14 }}>
+              <UrlSelect prefix="Month" ariaLabel="Month" value={monthSel ?? 'all'}
+                options={[{ value: 'all', label: 'All months', href: buildUrl({ month: null }) },
+                          ...monthTiles.map(m => ({ value: m, label: monthLabel(m), href: buildUrl({ month: m }) }))]} />
             </div>
 
             {/* Section 2 — KPI strip */}

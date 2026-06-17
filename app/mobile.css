@@ -8,6 +8,10 @@
 .risansi-bottom-nav { display: none; }
 .risansi-more-sheet { display: none; }
 
+/* Mobile-only elements are hidden on desktop by default; the media query below
+   reveals them. (Desktop-only elements stay visible until the media query hides them.) */
+.r-mobile-only { display: none; }
+
 @media (max-width: 767px) {
   /* Hide the desktop sidebar; let the page fill the width. */
   aside { display: none !important; }
@@ -73,6 +77,13 @@
   .r-full   { width: 100% !important; max-width: 100% !important; }
   .r-hide   { display: none !important; }
   .r-pad    { padding-left: 12px !important; padding-right: 12px !important; }
+  .r-desktop-only { display: none !important; }   /* shown on desktop, hidden on phones */
+  .r-mobile-only  { display: block !important; }   /* hidden on desktop, shown on phones */
+
+  /* ── Login / sign-in: drop the brand panel, full-width form ── */
+  .login-grid  { grid-template-columns: 1fr !important; }
+  .login-brand { display: none !important; }
+  .login-form  { padding: 20px 14px !important; min-height: 100vh; }
 
   /* Tighten the generous desktop page padding on phones. */
   .r-page { padding: 16px 12px 24px !important; }

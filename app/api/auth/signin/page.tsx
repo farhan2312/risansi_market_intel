@@ -37,15 +37,15 @@ export default function SignInPage() {
   }
 
   return (
-    <div style={{
+    <div className="login-grid" style={{
       minHeight: '100vh',
       display: 'grid',
       gridTemplateColumns: '1fr 1fr',
       fontFamily: '"IBM Plex Sans", system-ui, sans-serif',
       WebkitFontSmoothing: 'antialiased',
     }}>
-      {/* ── Left panel — brand ─────────────────────────────── */}
-      <div style={{
+      {/* ── Left panel — brand (hidden on phones) ──────────── */}
+      <div className="login-brand" style={{
         background: '#0A1628',
         display: 'flex',
         flexDirection: 'column',
@@ -98,7 +98,7 @@ export default function SignInPage() {
       </div>
 
       {/* ── Right panel — form ──────────────────────────────── */}
-      <div style={{
+      <div className="login-form" style={{
         background: '#EEF2FA',
         display: 'flex',
         alignItems: 'center',
