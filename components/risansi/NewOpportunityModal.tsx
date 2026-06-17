@@ -84,7 +84,7 @@ export function NewOpportunityModal(props: NewOpportunityModalProps) {
   return (
     <>
       <div onClick={reset} style={{ position: 'fixed', inset: 0, background: 'rgba(10,22,40,0.35)', zIndex: 200 }} />
-      <div style={{
+      <div className="risansi-modal" style={{
         position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
         width: 520, maxHeight: '90vh', background: '#fff', borderRadius: 12,
         boxShadow: '0 20px 60px rgba(10,61,143,0.2)', zIndex: 201, overflow: 'hidden',

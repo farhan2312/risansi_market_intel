@@ -50,7 +50,7 @@ export function AddContactDrawer({
       />
 
       {/* Slide-in drawer */}
-      <div style={{
+      <div className="risansi-drawer" style={{
         position: 'fixed', top: 0, right: 0, bottom: 0, width: 480, zIndex: 50,
         background: '#fff', boxShadow: '-8px 0 40px rgba(10,22,40,0.14)',
         display: 'flex', flexDirection: 'column',

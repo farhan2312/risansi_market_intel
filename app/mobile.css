@@ -50,6 +50,18 @@
   .risansi-main [style*="repeat(7"] { grid-template-columns: repeat(7, 1fr) !important; }
   .risansi-main .r-keepcols { grid-template-columns: revert !important; }
 
+  /* ── Drawers & modals → fit the phone ──
+     Side drawers become full-screen above the bottom nav; centered modals
+     shrink to the viewport. (Both opt-in via className on the panel root.) */
+  .risansi-drawer {
+    left: 0 !important; right: 0 !important; width: 100% !important; max-width: 100% !important;
+    z-index: 320 !important;
+  }
+  .risansi-modal {
+    width: calc(100vw - 20px) !important; max-width: 460px !important;
+    max-height: 88vh !important; overflow-y: auto !important;
+  }
+
   /* ── Layout helpers (opt-in via className) ── */
   .r-grid-4 { grid-template-columns: repeat(2, 1fr) !important; }
   .r-grid-3 { grid-template-columns: repeat(2, 1fr) !important; }

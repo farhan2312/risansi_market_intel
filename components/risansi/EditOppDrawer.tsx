@@ -89,7 +89,7 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
   return (
     <>
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(10,22,40,0.35)', zIndex: 300 }} />
-      <div style={{
+      <div className="risansi-drawer" style={{
         position: 'fixed', top: 0, right: 0, width: 480, height: '100vh',
         background: 'white', zIndex: 301, display: 'flex', flexDirection: 'column',
         boxShadow: '-4px 0 24px rgba(10,61,143,0.15)',

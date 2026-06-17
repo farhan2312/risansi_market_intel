@@ -51,7 +51,7 @@ export function OppCompletionModal({ opp, stage, onSave, onCancel }: {
   return (
     <>
       <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 400 }} />
-      <div style={{
+      <div className="risansi-modal" style={{
         position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
         width: 480, background: 'white', borderRadius: 12,
         boxShadow: '0 24px 64px rgba(0,0,0,0.2)', zIndex: 401, overflow: 'hidden',

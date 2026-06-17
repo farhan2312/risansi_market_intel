@@ -324,7 +324,7 @@ export default function AssignVisitDrawer({
       )}
 
       {/* Slide-in drawer */}
-      <div style={{
+      <div className="risansi-drawer" style={{
         position: 'fixed', top: 0, right: 0, bottom: 0,
         width: 480, zIndex: 50,
         background: '#fff',
