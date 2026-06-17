@@ -54,6 +54,16 @@
   .risansi-main [style*="repeat(7"] { grid-template-columns: repeat(7, 1fr) !important; }
   .risansi-main .r-keepcols { grid-template-columns: revert !important; }
 
+  /* Tables that aren't card-converted scroll horizontally instead of squishing.
+     display:block makes the table a scroll container while its rows keep the
+     table layout (columns stay aligned). r-cards tables are excluded. */
+  .risansi-main table:not(.r-cards) {
+    display: block; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+  }
+  .risansi-main table:not(.r-cards) td,
+  .risansi-main table:not(.r-cards) th { white-space: nowrap; }
+
   /* ── Drawers & modals → fit the phone ──
      Side drawers become full-screen above the bottom nav; centered modals
      shrink to the viewport. (Both opt-in via className on the panel root.) */

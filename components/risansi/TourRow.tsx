@@ -39,10 +39,10 @@ export function TourRow({ route, reps }: { route: TourData; reps: RepData[] }) {
 
   return (
     <tr style={{ borderBottom: '1px solid var(--line)' }}>
-      <td style={TD}>
+      <td data-label="" style={TD}>
         <div style={{ fontWeight: 500, color: 'var(--fg)' }}>{route.name}</div>
       </td>
-      <td style={TD}>
+      <td data-label="Assigned Rep" style={TD}>
         {editing ? (
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <select
@@ -83,13 +83,13 @@ export function TourRow({ route, reps }: { route: TourData; reps: RepData[] }) {
           </div>
         )}
       </td>
-      <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>
+      <td data-label="Clients" style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>
         {parseInt(String(route.client_count) || '0', 10) > 0 ? route.client_count : '—'}
       </td>
-      <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>
+      <td data-label="Key (days)" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>
         {route.visit_freq_key_days ?? '—'}
       </td>
-      <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>
+      <td data-label="Std (days)" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>
         {route.visit_freq_std_days ?? '—'}
       </td>
     </tr>

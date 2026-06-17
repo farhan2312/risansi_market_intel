@@ -190,7 +190,7 @@ export default async function RepsAdminPage() {
                 {zoneTours.length} tour{zoneTours.length !== 1 ? 's' : ''} · {zoneTours.reduce((s, t) => s + parseInt(String(t.client_count) || '0', 10), 0)} clients
               </span>
             </div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
                 <tr style={{ background: 'var(--bg-elev)' }}>
                   <th style={TH}>Tour</th>
@@ -218,7 +218,7 @@ export default async function RepsAdminPage() {
               {unzoned.length} tour{unzoned.length !== 1 ? 's' : ''} · {unzoned.reduce((s, t) => s + parseInt(String(t.client_count) || '0', 10), 0)} clients
             </span>
           </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
               <tr style={{ background: 'var(--bg-elev)' }}>
                 <th style={TH}>Tour</th>

@@ -62,7 +62,7 @@ export function UsersClient({ users, isSysadmin }: { users: UserRow[]; isSysadmi
 
       <div style={PANEL}>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
               <tr style={{ background: 'var(--bg-elev)' }}>
                 {['User', 'Role', 'Status', 'Active', 'Zone / Route', 'Tours', 'Clients', ''].map(h => (
@@ -75,26 +75,26 @@ export function UsersClient({ users, isSysadmin }: { users: UserRow[]; isSysadmi
                 <tr><td colSpan={8} style={{ padding: '40px 0', textAlign: 'center', color: 'var(--fg-3)' }}>No users found</td></tr>
               ) : filtered.map((u, i) => (
                 <tr key={u.id} style={{ borderBottom: i < filtered.length - 1 ? '1px solid var(--line)' : 'none' }}>
-                  <td style={{ padding: '10px 12px' }}>
+                  <td data-label="" style={{ padding: '10px 12px' }}>
                     <div style={{ fontWeight: 500, color: 'var(--fg)' }}>{u.name}</div>
                     <div style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', marginTop: 1 }}>{u.email}</div>
                   </td>
-                  <td style={TD}><Tag kind={u.role === 'sysadmin' || u.role === 'admin' ? 'accent' : undefined}>{u.role}</Tag></td>
-                  <td style={TD}>
+                  <td data-label="Role" style={TD}><Tag kind={u.role === 'sysadmin' || u.role === 'admin' ? 'accent' : undefined}>{u.role}</Tag></td>
+                  <td data-label="Status" style={TD}>
                     <Tag kind={u.status === 'Approved' ? 'pos' : u.status === 'Pending' ? 'warn' : 'neg'} dot>{u.status}</Tag>
                   </td>
-                  <td style={TD}>
+                  <td data-label="Active" style={TD}>
                     <span style={{ color: u.is_active ? 'var(--pos)' : 'var(--fg-3)', fontWeight: 500 }}>
                       {u.is_active ? 'Yes' : 'No'}
                     </span>
                   </td>
-                  <td style={{ ...TD, whiteSpace: 'nowrap' }}>
+                  <td data-label="Zone / Route" style={{ ...TD, whiteSpace: 'nowrap' }}>
                     <div>{u.zone ?? '—'}</div>
                     {u.route && <div style={{ fontSize: 10, color: 'var(--fg-3)' }}>{u.route}</div>}
                   </td>
-                  <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>{u.tours_count || '—'}</td>
-                  <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>{u.clients_count || '—'}</td>
-                  <td style={{ ...TD, whiteSpace: 'nowrap', textAlign: 'right' }}>
+                  <td data-label="Tours" style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>{u.tours_count || '—'}</td>
+                  <td data-label="Clients" style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>{u.clients_count || '—'}</td>
+                  <td data-label="" style={{ ...TD, whiteSpace: 'nowrap', textAlign: 'right' }}>
                     <RowActions
                       user={u}
                       isSysadmin={isSysadmin}
