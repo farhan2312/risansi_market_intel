@@ -6,6 +6,7 @@ import { cache } from 'react';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Sidebar } from '@/components/risansi';
 import type { SidebarRole } from '@/components/risansi/Sidebar';
+import { BottomNav } from '@/components/risansi/BottomNav';
 import risansiPool from '@/lib/db-risansi';
 
 const getSession = cache(() => getServerSession(authOptions));
@@ -107,9 +108,15 @@ export default async function RisansiLayout({ children }: { children: React.Reac
           email:    email,
         }}
       />
-      <main style={{ flex: 1, overflowY: 'auto', background: '#F4F6FB', minWidth: 0 }}>
+      <main className="risansi-main" style={{ flex: 1, overflowY: 'auto', background: '#F4F6FB', minWidth: 0 }}>
         {children}
       </main>
+
+      {/* Mobile-only bottom navigation (hidden ≥768px) */}
+      <BottomNav
+        role={toSidebarRole(role)}
+        user={{ name: session.user.name ?? email, email }}
+      />
     </div>
   );
 }

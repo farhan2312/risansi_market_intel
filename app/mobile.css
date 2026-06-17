@@ -1,0 +1,87 @@
+/* ── Mobile bottom-nav + responsive layer ───────────────────────
+   EVERYTHING here is confined to phones (≤767px) or is a component
+   hidden on desktop, so the desktop UI (≥768px) is never affected.
+   Inline styles win over stylesheets, so structural overrides use
+   !important — same pattern as the dark-mode form rules in globals.css. */
+
+/* The bottom nav + sheet exist in the DOM on all sizes but only show on phones. */
+.risansi-bottom-nav { display: none; }
+.risansi-more-sheet { display: none; }
+
+@media (max-width: 767px) {
+  /* Hide the desktop sidebar; let the page fill the width. */
+  aside { display: none !important; }
+
+  /* Main scroll area clears the fixed bottom nav. */
+  .risansi-main {
+    padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  /* Compact the top bar so breadcrumbs + actions fit a phone. */
+  .risansi-topbar { padding-left: 12px !important; padding-right: 10px !important; gap: 8px !important; }
+  .risansi-topbar .risansi-live { display: none !important; }
+
+  /* Bottom tab bar */
+  .risansi-bottom-nav {
+    display: flex;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+    background: #0A1628; border-top: 1px solid rgba(255,255,255,0.08);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    height: calc(56px + env(safe-area-inset-bottom, 0px));
+    align-items: stretch;
+  }
+  .risansi-more-sheet { display: block; position: fixed; inset: 0; z-index: 70; }
+
+  /* ── Auto-collapse inline CSS grids on phones ──
+     The app builds layouts with inline `grid-template-columns`. These
+     substring rules catch the common shapes so every page reflows without
+     touching desktop. Generic rule stacks to one column; repeat(N) KPI/stat
+     rows step down to two columns (later rule wins on equal specificity). */
+  .risansi-main [style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
+  .risansi-main [style*="repeat(2"],
+  .risansi-main [style*="repeat(3"],
+  .risansi-main [style*="repeat(4"],
+  .risansi-main [style*="repeat(5"],
+  .risansi-main [style*="repeat(6"],
+  .risansi-main [style*="1fr 1fr 1fr"],
+  .risansi-main [style*="1fr 1fr 1fr 1fr"] { grid-template-columns: repeat(2, 1fr) !important; }
+  /* Wide grids (calendars / weekday strips use 7 columns) keep their columns —
+     opt out of the blanket collapse above. .r-keepcols is a manual escape hatch. */
+  .risansi-main [style*="repeat(7"] { grid-template-columns: repeat(7, 1fr) !important; }
+  .risansi-main .r-keepcols { grid-template-columns: revert !important; }
+
+  /* ── Layout helpers (opt-in via className) ── */
+  .r-grid-4 { grid-template-columns: repeat(2, 1fr) !important; }
+  .r-grid-3 { grid-template-columns: repeat(2, 1fr) !important; }
+  .r-grid-2 { grid-template-columns: 1fr !important; }
+  .r-2col   { grid-template-columns: 1fr !important; }
+  .r-stack  { flex-direction: column !important; align-items: stretch !important; }
+  .r-wrap   { flex-wrap: wrap !important; }
+  .r-scroll-x { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+  .r-full   { width: 100% !important; max-width: 100% !important; }
+  .r-hide   { display: none !important; }
+  .r-pad    { padding-left: 12px !important; padding-right: 12px !important; }
+
+  /* Tighten the generous desktop page padding on phones. */
+  .r-page { padding: 16px 12px 24px !important; }
+
+  /* ── Table → cards (opt-in: <table class="r-cards"> with data-label on <td>) ── */
+  table.r-cards, table.r-cards tbody, table.r-cards tr, table.r-cards td { display: block; width: 100%; }
+  table.r-cards thead { display: none; }
+  table.r-cards tr {
+    border: 1px solid var(--line); border-radius: 10px; margin-bottom: 10px;
+    padding: 6px 12px; background: var(--bg-paper);
+  }
+  table.r-cards td {
+    border: none !important; padding: 6px 0 !important; display: block; text-align: left;
+  }
+  table.r-cards td + td { border-top: 1px solid var(--line-2) !important; }
+  table.r-cards td::before {
+    content: attr(data-label); display: block;
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--fg-3); font-weight: 700; margin-bottom: 2px;
+  }
+  /* Cells flagged data-label="" render as the card's title (no label). */
+  table.r-cards td[data-label=""] { padding-top: 2px !important; }
+  table.r-cards td[data-label=""]::before { content: none; }
+}

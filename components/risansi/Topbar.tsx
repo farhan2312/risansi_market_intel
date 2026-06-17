@@ -13,7 +13,7 @@ export interface TopbarProps {
 
 export function Topbar({ crumbs, primaryAction, primaryActionHref }: TopbarProps) {
   return (
-    <header className="flex h-[52px] flex-shrink-0 items-center gap-3 border-b border-[var(--line)] bg-[var(--bg-paper)] px-6">
+    <header className="risansi-topbar flex h-[52px] flex-shrink-0 items-center gap-3 border-b border-[var(--line)] bg-[var(--bg-paper)] px-6">
       {/* Breadcrumbs */}
       <nav className="flex items-center gap-1.5 text-[13px] text-[var(--fg-3)]">
         {crumbs.map((c, i) => {
@@ -38,7 +38,7 @@ export function Topbar({ crumbs, primaryAction, primaryActionHref }: TopbarProps
       </nav>
 
       {/* Live indicator — pushed right */}
-      <div className="ml-auto flex items-center gap-1.5 text-xs text-[var(--pos)]">
+      <div className="risansi-live ml-auto flex items-center gap-1.5 text-xs text-[var(--pos)]">
         <span className="live-dot" />
         <span className="mono text-[11px]">Live · synced 2s ago</span>
       </div>

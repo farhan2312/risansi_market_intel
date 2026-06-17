@@ -403,7 +403,7 @@ export default async function ClientListPage({
             </div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: 'var(--bg-elev)' }}>
                     <SortableTH col="code"       label="Code"         currentSort={curSort} currentDir={curDir} />
@@ -426,12 +426,12 @@ export default async function ClientListPage({
                       <tr key={c.id} style={{ borderBottom: i < clients.length - 1 ? '1px solid var(--line)' : 'none' }}>
 
                         {/* Code */}
-                        <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>
+                        <td data-label="Code" style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>
                           {c.code}
                         </td>
 
                         {/* Client name */}
-                        <td style={{ ...TD, minWidth: 180 }}>
+                        <td data-label="" style={{ ...TD, minWidth: 180 }}>
                           <Link
                             href={`/risansi/clients/${c.code}`}
                             style={{ fontWeight: 500, fontSize: 12, color: 'var(--fg)', textDecoration: 'none' }}
@@ -444,10 +444,10 @@ export default async function ClientListPage({
                         </td>
 
                         {/* Industry */}
-                        <td style={TD}><Tag>{c.industry}</Tag></td>
+                        <td data-label="Industry" style={TD}><Tag>{c.industry}</Tag></td>
 
                         {/* Zone / Route */}
-                        <td style={{ ...TD, whiteSpace: 'nowrap' }}>
+                        <td data-label="Zone / Route" style={{ ...TD, whiteSpace: 'nowrap' }}>
                           <div style={{ fontSize: 12 }}>{c.zone || c.tour_zone || '—'}</div>
                           {c.tour_name && (
                             <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 1 }}>{c.tour_name}</div>
@@ -455,7 +455,7 @@ export default async function ClientListPage({
                         </td>
 
                         {/* Rep */}
-                        <td style={{ padding: '0 12px' }}>
+                        <td data-label="Rep" style={{ padding: '0 12px' }}>
                           <span style={{
                             fontSize: 12,
                             color: 'var(--fg-2)',
@@ -466,12 +466,12 @@ export default async function ClientListPage({
                         </td>
 
                         {/* Last visit */}
-                        <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: lv.color, whiteSpace: 'nowrap' }}>
+                        <td data-label="Last Visit" style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: lv.color, whiteSpace: 'nowrap' }}>
                           <span style={{ fontWeight: lv.label === 'Never' ? 400 : 500 }}>{lv.label}</span>
                         </td>
 
                         {/* Status */}
-                        <td style={{ ...TD, whiteSpace: 'nowrap' }}>
+                        <td data-label="Status" style={{ ...TD, whiteSpace: 'nowrap' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                             <StatusDot s={statusDotKind(c.status)} />
                             <span style={{ fontSize: 11 }}>{c.status}</span>
@@ -479,7 +479,7 @@ export default async function ClientListPage({
                         </td>
 
                         {/* Tier */}
-                        <td style={TD}>
+                        <td data-label="Tier" style={TD}>
                           {c.tier ? <Tag kind={tierKind(c.tier)}>{c.tier}</Tag> : null}
                         </td>
 
