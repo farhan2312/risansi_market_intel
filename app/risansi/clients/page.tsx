@@ -25,6 +25,23 @@ const OWNERS_SUBQUERY = `(SELECT string_agg(u.name, ', ' ORDER BY u.name)
      FROM client_assignments ca JOIN users u ON u.id = ca.user_id
     WHERE ca.client_id = c.id)`;
 
+// Lifetime revenue (INR) per client, joined as rev.lifetime_rev.
+const REV_JOIN = `LEFT JOIN (
+  SELECT client_id, SUM(total_value) AS lifetime_rev
+  FROM client_revenue_monthly GROUP BY client_id
+) rev ON rev.client_id = c.id`;
+
+// Revenue buckets keyed on lifetime revenue (INR). The value doubles as the
+// human-readable label (no commas — the multi-select joins on commas). `cond`
+// builds the SQL range against the given numeric column/expression.
+const REV_BUCKETS: { value: string; cond: (x: string) => string }[] = [
+  { value: 'No Revenue',     cond: x => `${x} = 0` },
+  { value: '< ₹10 L',        cond: x => `${x} > 0 AND ${x} < 1000000` },
+  { value: '₹10 L – ₹50 L',  cond: x => `${x} >= 1000000 AND ${x} < 5000000` },
+  { value: '₹50 L – ₹1 Cr',  cond: x => `${x} >= 5000000 AND ${x} < 10000000` },
+  { value: '₹1 Cr+',         cond: x => `${x} >= 10000000` },
+];
+
 export default async function ClientListPage({
   searchParams,
 }: {
@@ -49,8 +66,9 @@ export default async function ClientListPage({
   const statFilts = typeof sp.status   === 'string' && sp.status   ? sp.status.split(',').filter(Boolean).map(s => s.toUpperCase()) : [];
   const repFilts  = typeof sp.rep      === 'string' && sp.rep      ? sp.rep.split(',').filter(Boolean)      : [];
   const fyFilts   = typeof sp.fy       === 'string' && sp.fy       ? sp.fy.split(',').filter(Boolean)       : [];
+  const revFilts  = typeof sp.rev      === 'string' && sp.rev      ? sp.rev.split(',').filter(Boolean)      : [];
 
-  const hasActiveFilters = !!(q_str || sugarFilt || indFilts.length || zoneFilts.length || tierFilts.length || statFilts.length || repFilts.length || fyFilts.length);
+  const hasActiveFilters = !!(q_str || sugarFilt || indFilts.length || zoneFilts.length || tierFilts.length || statFilts.length || repFilts.length || fyFilts.length || revFilts.length);
   const sortCol = SORT_MAP[sortKey] ?? 'c.last_visit_date';
 
   // ── Build parameterised WHERE conditions ──────────────────────
@@ -89,6 +107,12 @@ export default async function ClientListPage({
   }
   if (sugarFilt === 'true')  whereConditions.push('c.is_sugar = TRUE');
   if (sugarFilt === 'false') whereConditions.push('(c.is_sugar = FALSE OR c.is_sugar IS NULL)');
+  if (revFilts.length > 0) {
+    // Buckets are a fixed whitelist; conditions are constant SQL (no params).
+    const rExpr = 'COALESCE(rev.lifetime_rev, 0)';
+    const conds = REV_BUCKETS.filter(b => revFilts.includes(b.value)).map(b => `(${b.cond(rExpr)})`);
+    if (conds.length > 0) whereConditions.push(`(${conds.join(' OR ')})`);
+  }
 
   // Per-user visibility — append as raw text (predicate inlines integers, no params).
   const visPred = clientVisibilitySql(user, 'c');
@@ -123,7 +147,7 @@ export default async function ClientListPage({
   interface RepOption { rep_name: string; client_count: number; }
 
   // ── All queries in parallel ────────────────────────────────────
-  const [clients, total, industries, zones, tiers, repOptions, fyYears] = await Promise.all([
+  const [clients, total, industries, zones, tiers, repOptions, fyYears, revBuckets] = await Promise.all([
 
     (async (): Promise<ClientRow[]> => {
       try {
@@ -139,6 +163,7 @@ export default async function ClientListPage({
              COALESCE(${OWNERS_SUBQUERY}, '—') AS rep_name
            FROM clients c
            LEFT JOIN tour_routes tr ON tr.id = c.tour_id
+           ${REV_JOIN}
            WHERE ${whereClause}
            ORDER BY ${sortCol} ${orderDir} ${orderDir === 'ASC' ? 'NULLS FIRST' : 'NULLS LAST'}
            LIMIT  $${limIdx}
@@ -158,6 +183,7 @@ export default async function ClientListPage({
           `SELECT COUNT(DISTINCT c.id)::text AS count
            FROM clients c
            LEFT JOIN tour_routes tr ON tr.id = c.tour_id
+           ${REV_JOIN}
            WHERE ${whereClause}`,
           countParams as (string | number)[],
         );
@@ -234,6 +260,27 @@ export default async function ClientListPage({
         });
       } catch { return []; }
     })(),
+
+    // Revenue-bucket option counts (lifetime revenue), scoped to visible clients.
+    (async (): Promise<{ value: string; label: string; count: number }[]> => {
+      try {
+        const visForRev = clientVisibilitySql(user, 'c');
+        const visClause = visForRev ? `AND (${visForRev})` : '';
+        const selects = REV_BUCKETS
+          .map((b, i) => `COUNT(*) FILTER (WHERE ${b.cond('r')}) AS b${i}`)
+          .join(', ');
+        const { rows } = await risansiPool.query<Record<string, string>>(
+          `WITH rev AS (
+             SELECT c.id,
+                    COALESCE((SELECT SUM(total_value) FROM client_revenue_monthly m WHERE m.client_id = c.id), 0) AS r
+             FROM clients c
+             WHERE c.deleted_at IS NULL ${visClause})
+           SELECT ${selects} FROM rev`,
+        );
+        const row = rows[0] ?? {};
+        return REV_BUCKETS.map((b, i) => ({ value: b.value, label: b.value, count: Number(row[`b${i}`] ?? 0) }));
+      } catch { return REV_BUCKETS.map(b => ({ value: b.value, label: b.value, count: 0 })); }
+    })(),
   ]);
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
@@ -247,6 +294,7 @@ export default async function ClientListPage({
     if (statFilts.length)   base.status   = statFilts.join(',');
     if (repFilts.length)    base.rep      = repFilts.join(',');
     if (fyFilts.length)     base.fy       = fyFilts.join(',');
+    if (revFilts.length)    base.rev      = revFilts.join(',');
     if (sugarFilt)          base.sugar    = sugarFilt;
     if (sortKey)            base.sort     = sortKey;
     if (orderDir === 'DESC') base.order   = 'desc';
@@ -307,6 +355,7 @@ export default async function ClientListPage({
           <MultiSelectFilter param="status"   label="Status"    options={STATUS_OPTIONS}  selected={statFilts} />
           <MultiSelectFilter param="rep"      label="Rep"       options={repOptions.map(r => ({ value: r.rep_name, label: r.rep_name, count: r.client_count }))} selected={repFilts} />
           <MultiSelectFilter param="fy"       label="Customer Since (Financial Year)" options={fyYears} selected={fyFilts} />
+          <MultiSelectFilter param="rev"      label="Revenue"   options={revBuckets}      selected={revFilts}  />
         </div>
 
         {/* ── Active filter pills ───────────────────────────────── */}
@@ -317,6 +366,7 @@ export default async function ClientListPage({
           { param: 'status',   label: 'Status',   values: statFilts },
           { param: 'rep',      label: 'Rep',      values: repFilts  },
           { param: 'fy',       label: 'Customer Since (Financial Year)', values: fyFilts },
+          { param: 'rev',      label: 'Revenue',  values: revFilts },
         ]} />
 
         {/* ── Table ────────────────────────────────────────────── */}
