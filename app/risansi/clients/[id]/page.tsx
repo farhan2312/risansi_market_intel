@@ -918,12 +918,12 @@ export default async function ClientProfilePage({
                         {/* Contact links */}
                         <div style={{ display: 'flex', gap: 14, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                           {c.phone && (
-                            <a href={`tel:${c.phone}`} style={CONTACT_LINK}>
+                            <a href={`tel:${c.phone}`} className="r-tap-link" style={CONTACT_LINK}>
                               📞 {c.phone}
                             </a>
                           )}
                           {c.email && (
-                            <a href={`mailto:${c.email}`} style={CONTACT_LINK}>
+                            <a href={`mailto:${c.email}`} className="r-tap-link" style={CONTACT_LINK}>
                               ✉ {c.email}
                             </a>
                           )}
@@ -931,6 +931,7 @@ export default async function ClientProfilePage({
                             <a
                               href={`https://wa.me/${c.whatsapp.replace(/\D/g, '')}`}
                               target="_blank" rel="noopener noreferrer"
+                              className="r-tap-link"
                               style={{ ...CONTACT_LINK, color: '#25D366' }}
                             >
                               💬 WhatsApp

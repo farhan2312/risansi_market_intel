@@ -101,6 +101,7 @@
   .field-tabs a {
     border-bottom: none !important; margin-bottom: 0 !important;
     border-radius: 999px !important; padding: 8px 16px !important;
+    min-height: 44px !important; display: inline-flex !important; align-items: center !important;
     background: var(--bg-elev); color: var(--fg-2) !important; font-weight: 600 !important;
     border: 1px solid var(--line);
   }
@@ -176,4 +177,31 @@
     font-size: 15px; font-weight: 600; color: var(--fg);
   }
   table.r-cards td[data-label=""]::before { content: none; }
+
+  /* ── Touch targets (WCAG 44px) ──
+     Small desktop controls get a comfortable hit area on phones without
+     changing their look much. Opt-in via these classes on the controls. */
+  .risansi-main .r-tap {
+    min-height: 44px !important;
+    display: inline-flex !important; align-items: center !important;
+  }
+  /* Inline text links (contact phone/email/WhatsApp) become tappable chips. */
+  .risansi-main .r-tap-link {
+    min-height: 40px !important; padding: 7px 10px !important;
+    display: inline-flex !important; align-items: center !important;
+    background: var(--bg-elev) !important; border-radius: 8px !important;
+  }
+  /* Filter dropdown menu — wider, with 44px-tall option rows. */
+  .risansi-main .r-filter-menu { min-width: 220px !important; }
+  .risansi-main .r-filter-menu label { min-height: 44px !important; }
+  /* Pagination buttons. */
+  .risansi-main .r-pager a { min-height: 44px !important; min-width: 42px !important; }
+  /* Active-filter pills — taller pill, bigger close hit area. */
+  .risansi-main .r-pill { min-height: 30px !important; padding: 4px 10px !important; }
+  .risansi-main .r-pill-x {
+    min-width: 28px !important; min-height: 28px !important;
+    justify-content: center !important; margin-left: 0 !important;
+  }
+  /* Visit wizard stepper — keep the dot small, enlarge the tap area. */
+  .risansi-main .r-step-dot { min-height: 44px !important; }
 }

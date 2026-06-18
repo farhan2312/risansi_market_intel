@@ -73,6 +73,7 @@ export function ActiveFilterBar({ filters }: Props) {
       {pills.map(({ param, filterLabel, value }) => (
         <span
           key={`${param}:${value}`}
+          className="r-pill"
           style={{
             display:    'inline-flex',
             alignItems: 'center',
@@ -89,7 +90,9 @@ export function ActiveFilterBar({ filters }: Props) {
           {value}
           <button
             type="button"
+            className="r-pill-x"
             onClick={() => removePill(param, value)}
+            aria-label={`Remove ${filterLabel} ${value} filter`}
             style={{
               background:  'none',
               border:      'none',
@@ -110,9 +113,10 @@ export function ActiveFilterBar({ filters }: Props) {
 
       <button
         type="button"
+        className="r-tap"
         onClick={clearAll}
         style={{
-          padding:      '2px 8px',
+          padding:      '2px 10px',
           fontSize:     11,
           cursor:       'pointer',
           background:   'none',

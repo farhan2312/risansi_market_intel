@@ -59,6 +59,7 @@ function ActionStatusToggle({ task, compact, onToggle }: {
   return (
     <Badge
       onClick={handleToggle}
+      className="r-tap"
       style={{
         background: task.status === 'completed' ? 'var(--pos-soft)' : 'var(--bg-elev)',
         color: task.status === 'completed' ? 'var(--pos)' : 'var(--fg-3)',

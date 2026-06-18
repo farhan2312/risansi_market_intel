@@ -56,6 +56,7 @@ export function MultiSelectFilter({ param, label, options, selected }: Props) {
     <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
       <button
         type="button"
+        className="r-tap"
         onClick={() => setOpen(o => !o)}
         style={{
           display:     'inline-flex',
@@ -95,7 +96,7 @@ export function MultiSelectFilter({ param, label, options, selected }: Props) {
       </button>
 
       {open && options.length > 0 && (
-        <div style={{
+        <div className="r-filter-menu" style={{
           position:  'absolute',
           top:       'calc(100% + 4px)',
           left:      0,

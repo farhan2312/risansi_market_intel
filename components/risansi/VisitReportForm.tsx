@@ -216,8 +216,8 @@ export function VisitReportForm({
           {steps.map((s, i) => {
             const active = i === step, done = i < step;
             return (
-              <button key={s.key} type="button" onClick={() => goStep(i)} aria-current={active} title={s.title}
-                style={{ flex: 1, display: 'flex', justifyContent: 'center', background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px 0', position: 'relative', zIndex: 1 }}>
+              <button key={s.key} type="button" className="r-step-dot" onClick={() => goStep(i)} aria-current={active} title={s.title}
+                style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px 0', position: 'relative', zIndex: 1 }}>
                 <span style={{
                   width: active ? 26 : 16, height: active ? 26 : 16, borderRadius: '50%', display: 'grid', placeItems: 'center',
                   fontSize: 11, fontWeight: 700, transition: 'all 200ms',
@@ -580,7 +580,8 @@ export function VisitReportForm({
                             performance_feedback: String(e.performance_feedback ?? ''),
                           });
                         }}
-                        style={{ fontSize: 11, color: '#0A3D8F', background: 'none', border: '1px solid #0A3D8F', borderRadius: 5, padding: '3px 10px', cursor: 'pointer', fontFamily: 'inherit' }}
+                        className="r-tap"
+                        style={{ fontSize: 11, color: '#0A3D8F', background: 'none', border: '1px solid #0A3D8F', borderRadius: 5, padding: '3px 12px', cursor: 'pointer', fontFamily: 'inherit' }}
                       >
                         Edit
                       </button>

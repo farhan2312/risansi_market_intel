@@ -505,7 +505,7 @@ export default async function ClientListPage({
             <span style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
               Showing {offset + 1}–{Math.min(offset + PAGE_SIZE, total)} of {total.toLocaleString('en-IN')}
             </span>
-            <div style={{ display: 'flex', gap: 4 }}>
+            <div className="r-pager" style={{ display: 'flex', gap: 4 }}>
               {pageNum > 1 && (
                 <a href={buildUrl({ page: pageNum - 1 })} style={PAGE_BTN}>← Prev</a>
               )}
