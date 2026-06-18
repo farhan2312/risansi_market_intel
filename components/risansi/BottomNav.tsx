@@ -54,6 +54,8 @@ export function BottomNav({ role, user }: {
 }) {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
+  // The dedicated /risansi/mobile section has its own BottomTabBar — don't double up.
+  const onMobileSection = pathname.startsWith('/risansi/mobile');
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -72,6 +74,8 @@ export function BottomNav({ role, user }: {
   const moreActive = [...MORE_SALES, ...MORE_ADMIN, ...MORE_SYSADMIN].some(i => isActive(pathname, i.href));
 
   function closeAnd() { setMoreOpen(false); }
+
+  if (onMobileSection) return null;
 
   return (
     <>
