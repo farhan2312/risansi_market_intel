@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { hasRole } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
+import { recordAudit } from '@/lib/audit';
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -16,13 +17,11 @@ async function requireAdmin() {
 }
 
 async function logActivity(entity: string, id: string, action: string, email: string) {
-  try {
-    await risansiPool.query(
-      `INSERT INTO risansi_activity_log (entity_type, entity_id, action, email, created_at)
-       VALUES ($1, $2, $3, $4, NOW())`,
-      [entity, id, action, email],
-    );
-  } catch { /* non-critical */ }
+  const verb = /add|creat|approv/i.test(action) ? 'create'
+    : /updat|edit|chang|rename/i.test(action) ? 'update'
+    : /delet|remov|reject|revok/i.test(action) ? 'delete'
+    : /assign/i.test(action) ? 'assign' : 'activity';
+  await recordAudit({ action: verb, entityType: entity, entityId: id, summary: action, actorEmail: email });
 }
 
 // ── Approve a pending access request ──────────────────────────

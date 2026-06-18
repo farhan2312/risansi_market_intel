@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth/next';
 import bcrypt from 'bcryptjs';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
+import { recordAuth } from '@/lib/audit';
 
 export async function POST(req: Request) {
   try {
@@ -52,6 +53,8 @@ export async function POST(req: Request) {
        WHERE lower(email) = $2`,
       [newHash, email],
     );
+
+    await recordAuth({ event: 'password_changed', email, role: (session.user.role as string | undefined) ?? null });
 
     return NextResponse.json({ success: true });
   } catch (err) {

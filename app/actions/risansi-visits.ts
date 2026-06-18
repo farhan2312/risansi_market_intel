@@ -4,6 +4,7 @@ import { getServerSession } from 'next-auth/next';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
+import { recordAudit } from '@/lib/audit';
 
 // Resolve the signed-in user's rep id: prefer the session's linked rep_id,
 // fall back to a reps-by-email lookup for accounts linked after token issue.
@@ -483,6 +484,13 @@ export async function submitVisit(visitId: string) {
        AND (last_visit_date IS NULL OR last_visit_date < $1)`,
     [visit.visit_date, visit.client_id],
   );
+
+  await recordAudit({
+    action: 'submit', entityType: 'visit', entityId: visitId,
+    entityLabel: visit.legal_name,
+    summary: `Submitted visit report for ${visit.legal_name}`,
+    actorEmail: session.user.email,
+  });
 
   revalidatePath(`/risansi/visits/${visitId}`);
   revalidatePath(`/risansi/clients/${visit.cid}`);

@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { getManagerAssignableReps, hasRole } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
+import { recordAudit } from '@/lib/audit';
 
 // ── Helper ─────────────────────────────────────────────────────
 
@@ -135,16 +136,18 @@ async function opportunitiesHasSecondaryRep(): Promise<boolean> {
   return (await opportunityColumns()).has('secondary_rep_id');
 }
 
+function auditVerb(action: string): string {
+  if (/add|creat/i.test(action))        return 'create';
+  if (/updat|edit|chang|rename/i.test(action)) return 'update';
+  if (/delet|remov/i.test(action))      return 'delete';
+  if (/assign/i.test(action))           return 'assign';
+  if (/submit|close/i.test(action))     return 'submit';
+  return 'activity';
+}
+
 async function logActivity(entityType: string, entityId: string, action: string, email: string) {
-  try {
-    await risansiPool.query(
-      `INSERT INTO risansi_activity_log (entity_type, entity_id, action, email, created_at)
-       VALUES ($1, $2, $3, $4, NOW())`,
-      [entityType, entityId, action, email],
-    );
-  } catch {
-    // activity log is non-critical — never let it break the action
-  }
+  // Persist into the unified audit_log (captures actor IP/UA via recordAudit).
+  await recordAudit({ action: auditVerb(action), entityType, entityId, summary: action, actorEmail: email });
 }
 
 // ── Access request ─────────────────────────────────────────────
@@ -167,11 +170,7 @@ export async function requestAccess(_formData: FormData) {
     [email, displayName],
   );
 
-  await risansiPool.query(
-    `INSERT INTO risansi_activity_log (email, action, created_at)
-     VALUES ($1, 'access_requested', NOW())`,
-    [email],
-  );
+  await recordAudit({ action: 'create', entityType: 'access_request', entityId: email, summary: 'access_requested', actorEmail: email });
 
   redirect('/risansi');
 }

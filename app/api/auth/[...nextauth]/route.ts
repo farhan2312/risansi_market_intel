@@ -1,6 +1,15 @@
 import NextAuth, { type AuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import risansiPool from '@/lib/db-risansi';
+import { recordAuth } from '@/lib/audit';
+
+// NextAuth's authorize req carries the request headers as a plain object.
+function reqIpUa(req: unknown): { ip: string | null; ua: string | null } {
+  const h = (req as { headers?: Record<string, string> } | undefined)?.headers ?? {};
+  const fwd = h['x-forwarded-for'];
+  const ip = (fwd ? fwd.split(',')[0].trim() : null) || h['x-real-ip'] || null;
+  return { ip, ua: h['user-agent'] ?? null };
+}
 
 export const authOptions: AuthOptions = {
   secret: process.env.NEXTAUTH_SECRET ?? 'risansi-dev-secret-2026',
@@ -18,16 +27,17 @@ export const authOptions: AuthOptions = {
         email:    { label: 'Email',    type: 'email' },
         password: { label: 'Password', type: 'password' },
       },
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         const email = credentials?.email?.toLowerCase().trim() ?? '';
         const pass  = credentials?.password ?? '';
+        const { ip, ua } = reqIpUa(req);
 
         // Unified users table is the source of truth for credentials + access.
         const res = await risansiPool.query<{
-          email: string; name: string; password_hash: string | null;
+          id: number; email: string; name: string; password_hash: string | null;
           status: string; role: string;
         }>(
-          `SELECT email, name, password_hash, status, role
+          `SELECT id, email, name, password_hash, status, role
            FROM users
            WHERE lower(email) = $1 AND status = 'Approved' AND is_active = TRUE
            LIMIT 1`,
@@ -35,12 +45,19 @@ export const authOptions: AuthOptions = {
         );
 
         const row = res.rows[0];
-        if (!row || !row.password_hash) return null;
+        if (!row || !row.password_hash) {
+          await recordAuth({ event: 'login_failed', email, reason: 'no_user', ip, userAgent: ua });
+          return null;
+        }
 
         const bcrypt = await import('bcryptjs');
         const valid  = await bcrypt.compare(pass, row.password_hash);
-        if (!valid) return null;
+        if (!valid) {
+          await recordAuth({ event: 'login_failed', email, userId: row.id, role: row.role, reason: 'bad_password', ip, userAgent: ua });
+          return null;
+        }
 
+        await recordAuth({ event: 'login', email: row.email, userId: row.id, role: row.role, ip, userAgent: ua });
         return {
           id:    row.email,
           email: row.email,
@@ -98,6 +115,16 @@ export const authOptions: AuthOptions = {
       session.user.repId         = (token.repId as number | null) ?? null;
       session.user.mustChange    = (token.mustChange as boolean) ?? false;
       return session;
+    },
+  },
+  events: {
+    async signOut({ token }) {
+      await recordAuth({
+        event: 'logout',
+        email: (token?.email as string | undefined) ?? null,
+        userId: (token?.repId as number | undefined) ?? null,
+        role: (token?.role as string | undefined) ?? null,
+      });
     },
   },
   pages: {
