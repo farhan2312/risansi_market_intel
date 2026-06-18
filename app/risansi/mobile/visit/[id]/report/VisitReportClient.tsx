@@ -448,7 +448,7 @@ function Step3RilEquip({
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr', gap: 8, marginBottom: 8 }}>
                 <input
-                  type="number" min="0" max="99"
+                  type="number" inputMode="numeric" min="0" max="99"
                   value={e.qty || ''}
                   onChange={ev => updateEntry(app, 'qty', Number(ev.target.value))}
                   placeholder="Qty"
@@ -531,7 +531,7 @@ function Step4CompEquip({
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 60px', gap: 8, marginBottom: 8 }}>
               <input placeholder="Model" value={e.model} onChange={ev => update(i, 'model', ev.target.value)} style={{ ...INPUT, height: 38 }} />
-              <input type="number" min="1" max="99" placeholder="Qty" value={e.qty} onChange={ev => update(i, 'qty', Number(ev.target.value))} style={{ ...INPUT, height: 38, textAlign: 'center' }} />
+              <input type="number" inputMode="numeric" min="1" max="99" placeholder="Qty" value={e.qty} onChange={ev => update(i, 'qty', Number(ev.target.value))} style={{ ...INPUT, height: 38, textAlign: 'center' }} />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               <select value={e.condition} onChange={ev => update(i, 'condition', ev.target.value)} style={{ ...INPUT, height: 38 }}>
@@ -619,7 +619,7 @@ function Step5Commercial({
                           style={{ ...INPUT, height: 38, flex: 2 }}
                         />
                         <input
-                          type="number" min="0" step="0.5"
+                          type="number" inputMode="decimal" min="0" step="0.5"
                           value={opportunityValue}
                           onChange={e => setOpportunityValue(e.target.value)}
                           placeholder="₹ Cr"

@@ -1,7 +1,23 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { Bell, ChevronRight, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+
+// Honest "synced" label: data is fetched when the page renders, so this counts
+// up from mount instead of claiming a fixed "2s ago" forever.
+function LiveIndicator() {
+  const [secs, setSecs] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setSecs(s => s + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const ago = secs < 5 ? 'just now'
+    : secs < 60 ? `${secs}s ago`
+    : secs < 3600 ? `${Math.floor(secs / 60)}m ago`
+    : `${Math.floor(secs / 3600)}h ago`;
+  return <span className="mono text-[11px]">Live · synced {ago}</span>;
+}
 
 export type Crumb = string | { label: string; href: string };
 
@@ -40,11 +56,11 @@ export function Topbar({ crumbs, primaryAction, primaryActionHref }: TopbarProps
       {/* Live indicator — pushed right */}
       <div className="risansi-live ml-auto flex items-center gap-1.5 text-xs text-[var(--pos)]">
         <span className="live-dot" />
-        <span className="mono text-[11px]">Live · synced 2s ago</span>
+        <LiveIndicator />
       </div>
 
-      {/* Notifications */}
-      <Button variant="ghost" size="icon-sm" aria-label="Notifications">
+      {/* Notifications — not wired up yet; marked so it doesn't read as a dead control */}
+      <Button variant="ghost" size="icon-sm" aria-label="Notifications" title="Notifications — coming soon" disabled>
         <Bell />
       </Button>
 

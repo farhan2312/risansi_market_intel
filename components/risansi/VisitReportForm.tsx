@@ -649,7 +649,7 @@ export function VisitReportForm({
               </div>
               <div>
                 <label style={LBL}>Qty</label>
-                <input type="number" min={1} value={newEq.qty} onChange={e => setNewEq(p => ({ ...p, qty: parseInt(e.target.value) || 1 }))} style={INP} />
+                <input type="number" inputMode="numeric" min={1} value={newEq.qty} onChange={e => setNewEq(p => ({ ...p, qty: parseInt(e.target.value) || 1 }))} style={INP} />
               </div>
               <div>
                 <label style={LBL}>Condition</label>
@@ -757,7 +757,7 @@ export function VisitReportForm({
                 </div>
                 <div>
                   <label style={LBL}>Value (₹)</label>
-                  <input type="number" defaultValue={visit.sample_gift_value ?? ''} disabled={disabled} onChange={e => queueSave('sample_gift_value', e.target.value)} style={INP} />
+                  <input type="number" inputMode="decimal" defaultValue={visit.sample_gift_value ?? ''} disabled={disabled} onChange={e => queueSave('sample_gift_value', e.target.value)} style={INP} />
                 </div>
               </div>
             )}
@@ -1087,7 +1087,7 @@ function SugarSection({
             <div key={app} style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'capitalize', marginBottom: 4 }}>{app}</div>
               <input
-                type="number" min={0}
+                type="number" inputMode="numeric" min={0}
                 defaultValue={sugarField(`ril_screw_${app}`)}
                 disabled={disabled}
                 onChange={e => queueSave(`ril_screw_${app}`, parseInt(e.target.value) || 0)}
@@ -1106,7 +1106,7 @@ function SugarSection({
             <div key={app} style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'capitalize', marginBottom: 4 }}>{app}</div>
               <input
-                type="number" min={0}
+                type="number" inputMode="numeric" min={0}
                 defaultValue={sugarField(`ril_rota_${app}`)}
                 disabled={disabled}
                 onChange={e => queueSave(`ril_rota_${app}`, parseInt(e.target.value) || 0)}
@@ -1381,11 +1381,11 @@ function ExpansionOpportunityForm({ visitId, clientId, clientName, repId, isClos
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
               <label style={LBL}>Value (₹ Lakhs)</label>
-              <Input type="number" step="0.1" min="0" placeholder="e.g. 12.5" value={valueLakh} onChange={e => setValueLakh(e.target.value)} disabled={isClosed} />
+              <Input type="number" inputMode="decimal" step="0.1" min="0" placeholder="e.g. 12.5" value={valueLakh} onChange={e => setValueLakh(e.target.value)} disabled={isClosed} />
             </div>
             <div>
               <label style={LBL}>Probability %</label>
-              <Input type="number" min="0" max="100" value={probability} onChange={e => setProbability(e.target.value)} disabled={isClosed} />
+              <Input type="number" inputMode="numeric" min="0" max="100" value={probability} onChange={e => setProbability(e.target.value)} disabled={isClosed} />
             </div>
           </div>
 
