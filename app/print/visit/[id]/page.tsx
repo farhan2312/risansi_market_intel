@@ -57,7 +57,7 @@ export default async function VisitPrintPage({ params }: { params: Promise<{ id:
   if (!visit.submitted_at) redirect(`/risansi/visits/${id}`);
 
   const cid = String(visit.client_id);
-  const [contacts, equipment, sugar, nonsugar, opps, tasks] = await Promise.all([
+  const [contacts, equipment, sugar, nonsugar, opps, tasks, photos] = await Promise.all([
     q(async () => (await risansiPool.query<Record<string, unknown>>(
       `SELECT name, designation, phone, email, is_primary FROM contacts WHERE client_id = $1 ORDER BY is_primary DESC, name ASC`, [cid],
     )).rows, [] as Record<string, unknown>[]),
@@ -78,6 +78,9 @@ export default async function VisitPrintPage({ params }: { params: Promise<{ id:
          FROM tasks t LEFT JOIN users r ON t.assigned_to_rep = r.id
          WHERE t.visit_id = $1
          ORDER BY CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END, t.due_date ASC NULLS LAST`, [id],
+    )).rows, [] as Record<string, unknown>[]),
+    q(async () => (await risansiPool.query<Record<string, unknown>>(
+      `SELECT id, COALESCE(caption,'') AS caption, uploaded_at FROM visit_photos WHERE visit_id = $1 ORDER BY uploaded_at, id`, [id],
     )).rows, [] as Record<string, unknown>[]),
   ]);
 
@@ -234,6 +237,28 @@ export default async function VisitPrintPage({ params }: { params: Promise<{ id:
                   ))}
                 </tbody>
               </table>
+            </Section>
+          )}
+
+          {photos.length > 0 && (
+            <Section title="Photos" right={`${photos.length}`}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                {photos.map((p, i) => (
+                  <div key={i} style={{ width: '48%', breakInside: 'avoid', marginBottom: 6 }}>
+                    {/* Served from the DB via the photo API; loads with the print page's session. */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`/api/risansi/visit-photo/${String(p.id)}`}
+                      alt={String(p.caption) || `Visit photo ${i + 1}`}
+                      style={{ width: '100%', borderRadius: 4, border: `1px solid ${C.line}`, display: 'block' }}
+                    />
+                    <div style={{ fontSize: 8, color: C.fg3, marginTop: 2, fontFamily: 'monospace' }}>
+                      Visit #{String(visit.id)} · {fmtDate(p.uploaded_at as string, true)}
+                      {p.caption ? ` — ${String(p.caption)}` : ''}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </Section>
           )}
 

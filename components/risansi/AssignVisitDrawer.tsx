@@ -24,6 +24,10 @@ interface ClientResult {
   industry: string | null;
 }
 
+interface OverdueClient extends ClientResult {
+  days_since: number | null;
+}
+
 interface DrawerPayload {
   clientId?: string;
   clientName?: string;
@@ -140,6 +144,7 @@ export default function AssignVisitDrawer({
   const [selectedClient, setSelectedClient] = useState<ClientResult | null>(null);
   const [searching, setSearching]           = useState(false);
   const [lockClientMode, setLockClientMode] = useState(false);
+  const [overdue, setOverdue]               = useState<OverdueClient[]>([]);
 
   // Feedback
   const [success, setSuccess] = useState(false);
@@ -232,6 +237,16 @@ export default function AssignVisitDrawer({
     }, 300);
     return () => clearTimeout(searchTimer.current);
   }, [query, lockClientMode]);
+
+  // Recommended overdue accounts — fetched once; shown when no search is typed
+  // and no client is selected yet, so a rep can plan against an overdue client
+  // in one tap instead of searching.
+  useEffect(() => {
+    fetch('/api/risansi/overdue-clients')
+      .then(r => (r.ok ? r.json() : []))
+      .then((d: OverdueClient[]) => setOverdue(Array.isArray(d) ? d : []))
+      .catch(() => setOverdue([]));
+  }, []);
 
   // ── Helpers ────────────────────────────────────────────────
 
@@ -434,6 +449,35 @@ export default function AssignVisitDrawer({
                 {selectedClient.industry ? ` · ${selectedClient.industry}` : ''}
               </div>
             )}
+
+            {/* Recommended overdue accounts — one-tap pick before searching */}
+            {!lockClientMode && !selectedClient && query.trim().length < 2 && overdue.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7FA3', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>
+                  Recommended · overdue accounts
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 240, overflowY: 'auto' }}>
+                  {overdue.map(c => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => { setSelectedClient(c); setQuery(c.legal_name); setShowResults(false); }}
+                      style={REC_ITEM}
+                    >
+                      <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+                        <span style={{ fontWeight: 500, fontSize: 13, color: '#0D1B2A' }}>{c.legal_name}</span>
+                        <span style={{ fontSize: 11, color: '#DC2626', fontFamily: 'monospace', flexShrink: 0 }}>
+                          {c.days_since != null ? `${c.days_since}d overdue` : 'Never visited'}
+                        </span>
+                      </span>
+                      <span style={{ fontSize: 11, color: '#6B7FA3', marginTop: 2 }}>
+                        {c.code}{c.city ? ` · ${c.city}` : ''}{c.industry ? ` · ${c.industry}` : ''}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* 2 · Rep */}
@@ -618,6 +662,14 @@ const DROP_ITEM: CSSProperties = {
   width: '100%', padding: '10px 14px',
   background: 'transparent', border: 'none',
   borderBottom: '1px solid #EBF1FB',
+  cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
+};
+
+const REC_ITEM: CSSProperties = {
+  display: 'flex', flexDirection: 'column', alignItems: 'stretch',
+  width: '100%', padding: '9px 12px',
+  background: '#fff', border: '1px solid #EBF1FB',
+  borderLeft: '3px solid #DC2626', borderRadius: 6,
   cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
 };
 

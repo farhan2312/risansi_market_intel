@@ -9,10 +9,35 @@ import { useEffect } from 'react';
  */
 export function AutoPrint({ label = 'Print / Save as PDF' }: { label?: string }) {
   useEffect(() => {
-    const t = setTimeout(() => {
+    let fired = false;
+    const fire = () => {
+      if (fired) return;
+      fired = true;
       try { window.print(); } catch { /* user can still use the button */ }
-    }, 700);
-    return () => clearTimeout(t);
+    };
+
+    // Wait for any images (e.g. visit photos) to finish loading first, so they
+    // aren't blank in the PDF. Fall back to printing anyway after a few seconds.
+    const pending = Array.from(document.images).filter(img => !img.complete);
+    if (pending.length === 0) {
+      const t = setTimeout(fire, 700);
+      return () => clearTimeout(t);
+    }
+
+    let remaining = pending.length;
+    const onSettled = () => { remaining -= 1; if (remaining <= 0) setTimeout(fire, 250); };
+    pending.forEach(img => {
+      img.addEventListener('load', onSettled);
+      img.addEventListener('error', onSettled);
+    });
+    const fallback = setTimeout(fire, 5000);
+    return () => {
+      clearTimeout(fallback);
+      pending.forEach(img => {
+        img.removeEventListener('load', onSettled);
+        img.removeEventListener('error', onSettled);
+      });
+    };
   }, []);
 
   return (
