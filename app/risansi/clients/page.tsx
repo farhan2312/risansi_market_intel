@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import Link from 'next/link';
 import { Topbar, Tag, StatusDot, MultiSelectFilter, ActiveFilterBar, SortableTH } from '@/components/risansi';
+import { MobileSort } from '@/components/risansi/MobileSort';
 import risansiPool from '@/lib/db-risansi';
 import { formatLastVisitShort } from '@/lib/risansi-utils';
 import { getCurrentUser, clientVisibilitySql } from '@/lib/risansi-auth';
@@ -350,7 +351,9 @@ export default async function ClientListPage({
           padding: 12, marginBottom: 10, display: 'flex', flexDirection: 'column', gap: 10,
         }}>
           <FilterBar q={q_str} sugar={sugarFilt} />
-          <div style={{
+          {/* Mobile-only sort (the sortable table headers are hidden in card view) */}
+          <MobileSort currentSort={sortKey} currentOrder={orderDir === 'DESC' ? 'desc' : 'asc'} />
+          <div className="r-filter-row" style={{
             display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center',
             paddingTop: 10, borderTop: '1px solid var(--line-2)',
           }}>

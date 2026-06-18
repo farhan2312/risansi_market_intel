@@ -209,6 +209,15 @@
   /* Visit wizard stepper — keep the dot small, enlarge the tap area. */
   .risansi-main .r-step-dot { min-height: 44px !important; }
 
+  /* Client list filter chips → one swipeable row on phones (was wrapping to
+     3–4 rows). The chips keep their size and scroll horizontally. */
+  .risansi-main .r-filter-row {
+    flex-wrap: nowrap !important; overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch; scrollbar-width: none;
+  }
+  .risansi-main .r-filter-row::-webkit-scrollbar { display: none; }
+  .risansi-main .r-filter-row > * { flex-shrink: 0 !important; }
+
   /* ── Client-360 mobile tabs ──
      Show the tab bar and reveal only the active group's panels. Panels opt in
      via data-tabgroup; the tab bar sets data-active on the .r-tabbed wrapper. */
