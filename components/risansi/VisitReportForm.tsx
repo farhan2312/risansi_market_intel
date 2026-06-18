@@ -171,18 +171,28 @@ export function VisitReportForm({
   // ── Wizard step state ───────────────────────────────────────
   // Each step shows a slice of the (always-mounted) sections via display
   // toggling, so auto-save and field state are never lost on navigation.
-  const [step, setStep] = useState(0);
-  const STEPS = [
-    { label: 'Check-in',      title: 'Check in',                   desc: 'Confirm your GPS check-in for this visit.' },
-    { label: 'Details',       title: 'Visit details & contacts',   desc: 'Purpose, outcome, and who you met.' },
-    { label: isSugar ? 'Sugar' : 'Industry', title: isSugar ? 'Sugar industry report' : 'Industry report', desc: isSugar ? 'Pump install base and commercial notes.' : 'Products dealt and equipment observed.' },
-    { label: 'Equipment',     title: 'Equipment & competition',    desc: 'RIL and competitor pumps seen at the plant.' },
-    { label: 'Opportunities', title: 'Opportunities',              desc: 'Expansion plans and new business.' },
-    { label: 'Summary',       title: 'Summary & action register',  desc: 'Wrap up, add action points, then submit.' },
+  // Keyed steps — small, focused screens so each fits without much scrolling.
+  // Sugar visits get two industry sub-steps; non-sugar gets one. Filtered list
+  // drives the stepper; `curKey` drives which section block is shown.
+  const [stepIdx, setStepIdx] = useState(0);
+  const allSteps = [
+    { key: 'checkin',   label: 'Check-in',  title: 'Check in',              desc: 'Confirm your GPS check-in for this visit.', show: true },
+    { key: 'details',   label: 'Details',   title: 'Visit details',         desc: 'Purpose and outcome of the visit.',         show: true },
+    { key: 'contacts',  label: 'Contacts',  title: 'Contacts',              desc: 'People you met / manage at this client.',   show: true },
+    { key: 'sugar1',    label: 'Pumps',     title: 'RIL pump install base', desc: 'Screw & rota pumps installed at the plant.', show: isSugar },
+    { key: 'sugar2',    label: 'Commercial',title: 'Commercial discussion', desc: 'Complaints, payments and purchasing.',       show: isSugar },
+    { key: 'nonsugar',  label: 'Industry',  title: 'Industry report',       desc: 'Products dealt and equipment observed.',     show: !isSugar },
+    { key: 'equipment', label: 'Equipment', title: 'Equipment & competition', desc: 'RIL and competitor pumps seen.',           show: true },
+    { key: 'opps',      label: 'Opportunities', title: 'Opportunities',     desc: 'Expansion plans and new business.',          show: true },
+    { key: 'summary',   label: 'Summary',   title: 'Visit summary',         desc: 'Performance, feedback and remarks.',         show: true },
+    { key: 'actions',   label: 'Actions',   title: 'Action register',       desc: 'Add action points, then submit the report.', show: true },
   ];
-  const LAST = STEPS.length - 1;
+  const steps = allSteps.filter(s => s.show);
+  const LAST = steps.length - 1;
+  const step = Math.min(stepIdx, LAST);
+  const curKey = steps[step]?.key ?? 'checkin';
   const goStep = (n: number) => {
-    setStep(Math.max(0, Math.min(LAST, n)));
+    setStepIdx(Math.max(0, Math.min(LAST, n)));
     if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -197,36 +207,36 @@ export function VisitReportForm({
 
       {/* ── Progress header: slim stepper + current step title ─────── */}
       <div style={{ background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 14, padding: '16px 16px 14px' }}>
-        {/* Stepper with a connecting progress track */}
-        <div style={{ display: 'flex', position: 'relative' }}>
-          <div style={{ position: 'absolute', top: 13, left: `${100 / (STEPS.length * 2)}%`, right: `${100 / (STEPS.length * 2)}%`, height: 2, background: 'var(--line)', borderRadius: 2 }} />
-          <div style={{ position: 'absolute', top: 13, left: `${100 / (STEPS.length * 2)}%`, width: `${(step / Math.max(1, LAST)) * (100 - 100 / STEPS.length)}%`, height: 2, background: '#1A5CB8', borderRadius: 2, transition: 'width 280ms ease' }} />
-          {STEPS.map((s, i) => {
+        {/* Dots-only progress track (scales to any number of steps) */}
+        <div style={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
+          <div style={{ position: 'absolute', left: 8, right: 8, height: 3, background: 'var(--line)', borderRadius: 2 }} />
+          <div style={{ position: 'absolute', left: 8, width: `calc((100% - 16px) * ${LAST > 0 ? step / LAST : 0})`, height: 3, background: '#1A5CB8', borderRadius: 2, transition: 'width 280ms ease' }} />
+          {steps.map((s, i) => {
             const active = i === step, done = i < step;
             return (
-              <button key={s.label} type="button" onClick={() => goStep(i)} aria-current={active} title={s.title}
-                style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: 0, position: 'relative', zIndex: 1 }}>
+              <button key={s.key} type="button" onClick={() => goStep(i)} aria-current={active} title={s.title}
+                style={{ flex: 1, display: 'flex', justifyContent: 'center', background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px 0', position: 'relative', zIndex: 1 }}>
                 <span style={{
-                  width: 28, height: 28, borderRadius: '50%', display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 700,
+                  width: active ? 26 : 16, height: active ? 26 : 16, borderRadius: '50%', display: 'grid', placeItems: 'center',
+                  fontSize: 11, fontWeight: 700, transition: 'all 200ms',
                   background: active || done ? '#1A5CB8' : 'var(--bg-paper)',
-                  color: active || done ? '#fff' : 'var(--fg-3)',
+                  color: '#fff',
                   border: active || done ? '2px solid #1A5CB8' : '2px solid var(--line-strong)',
-                  boxShadow: active ? '0 0 0 4px #EBF1FB' : 'none', transition: 'all 200ms',
-                }}>{done ? '✓' : i + 1}</span>
-                <span style={{ fontSize: 9.5, fontWeight: active ? 700 : 500, color: active ? '#0A3D8F' : 'var(--fg-3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>{s.label}</span>
+                  boxShadow: active ? '0 0 0 4px #EBF1FB' : 'none',
+                }}>{active ? i + 1 : done ? '✓' : ''}</span>
               </button>
             );
           })}
         </div>
 
         {/* Current step title + description + save status */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', color: 'var(--fg-3)', textTransform: 'uppercase' }}>
-              Step {step + 1} of {STEPS.length}
+              Step {step + 1} of {steps.length}
             </div>
-            <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--fg)', marginTop: 2, letterSpacing: '-0.01em' }}>{STEPS[step].title}</div>
-            <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 2 }}>{STEPS[step].desc}</div>
+            <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--fg)', marginTop: 2, letterSpacing: '-0.01em' }}>{steps[step]?.title}</div>
+            <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 2 }}>{steps[step]?.desc}</div>
           </div>
           <span style={{ fontSize: 11, fontWeight: 500, flexShrink: 0, whiteSpace: 'nowrap',
             color: saveState === 'saved' ? '#059669' : saveState === 'error' ? '#DC2626' : 'var(--fg-3)', transition: 'color 300ms' }}>
@@ -237,8 +247,8 @@ export function VisitReportForm({
         </div>
       </div>
 
-      {/* ══ STEP 0 — Check-in ══ */}
-      <div style={{ display: step === 0 ? 'flex' : 'none', flexDirection: 'column', gap: 12 }}>
+      {/* ══ STEP: Check-in ══ */}
+      <div style={{ display: curKey === 'checkin' ? 'flex' : 'none', flexDirection: 'column', gap: 12 }}>
 
       {/* ── SECTION 1: Check In ────────────────────────────── */}
       <FormSection title="Check In" icon="📍">
@@ -281,8 +291,8 @@ export function VisitReportForm({
 
       </div>{/* end STEP 0 */}
 
-      {/* ══ STEP 1 — Details & Contacts ══ */}
-      <div style={{ display: step === 1 ? 'flex' : 'none', flexDirection: 'column', gap: 12 }}>
+      {/* ══ STEP: Visit Details ══ */}
+      <div style={{ display: curKey === 'details' ? 'flex' : 'none', flexDirection: 'column', gap: 12 }}>
 
       {/* ── SECTION 2: Visit Details ───────────────────────── */}
       <FormSection title="Visit Details" icon="📋">
@@ -385,6 +395,11 @@ export function VisitReportForm({
         )}
       </FormSection>
 
+      </div>{/* end details */}
+
+      {/* ══ STEP: Contacts ══ */}
+      <div style={{ display: curKey === 'contacts' ? 'flex' : 'none', flexDirection: 'column', gap: 12 }}>
+
       {/* ── SECTION: Contacts (live client contacts — synced with Client 360) ── */}
       <FormSection title="Contacts" icon="👤">
         <div style={{ fontSize: 11, color: 'var(--fg-3)', marginBottom: 12 }}>
@@ -432,59 +447,47 @@ export function VisitReportForm({
         {!disabled && <AddContactButton clientId={Number(visit.client_id)} clientCode={visit.code} />}
       </FormSection>
 
-      </div>{/* end STEP 1 */}
+      </div>{/* end contacts */}
 
-      {/* ══ STEP 2 — Industry Report ══ */}
-      <div style={{ display: step === 2 ? 'flex' : 'none', flexDirection: 'column', gap: 12 }}>
 
-      {/* ── SECTION 3: Sugar Form ──────────────────────────── */}
-      {isSugar && (
-        <FormSection title="Sugar Industry Report" icon="🍬">
-          <SugarSection
-            report={sugarReport}
-            visitId={visit.id}
-            disabled={disabled}
-            queueSave={queueSave}
-            hasComplaints={hasComplaints}
-            setHasComplaints={setHasComplaints}
-          />
-        </FormSection>
-      )}
+      {/* ══ STEP: Sugar — RIL pump install base ══ */}
+      <div style={{ display: curKey === 'sugar1' ? 'flex' : 'none', flexDirection: 'column', gap: 12 }}>
+        {isSugar && (
+          <FormSection title="RIL Pump Install Base" icon="🍬">
+            <SugarSection report={sugarReport} visitId={visit.id} disabled={disabled} queueSave={queueSave} hasComplaints={hasComplaints} setHasComplaints={setHasComplaints} part="pumps" />
+          </FormSection>
+        )}
+      </div>{/* end sugar1 */}
 
-      {/* ── SECTION 4: Non-Sugar Form ──────────────────────── */}
-      {!isSugar && (
-        <FormSection title="Non-Sugar Report" icon="🏭">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div>
-              <label style={LBL}>Deal In (products)</label>
-              <input
-                type="text"
-                defaultValue={String(nonsugarReport?.deal_in ?? '')}
-                disabled={disabled}
-                onChange={e => queueSave('deal_in', e.target.value)}
-                style={INP}
-                placeholder="e.g. PCP, MMP, Spares"
-              />
+      {/* ══ STEP: Sugar — Commercial discussion ══ */}
+      <div style={{ display: curKey === 'sugar2' ? 'flex' : 'none', flexDirection: 'column', gap: 12 }}>
+        {isSugar && (
+          <FormSection title="Commercial Discussion" icon="💬">
+            <SugarSection report={sugarReport} visitId={visit.id} disabled={disabled} queueSave={queueSave} hasComplaints={hasComplaints} setHasComplaints={setHasComplaints} part="commercial" />
+          </FormSection>
+        )}
+      </div>{/* end sugar2 */}
+
+      {/* ══ STEP: Non-Sugar Report ══ */}
+      <div style={{ display: curKey === 'nonsugar' ? 'flex' : 'none', flexDirection: 'column', gap: 12 }}>
+        {!isSugar && (
+          <FormSection title="Non-Sugar Report" icon="🏭">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <label style={LBL}>Deal In (products)</label>
+                <input type="text" defaultValue={String(nonsugarReport?.deal_in ?? '')} disabled={disabled} onChange={e => queueSave('deal_in', e.target.value)} style={INP} placeholder="e.g. PCP, MMP, Spares" />
+              </div>
+              <div>
+                <label style={LBL}>Valves / Equipment Observed</label>
+                <textarea defaultValue={String(nonsugarReport?.valves_observed_notes ?? '')} disabled={disabled} onChange={e => queueSave('valves_observed_notes', e.target.value)} rows={3} style={{ ...INP, height: 'auto', resize: 'vertical', lineHeight: 1.5 }} placeholder="Notes on valves and equipment observed…" />
+              </div>
             </div>
-            <div>
-              <label style={LBL}>Valves / Equipment Observed</label>
-              <textarea
-                defaultValue={String(nonsugarReport?.valves_observed_notes ?? '')}
-                disabled={disabled}
-                onChange={e => queueSave('valves_observed_notes', e.target.value)}
-                rows={3}
-                style={{ ...INP, height: 'auto', resize: 'vertical', lineHeight: 1.5 }}
-                placeholder="Notes on valves and equipment observed…"
-              />
-            </div>
-          </div>
-        </FormSection>
-      )}
+          </FormSection>
+        )}
+      </div>{/* end nonsugar */}
 
-      </div>{/* end STEP 2 */}
-
-      {/* ══ STEP 3 — Equipment & Competition ══ */}
-      <div style={{ display: step === 3 ? 'flex' : 'none', flexDirection: 'column', gap: 12 }}>
+      {/* ══ STEP: Equipment & Competition ══ */}
+      <div style={{ display: curKey === 'equipment' ? 'flex' : 'none', flexDirection: 'column', gap: 12 }}>
 
       {/* ── SECTION 5: Equipment Assessment ───────────────── */}
       <FormSection title="Equipment Assessment" icon="⚙️">
@@ -689,8 +692,8 @@ export function VisitReportForm({
 
       </div>{/* end STEP 3 */}
 
-      {/* ══ STEP 4 — Opportunities ══ */}
-      <div style={{ display: step === 4 ? 'flex' : 'none', flexDirection: 'column', gap: 12 }}>
+      {/* ══ STEP: Opportunities ══ */}
+      <div style={{ display: curKey === 'opps' ? 'flex' : 'none', flexDirection: 'column', gap: 12 }}>
 
       {/* ── SECTION: Expansion / New Business ───────────────── */}
       <FormSection title="Expansion / New Business" icon="⚡">
@@ -704,10 +707,10 @@ export function VisitReportForm({
         />
       </FormSection>
 
-      </div>{/* end STEP 4 */}
+      </div>{/* end opps */}
 
-      {/* ══ STEP 5 — Summary, Action Register & Submit ══ */}
-      <div style={{ display: step === 5 ? 'flex' : 'none', flexDirection: 'column', gap: 12 }}>
+      {/* ══ STEP: Visit Summary ══ */}
+      <div style={{ display: curKey === 'summary' ? 'flex' : 'none', flexDirection: 'column', gap: 12 }}>
 
       {/* ── SECTION 6: Visit Summary ───────────────────────── */}
       <FormSection title="Visit Summary" icon="📝">
@@ -799,6 +802,11 @@ export function VisitReportForm({
         </div>
       </FormSection>
 
+      </div>{/* end summary */}
+
+      {/* ══ STEP: Action Register ══ */}
+      <div style={{ display: curKey === 'actions' ? 'flex' : 'none', flexDirection: 'column', gap: 12 }}>
+
       {/* ── SECTION: Action Points ─────────────────────────── */}
       <FormSection title="Action Register" icon="📋">
         {tasks.length === 0 ? (
@@ -863,7 +871,7 @@ export function VisitReportForm({
         </FormSection>
       )}
 
-      </div>{/* end STEP 5 */}
+      </div>{/* end actions */}
 
       {/* ── Sticky wizard navigation (pinned to the bottom of the page) ── */}
       <div className="wizard-nav" style={{
@@ -885,7 +893,7 @@ export function VisitReportForm({
           Back
         </button>
         <span style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
-          {step + 1} / {STEPS.length}
+          {step + 1} / {steps.length}
         </span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center' }}>
           {step < LAST ? (
@@ -1037,12 +1045,13 @@ function CheckInButton({ visitId, onDone }: { visitId: string; onDone: () => voi
 }
 
 function SugarSection({
-  report, visitId, disabled, queueSave, hasComplaints, setHasComplaints,
+  report, visitId, disabled, queueSave, hasComplaints, setHasComplaints, part = 'all',
 }: {
   report: Record<string, unknown> | null;
   visitId: string; disabled: boolean;
   queueSave: (field: string, value: unknown) => void;
   hasComplaints: boolean; setHasComplaints: (v: boolean) => void;
+  part?: 'all' | 'pumps' | 'commercial';
 }) {
   const SCREW_APPS = ['molasses', 'magma', 'syrup', 'massecuite', 'melt', 'dosing', 'other'];
   const ROTA_APPS  = ['magma', 'massecuite'];
@@ -1054,8 +1063,12 @@ function SugarSection({
   const [hasOutstanding, setHasOutstanding] = useState(!!(report?.has_outstanding_issues));
   const [pricesCaptured, setPricesCaptured] = useState(!!(report?.competitor_prices_captured));
 
+  const showPumps = part === 'all' || part === 'pumps';
+  const showCommercial = part === 'all' || part === 'commercial';
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {showPumps && (<>
       {/* RIL Screw counts */}
       <div>
         <div style={{ fontSize: 12, fontWeight: 600, color: '#0A3D8F', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>RIL Screw Pumps Installed</div>
@@ -1093,7 +1106,9 @@ function SugarSection({
           ))}
         </div>
       </div>
+      </>)}
 
+      {showCommercial && (<>
       {/* Commercial discussion */}
       <div>
         <div style={{ fontSize: 12, fontWeight: 600, color: '#0A3D8F', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Commercial Discussion</div>
@@ -1152,6 +1167,7 @@ function SugarSection({
         disabled={disabled}
         onChange={v => { setPricesCaptured(v); queueSave('competitor_prices_captured', v); }}
       />
+      </>)}
     </div>
   );
 }
