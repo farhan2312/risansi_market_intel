@@ -25,11 +25,12 @@
   .risansi-topbar { padding-left: 12px !important; padding-right: 10px !important; gap: 8px !important; }
   .risansi-topbar .risansi-live { display: none !important; }
 
-  /* Bottom tab bar */
+  /* Bottom tab bar — white, sits above the mobile overlay (z-index 50) */
   .risansi-bottom-nav {
     display: flex;
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
-    background: #0A1628; border-top: 1px solid rgba(255,255,255,0.08);
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 65;
+    background: var(--bg-paper); border-top: 1px solid var(--line);
+    box-shadow: 0 -2px 12px rgba(10, 22, 40, 0.06);
     padding-bottom: env(safe-area-inset-bottom, 0px);
     height: calc(56px + env(safe-area-inset-bottom, 0px));
     align-items: stretch;

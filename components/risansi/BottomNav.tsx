@@ -44,7 +44,8 @@ const MORE_SYSADMIN: Item[] = [
 ];
 
 function isActive(pathname: string, href: string): boolean {
-  if (href === '/risansi') return pathname === '/risansi';
+  // Home is also "active" on the dedicated mobile dashboard (/risansi/mobile).
+  if (href === '/risansi') return pathname === '/risansi' || pathname.startsWith('/risansi/mobile');
   return pathname === href || pathname.startsWith(href + '/');
 }
 
@@ -54,8 +55,6 @@ export function BottomNav({ role, user }: {
 }) {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
-  // The dedicated /risansi/mobile section has its own BottomTabBar — don't double up.
-  const onMobileSection = pathname.startsWith('/risansi/mobile');
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -74,8 +73,6 @@ export function BottomNav({ role, user }: {
   const moreActive = [...MORE_SALES, ...MORE_ADMIN, ...MORE_SYSADMIN].some(i => isActive(pathname, i.href));
 
   function closeAnd() { setMoreOpen(false); }
-
-  if (onMobileSection) return null;
 
   return (
     <>
@@ -182,8 +179,8 @@ function tab(active: boolean): CSSProperties {
     flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
     justifyContent: 'center', gap: 3, padding: '6px 2px',
     background: 'transparent', border: 'none', cursor: 'pointer',
-    color: active ? '#00B4D8' : '#8BA3C7', textDecoration: 'none',
-    fontFamily: 'inherit', minWidth: 0,
+    color: active ? 'var(--accent)' : 'var(--fg-3)', textDecoration: 'none',
+    fontWeight: active ? 600 : 400, fontFamily: 'inherit', minWidth: 0,
   };
 }
 const TAB_LABEL: CSSProperties = { fontSize: 10, fontWeight: 600, letterSpacing: '0.02em' };
