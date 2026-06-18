@@ -496,8 +496,8 @@ export default async function FieldActivityPage({
             sets display:none — that previously stopped the drawer from ever showing. */}
         <AssignVisitDrawer reps={calendarReps} hideButton={true} role={role} repId={repId ?? undefined} currentUserName={session?.user?.name ?? undefined} />
 
-        {/* Tabs */}
-        <div style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--line)', paddingBottom: 0 }}>
+        {/* Tabs — underline on desktop, snappy scroll-snap pills on mobile (mobile.css) */}
+        <div className="field-tabs" style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--line)', paddingBottom: 0, overflowX: 'auto', scrollSnapType: 'x proximity' }}>
           {[
             { id: 'calendar', label: 'Calendar' },
             { id: 'feed',     label: 'Visit Feed' },
@@ -506,11 +506,11 @@ export default async function FieldActivityPage({
             { id: 'overdue',  label: `Overdue (${stats.overdue.toLocaleString('en-IN')})` },
             { id: 'map',      label: 'Map' },
           ].map(t => (
-            <a key={t.id} href={tabHref(t.id)} style={{
+            <a key={t.id} href={tabHref(t.id)} aria-current={tab === t.id} style={{
               display: 'block', padding: '8px 16px', fontSize: 13,
               fontWeight: tab === t.id ? 600 : 400,
               color: tab === t.id ? 'var(--accent)' : 'var(--fg-3)',
-              textDecoration: 'none',
+              textDecoration: 'none', flexShrink: 0, whiteSpace: 'nowrap', scrollSnapAlign: 'center',
               borderBottom: tab === t.id ? '2px solid var(--accent)' : '2px solid transparent',
               marginBottom: -1, transition: 'color 0.1s',
             }}>

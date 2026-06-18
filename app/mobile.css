@@ -90,6 +90,22 @@
   .r-desktop-only { display: none !important; }   /* shown on desktop, hidden on phones */
   .r-mobile-only  { display: block !important; }   /* hidden on desktop, shown on phones */
 
+  /* ── Field Activity tabs → snappy scroll-snap pills ── */
+  .field-tabs {
+    border-bottom: none !important; gap: 8px !important; padding: 2px 0 8px !important;
+    scroll-snap-type: x mandatory; scrollbar-width: none;
+  }
+  .field-tabs::-webkit-scrollbar { display: none; }
+  .field-tabs a {
+    border-bottom: none !important; margin-bottom: 0 !important;
+    border-radius: 999px !important; padding: 8px 16px !important;
+    background: var(--bg-elev); color: var(--fg-2) !important; font-weight: 600 !important;
+    border: 1px solid var(--line);
+  }
+  .field-tabs a[aria-current="true"] {
+    background: #1A5CB8 !important; color: #fff !important; border-color: #1A5CB8 !important;
+  }
+
   /* ── Login / sign-in: drop the brand panel, full-width form ── */
   .login-grid  { grid-template-columns: 1fr !important; }
   .login-brand { display: none !important; }
