@@ -277,7 +277,7 @@ export default async function ClientMasterPage({
         </div>
 
         {/* ── Search + Sugar toggle ─────────────────────────────── */}
-        <FilterBar q={q_str} sugar={sugarFilt} total={total} />
+        <FilterBar q={q_str} sugar={sugarFilt} />
 
         {/* ── Multi-select filter row ───────────────────────────── */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', paddingBottom: 8 }}>

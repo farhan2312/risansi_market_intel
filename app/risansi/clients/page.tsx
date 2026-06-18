@@ -344,18 +344,25 @@ export default async function ClientListPage({
           </div>
         </div>
 
-        {/* ── Search + Sugar toggle ─────────────────────────────── */}
-        <FilterBar q={q_str} sugar={sugarFilt} total={total} />
-
-        {/* ── Multi-select filter row ───────────────────────────── */}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', paddingBottom: 8 }}>
-          <MultiSelectFilter param="industry" label="Industry"  options={industries}      selected={indFilts}  />
-          <MultiSelectFilter param="zone"     label="Zone"      options={zones}           selected={zoneFilts} />
-          <MultiSelectFilter param="tier"     label="Tier"      options={tiers}           selected={tierFilts} />
-          <MultiSelectFilter param="status"   label="Status"    options={STATUS_OPTIONS}  selected={statFilts} />
-          <MultiSelectFilter param="rep"      label="Rep"       options={repOptions.map(r => ({ value: r.rep_name, label: r.rep_name, count: r.client_count }))} selected={repFilts} />
-          <MultiSelectFilter param="fy"       label="Customer Since (Financial Year)" options={fyYears} selected={fyFilts} />
-          <MultiSelectFilter param="rev"      label="Revenue"   options={revBuckets}      selected={revFilts}  />
+        {/* ── Filter toolbar (search + filters, grouped) ────────── */}
+        <div style={{
+          background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 'var(--radius)',
+          padding: 12, marginBottom: 10, display: 'flex', flexDirection: 'column', gap: 10,
+        }}>
+          <FilterBar q={q_str} sugar={sugarFilt} />
+          <div style={{
+            display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center',
+            paddingTop: 10, borderTop: '1px solid var(--line-2)',
+          }}>
+            <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fg-3)', marginRight: 2 }}>Filter</span>
+            <MultiSelectFilter param="industry" label="Industry"       options={industries}      selected={indFilts}  />
+            <MultiSelectFilter param="zone"     label="Zone"           options={zones}           selected={zoneFilts} />
+            <MultiSelectFilter param="tier"     label="Tier"           options={tiers}           selected={tierFilts} />
+            <MultiSelectFilter param="status"   label="Status"         options={STATUS_OPTIONS}  selected={statFilts} />
+            <MultiSelectFilter param="rep"      label="Rep"            options={repOptions.map(r => ({ value: r.rep_name, label: r.rep_name, count: r.client_count }))} selected={repFilts} />
+            <MultiSelectFilter param="fy"       label="Customer Since" options={fyYears}         selected={fyFilts} />
+            <MultiSelectFilter param="rev"      label="Revenue"        options={revBuckets}      selected={revFilts}  />
+          </div>
         </div>
 
         {/* ── Active filter pills ───────────────────────────────── */}
@@ -365,7 +372,7 @@ export default async function ClientListPage({
           { param: 'tier',     label: 'Tier',     values: tierFilts },
           { param: 'status',   label: 'Status',   values: statFilts },
           { param: 'rep',      label: 'Rep',      values: repFilts  },
-          { param: 'fy',       label: 'Customer Since (Financial Year)', values: fyFilts },
+          { param: 'fy',       label: 'Customer Since', values: fyFilts },
           { param: 'rev',      label: 'Revenue',  values: revFilts },
         ]} />
 
