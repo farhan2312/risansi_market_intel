@@ -11,6 +11,7 @@ import { ClientActionButtons, PipelineOppBtn, EditDrawerTrigger } from '@/compon
 import { AddContactButton } from '@/components/risansi/AddContactButton';
 import { EditContactButton } from '@/components/risansi/EditContactButton';
 import { BackButton } from '@/components/risansi/BackButton';
+import { MobileTabs } from '@/components/risansi/MobileTabs';
 import type { DrawerRep } from '@/components/risansi/AssignVisitDrawer';
 
 // ── Safe query wrapper ─────────────────────────────────────────
@@ -490,8 +491,12 @@ export default async function ClientProfilePage({
           </div>
         </div>
 
+        {/* Panels grouped into mobile tabs (Overview / Activity / Contacts).
+            Desktop ignores the grouping and shows everything as before. */}
+        <MobileTabs>
+
         {/* ── KPI cards ────────────────────────────────────────── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+        <div data-tabgroup="overview" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
           <MiniKpi label="Lifetime Revenue"
             value={formatRev(lifetimeTotal * 100_000)}
             sub={`${client.since_year ?? '—'} – present · ${lifetimeOrders} orders`} />
@@ -517,7 +522,7 @@ export default async function ClientProfilePage({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
             {/* Revenue YoY chart */}
-            <div style={PANEL}>
+            <div data-tabgroup="overview" style={PANEL}>
               <div style={PANEL_H}>
                 <span style={PANEL_TITLE}>Year-on-Year Revenue · Pump vs Spare</span>
                 <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
@@ -587,7 +592,7 @@ export default async function ClientProfilePage({
             </div>
 
             {/* Competition · PCP installed base (RIL vs competitors at this client) */}
-            <div style={PANEL}>
+            <div data-tabgroup="overview" style={PANEL}>
               <div style={PANEL_H}>
                 <span style={PANEL_TITLE}>Competition · PCP Installed Base · {totalUnits} pump{totalUnits !== 1 ? 's' : ''}</span>
                 {competitorUnits > 0 && (
@@ -631,7 +636,7 @@ export default async function ClientProfilePage({
 
             {/* Plan of Action */}
             {(client.action_points || client.expected_to_pump || client.expected_to_spare || client.mgmt_intervention) && (
-              <div style={PANEL}>
+              <div data-tabgroup="activity" style={PANEL}>
                 <div style={PANEL_H}>
                   <span style={PANEL_TITLE}>Plan of Action</span>
                   {client.mgmt_intervention && (
@@ -683,7 +688,7 @@ export default async function ClientProfilePage({
 
             {/* Field Intelligence */}
             {(client.performance_feedback || client.last_visit_summary || client.open_remarks || client.complaint_notes) && (
-              <div style={PANEL}>
+              <div data-tabgroup="activity" style={PANEL}>
                 <div style={PANEL_H}>
                   <span style={PANEL_TITLE}>Field Intelligence</span>
                   {client.performance_feedback && (
@@ -723,7 +728,7 @@ export default async function ClientProfilePage({
             )}
 
             {/* Visit Timeline */}
-            <div style={PANEL}>
+            <div data-tabgroup="activity" style={PANEL}>
               <div style={PANEL_H}>
                 <span style={PANEL_TITLE}>Visit Timeline · {visits.length > 0 ? `${visits.length} visits` : 'No visits'}</span>
               </div>
@@ -800,7 +805,7 @@ export default async function ClientProfilePage({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
             {/* Location */}
-            <div style={PANEL}>
+            <div data-tabgroup="contacts" style={PANEL}>
               <div style={PANEL_H}><span style={PANEL_TITLE}>Location</span></div>
               {(client.address || client.city || client.state || client.country || client.google_maps_url) ? (
                 <div style={{ padding: '14px', display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -831,7 +836,7 @@ export default async function ClientProfilePage({
             </div>
 
             {/* Contacts */}
-            <div style={PANEL}>
+            <div data-tabgroup="contacts" style={PANEL}>
               <div style={{
                 ...PANEL_H,
                 justifyContent: 'space-between',
@@ -970,7 +975,7 @@ export default async function ClientProfilePage({
             </div>
 
             {/* Open pipeline */}
-            <div style={PANEL}>
+            <div data-tabgroup="activity" style={PANEL}>
               <div style={PANEL_H}>
                 <span style={PANEL_TITLE}>Open Pipeline</span>
                 <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1022,7 +1027,7 @@ export default async function ClientProfilePage({
             </div>
 
             {/* Activity log */}
-            <div style={PANEL}>
+            <div data-tabgroup="contacts" style={PANEL}>
               <div style={PANEL_H}>
                 <span style={PANEL_TITLE}>Activity Log</span>
               </div>
@@ -1063,6 +1068,7 @@ export default async function ClientProfilePage({
 
           </div>
         </div>
+        </MobileTabs>
       </div>
     </div>
   );

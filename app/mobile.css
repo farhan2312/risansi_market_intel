@@ -12,6 +12,10 @@
    reveals them. (Desktop-only elements stay visible until the media query hides them.) */
 .r-mobile-only { display: none; }
 
+/* Client-360 mobile tab bar — hidden on desktop; .r-tabbed does no filtering
+   off-mobile, so every panel shows as before. */
+.r-detail-tabs { display: none; }
+
 @media (max-width: 767px) {
   /* Hide the desktop sidebar; let the page fill the width. */
   aside { display: none !important; }
@@ -204,4 +208,14 @@
   }
   /* Visit wizard stepper — keep the dot small, enlarge the tap area. */
   .risansi-main .r-step-dot { min-height: 44px !important; }
+
+  /* ── Client-360 mobile tabs ──
+     Show the tab bar and reveal only the active group's panels. Panels opt in
+     via data-tabgroup; the tab bar sets data-active on the .r-tabbed wrapper. */
+  .r-detail-tabs { display: flex !important; }
+  .risansi-main .r-tabbed[data-active="overview"] [data-tabgroup]:not([data-tabgroup="overview"]),
+  .risansi-main .r-tabbed[data-active="activity"] [data-tabgroup]:not([data-tabgroup="activity"]),
+  .risansi-main .r-tabbed[data-active="contacts"] [data-tabgroup]:not([data-tabgroup="contacts"]) {
+    display: none !important;
+  }
 }
