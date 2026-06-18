@@ -67,7 +67,7 @@ export function RevenueTopClients({ clients }: { clients: RevenueClientRow[] }) 
       ) : (
         <>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
                 <tr style={{ background: 'var(--bg-elev)' }}>
                   <th style={{ ...TH, width: 44 }}>#</th>
@@ -95,21 +95,21 @@ export function RevenueTopClients({ clients }: { clients: RevenueClientRow[] }) 
                       onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-elev)')}
                       onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                     >
-                      <td style={{ ...TD, fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>{medal ?? i + 1}</td>
-                      <td style={{ ...TD, minWidth: 180 }}>
+                      <td data-label="#" style={{ ...TD, fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>{medal ?? i + 1}</td>
+                      <td data-label="" style={{ ...TD, minWidth: 180 }}>
                         <div style={{ fontWeight: 500, color: 'var(--fg)' }}>{c.legal_name}</div>
                         <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--fg-3)', marginTop: 1 }}>{c.code}</div>
                       </td>
-                      <td style={{ ...TD, color: 'var(--fg-2)' }}>{c.industry ?? '—'}</td>
-                      <td style={{ ...TD, color: 'var(--fg-3)', fontSize: 11 }}>{c.state ?? '—'}</td>
-                      <td style={{ ...TD, color: 'var(--fg-3)', fontSize: 11 }}>{c.rep_name}</td>
-                      <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{c.pump > 0 ? formatRev(c.pump) : '—'}</td>
-                      <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{c.spare > 0 ? formatRev(c.spare) : '—'}</td>
-                      <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{formatRev(c.total)}</td>
-                      <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11, color: !hasPrev ? 'var(--fg-3)' : pct >= 0 ? 'var(--pos)' : 'var(--neg)' }}>
+                      <td data-label="Industry" style={{ ...TD, color: 'var(--fg-2)' }}>{c.industry ?? '—'}</td>
+                      <td data-label="State" style={{ ...TD, color: 'var(--fg-3)', fontSize: 11 }}>{c.state ?? '—'}</td>
+                      <td data-label="Rep" style={{ ...TD, color: 'var(--fg-3)', fontSize: 11 }}>{c.rep_name}</td>
+                      <td data-label="Pump" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{c.pump > 0 ? formatRev(c.pump) : '—'}</td>
+                      <td data-label="Spare" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{c.spare > 0 ? formatRev(c.spare) : '—'}</td>
+                      <td data-label="Total" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{formatRev(c.total)}</td>
+                      <td data-label="vs LY" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11, color: !hasPrev ? 'var(--fg-3)' : pct >= 0 ? 'var(--pos)' : 'var(--neg)' }}>
                         {!hasPrev ? '—' : `${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%`}
                       </td>
-                      <td style={TD}>
+                      <td data-label="Tier" style={TD}>
                         {c.tier && (
                           <span style={{
                             fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 10,

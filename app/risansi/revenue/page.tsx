@@ -394,7 +394,7 @@ export default async function RevenuePage({
                 <div style={PANEL_H}><span style={PANEL_TITLE}>Revenue by Industry</span></div>
                 {byIndustry.length === 0 ? <Empty>No data</Empty> : (
                   <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                       <thead><tr style={{ background: 'var(--bg-elev)' }}>
                         {['Industry', 'Clients', 'Pump', 'Spare', 'Total', '% Share'].map(h => <th key={h} style={TH}>{h}</th>)}
                       </tr></thead>
@@ -403,11 +403,11 @@ export default async function RevenuePage({
                           const share = summary.total > 0 ? (r.total / summary.total) * 100 : 0;
                           return (
                             <tr key={r.industry} style={{ borderBottom: '1px solid var(--line)' }}>
-                              <td style={{ ...TD, fontWeight: 500 }}>{r.industry}</td>
-                              <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)' }}>{r.clients}</td>
-                              <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{r.pump > 0 ? formatRev(r.pump) : '—'}</td>
-                              <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{r.spare > 0 ? formatRev(r.spare) : '—'}</td>
-                              <td style={{ ...TD, minWidth: 130 }}>
+                              <td data-label="" style={{ ...TD, fontWeight: 500 }}>{r.industry}</td>
+                              <td data-label="Clients" style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)' }}>{r.clients}</td>
+                              <td data-label="Pump" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{r.pump > 0 ? formatRev(r.pump) : '—'}</td>
+                              <td data-label="Spare" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{r.spare > 0 ? formatRev(r.spare) : '—'}</td>
+                              <td data-label="Total" style={{ ...TD, minWidth: 130 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                   <div style={{ flex: 1, height: 5, background: 'var(--bg-sunk)', borderRadius: 3, overflow: 'hidden', minWidth: 50 }}>
                                     <div style={{ width: `${(r.total / maxIndustry) * 100}%`, height: '100%', background: '#1A5CB8', borderRadius: 3 }} />
@@ -415,7 +415,7 @@ export default async function RevenuePage({
                                   <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, minWidth: 56, textAlign: 'right' }}>{formatRev(r.total)}</span>
                                 </div>
                               </td>
-                              <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)' }}>{share.toFixed(0)}%</td>
+                              <td data-label="% Share" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)' }}>{share.toFixed(0)}%</td>
                             </tr>
                           );
                         })}
@@ -430,7 +430,7 @@ export default async function RevenuePage({
                 <div style={PANEL_H}><span style={PANEL_TITLE}>Revenue by Rep</span></div>
                 {byRep.length === 0 ? <Empty>No data</Empty> : (
                   <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                       <thead><tr style={{ background: 'var(--bg-elev)' }}>
                         {['Rep', 'Zone', 'Clients', 'Total', 'vs Target'].map(h => <th key={h} style={TH}>{h}</th>)}
                       </tr></thead>
@@ -440,11 +440,11 @@ export default async function RevenuePage({
                           const pct = targetInr && targetInr > 0 ? (r.total / targetInr) * 100 : null;
                           return (
                             <tr key={r.rep} style={{ borderBottom: '1px solid var(--line)' }}>
-                              <td style={{ ...TD, fontWeight: 500 }}>{r.rep}</td>
-                              <td style={{ ...TD, color: 'var(--fg-3)', fontSize: 11 }}>{r.zone ?? '—'}</td>
-                              <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)' }}>{r.clients}</td>
-                              <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{formatRev(r.total)}</td>
-                              <td style={{ ...TD, minWidth: 110 }}>
+                              <td data-label="" style={{ ...TD, fontWeight: 500 }}>{r.rep}</td>
+                              <td data-label="Zone" style={{ ...TD, color: 'var(--fg-3)', fontSize: 11 }}>{r.zone ?? '—'}</td>
+                              <td data-label="Clients" style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)' }}>{r.clients}</td>
+                              <td data-label="Total" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{formatRev(r.total)}</td>
+                              <td data-label="vs Target" style={{ ...TD, minWidth: 110 }}>
                                 {pct == null ? <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>—</span> : (
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                     <div style={{ flex: 1, height: 5, background: 'var(--bg-sunk)', borderRadius: 3, overflow: 'hidden', minWidth: 40 }}>
@@ -481,7 +481,7 @@ export default async function RevenuePage({
             <div style={PANEL}>
               <div style={PANEL_H}><span style={PANEL_TITLE}>Business Category</span><span style={META}>by client type</span></div>
               {byCat.length === 0 ? <Empty>No data</Empty> : (
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead><tr style={{ background: 'var(--bg-elev)' }}>
                     {['Category', 'Clients', 'Revenue', '% of Total'].map(h => <th key={h} style={TH}>{h}</th>)}
                   </tr></thead>
@@ -490,10 +490,10 @@ export default async function RevenuePage({
                       const pct = catTotal > 0 ? (r.total / catTotal) * 100 : 0;
                       return (
                         <tr key={r.category} style={{ borderBottom: '1px solid var(--line)' }}>
-                          <td style={{ ...TD }}><span style={catPill(i)}>{r.category}</span></td>
-                          <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)' }}>{r.clients}</td>
-                          <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{formatRev(r.total)}</td>
-                          <td style={{ ...TD, minWidth: 120 }}>
+                          <td data-label="" style={{ ...TD }}><span style={catPill(i)}>{r.category}</span></td>
+                          <td data-label="Clients" style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)' }}>{r.clients}</td>
+                          <td data-label="Revenue" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{formatRev(r.total)}</td>
+                          <td data-label="% of Total" style={{ ...TD, minWidth: 120 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                               <div style={{ flex: 1, height: 5, background: 'var(--bg-sunk)', borderRadius: 3, overflow: 'hidden' }}>
                                 <div style={{ width: `${pct}%`, height: '100%', background: CAT_COLORS[i % CAT_COLORS.length], borderRadius: 3 }} />

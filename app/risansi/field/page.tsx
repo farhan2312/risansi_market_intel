@@ -846,7 +846,7 @@ export default async function FieldActivityPage({
                 background: 'var(--bg-paper)', border: '1px solid var(--line)',
                 borderRadius: 'var(--radius)', overflow: 'hidden',
               }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead>
                     <tr style={{ background: 'var(--bg-elev)' }}>
                       <th style={TH}>Client</th>
@@ -865,7 +865,7 @@ export default async function FieldActivityPage({
                       const dColor = d == null || d > 365 ? 'var(--neg)' : d > 180 ? 'oklch(0.55 0.18 50)' : 'var(--warn)';
                       return (
                         <tr key={acc.id} style={{ borderBottom: i < overdue.length - 1 ? '1px solid var(--line)' : 'none' }}>
-                          <td style={{ ...TD, minWidth: 160 }}>
+                          <td data-label="" style={{ ...TD, minWidth: 160 }}>
                             <Link href={`/risansi/clients/${acc.code}`}
                               style={{ fontWeight: 500, color: 'var(--fg)', textDecoration: 'none' }}>
                               {acc.legal_name}
@@ -874,19 +874,19 @@ export default async function FieldActivityPage({
                               {acc.code}
                             </div>
                           </td>
-                          <td style={TD}>{acc.industry ?? '—'}</td>
-                          <td style={{ ...TD, color: 'var(--fg-3)' }}>{acc.state ?? '—'}</td>
-                          <td style={TD}>
+                          <td data-label="Industry" style={TD}>{acc.industry ?? '—'}</td>
+                          <td data-label="State" style={{ ...TD, color: 'var(--fg-3)' }}>{acc.state ?? '—'}</td>
+                          <td data-label="Tier" style={TD}>
                             {acc.tier ? <Tag kind={acc.tier === 'Key' ? 'accent' : undefined}>{acc.tier}</Tag> : '—'}
                           </td>
-                          <td style={{ ...TD, fontSize: 11, color: 'var(--fg-2)' }}>{acc.rep_name}</td>
-                          <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)' }}>
+                          <td data-label="Rep" style={{ ...TD, fontSize: 11, color: 'var(--fg-2)' }}>{acc.rep_name}</td>
+                          <td data-label="Last Visit" style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)' }}>
                             {acc.last_visit_date ?? <span style={{ color: 'var(--neg)' }}>Never</span>}
                           </td>
-                          <td style={{ ...TD, fontFamily: 'var(--font-mono)', color: dColor, fontWeight: 500 }}>
+                          <td data-label="Days Overdue" style={{ ...TD, fontFamily: 'var(--font-mono)', color: dColor, fontWeight: 500 }}>
                             {d == null ? '—' : d > 365 ? '1yr+' : `${d}d`}
                           </td>
-                          <td style={TD}>
+                          <td data-label="Action" style={TD}>
                             <AssignVisitRowBtn
                               clientId={acc.id}
                               clientName={acc.legal_name}

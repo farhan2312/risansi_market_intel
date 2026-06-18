@@ -462,7 +462,7 @@ export default async function CompetePage({
                 No competitor data
               </div>
             ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: 'var(--bg-elev)' }}>
                     {['Make', 'PCP Units', 'Share', '', 'vs RIL'].map(h => (
@@ -476,24 +476,24 @@ export default async function CompetePage({
                     const vsRil  = totals.ril_pcp > 0 ? ((comp.units - totals.ril_pcp) / totals.ril_pcp) * 100 : 0;
                     return (
                       <tr key={comp.name} style={{ borderBottom: '1px solid var(--line)' }}>
-                        <td style={{ padding: '10px 12px', verticalAlign: 'middle' }}>
+                        <td data-label="" style={{ padding: '10px 12px', verticalAlign: 'middle' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span style={{ width: 8, height: 8, borderRadius: 2, background: comp.color, display: 'inline-block', flexShrink: 0 }} />
                             <span style={{ fontWeight: 500 }}>{comp.name}</span>
                           </div>
                         </td>
-                        <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
+                        <td data-label="PCP Units" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
                           {comp.units.toLocaleString()}
                         </td>
-                        <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
+                        <td data-label="Share" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
                           {comp.pct.toFixed(1)}%
                         </td>
-                        <td style={{ ...TD, width: 100, paddingLeft: 6, paddingRight: 12 }}>
+                        <td data-label="Share trend" style={{ ...TD, width: 100, paddingLeft: 6, paddingRight: 12 }}>
                           <div style={{ height: 6, background: 'var(--bg-sunk)', borderRadius: 3, overflow: 'hidden' }}>
                             <div style={{ width: `${barPct}%`, height: '100%', background: comp.color, borderRadius: 3 }} />
                           </div>
                         </td>
-                        <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: vsRil > 0 ? 'var(--neg)' : 'var(--pos)' }}>
+                        <td data-label="vs RIL" style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: vsRil > 0 ? 'var(--neg)' : 'var(--pos)' }}>
                           {totals.ril_pcp > 0 ? `${vsRil > 0 ? '+' : ''}${vsRil.toFixed(0)}%` : '—'}
                         </td>
                       </tr>
@@ -579,7 +579,7 @@ export default async function CompetePage({
             </div>
           ) : (
             <div style={{ overflowX: 'auto', marginTop: 8 }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: 'var(--bg-elev)' }}>
                     <SortableTH col="client"         label="Client"          currentSort={curSort} currentDir={curDir} />
@@ -596,22 +596,22 @@ export default async function CompetePage({
                     const share = acc.total_pcp > 0 ? (acc.ril_pcp / acc.total_pcp) * 100 : 0;
                     return (
                       <tr key={i} style={{ borderBottom: '1px solid var(--line)' }}>
-                        <td style={{ padding: '10px 12px', fontWeight: 500, verticalAlign: 'middle' }}>
+                        <td data-label="" style={{ padding: '10px 12px', fontWeight: 500, verticalAlign: 'middle' }}>
                           {acc.client_name}
                         </td>
-                        <td style={{ ...TD, color: 'var(--fg-3)', fontSize: 11 }}>
+                        <td data-label="Zone" style={{ ...TD, color: 'var(--fg-3)', fontSize: 11 }}>
                           {acc.zone ?? '—'}
                         </td>
-                        <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: acc.ril_pcp > 0 ? 'var(--pos)' : 'var(--fg-3)' }}>
+                        <td data-label="RIL PCP" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: acc.ril_pcp > 0 ? 'var(--pos)' : 'var(--fg-3)' }}>
                           {acc.ril_pcp}
                         </td>
-                        <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--neg)' }}>
+                        <td data-label="Competitor PCP" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--neg)' }}>
                           {acc.competitor_pcp}
                         </td>
-                        <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
+                        <td data-label="Total PCP" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
                           {acc.total_pcp}
                         </td>
-                        <td style={TD}>
+                        <td data-label="RIL Share" style={TD}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <div style={{ flex: 1, height: 4, background: 'var(--bg-sunk)', borderRadius: 2, overflow: 'hidden', minWidth: 60 }}>
                               <div style={{ width: `${share}%`, height: '100%', background: share >= 50 ? 'var(--pos)' : share >= 25 ? 'var(--accent)' : 'var(--neg)', borderRadius: 2 }} />
@@ -621,7 +621,7 @@ export default async function CompetePage({
                             </span>
                           </div>
                         </td>
-                        <td style={{ ...TD, color: 'var(--fg-3)', fontSize: 11 }}>
+                        <td data-label="Rep" style={{ ...TD, color: 'var(--fg-3)', fontSize: 11 }}>
                           {acc.rep_name ?? '—'}
                         </td>
                       </tr>
@@ -668,7 +668,7 @@ export default async function CompetePage({
                 ))}
               </div>
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead>
                     <tr style={{ background: 'var(--bg-elev)' }}>
                       {['Competitor', 'Pump Type', 'Application', 'Client', 'Logged', 'Condition'].map(h => <th key={h} style={TH}>{h}</th>)}
@@ -677,15 +677,15 @@ export default async function CompetePage({
                   <tbody>
                     {fieldSightings.map((s, i) => (
                       <tr key={i} style={{ borderBottom: '1px solid var(--line)' }}>
-                        <td style={{ ...TD, fontWeight: 500 }}>{s.supplier}</td>
-                        <td style={TD}>{s.pump_type ?? '—'}</td>
-                        <td style={{ ...TD, color: 'var(--fg-3)' }}>{s.application ?? '—'}</td>
-                        <td style={TD}>
+                        <td data-label="" style={{ ...TD, fontWeight: 500 }}>{s.supplier}</td>
+                        <td data-label="Pump Type" style={TD}>{s.pump_type ?? '—'}</td>
+                        <td data-label="Application" style={{ ...TD, color: 'var(--fg-3)' }}>{s.application ?? '—'}</td>
+                        <td data-label="Client" style={TD}>
                           {s.client_name}
                           <span style={{ marginLeft: 6, fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>{s.client_code}</span>
                         </td>
-                        <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)' }}>{fmtD(s.visit_date)}</td>
-                        <td style={TD}>
+                        <td data-label="Logged" style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)' }}>{fmtD(s.visit_date)}</td>
+                        <td data-label="Condition" style={TD}>
                           {s.condition
                             ? <Tag kind={/eol|end of life/i.test(s.condition) ? 'neg' : undefined}>{s.condition}</Tag>
                             : '—'}
@@ -763,7 +763,7 @@ export default async function CompetePage({
             <div style={EMPTY}>No competitor price captures recorded yet</div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: 'var(--bg-elev)' }}>
                     {['Client', 'Date', 'Rep', 'Price Photos'].map(h => <th key={h} style={TH}>{h}</th>)}
@@ -772,13 +772,13 @@ export default async function CompetePage({
                 <tbody>
                   {priceIntel.map((p, i) => (
                     <tr key={i} style={{ borderBottom: '1px solid var(--line)' }}>
-                      <td style={{ ...TD, fontWeight: 500 }}>
+                      <td data-label="" style={{ ...TD, fontWeight: 500 }}>
                         {p.client_name}
                         <span style={{ marginLeft: 6, fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>{p.client_code}</span>
                       </td>
-                      <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)' }}>{fmtD(p.visit_date)}</td>
-                      <td style={{ ...TD, color: 'var(--fg-3)', fontSize: 11 }}>{p.rep_name}</td>
-                      <td style={{ ...TD, fontFamily: 'var(--font-mono)' }}>{p.pics > 0 ? `📷 ${p.pics}` : '—'}</td>
+                      <td data-label="Date" style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)' }}>{fmtD(p.visit_date)}</td>
+                      <td data-label="Rep" style={{ ...TD, color: 'var(--fg-3)', fontSize: 11 }}>{p.rep_name}</td>
+                      <td data-label="Price Photos" style={{ ...TD, fontFamily: 'var(--font-mono)' }}>{p.pics > 0 ? `📷 ${p.pics}` : '—'}</td>
                     </tr>
                   ))}
                 </tbody>

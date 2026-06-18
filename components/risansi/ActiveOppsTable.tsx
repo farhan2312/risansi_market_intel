@@ -28,7 +28,7 @@ export function ActiveOppsTable({ opps }: { opps: EditableOpp[] }) {
   return (
     <>
       <div style={{ overflowX: 'auto', marginTop: 4 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+        <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
             <tr style={{ background: 'var(--bg-elev)' }}>
               <th style={TH}>Client</th>
@@ -51,11 +51,11 @@ export function ActiveOppsTable({ opps }: { opps: EditableOpp[] }) {
                   onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-elev)')}
                   onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                 >
-                  <td style={TD}>
+                  <td data-label="" style={TD}>
                     <div style={{ fontWeight: 600, color: 'var(--fg)', fontSize: 12 }}>{opp.client_name}</div>
                     <div style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', marginTop: 1 }}>{opp.client_code}</div>
                   </td>
-                  <td style={TD}>
+                  <td data-label="Product" style={TD}>
                     <div style={{ color: 'var(--fg)' }}>{opp.product}</div>
                     {opp.product_type && (
                       <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 1 }}>{opp.product_type}</div>
@@ -70,7 +70,7 @@ export function ActiveOppsTable({ opps }: { opps: EditableOpp[] }) {
                       </span>
                     )}
                   </td>
-                  <td style={TD}>
+                  <td data-label="Stage" style={TD}>
                     <span style={{
                       padding: '3px 8px', borderRadius: 12, fontSize: 11, fontWeight: 600,
                       background: `${stageColor}18`, color: stageColor, border: `1px solid ${stageColor}40`,
@@ -78,16 +78,16 @@ export function ActiveOppsTable({ opps }: { opps: EditableOpp[] }) {
                       {opp.stage}
                     </span>
                   </td>
-                  <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, color: '#0A3D8F', whiteSpace: 'nowrap' }}>
+                  <td data-label="Value" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, color: '#0A3D8F', whiteSpace: 'nowrap' }}>
                     {opp.value_cr ? `₹${(opp.value_cr * 100).toFixed(1)}L` : '—'}
                   </td>
-                  <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>
+                  <td data-label="Prob" style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>
                     {opp.probability != null ? `${opp.probability}%` : '—'}
                   </td>
-                  <td style={{ ...TD, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', fontSize: 11, whiteSpace: 'nowrap' }}>
+                  <td data-label="ETA" style={{ ...TD, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', fontSize: 11, whiteSpace: 'nowrap' }}>
                     {opp.eta_text || '—'}
                   </td>
-                  <td style={{ ...TD, color: 'var(--fg-3)', fontSize: 11 }}>
+                  <td data-label="Rep" style={{ ...TD, color: 'var(--fg-3)', fontSize: 11 }}>
                     {opp.rep_name || '—'}
                   </td>
                 </tr>
