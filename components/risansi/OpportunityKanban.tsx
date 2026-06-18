@@ -121,7 +121,7 @@ export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] })
         </span>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 10 }}>
+      <div className="r-kanban" style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 10 }}>
         {STAGES.map(stage => {
           const items = byStage[stage] ?? [];
           const stageTotal = items.reduce((s, o) => s + o.value_cr, 0);

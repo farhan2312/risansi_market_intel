@@ -209,6 +209,21 @@
   /* Visit wizard stepper — keep the dot small, enlarge the tap area. */
   .risansi-main .r-step-dot { min-height: 44px !important; }
 
+  /* ── Pipeline kanban → swipe between stages on phones ──
+     7 columns at ~51px each are unusable, and HTML5 drag-drop doesn't work on
+     touch. Make each stage a readable ~82%-width column in a horizontal
+     scroll-snap row; reps swipe between stages and tap a card to edit / move it.
+     (Later in the file than the repeat(7) rule, so it wins on equal specificity.) */
+  .risansi-main .r-kanban {
+    grid-template-columns: none !important;
+    grid-auto-flow: column !important;
+    grid-auto-columns: 82% !important;
+    overflow-x: auto !important;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+  }
+  .risansi-main .r-kanban > * { scroll-snap-align: start; }
+
   /* Client list filter chips → one swipeable row on phones (was wrapping to
      3–4 rows). The chips keep their size and scroll horizontally. */
   .risansi-main .r-filter-row {
