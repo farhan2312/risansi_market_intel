@@ -997,7 +997,12 @@ function FormSection({
   return (
     <div style={{ background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 'var(--radius)' }}>
       <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        aria-label={`${title} section, ${open ? 'expanded' : 'collapsed'}`}
         onClick={() => setOpen(!open)}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(o => !o); } }}
         style={{
           padding: '12px 16px', display: 'flex', alignItems: 'center',
           justifyContent: 'space-between', cursor: 'pointer',

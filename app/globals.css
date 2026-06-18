@@ -306,6 +306,16 @@ body {
   --radius-lg: 10px;
 }
 
+/* ── Accessibility: visible keyboard focus ──
+   Most interactive elements use inline styles with no focus ring. This adds a
+   consistent keyboard-only focus indicator. :focus-visible only fires for
+   keyboard / assistive-tech focus, so mouse clicks stay ring-free. */
+:focus-visible {
+  outline: 2px solid var(--brand-blue, #1A5CB8);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
 :root {
   --font-sans:  'IBM Plex Sans',    system-ui, sans-serif;
   --font-mono:  'IBM Plex Mono',    ui-monospace, monospace;
