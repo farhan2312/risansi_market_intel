@@ -173,12 +173,12 @@ export function VisitReportForm({
   // toggling, so auto-save and field state are never lost on navigation.
   const [step, setStep] = useState(0);
   const STEPS = [
-    { label: 'Check-in',      icon: '📍' },
-    { label: 'Details',       icon: '📋' },
-    { label: isSugar ? 'Sugar' : 'Industry', icon: isSugar ? '🍬' : '🏭' },
-    { label: 'Equipment',     icon: '⚙️' },
-    { label: 'Opportunities', icon: '⚡' },
-    { label: 'Summary',       icon: '📝' },
+    { label: 'Check-in',      title: 'Check in',                   desc: 'Confirm your GPS check-in for this visit.' },
+    { label: 'Details',       title: 'Visit details & contacts',   desc: 'Purpose, outcome, and who you met.' },
+    { label: isSugar ? 'Sugar' : 'Industry', title: isSugar ? 'Sugar industry report' : 'Industry report', desc: isSugar ? 'Pump install base and commercial notes.' : 'Products dealt and equipment observed.' },
+    { label: 'Equipment',     title: 'Equipment & competition',    desc: 'RIL and competitor pumps seen at the plant.' },
+    { label: 'Opportunities', title: 'Opportunities',              desc: 'Expansion plans and new business.' },
+    { label: 'Summary',       title: 'Summary & action register',  desc: 'Wrap up, add action points, then submit.' },
   ];
   const LAST = STEPS.length - 1;
   const goStep = (n: number) => {
@@ -195,41 +195,46 @@ export function VisitReportForm({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-      {/* Auto-save indicator */}
-      <div style={{ textAlign: 'right', height: 16 }}>
-        <span style={{
-          fontSize: 11, fontStyle: 'italic',
-          color: saveState === 'saved' ? '#059669' : saveState === 'error' ? '#DC2626' : '#9CA3AF',
-          transition: 'color 300ms',
-        }}>
-          {saveState === 'saving' && 'Saving…'}
-          {saveState === 'saved'  && '✓ Saved'}
-          {saveState === 'error'  && '⚠ Save failed — check connection'}
-        </span>
-      </div>
+      {/* ── Progress header: slim stepper + current step title ─────── */}
+      <div style={{ background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 14, padding: '16px 16px 14px' }}>
+        {/* Stepper with a connecting progress track */}
+        <div style={{ display: 'flex', position: 'relative' }}>
+          <div style={{ position: 'absolute', top: 13, left: `${100 / (STEPS.length * 2)}%`, right: `${100 / (STEPS.length * 2)}%`, height: 2, background: 'var(--line)', borderRadius: 2 }} />
+          <div style={{ position: 'absolute', top: 13, left: `${100 / (STEPS.length * 2)}%`, width: `${(step / Math.max(1, LAST)) * (100 - 100 / STEPS.length)}%`, height: 2, background: '#1A5CB8', borderRadius: 2, transition: 'width 280ms ease' }} />
+          {STEPS.map((s, i) => {
+            const active = i === step, done = i < step;
+            return (
+              <button key={s.label} type="button" onClick={() => goStep(i)} aria-current={active} title={s.title}
+                style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: 0, position: 'relative', zIndex: 1 }}>
+                <span style={{
+                  width: 28, height: 28, borderRadius: '50%', display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 700,
+                  background: active || done ? '#1A5CB8' : 'var(--bg-paper)',
+                  color: active || done ? '#fff' : 'var(--fg-3)',
+                  border: active || done ? '2px solid #1A5CB8' : '2px solid var(--line-strong)',
+                  boxShadow: active ? '0 0 0 4px #EBF1FB' : 'none', transition: 'all 200ms',
+                }}>{done ? '✓' : i + 1}</span>
+                <span style={{ fontSize: 9.5, fontWeight: active ? 700 : 500, color: active ? '#0A3D8F' : 'var(--fg-3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>{s.label}</span>
+              </button>
+            );
+          })}
+        </div>
 
-      {/* ── Milestone stepper ─────────────────────────────── */}
-      <div className="r-scroll-x" style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 4, scrollSnapType: 'x proximity' }}>
-        {STEPS.map((s, i) => {
-          const active = i === step;
-          const done = i < step;
-          return (
-            <button key={s.label} type="button" onClick={() => goStep(i)} aria-current={active}
-              style={{
-                flex: '1 0 auto', minWidth: 70, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
-                padding: '8px 8px', borderRadius: 10, cursor: 'pointer', fontFamily: 'inherit',
-                border: active ? '1px solid #1A5CB8' : '1px solid var(--line)',
-                background: active ? '#EBF1FB' : 'var(--bg-paper)', scrollSnapAlign: 'center',
-              }}>
-              <span style={{
-                width: 24, height: 24, borderRadius: '50%', display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 700,
-                background: active ? '#1A5CB8' : done ? '#0A3D8F' : 'var(--bg-elev)',
-                color: active || done ? '#fff' : 'var(--fg-3)', flexShrink: 0,
-              }}>{done ? '✓' : i + 1}</span>
-              <span style={{ fontSize: 10, fontWeight: active ? 700 : 500, color: active ? '#0A3D8F' : 'var(--fg-3)', whiteSpace: 'nowrap' }}>{s.label}</span>
-            </button>
-          );
-        })}
+        {/* Current step title + description + save status */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', color: 'var(--fg-3)', textTransform: 'uppercase' }}>
+              Step {step + 1} of {STEPS.length}
+            </div>
+            <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--fg)', marginTop: 2, letterSpacing: '-0.01em' }}>{STEPS[step].title}</div>
+            <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 2 }}>{STEPS[step].desc}</div>
+          </div>
+          <span style={{ fontSize: 11, fontWeight: 500, flexShrink: 0, whiteSpace: 'nowrap',
+            color: saveState === 'saved' ? '#059669' : saveState === 'error' ? '#DC2626' : 'var(--fg-3)', transition: 'color 300ms' }}>
+            {saveState === 'saving' && '⟳ Saving…'}
+            {saveState === 'saved'  && '✓ Saved'}
+            {saveState === 'error'  && '⚠ Save failed'}
+          </span>
+        </div>
       </div>
 
       {/* ══ STEP 0 — Check-in ══ */}
@@ -860,32 +865,36 @@ export function VisitReportForm({
 
       </div>{/* end STEP 5 */}
 
-      {/* ── Wizard navigation ─────────────────────────────── */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-        padding: '14px 0 4px', marginTop: 4, borderTop: '1px solid var(--line)',
+      {/* ── Sticky wizard navigation (pinned to the bottom of the page) ── */}
+      <div className="wizard-nav" style={{
+        position: 'sticky', bottom: 0, zIndex: 9, marginTop: 6,
+        display: 'flex', alignItems: 'center', gap: 10,
+        padding: '12px 14px',
+        background: 'var(--bg-paper)', border: '1px solid var(--line)',
+        borderRadius: 12, boxShadow: '0 -4px 16px rgba(10, 22, 40, 0.06)',
       }}>
         <button
           type="button" onClick={() => goStep(step - 1)} disabled={step === 0}
           style={{
-            padding: '11px 18px', borderRadius: 8, border: '1px solid var(--line-strong)',
+            padding: '11px 18px', borderRadius: 9, border: '1px solid var(--line-strong)',
             background: 'var(--bg-paper)', color: step === 0 ? 'var(--fg-3)' : 'var(--fg)',
             cursor: step === 0 ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'inherit',
-            opacity: step === 0 ? 0.5 : 1, fontWeight: 500,
+            opacity: step === 0 ? 0.45 : 1, fontWeight: 500,
           }}
         >
           ← Back
         </button>
-        <span style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
-          Step {step + 1} / {STEPS.length}
+        <span style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
+          {step + 1} / {STEPS.length}
         </span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center' }}>
           {step < LAST ? (
             <button
               type="button" onClick={() => goStep(step + 1)}
               style={{
-                padding: '11px 22px', borderRadius: 8, border: 'none', background: '#1A5CB8',
+                padding: '11px 22px', borderRadius: 9, border: 'none', background: '#1A5CB8',
                 color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
+                boxShadow: '0 2px 8px rgba(26, 92, 184, 0.3)',
               }}
             >
               Next: {STEPS[step + 1].label} →

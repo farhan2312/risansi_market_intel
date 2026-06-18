@@ -107,6 +107,9 @@
     background: #1A5CB8 !important; color: #fff !important; border-color: #1A5CB8 !important;
   }
 
+  /* Visit wizard's sticky nav sits just above the fixed bottom tab bar. */
+  .wizard-nav { bottom: calc(56px + env(safe-area-inset-bottom, 0px)) !important; }
+
   /* ── Login / sign-in: drop the brand panel, full-width form ── */
   .login-grid  { grid-template-columns: 1fr !important; }
   .login-brand { display: none !important; }
