@@ -3,6 +3,7 @@
 import { useState, useTransition, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { saveVisitContacts, saveEquipmentEntries, submitVisitReport } from '@/app/actions/risansi';
+import { VisitPhotos } from '@/components/risansi/VisitPhotos';
 import type { ReportInitialData } from './page';
 
 // ── Constants ──────────────────────────────────────────────────
@@ -203,13 +204,23 @@ export function VisitReportClient({ initialData: d }: { initialData: ReportIniti
           compEquip={compEquip} setCompEquip={setCompEquip}
           existing={d.existingEquipment.filter(e => e.supplier !== 'RIL')}
         />}
-        {step === 4 && <Step5Commercial
-          commercial={commercial} setCommercial={setCommercial}
-          outcome={outcome} setOutcome={setOutcome}
-          summary={summary} setSummary={setSummary}
-          opportunityProduct={opportunityProduct} setOpportunityProduct={setOpportunityProduct}
-          opportunityValue={opportunityValue} setOpportunityValue={setOpportunityValue}
-        />}
+        {step === 4 && (
+          <>
+            <Step5Commercial
+              commercial={commercial} setCommercial={setCommercial}
+              outcome={outcome} setOutcome={setOutcome}
+              summary={summary} setSummary={setSummary}
+              opportunityProduct={opportunityProduct} setOpportunityProduct={setOpportunityProduct}
+              opportunityValue={opportunityValue} setOpportunityValue={setOpportunityValue}
+            />
+            <div style={{ marginTop: 24 }}>
+              <label style={LABEL}>Site Photos</label>
+              <div style={{ marginTop: 10 }}>
+                <VisitPhotos visitId={d.visitId} disabled={d.status === 'completed'} />
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Bottom action bar */}

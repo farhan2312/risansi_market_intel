@@ -11,6 +11,7 @@ import { FormErrorBoundary } from './FormErrorBoundary';
 import { AddContactButton } from './AddContactButton';
 import { EditContactButton } from './EditContactButton';
 import { SubmitVisitButton } from './SubmitVisitButton';
+import { VisitPhotos } from './VisitPhotos';
 
 // Major competitor makes for the Competitor Equipment dropdown. Mirrors the
 // per-maker columns tracked in competitor_installed_base. Pick "Other" to type
@@ -185,6 +186,7 @@ export function VisitReportForm({
     { key: 'equipment', label: 'Equipment', title: 'Equipment & competition', desc: 'RIL and competitor pumps seen.',           show: true },
     { key: 'opps',      label: 'Opportunities', title: 'Opportunities',     desc: 'Expansion plans and new business.',          show: true },
     { key: 'summary',   label: 'Summary',   title: 'Visit summary',         desc: 'Performance, feedback and remarks.',         show: true },
+    { key: 'photos',    label: 'Photos',    title: 'Site photos',           desc: 'Capture site / equipment photos — camera or gallery.', show: true },
     { key: 'actions',   label: 'Actions',   title: 'Action register',       desc: 'Add action points, then submit the report.', show: true },
   ];
   const steps = allSteps.filter(s => s.show);
@@ -803,6 +805,13 @@ export function VisitReportForm({
       </FormSection>
 
       </div>{/* end summary */}
+
+      {/* ══ STEP: Site Photos ══ */}
+      <div style={{ display: curKey === 'photos' ? 'flex' : 'none', flexDirection: 'column', gap: 12 }}>
+      <FormSection title="Site Photos" icon="📷">
+        <VisitPhotos visitId={visit.id} disabled={disabled} />
+      </FormSection>
+      </div>{/* end photos */}
 
       {/* ══ STEP: Action Register ══ */}
       <div style={{ display: curKey === 'actions' ? 'flex' : 'none', flexDirection: 'column', gap: 12 }}>
