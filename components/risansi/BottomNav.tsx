@@ -141,7 +141,7 @@ export function BottomNav({ role, user }: {
                   <KeyRound size={18} />
                   <span>Change Password</span>
                 </Link>
-                <button type="button" onClick={() => signOut({ callbackUrl: '/api/auth/signin' })} style={{ ...ROW_BTN, color: '#FF6B6B' }}>
+                <button type="button" onClick={() => { if (window.confirm('Sign out of Risansi?')) signOut({ callbackUrl: '/api/auth/signin' }); }} style={{ ...ROW_BTN, color: '#FF6B6B' }}>
                   <LogOut size={18} />
                   <span>Sign out</span>
                 </button>

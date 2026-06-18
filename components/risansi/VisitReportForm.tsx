@@ -99,12 +99,26 @@ interface Props {
 // ── Auto-save hook ─────────────────────────────────────────────
 
 function useAutoSave(visitId: string) {
+  const draftKey = `risansi_visit_draft_${visitId}`;
   const [saveState, setSaveState] = useState<'idle' | 'pending' | 'saving' | 'saved' | 'error'>('idle');
+  // True when a previous session left unsynced field changes in localStorage
+  // (e.g. the rep lost signal in the field before the 5s auto-save fired).
+  const [hasDraft, setHasDraft] = useState(false);
   const saveTimer  = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pending    = useRef<Record<string, unknown>>({});
 
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(draftKey);
+      const obj = raw ? JSON.parse(raw) : null;
+      if (obj && typeof obj === 'object' && Object.keys(obj).length > 0) setHasDraft(true);
+    } catch { /* ignore */ }
+  }, [draftKey]);
+
   const queueSave = useCallback((field: string, value: unknown) => {
     pending.current[field] = value;
+    // Persist immediately so a dropped connection / closed tab can't lose entry.
+    try { localStorage.setItem(draftKey, JSON.stringify(pending.current)); } catch { /* ignore */ }
     setSaveState('pending');
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
@@ -112,15 +126,34 @@ function useAutoSave(visitId: string) {
       try {
         await saveVisitField(visitId, pending.current);
         pending.current = {};
+        try { localStorage.removeItem(draftKey); } catch { /* ignore */ }
+        setHasDraft(false);
         setSaveState('saved');
         setTimeout(() => setSaveState('idle'), 3000);
       } catch {
-        setSaveState('error');
+        setSaveState('error');   // draft stays in localStorage for recovery
       }
     }, 5000);
-  }, [visitId]);
+  }, [visitId, draftKey]);
 
-  return { saveState, queueSave };
+  // Re-send a recovered draft (the "Sync now" banner action).
+  const syncDraft = useCallback(async () => {
+    try {
+      const raw = localStorage.getItem(draftKey);
+      const obj = raw ? JSON.parse(raw) : null;
+      if (!obj || Object.keys(obj).length === 0) { setHasDraft(false); return; }
+      setSaveState('saving');
+      await saveVisitField(visitId, obj);
+      try { localStorage.removeItem(draftKey); } catch { /* ignore */ }
+      setHasDraft(false);
+      setSaveState('saved');
+      setTimeout(() => setSaveState('idle'), 3000);
+    } catch {
+      setSaveState('error');
+    }
+  }, [visitId, draftKey]);
+
+  return { saveState, queueSave, hasDraft, syncDraft };
 }
 
 // ── Main Component ─────────────────────────────────────────────
@@ -129,7 +162,7 @@ export function VisitReportForm({
   visit, contacts, equipment, sugarReport, nonsugarReport,
   opportunities, tasks, reps, expansionOpp, isClosed, isSugar: initialIsSugar,
 }: Props) {
-  const { saveState, queueSave } = useAutoSave(visit.id);
+  const { saveState, queueSave, hasDraft, syncDraft } = useAutoSave(visit.id);
   const router = useRouter();
 
   const handleCompleteTask = async (taskId: number, status: 'open' | 'completed') => {
@@ -137,6 +170,7 @@ export function VisitReportForm({
     router.refresh();
   };
   const handleDeleteTask = async (taskId: number) => {
+    if (typeof window !== 'undefined' && !window.confirm('Delete this action point? This cannot be undone.')) return;
     await deleteTask(taskId);
     router.refresh();
   };
@@ -248,6 +282,30 @@ export function VisitReportForm({
           </span>
         </div>
       </div>
+
+      {/* Draft recovery — unsynced changes survived a closed tab / dropped signal. */}
+      {hasDraft && !isClosed && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+          background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 12,
+          padding: '10px 14px', fontSize: 12, color: '#92400E',
+        }}>
+          <span style={{ flex: 1, minWidth: 160 }}>
+            Unsynced changes from an earlier session were found on this device.
+          </span>
+          <button
+            type="button"
+            onClick={async () => { await syncDraft(); router.refresh(); }}
+            style={{
+              padding: '8px 14px', minHeight: 40, borderRadius: 8, border: 'none',
+              background: '#92400E', color: '#fff', fontWeight: 600, fontSize: 12,
+              cursor: 'pointer', fontFamily: 'inherit',
+            }}
+          >
+            Sync now
+          </button>
+        </div>
+      )}
 
       {/* ══ STEP: Check-in ══ */}
       <div style={{ display: curKey === 'checkin' ? 'flex' : 'none', flexDirection: 'column', gap: 12 }}>
