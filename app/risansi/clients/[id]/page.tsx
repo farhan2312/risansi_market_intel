@@ -398,10 +398,10 @@ export default async function ClientProfilePage({
         <BackButton />
 
         {/* ── Page header ─────────────────────────────────────── */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+        <div className="r-detail-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
+              <span className="r-detail-title" style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
                 {client.legal_name}
               </span>
               <StatusDot s={client.status === 'ACTIVE' ? 'active' : client.status === 'INACTIVE' ? 'inactive' : 'prospect'} />
@@ -458,7 +458,7 @@ export default async function ClientProfilePage({
               )}
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <div className="r-detail-actions" style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <a
             href={`/print/client/${client.code}`}
             target="_blank"

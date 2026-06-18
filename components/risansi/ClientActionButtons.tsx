@@ -74,7 +74,7 @@ export function ClientActionButtons({
 
   return (
     <>
-      <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+      <div className="r-action-row" style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
         <button type="button" onClick={() => setIsVisitOpen(true)} style={BTN}>
           {PLAN_VISIT_LABEL}
         </button>

@@ -119,6 +119,35 @@
   /* Tighten the generous desktop page padding on phones. */
   .r-page { padding: 16px 12px 24px !important; }
 
+  /* ── Client 360 detail header ──
+     Desktop lays the title and the action buttons side-by-side
+     (justify-content:space-between). On a phone the long legal name
+     wraps into a tall column and the buttons collide with it, so stack:
+     title block on top, actions as a full-width 2-up button grid below. */
+  .risansi-main .r-detail-header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 14px !important;
+  }
+  .risansi-main .r-detail-title {
+    font-size: 18px !important;
+    line-height: 1.25 !important;
+  }
+  .risansi-main .r-detail-actions {
+    width: 100% !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+  /* Flatten the action-button row so Export PDF and the Plan Visit /
+     New Opportunity / Edit buttons all become siblings of one grid. */
+  .risansi-main .r-detail-actions .r-action-row { display: contents !important; }
+  .risansi-main .r-detail-actions > a,
+  .risansi-main .r-detail-actions .r-action-row > button {
+    flex: 1 1 calc(50% - 4px) !important;
+    justify-content: center !important;
+    min-height: 38px !important;
+  }
+
   /* ── Table → cards (opt-in: <table class="r-cards"> with data-label on <td>) ──
      Each row is a clearly-separated card: a prominent title with a divider, then
      "LABEL  value" rows (inline label on the left) so it scans cleanly instead of
