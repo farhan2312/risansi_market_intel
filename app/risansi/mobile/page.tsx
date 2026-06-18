@@ -4,6 +4,7 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 import { getGreeting, fmtCr, formatRev } from '@/lib/risansi-utils';
 import { getCurrentUser, clientVisibilitySql, ownerVisibilitySql } from '@/lib/risansi-auth';
+import { EmptyState } from '@/components/risansi/EmptyState';
 import Link from 'next/link';
 
 // ── Safe query wrapper ─────────────────────────────────────────
@@ -149,9 +150,11 @@ export default async function MobileDayPage() {
       </div>
       {todayVisits.length === 0 ? (
         <div style={{ padding: '14px 16px 0' }}>
-          <div style={{ padding: '18px', textAlign: 'center', fontSize: 13, color: 'var(--fg-3)', background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 10 }}>
-            No visits scheduled today
-          </div>
+          <EmptyState
+            icon="📅"
+            title="No visits scheduled today"
+            hint="Start one below, or check your overdue accounts."
+          />
         </div>
       ) : (
         <div style={{ padding: '8px 16px 0', display: 'flex', flexDirection: 'column', gap: 8 }}>

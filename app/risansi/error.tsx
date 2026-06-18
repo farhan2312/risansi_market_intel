@@ -73,26 +73,48 @@ export default function RisansiError({
         )}
         {!error.digest && <div style={{ marginBottom: 28 }} />}
 
-        <button
-          onClick={unstable_retry}
-          style={{
-            display:       'inline-flex',
-            alignItems:    'center',
-            gap:           6,
-            padding:       '8px 18px',
-            fontSize:      13,
-            fontFamily:    'inherit',
-            fontWeight:    500,
-            background:    '#1A5CB8',
-            color:         '#fff',
-            border:        'none',
-            borderRadius:  6,
-            cursor:        'pointer',
-            letterSpacing: '-0.005em',
-          }}
-        >
-          Try again
-        </button>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+          <button
+            onClick={unstable_retry}
+            style={{
+              display:       'inline-flex',
+              alignItems:    'center',
+              gap:           6,
+              padding:       '9px 18px',
+              minHeight:     40,
+              fontSize:      13,
+              fontFamily:    'inherit',
+              fontWeight:    500,
+              background:    '#1A5CB8',
+              color:         '#fff',
+              border:        'none',
+              borderRadius:  6,
+              cursor:        'pointer',
+              letterSpacing: '-0.005em',
+            }}
+          >
+            Try again
+          </button>
+          {/* Escape route — if retry keeps failing the rep isn't stuck here. */}
+          <a
+            href="/risansi"
+            style={{
+              display:       'inline-flex',
+              alignItems:    'center',
+              padding:       '9px 18px',
+              minHeight:     40,
+              fontSize:      13,
+              fontWeight:    500,
+              background:    'var(--bg-paper)',
+              color:         'var(--fg-2)',
+              border:        '1px solid var(--line-strong)',
+              borderRadius:  6,
+              textDecoration: 'none',
+            }}
+          >
+            Go to Home
+          </a>
+        </div>
       </div>
     </div>
   );
