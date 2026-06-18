@@ -19,11 +19,12 @@
   /* Main scroll area clears the fixed bottom nav. */
   .risansi-main {
     padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px)) !important;
+    padding-top: env(safe-area-inset-top, 0px);
   }
 
-  /* Compact the top bar so breadcrumbs + actions fit a phone. */
-  .risansi-topbar { padding-left: 12px !important; padding-right: 10px !important; gap: 8px !important; }
-  .risansi-topbar .risansi-live { display: none !important; }
+  /* Hide the top breadcrumb bar on phones — the bottom tab bar + each page's own
+     header are enough, and the breadcrumb felt cluttered. */
+  .risansi-topbar { display: none !important; }
 
   /* Bottom tab bar — white, sits above the mobile overlay (z-index 50) */
   .risansi-bottom-nav {
@@ -118,23 +119,32 @@
   /* Tighten the generous desktop page padding on phones. */
   .r-page { padding: 16px 12px 24px !important; }
 
-  /* ── Table → cards (opt-in: <table class="r-cards"> with data-label on <td>) ── */
-  table.r-cards, table.r-cards tbody, table.r-cards tr, table.r-cards td { display: block; width: 100%; }
+  /* ── Table → cards (opt-in: <table class="r-cards"> with data-label on <td>) ──
+     Each row is a clearly-separated card: a prominent title with a divider, then
+     "LABEL  value" rows (inline label on the left) so it scans cleanly instead of
+     reading as a wall of stacked text. */
+  table.r-cards, table.r-cards tbody, table.r-cards td { display: block; width: 100%; }
   table.r-cards thead { display: none; }
   table.r-cards tr {
-    border: 1px solid var(--line); border-radius: 10px; margin-bottom: 10px;
-    padding: 6px 12px; background: var(--bg-paper);
+    display: flex; flex-direction: column;
+    border: 1px solid var(--line); border-radius: 14px; margin-bottom: 14px;
+    padding: 12px 14px; background: var(--bg-paper);
+    box-shadow: 0 1px 3px rgba(10, 22, 40, 0.05);
   }
   table.r-cards td {
-    border: none !important; padding: 6px 0 !important; display: block; text-align: left;
+    padding: 7px 0 !important; border: none !important;
+    border-top: 1px solid var(--line-2) !important;
+    font-size: 13px; color: var(--fg); line-height: 1.4;
   }
-  table.r-cards td + td { border-top: 1px solid var(--line-2) !important; }
   table.r-cards td::before {
-    content: attr(data-label); display: block;
-    font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em;
-    color: var(--fg-3); font-weight: 700; margin-bottom: 2px;
+    content: attr(data-label); display: inline-block; min-width: 96px;
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--fg-3); font-weight: 600; vertical-align: top;
   }
-  /* Cells flagged data-label="" render as the card's title (no label). */
-  table.r-cards td[data-label=""] { padding-top: 2px !important; }
+  /* Title cell — pulled to the top of the card, bold, no label/border. */
+  table.r-cards td[data-label=""] {
+    order: -1; border-top: none !important; padding: 2px 0 9px !important;
+    font-size: 15px; font-weight: 600; color: var(--fg);
+  }
   table.r-cards td[data-label=""]::before { content: none; }
 }

@@ -879,10 +879,10 @@ export function VisitReportForm({
             padding: '11px 18px', borderRadius: 9, border: '1px solid var(--line-strong)',
             background: 'var(--bg-paper)', color: step === 0 ? 'var(--fg-3)' : 'var(--fg)',
             cursor: step === 0 ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'inherit',
-            opacity: step === 0 ? 0.45 : 1, fontWeight: 500,
+            opacity: step === 0 ? 0.45 : 1, fontWeight: 600,
           }}
         >
-          ← Back
+          Back
         </button>
         <span style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
           {step + 1} / {STEPS.length}
@@ -897,7 +897,7 @@ export function VisitReportForm({
                 boxShadow: '0 2px 8px rgba(26, 92, 184, 0.3)',
               }}
             >
-              Next: {STEPS[step + 1].label} →
+              Next
             </button>
           ) : !isClosed ? (
             <SubmitVisitButton visitId={visit.id} />
