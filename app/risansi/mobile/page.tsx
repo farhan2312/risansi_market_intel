@@ -143,23 +143,6 @@ export default async function MobileDayPage() {
         </div>
       </div>
 
-      {/* ── KPI grid ── */}
-      <div style={{ padding: '14px 16px 0' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
-          <Kpi label="Planned Today"  value={String(plannedToday)} accent={plannedToday > 0 ? 'var(--accent)' : 'var(--fg-3)'}
-            sub={plannedToday > 0 ? 'visits to do' : 'nothing scheduled'} href="/risansi/field?tab=calendar" />
-          <Kpi label="Done · 7 days"  value={String(doneThisWeek)} sub="visits completed" href="/risansi/field?tab=feed" />
-          <Kpi label="Overdue"        value={String(overdueCount)} accent={overdueCount > 0 ? 'var(--neg)' : 'var(--pos)'}
-            sub="90+ days no visit" href="/risansi/field?tab=overdue" />
-          <Kpi label="Open Pipeline"  value={pipeline > 0 ? fmtCr(pipeline) : '—'} sub="open opportunities" href="/risansi/pipeline" />
-          <Kpi label="FY 25-26 Rev"   value={fyRev > 0 ? formatRev(fyRev) : '—'}
-            sub={fyDelta != null ? `${fyDelta >= 0 ? '▲ +' : '▼ '}${fyDelta.toFixed(0)}% vs LY` : `target ₹${annTarget} Cr`}
-            subColor={fyDelta == null ? 'var(--fg-3)' : fyDelta >= 0 ? 'var(--pos)' : 'var(--neg)'} href="/risansi/revenue" />
-          <Kpi label="Tasks Due"      value={String(tasksDue)} accent={tasksDue > 0 ? 'var(--warn)' : 'var(--pos)'}
-            sub="due today / overdue" />
-        </div>
-      </div>
-
       {/* Today's visits */}
       <div style={{ padding: '18px 16px 0' }}>
         <div style={SECTION_LABEL}>Today&rsquo;s Visits</div>
@@ -242,9 +225,11 @@ export default async function MobileDayPage() {
           <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
             {openTasks.map(t => {
               const overdue = !!t.due_date && new Date(t.due_date + 'T00:00:00') < new Date(new Date().toDateString());
+              const pColor = t.priority === 'High' ? 'var(--neg)' : t.priority === 'Low' ? 'var(--fg-4)' : 'var(--warn)';
               return (
                 <div key={t.id} style={{
-                  background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 8, padding: '10px 12px',
+                  background: 'var(--bg-paper)', border: '1px solid var(--line)', borderLeft: `3px solid ${pColor}`,
+                  borderRadius: 8, padding: '10px 12px',
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
                 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -262,6 +247,24 @@ export default async function MobileDayPage() {
           </div>
         </div>
       )}
+
+      {/* ── Snapshot metrics (secondary — below the day's actionable work) ── */}
+      <div style={{ padding: '22px 16px 0' }}>
+        <div style={SECTION_LABEL}>Snapshot</div>
+        <div style={{ marginTop: 8, display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+          <Kpi label="Planned Today"  value={String(plannedToday)} accent={plannedToday > 0 ? 'var(--accent)' : 'var(--fg-3)'}
+            sub={plannedToday > 0 ? 'visits to do' : 'nothing scheduled'} href="/risansi/field?tab=calendar" />
+          <Kpi label="Done · 7 days"  value={String(doneThisWeek)} sub="visits completed" href="/risansi/field?tab=feed" />
+          <Kpi label="Overdue"        value={String(overdueCount)} accent={overdueCount > 0 ? 'var(--neg)' : 'var(--pos)'}
+            sub="90+ days no visit" href="/risansi/field?tab=overdue" />
+          <Kpi label="Open Pipeline"  value={pipeline > 0 ? fmtCr(pipeline) : '—'} sub="open opportunities" href="/risansi/pipeline" />
+          <Kpi label="FY 25-26 Rev"   value={fyRev > 0 ? formatRev(fyRev) : '—'}
+            sub={fyDelta != null ? `${fyDelta >= 0 ? '▲ +' : '▼ '}${fyDelta.toFixed(0)}% vs LY` : `target ₹${annTarget} Cr`}
+            subColor={fyDelta == null ? 'var(--fg-3)' : fyDelta >= 0 ? 'var(--pos)' : 'var(--neg)'} href="/risansi/revenue" />
+          <Kpi label="Tasks Due"      value={String(tasksDue)} accent={tasksDue > 0 ? 'var(--warn)' : 'var(--pos)'}
+            sub="due today / overdue" />
+        </div>
+      </div>
 
     </div>
   );
