@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import Link from 'next/link';
+import { headers } from 'next/headers';
 import { getServerSession } from 'next-auth/next';
 import { Topbar, Tag } from '@/components/risansi';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
@@ -104,8 +105,13 @@ export default async function FieldActivityPage({
   const role    = session?.user?.role ?? 'rep';
   const isRep   = role === 'rep';
 
+  // On phones, drop Calendar & Map and default to the Visit Feed.
+  const ua = (await headers()).get('user-agent') ?? '';
+  const isMobile = /Mobile|Android|iPhone|iPad|iPod|Opera Mini|IEMobile/i.test(ua);
+
   const sp         = await searchParams;
-  const tab        = typeof sp.tab  === 'string' ? sp.tab  : 'calendar';
+  let   tab        = typeof sp.tab  === 'string' ? sp.tab  : (isMobile ? 'feed' : 'calendar');
+  if (isMobile && (tab === 'calendar' || tab === 'map')) tab = 'feed';
   const feedTab    = typeof sp.feed === 'string' ? sp.feed : 'today';
   const sortKey    = typeof sp.sort === 'string' ? sp.sort : 'days_overdue';
   const sortDir    = sp.dir === 'asc' ? 'ASC' : 'DESC';
@@ -505,7 +511,7 @@ export default async function FieldActivityPage({
             { id: 'activities', label: `Action Register (${openTaskCount})` },
             { id: 'overdue',  label: `Overdue (${stats.overdue.toLocaleString('en-IN')})` },
             { id: 'map',      label: 'Map' },
-          ].map(t => (
+          ].filter(t => !isMobile || !['calendar', 'map'].includes(t.id)).map(t => (
             <a key={t.id} href={tabHref(t.id)} aria-current={tab === t.id} style={{
               display: 'block', padding: '8px 16px', fontSize: 13,
               fontWeight: tab === t.id ? 600 : 400,

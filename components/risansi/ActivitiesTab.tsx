@@ -122,7 +122,7 @@ export function ActivitiesTab({ tasks }: { tasks: ActivityTask[] }) {
           No tasks match the current filters.
         </div>
       ) : (
-        <Table>
+        <Table className="r-cards">
           <TableHeader>
             <TableRow>
               <TableHead>Status</TableHead>
@@ -141,8 +141,8 @@ export function ActivitiesTab({ tasks }: { tasks: ActivityTask[] }) {
               const pc = PRIORITY_COLORS[task.priority ?? 'Medium'] ?? PRIORITY_COLORS.Medium;
               return (
                 <TableRow key={task.id} style={{ opacity: task.status === 'completed' ? 0.6 : 1, background: isOverdue ? 'rgba(220,38,38,0.03)' : undefined }}>
-                  <TableCell><ActionStatusToggle task={task} onToggle={refresh} /></TableCell>
-                  <TableCell>
+                  <TableCell data-label="Done"><ActionStatusToggle task={task} onToggle={refresh} /></TableCell>
+                  <TableCell data-label="">
                     <div style={{ fontWeight: 500, fontSize: 12, textDecoration: task.status === 'completed' ? 'line-through' : 'none' }}>
                       {task.title}
                     </div>
@@ -152,33 +152,33 @@ export function ActivitiesTab({ tasks }: { tasks: ActivityTask[] }) {
                       </div>
                     )}
                   </TableCell>
-                  <TableCell>
+                  <TableCell data-label="Client">
                     {task.client_code && task.client_name ? (
                       <a href={`/risansi/clients/${task.client_code}`} style={{ fontSize: 12, color: 'var(--brand-blue)', textDecoration: 'none' }}>
                         {task.client_name}
                       </a>
                     ) : '—'}
                   </TableCell>
-                  <TableCell>
+                  <TableCell data-label="Priority">
                     <Badge style={{ background: pc.bg, color: pc.text, fontSize: 10 }}>
                       {task.priority ?? 'Medium'}
                     </Badge>
                   </TableCell>
-                  <TableCell style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: isOverdue ? 'var(--neg)' : 'var(--fg-3)', fontWeight: isOverdue ? 600 : 400 }}>
+                  <TableCell data-label="Due" style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: isOverdue ? 'var(--neg)' : 'var(--fg-3)', fontWeight: isOverdue ? 600 : 400 }}>
                     {task.due_date ? new Date(task.due_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
                     {isOverdue && ' ⚠'}
                   </TableCell>
-                  <TableCell style={{ fontSize: 11, color: 'var(--fg-3)' }}>
+                  <TableCell data-label="Owner" style={{ fontSize: 11, color: 'var(--fg-3)' }}>
                     {task.assigned_rep_name && task.assigned_rep_name !== '—' ? task.assigned_rep_name : (task.assigned_to_external ?? '—')}
                   </TableCell>
-                  <TableCell>
-                    {task.visit_id && (
+                  <TableCell data-label="Visit">
+                    {task.visit_id ? (
                       <a href={`/risansi/visits/${task.visit_id}`} style={{ fontSize: 11, color: 'var(--brand-blue)', textDecoration: 'none' }}>
                         {task.visit_date ? new Date(task.visit_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : 'Visit →'}
                       </a>
-                    )}
+                    ) : '—'}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="r-hide">
                     <ActionStatusToggle task={task} compact onToggle={refresh} />
                   </TableCell>
                 </TableRow>
