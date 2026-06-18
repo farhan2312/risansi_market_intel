@@ -529,7 +529,7 @@ export default async function ClientProfilePage({
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
                 {/* Left: data table */}
                 <div style={{ borderRight: '1px solid var(--line)', display: 'flex', alignItems: 'center', minHeight: 200, padding: '16px 0' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                  <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                     <thead>
                       <tr style={{ background: 'var(--bg-elev)' }}>
                         <th style={{ ...REV_TH, textAlign: 'left', padding: '10px 12px' }}></th>
@@ -541,38 +541,38 @@ export default async function ClientProfilePage({
                     </thead>
                     <tbody>
                       <tr>
-                        <td style={{ padding: '9px 12px', fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--line)' }}>Pump (₹ L)</td>
+                        <td data-label="" style={{ padding: '9px 12px', fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--line)' }}>Pump (₹ L)</td>
                         {chartFYs.map(f => (
-                          <td key={f} style={{ padding: '9px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11, borderBottom: '1px solid var(--line)', color: revByFY[f].pump > 0 ? 'var(--fg)' : 'var(--fg-3)' }}>
+                          <td key={f} data-label={`FY ${f}`} style={{ padding: '9px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11, borderBottom: '1px solid var(--line)', color: revByFY[f].pump > 0 ? 'var(--fg)' : 'var(--fg-3)' }}>
                             {revByFY[f].pump > 0 ? revByFY[f].pump.toFixed(1) : '—'}
                           </td>
                         ))}
-                        <td style={{ padding: '9px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 11, borderBottom: '1px solid var(--line)' }}>
+                        <td data-label="Lifetime" style={{ padding: '9px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 11, borderBottom: '1px solid var(--line)' }}>
                           {lifetimePump.toFixed(1)}
                         </td>
                       </tr>
                       <tr>
-                        <td style={{ padding: '9px 12px', fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--line)' }}>Spare (₹ L)</td>
+                        <td data-label="" style={{ padding: '9px 12px', fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--line)' }}>Spare (₹ L)</td>
                         {chartFYs.map(f => (
-                          <td key={f} style={{ padding: '9px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11, borderBottom: '1px solid var(--line)', color: revByFY[f].spare > 0 ? 'var(--fg)' : 'var(--fg-3)' }}>
+                          <td key={f} data-label={`FY ${f}`} style={{ padding: '9px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11, borderBottom: '1px solid var(--line)', color: revByFY[f].spare > 0 ? 'var(--fg)' : 'var(--fg-3)' }}>
                             {revByFY[f].spare > 0 ? revByFY[f].spare.toFixed(1) : '—'}
                           </td>
                         ))}
-                        <td style={{ padding: '9px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 11, borderBottom: '1px solid var(--line)' }}>
+                        <td data-label="Lifetime" style={{ padding: '9px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 11, borderBottom: '1px solid var(--line)' }}>
                           {lifetimeSpare.toFixed(1)}
                         </td>
                       </tr>
                       <tr style={{ background: 'var(--bg-elev)' }}>
-                        <td style={{ padding: '9px 12px', fontSize: 11, color: 'var(--fg-2)', fontWeight: 600 }}>Total</td>
+                        <td data-label="" style={{ padding: '9px 12px', fontSize: 11, color: 'var(--fg-2)', fontWeight: 600 }}>Total</td>
                         {chartFYs.map(f => {
                           const t = revByFY[f].pump + revByFY[f].spare;
                           return (
-                            <td key={f} style={{ padding: '9px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 11, color: t > 0 ? 'var(--fg)' : 'var(--fg-3)' }}>
+                            <td key={f} data-label={`FY ${f}`} style={{ padding: '9px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 11, color: t > 0 ? 'var(--fg)' : 'var(--fg-3)' }}>
                               {t > 0 ? t.toFixed(1) : '—'}
                             </td>
                           );
                         })}
-                        <td style={{ padding: '9px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 11, color: '#0A3D8F' }}>
+                        <td data-label="Lifetime" style={{ padding: '9px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 11, color: '#0A3D8F' }}>
                           {lifetimeTotal.toFixed(1)}
                         </td>
                       </tr>

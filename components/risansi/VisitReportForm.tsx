@@ -529,7 +529,7 @@ export function VisitReportForm({
             No {eqTab === 'ril' ? 'RIL' : 'competitor'} equipment recorded
           </div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginBottom: 12 }}>
+          <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginBottom: 12 }}>
             <thead>
               <tr style={{ background: 'var(--bg-elev)' }}>
                 {['Type', 'Supplier/Model', 'Application', 'Qty', 'Condition', eqTab === 'ril' ? 'Feedback' : 'Reason'].map(h => (
@@ -541,11 +541,11 @@ export function VisitReportForm({
             <tbody>
               {(eqTab === 'ril' ? rilEquipment : compEquipment).map((e, i) => (
                 <tr key={i} style={{ borderBottom: '1px solid var(--line)' }}>
-                  <td style={{ padding: '8px 10px' }}>{String(e.pump_type ?? '—')}</td>
-                  <td style={{ padding: '8px 10px' }}>{String(e.supplier ?? '')} {String(e.model ?? '')}</td>
-                  <td style={{ padding: '8px 10px', color: 'var(--fg-3)' }}>{String(e.application ?? '—')}</td>
-                  <td style={{ padding: '8px 10px', textAlign: 'center' }}>{String(e.qty ?? 1)}</td>
-                  <td style={{ padding: '8px 10px' }}>
+                  <td data-label="" style={{ padding: '8px 10px' }}>{String(e.supplier ?? '')} {String(e.model ?? '')}</td>
+                  <td data-label="Type" style={{ padding: '8px 10px' }}>{String(e.pump_type ?? '—')}</td>
+                  <td data-label="Application" style={{ padding: '8px 10px', color: 'var(--fg-3)' }}>{String(e.application ?? '—')}</td>
+                  <td data-label="Qty" style={{ padding: '8px 10px', textAlign: 'center' }}>{String(e.qty ?? 1)}</td>
+                  <td data-label="Condition" style={{ padding: '8px 10px' }}>
                     <span style={{
                       fontSize: 11, padding: '2px 6px', borderRadius: 4,
                       background: e.condition === 'EOL' ? '#FEE2E2' : e.condition === 'Good' ? '#D1FAE5' : '#FEF3C7',
@@ -555,11 +555,11 @@ export function VisitReportForm({
                     </span>
                     {Boolean(e.is_opportunity) && <span style={{ marginLeft: 4, fontSize: 10, color: '#7C3AED' }}>⚡ Opp</span>}
                   </td>
-                  <td style={{ padding: '8px 10px', color: 'var(--fg-3)', fontSize: 11 }}>
+                  <td data-label={eqTab === 'ril' ? 'Feedback' : 'Reason'} style={{ padding: '8px 10px', color: 'var(--fg-3)', fontSize: 11 }}>
                     {eqTab === 'ril' ? String(e.performance_feedback ?? '—') : String(e.reason_for_competitor ?? '—')}
                   </td>
                   {!disabled && (
-                    <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                    <td data-label="Edit" style={{ padding: '8px 10px', textAlign: 'right' }}>
                       <button
                         type="button"
                         onClick={() => {
