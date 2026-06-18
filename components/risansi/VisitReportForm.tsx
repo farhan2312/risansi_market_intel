@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { FormErrorBoundary } from './FormErrorBoundary';
 import { AddContactButton } from './AddContactButton';
 import { EditContactButton } from './EditContactButton';
+import { SubmitVisitButton } from './SubmitVisitButton';
 
 // Major competitor makes for the Competitor Equipment dropdown. Mirrors the
 // per-maker columns tracked in competitor_installed_base. Pick "Other" to type
@@ -167,6 +168,24 @@ export function VisitReportForm({
 
   const disabled = isClosed;
 
+  // ── Wizard step state ───────────────────────────────────────
+  // Each step shows a slice of the (always-mounted) sections via display
+  // toggling, so auto-save and field state are never lost on navigation.
+  const [step, setStep] = useState(0);
+  const STEPS = [
+    { label: 'Check-in',      icon: '📍' },
+    { label: 'Details',       icon: '📋' },
+    { label: isSugar ? 'Sugar' : 'Industry', icon: isSugar ? '🍬' : '🏭' },
+    { label: 'Equipment',     icon: '⚙️' },
+    { label: 'Opportunities', icon: '⚡' },
+    { label: 'Summary',       icon: '📝' },
+  ];
+  const LAST = STEPS.length - 1;
+  const goStep = (n: number) => {
+    setStep(Math.max(0, Math.min(LAST, n)));
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   // Derived preview data
   const rilEquipment  = equipment.filter(e => e.is_ril);
   const compEquipment = equipment.filter(e => !e.is_ril);
@@ -188,6 +207,33 @@ export function VisitReportForm({
           {saveState === 'error'  && '⚠ Save failed — check connection'}
         </span>
       </div>
+
+      {/* ── Milestone stepper ─────────────────────────────── */}
+      <div className="r-scroll-x" style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 4, scrollSnapType: 'x proximity' }}>
+        {STEPS.map((s, i) => {
+          const active = i === step;
+          const done = i < step;
+          return (
+            <button key={s.label} type="button" onClick={() => goStep(i)} aria-current={active}
+              style={{
+                flex: '1 0 auto', minWidth: 70, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                padding: '8px 8px', borderRadius: 10, cursor: 'pointer', fontFamily: 'inherit',
+                border: active ? '1px solid #1A5CB8' : '1px solid var(--line)',
+                background: active ? '#EBF1FB' : 'var(--bg-paper)', scrollSnapAlign: 'center',
+              }}>
+              <span style={{
+                width: 24, height: 24, borderRadius: '50%', display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 700,
+                background: active ? '#1A5CB8' : done ? '#0A3D8F' : 'var(--bg-elev)',
+                color: active || done ? '#fff' : 'var(--fg-3)', flexShrink: 0,
+              }}>{done ? '✓' : i + 1}</span>
+              <span style={{ fontSize: 10, fontWeight: active ? 700 : 500, color: active ? '#0A3D8F' : 'var(--fg-3)', whiteSpace: 'nowrap' }}>{s.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ══ STEP 0 — Check-in ══ */}
+      <div style={{ display: step === 0 ? 'flex' : 'none', flexDirection: 'column', gap: 12 }}>
 
       {/* ── SECTION 1: Check In ────────────────────────────── */}
       <FormSection title="Check In" icon="📍">
@@ -227,6 +273,11 @@ export function VisitReportForm({
           <div style={{ fontSize: 13, color: 'var(--fg-3)', padding: '8px 0' }}>No check-in recorded</div>
         )}
       </FormSection>
+
+      </div>{/* end STEP 0 */}
+
+      {/* ══ STEP 1 — Details & Contacts ══ */}
+      <div style={{ display: step === 1 ? 'flex' : 'none', flexDirection: 'column', gap: 12 }}>
 
       {/* ── SECTION 2: Visit Details ───────────────────────── */}
       <FormSection title="Visit Details" icon="📋">
@@ -330,7 +381,7 @@ export function VisitReportForm({
       </FormSection>
 
       {/* ── SECTION: Contacts (live client contacts — synced with Client 360) ── */}
-      <FormSection title="Contacts" icon="👤" defaultOpen={false}>
+      <FormSection title="Contacts" icon="👤">
         <div style={{ fontSize: 11, color: 'var(--fg-3)', marginBottom: 12 }}>
           {disabled
             ? 'This visit is closed — contacts are read-only.'
@@ -376,9 +427,14 @@ export function VisitReportForm({
         {!disabled && <AddContactButton clientId={Number(visit.client_id)} clientCode={visit.code} />}
       </FormSection>
 
+      </div>{/* end STEP 1 */}
+
+      {/* ══ STEP 2 — Industry Report ══ */}
+      <div style={{ display: step === 2 ? 'flex' : 'none', flexDirection: 'column', gap: 12 }}>
+
       {/* ── SECTION 3: Sugar Form ──────────────────────────── */}
       {isSugar && (
-        <FormSection title="Sugar Industry Report" icon="🍬" defaultOpen={false}>
+        <FormSection title="Sugar Industry Report" icon="🍬">
           <SugarSection
             report={sugarReport}
             visitId={visit.id}
@@ -392,7 +448,7 @@ export function VisitReportForm({
 
       {/* ── SECTION 4: Non-Sugar Form ──────────────────────── */}
       {!isSugar && (
-        <FormSection title="Non-Sugar Report" icon="🏭" defaultOpen={false}>
+        <FormSection title="Non-Sugar Report" icon="🏭">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div>
               <label style={LBL}>Deal In (products)</label>
@@ -420,8 +476,13 @@ export function VisitReportForm({
         </FormSection>
       )}
 
+      </div>{/* end STEP 2 */}
+
+      {/* ══ STEP 3 — Equipment & Competition ══ */}
+      <div style={{ display: step === 3 ? 'flex' : 'none', flexDirection: 'column', gap: 12 }}>
+
       {/* ── SECTION 5: Equipment Assessment ───────────────── */}
-      <FormSection title="Equipment Assessment" icon="⚙️" defaultOpen={false}>
+      <FormSection title="Equipment Assessment" icon="⚙️">
         {/* Tabs */}
         <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: 12 }}>
           {[['ril', 'RIL Equipment'], ['competitor', 'Competitor Equipment']].map(([id, label]) => (
@@ -621,8 +682,13 @@ export function VisitReportForm({
         )}
       </FormSection>
 
+      </div>{/* end STEP 3 */}
+
+      {/* ══ STEP 4 — Opportunities ══ */}
+      <div style={{ display: step === 4 ? 'flex' : 'none', flexDirection: 'column', gap: 12 }}>
+
       {/* ── SECTION: Expansion / New Business ───────────────── */}
-      <FormSection title="Expansion / New Business" icon="⚡" defaultOpen={false}>
+      <FormSection title="Expansion / New Business" icon="⚡">
         <ExpansionOpportunityForm
           visitId={Number(visit.id)}
           clientId={Number(visit.client_id)}
@@ -632,6 +698,11 @@ export function VisitReportForm({
           existingOpp={expansionOpp}
         />
       </FormSection>
+
+      </div>{/* end STEP 4 */}
+
+      {/* ══ STEP 5 — Summary, Action Register & Submit ══ */}
+      <div style={{ display: step === 5 ? 'flex' : 'none', flexDirection: 'column', gap: 12 }}>
 
       {/* ── SECTION 6: Visit Summary ───────────────────────── */}
       <FormSection title="Visit Summary" icon="📝">
@@ -786,6 +857,46 @@ export function VisitReportForm({
           </div>
         </FormSection>
       )}
+
+      </div>{/* end STEP 5 */}
+
+      {/* ── Wizard navigation ─────────────────────────────── */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+        padding: '14px 0 4px', marginTop: 4, borderTop: '1px solid var(--line)',
+      }}>
+        <button
+          type="button" onClick={() => goStep(step - 1)} disabled={step === 0}
+          style={{
+            padding: '11px 18px', borderRadius: 8, border: '1px solid var(--line-strong)',
+            background: 'var(--bg-paper)', color: step === 0 ? 'var(--fg-3)' : 'var(--fg)',
+            cursor: step === 0 ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'inherit',
+            opacity: step === 0 ? 0.5 : 1, fontWeight: 500,
+          }}
+        >
+          ← Back
+        </button>
+        <span style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
+          Step {step + 1} / {STEPS.length}
+        </span>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center' }}>
+          {step < LAST ? (
+            <button
+              type="button" onClick={() => goStep(step + 1)}
+              style={{
+                padding: '11px 22px', borderRadius: 8, border: 'none', background: '#1A5CB8',
+                color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
+              }}
+            >
+              Next: {STEPS[step + 1].label} →
+            </button>
+          ) : !isClosed ? (
+            <SubmitVisitButton visitId={visit.id} />
+          ) : (
+            <span style={{ fontSize: 12, color: 'var(--fg-3)' }}>🔒 Submitted — read only</span>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

@@ -6,7 +6,6 @@ import { getCurrentUser, ownerVisibilitySql, canViewClient } from '@/lib/risansi
 import { Topbar } from '@/components/risansi';
 import Link from 'next/link';
 import { VisitReportForm } from '@/components/risansi/VisitReportForm';
-import { SubmitVisitButton } from '@/components/risansi/SubmitVisitButton';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
@@ -241,7 +240,7 @@ export default async function VisitReportPage({
                   🖨 Export PDF
                 </a>
               )}
-              {canEdit && <SubmitVisitButton visitId={id} />}
+              {/* Submit moved into the wizard's final step (VisitReportForm) */}
             </div>
           </div>
 
