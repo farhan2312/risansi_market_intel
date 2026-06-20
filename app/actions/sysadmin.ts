@@ -213,47 +213,6 @@ export async function removeUserFromTour(formData: FormData): Promise<void> {
   revalidatePath('/risansi/admin/tours');
 }
 
-// ── setTourPrimaryUser ─────────────────────────────────────────
-// Sets the tour's primary user (legacy tour_routes.primary_rep_id column,
-// which still drives some reads). Ensures that user is also assigned to the
-// tour. Pass a blank/0 user id to clear the primary.
-
-export async function setTourPrimaryUser(formData: FormData): Promise<void> {
-  const actor = await requireSysadmin();
-  const tourId = parseInt(formData.get('tour_id') as string, 10);
-  const rawUser = formData.get('user_id') as string | null;
-  const userId = rawUser && rawUser !== '' ? parseInt(rawUser, 10) : null;
-
-  if (!Number.isInteger(tourId) || tourId <= 0) throw new Error('Invalid tour id');
-
-  const { rows: before } = await risansiPool.query<{ primary_rep_id: number | null }>(
-    'SELECT primary_rep_id FROM tour_routes WHERE id = $1', [tourId],
-  );
-
-  // A primary user should also be a member of the tour.
-  if (userId) {
-    await risansiPool.query(
-      `INSERT INTO tour_assignments (tour_id, rep_id, role, assigned_by, assigned_at)
-       VALUES ($1, $2, 'rep', (SELECT id FROM users WHERE lower(email) = lower($3)), NOW())
-       ON CONFLICT (tour_id, rep_id) DO NOTHING`,
-      [tourId, userId, actor],
-    );
-  }
-
-  await risansiPool.query(
-    'UPDATE tour_routes SET primary_rep_id = $1 WHERE id = $2',
-    [userId, tourId],
-  );
-
-  await audit(
-    'tour_assignment', tourId, 'update',
-    { primary_rep_id: before[0]?.primary_rep_id ?? null },
-    { primary_rep_id: userId },
-    actor,
-  );
-
-  revalidatePath('/risansi/admin/tours');
-}
 
 // ── mapClients ─────────────────────────────────────────────────
 // Bulk-map unassigned clients. For each client id: insert the given owner

@@ -40,14 +40,14 @@ export default async function SystemAdminPage() {
 
     // Tours with their members (for the Tours tab — assign/remove reps & managers, set primary).
     q<TourMappingRow[]>(async () => (await risansiPool.query<TourMappingRow>(`
-      SELECT tr.id::int AS id, tr.name, tr.zone, tr.primary_rep_id::int AS primary_rep_id,
+      SELECT tr.id::int AS id, tr.name, tr.zone,
         (SELECT COUNT(*) FROM clients c WHERE c.tour_id = tr.id AND c.deleted_at IS NULL)::int AS client_count,
         COALESCE(json_agg(json_build_object('user_id', u.id, 'name', u.name, 'role', ta.role) ORDER BY u.name)
           FILTER (WHERE u.id IS NOT NULL), '[]') AS members
       FROM tour_routes tr
       LEFT JOIN tour_assignments ta ON ta.tour_id = tr.id
       LEFT JOIN users u ON u.id = ta.rep_id
-      GROUP BY tr.id, tr.name, tr.zone, tr.primary_rep_id
+      GROUP BY tr.id, tr.name, tr.zone
       ORDER BY tr.zone ASC NULLS LAST, tr.name ASC`)).rows, []),
 
     q<AssignableUser[]>(async () => (await risansiPool.query<AssignableUser>(`
@@ -122,7 +122,7 @@ export default async function SystemAdminPage() {
           {
             value: 'tours',
             label: `Tours (${tourOpts.length})`,
-            content: <>{actionBar(<AddTourButton reps={reps} />)}<ToursClient tours={toursMapping} users={assignableUsers} /></>,
+            content: <>{actionBar(<AddTourButton />)}<ToursClient tours={toursMapping} users={assignableUsers} /></>,
           },
           {
             value: 'clients',

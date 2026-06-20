@@ -4,18 +4,17 @@ import { useState, useTransition, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { Tag } from '@/components/risansi';
 import {
-  assignUserToTour, removeUserFromTour, setTourPrimaryUser,
+  assignUserToTour, removeUserFromTour,
 } from '@/app/actions/sysadmin';
 
 interface TourMember { user_id: number; name: string; role: string; }
 
 export interface TourMappingRow {
-  id:             number;
-  name:           string;
-  zone:           string | null;
-  primary_rep_id: number | null;
-  client_count:   number;
-  members:        TourMember[];
+  id:           number;
+  name:         string;
+  zone:         string | null;
+  client_count: number;
+  members:      TourMember[];
 }
 
 export interface AssignableUser {
@@ -164,15 +163,7 @@ function TourCard({ tour, users, onError, onDone }: {
                 <div key={m.user_id} style={MEMBER_ROW}>
                   <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--fg)' }}>{m.name}</span>
                   <Tag kind={m.role === 'manager' ? 'accent' : undefined}>{m.role}</Tag>
-                  {tour.primary_rep_id === m.user_id && <Tag kind="pos">Primary</Tag>}
                   <div style={{ flex: 1 }} />
-                  {tour.primary_rep_id !== m.user_id && (
-                    <button type="button" disabled={pending}
-                      onClick={() => run(() => setTourPrimaryUser(form({ user_id: String(m.user_id) })))}
-                      style={MINI_BTN}>
-                      Set primary
-                    </button>
-                  )}
                   <button type="button" disabled={pending}
                     onClick={() => run(() => removeUserFromTour(form({ user_id: String(m.user_id) })))}
                     style={{ ...MINI_BTN, ...NEG_OUTLINE }}>

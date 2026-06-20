@@ -3,9 +3,8 @@
 import { useState, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { createTour } from '@/app/actions/risansi-reps';
-import { type RepData } from './RepRow';
 
-export function AddTourButton({ reps }: { reps: RepData[] }) {
+export function AddTourButton() {
   const [open, setOpen]       = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
@@ -59,14 +58,8 @@ export function AddTourButton({ reps }: { reps: RepData[] }) {
                   </div>
                 </div>
 
-                <div>
-                  <label style={LABEL}>Assign Rep</label>
-                  <select name="primary_rep_id" style={INPUT} defaultValue="">
-                    <option value="">— None —</option>
-                    {reps.filter(r => r.is_active).map(r => (
-                      <option key={r.id} value={String(r.id)}>{r.name}{r.zone ? ` · ${r.zone}` : ''}</option>
-                    ))}
-                  </select>
+                <div style={{ fontSize: 11, color: 'var(--fg-3)' }}>
+                  Add reps &amp; managers to this tour from the Tours tab after creating it.
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
