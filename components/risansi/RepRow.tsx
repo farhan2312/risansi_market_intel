@@ -43,9 +43,6 @@ export function RepRow({ rep }: { rep: RepData }) {
         <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', color: parseInt(rep.visits_last_30d) > 0 ? 'var(--pos)' : 'var(--fg-3)' }}>
           {rep.visits_last_30d}
         </td>
-        <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
-          {rep.target_cr ? `₹${rep.target_cr} Cr` : '—'}
-        </td>
         <td style={{ ...TD, textAlign: 'center' }}>
           <span style={{ padding: '2px 7px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: rep.is_active ? '#D1FAE5' : 'var(--bg-sunk)', color: rep.is_active ? '#065F46' : 'var(--fg-3)' }}>
             {rep.is_active ? 'Active' : 'Inactive'}
@@ -65,7 +62,7 @@ export function RepRow({ rep }: { rep: RepData }) {
 
   return (
     <tr style={{ borderBottom: '1px solid var(--line)', background: '#EBF1FB' }}>
-      <td colSpan={8} style={{ padding: '12px 16px' }}>
+      <td colSpan={7} style={{ padding: '12px 16px' }}>
         <RepEditForm rep={rep} onCancel={() => setEditing(false)} onSave={() => { setEditing(false); router.refresh(); }} />
       </td>
     </tr>
@@ -91,7 +88,12 @@ function RepEditForm({ rep, onCancel, onSave }: { rep: RepData; onCancel: () => 
 
   return (
     <form onSubmit={handleSubmit}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 1fr 1fr 1fr auto', gap: 8, alignItems: 'end' }}>
+      <div style={{ fontSize: 11, color: 'var(--fg-3)', marginBottom: 8 }}>
+        {rep.email ?? 'No email on file'}
+        <span> · email, role &amp; target are managed in </span>
+        <span style={{ fontWeight: 600, color: 'var(--fg-2)' }}>Users &amp; Access</span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr 1.2fr 1fr auto', gap: 8, alignItems: 'end' }}>
         <div>
           <label style={LABEL}>Name *</label>
           <input name="name" required defaultValue={rep.name} style={INPUT} />
@@ -106,14 +108,6 @@ function RepEditForm({ rep, onCancel, onSave }: { rep: RepData; onCancel: () => 
         <div>
           <label style={LABEL}>Route</label>
           <input name="route" defaultValue={rep.route ?? ''} style={INPUT} />
-        </div>
-        <div>
-          <label style={LABEL}>Email</label>
-          <input name="email" type="email" defaultValue={rep.email ?? ''} style={INPUT} />
-        </div>
-        <div>
-          <label style={LABEL}>Target (Cr)</label>
-          <input name="target_cr" type="number" step="0.1" min="0" defaultValue={rep.target_cr ?? ''} style={INPUT} />
         </div>
         <div>
           <label style={LABEL}>Status</label>

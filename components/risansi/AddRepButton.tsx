@@ -78,14 +78,11 @@ export function AddRepButton() {
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div>
-                    <label style={LABEL}>Email</label>
-                    <input name="email" type="email" style={INPUT} placeholder="name@risansi.com" />
-                  </div>
-                  <div>
-                    <label style={LABEL}>Annual Target (₹ Cr)</label>
-                    <input name="target_cr" type="number" step="0.5" min="0" style={INPUT} placeholder="e.g. 4" />
+                <div>
+                  <label style={LABEL}>Email</label>
+                  <input name="email" type="email" style={INPUT} placeholder="name@risansi.com" />
+                  <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 4 }}>
+                    Used to sign in. Email &amp; revenue target are managed afterwards in Users &amp; Access.
                   </div>
                 </div>
 

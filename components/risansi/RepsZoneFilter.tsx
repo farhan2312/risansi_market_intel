@@ -62,7 +62,6 @@ export function RepsZoneFilter({ reps }: { reps: RepData[] }) {
                 <th style={TH}>Tour</th>
                 <th style={{ ...TH, textAlign: 'center' }}>Clients</th>
                 <th style={{ ...TH, textAlign: 'center' }}>Visits (30d)</th>
-                <th style={{ ...TH, textAlign: 'right' }}>Target</th>
                 <th style={{ ...TH, textAlign: 'center' }}>Status</th>
                 <th style={TH} />
               </tr>
@@ -70,7 +69,7 @@ export function RepsZoneFilter({ reps }: { reps: RepData[] }) {
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ padding: '32px', textAlign: 'center', color: 'var(--fg-3)', fontSize: 13 }}>
+                  <td colSpan={7} style={{ padding: '32px', textAlign: 'center', color: 'var(--fg-3)', fontSize: 13 }}>
                     {activeZone ? `No reps in ${activeZone} zone` : 'No reps yet'}
                   </td>
                 </tr>

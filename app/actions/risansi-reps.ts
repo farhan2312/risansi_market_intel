@@ -71,25 +71,49 @@ export async function createRep(formData: FormData) {
 export async function updateRep(repId: number, formData: FormData) {
   await requireSysadmin();
 
-  const name     = (formData.get('name')  as string | null)?.trim() ?? '';
-  const zone     = (formData.get('zone')  as string | null)?.trim() || null;
-  const route    = (formData.get('route') as string | null)?.trim() || null;
-  const email    = (formData.get('email') as string | null)?.trim().toLowerCase() || null;
-  const role     = (formData.get('role')  as string | null)?.trim() || 'rep';
-  const targetCr = formData.get('target_cr') ? parseFloat(formData.get('target_cr') as string) : null;
-  const isActive = formData.get('is_active') === 'true';
+  if (!Number.isInteger(repId) || repId <= 0) throw new Error('Invalid user id');
 
-  if (!name) throw new Error('Name is required');
+  // Only update the columns that were actually submitted. The Reps & Managers
+  // inline editor submits a subset (name, zone, route, status) and must NOT
+  // clobber account fields it doesn't show — email, role and target are owned
+  // by Users & Access. (A form that omits `role` previously reset it to 'rep',
+  // silently downgrading managers.)
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  const set = (col: string, val: unknown) => { vals.push(val); sets.push(`${col} = $${vals.length}`); };
 
+  if (formData.has('name')) {
+    const name = (formData.get('name') as string).trim();
+    if (!name) throw new Error('Name is required');
+    set('name', name);
+  }
+  if (formData.has('zone'))     set('zone',     (formData.get('zone')     as string).trim() || null);
+  if (formData.has('route'))    set('route',    (formData.get('route')    as string).trim() || null);
+  if (formData.has('rep_code')) set('rep_code', (formData.get('rep_code') as string).trim() || null);
+  if (formData.has('email'))    set('email',    (formData.get('email')    as string).trim().toLowerCase() || null);
+  if (formData.has('role'))     set('role',     (formData.get('role')     as string).trim() || 'rep');
+  if (formData.has('target_cr')) {
+    const raw = (formData.get('target_cr') as string).trim();
+    const n = parseFloat(raw);
+    set('target_cr', raw && Number.isFinite(n) ? n : null);
+  }
+  if (formData.has('is_active')) {
+    // Hidden 'false' + checkbox 'true' both submit when checked; the last wins.
+    // A lone <select> or hidden input submits a single value.
+    const all = formData.getAll('is_active');
+    set('is_active', all[all.length - 1] === 'true');
+  }
+
+  if (sets.length === 0) return;
+
+  vals.push(repId);
   await risansiPool.query(
-    `UPDATE users SET
-       name = $1, zone = $2, route = $3, email = $4,
-       target_cr = $5, is_active = $6, role = $7, updated_at = NOW()
-     WHERE id = $8`,
-    [name, zone, route, email, targetCr, isActive, role, repId],
+    `UPDATE users SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${vals.length}`,
+    vals,
   );
 
   revalidatePath('/risansi/admin/reps');
+  revalidatePath('/admin');
 }
 
 export async function createTour(formData: FormData) {
