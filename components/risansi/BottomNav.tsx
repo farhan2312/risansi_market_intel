@@ -34,11 +34,10 @@ const MORE_ADMIN: Item[] = [
 ];
 
 const MORE_SYSADMIN: Item[] = [
-  { href: '/risansi/admin/reps',     label: 'Tours & Reps',    Icon: MapIcon },
-  { href: '/risansi/admin/users',    label: 'User Management', Icon: Users },
-  { href: '/admin',                  label: 'Access Approval', Icon: KeyRound },
-  { href: '/risansi/admin/audit',    label: 'Audit Log',       Icon: ClipboardList },
-  { href: '/risansi/admin/settings', label: 'Settings',        Icon: Settings },
+  { href: '/risansi/admin/reps',     label: 'Tours & Reps',  Icon: MapIcon },
+  { href: '/admin',                  label: 'Users & Access', Icon: Users },
+  { href: '/risansi/admin/audit',    label: 'Audit Log',     Icon: ClipboardList },
+  { href: '/risansi/admin/settings', label: 'Settings',      Icon: Settings },
 ];
 
 function isActive(pathname: string, href: string): boolean {

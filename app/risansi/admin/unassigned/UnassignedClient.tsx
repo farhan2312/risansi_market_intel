@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition, useRef, useEffect, type CSSProperties } from 'react';
+import { useState, useTransition, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { Tag } from '@/components/risansi';
 import { mapClients } from '@/app/actions/sysadmin';
@@ -19,30 +19,17 @@ export interface OwnerOption { id: number; name: string; zone: string | null; }
 export interface TourOption  { id: number; name: string; zone: string | null; }
 export interface UnassignedCounts { no_owner: number; no_tour: number; both: number; needing: number; }
 
-export function UnassignedClient({ clients, users, tours, counts }: {
+export function UnassignedClient({ clients, tours, counts }: {
   clients: UnassignedRow[];
-  users: OwnerOption[];
   tours: TourOption[];
   counts: UnassignedCounts;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [ownerIds, setOwnerIds] = useState<string[]>([]);
   const [tourId, setTourId] = useState('');
   const [err, setErr] = useState('');
   const [ok, setOk] = useState('');
-  const [ownerOpen, setOwnerOpen] = useState(false);
-  const ownerRef = useRef<HTMLDivElement>(null);
-
-  // Close the owner dropdown when clicking outside it.
-  useEffect(() => {
-    function onDoc(e: MouseEvent) {
-      if (ownerRef.current && !ownerRef.current.contains(e.target as Node)) setOwnerOpen(false);
-    }
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, []);
 
   // Filters
   const [search, setSearch]   = useState('');
@@ -75,28 +62,22 @@ export function UnassignedClient({ clients, users, tours, counts }: {
     setSelected(allSelected ? new Set() : new Set(visible.map(c => c.id)));
   }
 
-  function toggleOwner(id: string) {
-    setOwnerIds(o => o.includes(id) ? o.filter(x => x !== id) : [...o, id]);
-  }
-
   function apply() {
     setErr(''); setOk('');
     if (selected.size === 0) { setErr('Select at least one client'); return; }
-    if (ownerIds.length === 0 && !tourId) { setErr('Pick at least one owner or a tour'); return; }
+    if (!tourId) { setErr('Pick a tour to assign these clients to'); return; }
     const f = new FormData();
     f.set('client_ids', JSON.stringify([...selected]));
-    f.set('owner_ids', JSON.stringify(ownerIds.map(n => parseInt(n, 10))));
     f.set('tour_id', tourId);
     start(async () => {
       try {
         await mapClients(f);
-        setOk(`Mapped ${selected.size} client${selected.size !== 1 ? 's' : ''}.`);
+        setOk(`Assigned ${selected.size} client${selected.size !== 1 ? 's' : ''} to a tour.`);
         setSelected(new Set());
-        setOwnerIds([]);
         setTourId('');
         router.refresh();
       } catch (e) {
-        setErr(e instanceof Error ? e.message : 'Failed to map clients');
+        setErr(e instanceof Error ? e.message : 'Failed to assign clients');
       }
     });
   }
@@ -136,28 +117,8 @@ export function UnassignedClient({ clients, users, tours, counts }: {
         </div>
         <div style={{ flex: 1 }} />
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-          {/* Rep / Manager multi-select */}
-          <div ref={ownerRef} style={{ position: 'relative' }}>
-            <button type="button" onClick={() => setOwnerOpen(o => !o)} style={CONTROL}>
-              {ownerIds.length ? `Rep / Manager (${ownerIds.length})` : '— Rep / Manager —'}
-            </button>
-            {ownerOpen && (
-              <div style={DROPDOWN_PANEL}>
-                {users.map(u => (
-                  <label key={u.id} style={CHECK_ROW}>
-                    <input type="checkbox" checked={ownerIds.includes(String(u.id))}
-                      onChange={() => toggleOwner(String(u.id))}
-                      style={{ accentColor: '#1A5CB8' }} />
-                    <span>{u.name}{u.zone ? ` · ${u.zone}` : ''}</span>
-                  </label>
-                ))}
-                {users.length === 0 && <div style={{ padding: 8, fontSize: 12, color: 'var(--fg-3)' }}>No users</div>}
-              </div>
-            )}
-          </div>
-
           <select value={tourId} onChange={e => setTourId(e.target.value)} style={CONTROL}>
-            <option value="">— Tour —</option>
+            <option value="">— Assign to tour —</option>
             {tours.map(t => <option key={t.id} value={String(t.id)}>{t.name}{t.zone ? ` · ${t.zone}` : ''}</option>)}
           </select>
 
@@ -243,7 +204,5 @@ const CONTROL: CSSProperties = {
   backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 16 16' fill='none' stroke='%236B7FA3' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4 6.5 8 10.5 12 6.5'/></svg>")`,
   backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center',
 };
-const DROPDOWN_PANEL: CSSProperties = { position: 'absolute', top: '100%', right: 0, zIndex: 60, marginTop: 4, minWidth: 220, maxHeight: 260, overflowY: 'auto', background: '#fff', border: '1px solid #CBD5E1', borderRadius: 6, boxShadow: '0 4px 20px rgba(10,22,40,0.13)', padding: 6 };
-const CHECK_ROW: CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer', borderRadius: 4 };
 const ERR_BOX: CSSProperties = { padding: '9px 12px', background: '#FEE2E2', border: '1px solid rgba(220,38,38,0.20)', borderRadius: 5, fontSize: 12, color: '#9B1C1C', marginBottom: 12 };
 const OK_BOX: CSSProperties = { padding: '9px 12px', background: '#D1FAE5', border: '1px solid #6EE7B7', borderRadius: 5, fontSize: 12, color: '#065F46', marginBottom: 12 };

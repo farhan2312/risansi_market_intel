@@ -4,7 +4,7 @@ import { useState, useTransition, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { Tag } from '@/components/risansi';
 import { createRep, updateRep } from '@/app/actions/risansi-reps';
-import { approveUser, rejectUser, reapproveUser } from '@/app/actions/admin';
+import { approveUser, rejectUser, reapproveUser, revokeUser, resetUserPassword } from '@/app/actions/admin';
 import { deleteUser } from '@/app/actions/sysadmin';
 
 export interface UserRow {
@@ -24,41 +24,57 @@ export interface UserRow {
 
 const ROLES = ['rep', 'manager', 'admin', 'sysadmin'];
 
-export function UsersClient({ users, isSysadmin }: { users: UserRow[]; isSysadmin: boolean }) {
+// Account + access management for every user. Lives on /admin (sysadmin only).
+// Tour assignment is handled separately on Tours & Reps.
+export function UsersManager({ users }: { users: UserRow[] }) {
   const router = useRouter();
   const [editing, setEditing] = useState<UserRow | null>(null);
   const [creating, setCreating] = useState(false);
   const [query, setQuery] = useState('');
+  const [statusF, setStatusF] = useState('all'); // all | pending | approved | rejected
   const [err, setErr] = useState('');
 
-  const filtered = query.trim()
-    ? users.filter(u =>
-        u.name.toLowerCase().includes(query.toLowerCase()) ||
-        u.email.toLowerCase().includes(query.toLowerCase()) ||
-        (u.zone ?? '').toLowerCase().includes(query.toLowerCase()),
-      )
-    : users;
+  const filtered = users.filter(u => {
+    if (statusF !== 'all') {
+      if (statusF === 'pending'  && u.status !== 'Pending')  return false;
+      if (statusF === 'approved' && u.status !== 'Approved') return false;
+      if (statusF === 'rejected' && u.status !== 'Rejected') return false;
+    }
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      return u.name.toLowerCase().includes(q)
+        || u.email.toLowerCase().includes(q)
+        || (u.zone ?? '').toLowerCase().includes(q);
+    }
+    return true;
+  });
+
+  const pendingCount = users.filter(u => u.status === 'Pending').length;
 
   function refresh() { router.refresh(); }
 
   return (
     <>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12 }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
         <input
           placeholder="Search name, email, zone…"
           value={query}
           onChange={e => setQuery(e.target.value)}
-          style={{ ...INP, maxWidth: 320 }}
+          style={{ ...INP, maxWidth: 280, width: 280 }}
         />
+        <select value={statusF} onChange={e => setStatusF(e.target.value)} style={{ ...INP, width: 'auto', cursor: 'pointer' }}>
+          <option value="all">All statuses</option>
+          <option value="pending">Pending{pendingCount ? ` (${pendingCount})` : ''}</option>
+          <option value="approved">Approved</option>
+          <option value="rejected">Rejected</option>
+        </select>
         <div style={{ flex: 1 }} />
         <button type="button" onClick={() => { setCreating(true); setErr(''); }} style={PRIMARY_BTN}>
           + Add User
         </button>
       </div>
 
-      {err && (
-        <div style={ERR_BOX}>{err}</div>
-      )}
+      {err && <div style={ERR_BOX}>{err}</div>}
 
       <div style={PANEL}>
         <div style={{ overflowX: 'auto' }}>
@@ -97,7 +113,6 @@ export function UsersClient({ users, isSysadmin }: { users: UserRow[]; isSysadmi
                   <td data-label="" style={{ ...TD, whiteSpace: 'nowrap', textAlign: 'right' }}>
                     <RowActions
                       user={u}
-                      isSysadmin={isSysadmin}
                       onEdit={() => { setEditing(u); setErr(''); }}
                       onError={setErr}
                       onDone={refresh}
@@ -124,15 +139,15 @@ export function UsersClient({ users, isSysadmin }: { users: UserRow[]; isSysadmi
 
 // ── Row inline actions ─────────────────────────────────────────
 
-function RowActions({ user, isSysadmin, onEdit, onError, onDone }: {
+function RowActions({ user, onEdit, onError, onDone }: {
   user: UserRow;
-  isSysadmin: boolean;
   onEdit: () => void;
   onError: (msg: string) => void;
   onDone: () => void;
 }) {
   const [pending, start] = useTransition();
   const [confirmDel, setConfirmDel] = useState(false);
+  const [approveRole, setApproveRole] = useState(user.role || 'rep');
 
   function run(fn: () => Promise<void>) {
     onError('');
@@ -151,20 +166,30 @@ function RowActions({ user, isSysadmin, onEdit, onError, onDone }: {
   }
 
   return (
-    <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+    <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
       {user.status === 'Pending' && (
-        <button type="button" disabled={pending} onClick={() => run(() => approveUser(fd()))} style={{ ...MINI_BTN, ...POS_BTN }}>
-          Approve
-        </button>
-      )}
-      {user.status === 'Pending' && (
-        <button type="button" disabled={pending} onClick={() => run(() => rejectUser(fd()))} style={{ ...MINI_BTN, ...NEG_OUTLINE }}>
-          Reject
-        </button>
+        <>
+          {/* Pick the role to grant at approval (defaults to the requested role). */}
+          <select value={approveRole} onChange={e => setApproveRole(e.target.value)} disabled={pending}
+            style={{ ...MINI_SELECT }} title="Role to grant">
+            {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+          <button type="button" disabled={pending} onClick={() => run(() => approveUser(fd({ role: approveRole })))} style={{ ...MINI_BTN, ...POS_BTN }}>
+            Approve
+          </button>
+          <button type="button" disabled={pending} onClick={() => run(() => rejectUser(fd()))} style={{ ...MINI_BTN, ...NEG_OUTLINE }}>
+            Reject
+          </button>
+        </>
       )}
       {user.status === 'Rejected' && (
         <button type="button" disabled={pending} onClick={() => run(() => reapproveUser(fd()))} style={{ ...MINI_BTN, ...POS_BTN }}>
           Re-approve
+        </button>
+      )}
+      {user.status === 'Approved' && (
+        <button type="button" disabled={pending} onClick={() => run(() => revokeUser(fd()))} style={{ ...MINI_BTN, ...NEG_OUTLINE }} title="Revoke access (sets status to Rejected)">
+          Revoke
         </button>
       )}
       <button type="button" disabled={pending} onClick={onEdit} style={MINI_BTN}>Edit</button>
@@ -179,16 +204,14 @@ function RowActions({ user, isSysadmin, onEdit, onError, onDone }: {
       >
         {user.is_active ? 'Deactivate' : 'Reactivate'}
       </button>
-      {isSysadmin && (
-        confirmDel ? (
-          <>
-            <span style={{ fontSize: 11, color: 'var(--neg)' }}>Delete?</span>
-            <button type="button" disabled={pending} onClick={() => run(() => deleteUser(fd()))} style={{ ...MINI_BTN, ...NEG_SOLID }}>Yes</button>
-            <button type="button" onClick={() => setConfirmDel(false)} style={MINI_BTN}>No</button>
-          </>
-        ) : (
-          <button type="button" disabled={pending} onClick={() => setConfirmDel(true)} style={{ ...MINI_BTN, ...NEG_OUTLINE }}>Delete</button>
-        )
+      {confirmDel ? (
+        <>
+          <span style={{ fontSize: 11, color: 'var(--neg)' }}>Delete?</span>
+          <button type="button" disabled={pending} onClick={() => run(() => deleteUser(fd()))} style={{ ...MINI_BTN, ...NEG_SOLID }}>Yes</button>
+          <button type="button" onClick={() => setConfirmDel(false)} style={MINI_BTN}>No</button>
+        </>
+      ) : (
+        <button type="button" disabled={pending} onClick={() => setConfirmDel(true)} style={{ ...MINI_BTN, ...NEG_OUTLINE }}>Delete</button>
       )}
     </div>
   );
@@ -230,54 +253,113 @@ function UserDrawer({ mode, user, onClose, onSaved }: {
           </div>
           <button type="button" onClick={onClose} style={CLOSE_BTN}>✕</button>
         </div>
-        <form onSubmit={handleSubmit} style={{ flex: 1, overflowY: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <Field label="Name" required>
-            <input name="name" required defaultValue={user?.name ?? ''} style={INP} />
-          </Field>
-          <Field label="Email" required>
-            <input name="email" type="email" required defaultValue={user?.email ?? ''} style={INP} />
-          </Field>
-          <Row>
-            <Field label="Role">
-              <select name="role" defaultValue={user?.role ?? 'rep'} style={INP}>
-                {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-              </select>
+        <div style={{ flex: 1, overflowY: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 18 }}>
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <Field label="Name" required>
+              <input name="name" required defaultValue={user?.name ?? ''} style={INP} />
             </Field>
-            <Field label="Rep Code">
-              <input name="rep_code" defaultValue={user?.rep_code ?? ''} style={INP} />
+            <Field label="Email" required>
+              <input name="email" type="email" required defaultValue={user?.email ?? ''} style={INP} />
             </Field>
-          </Row>
-          <Row>
-            <Field label="Zone">
-              <input name="zone" defaultValue={user?.zone ?? ''} style={INP} />
+            <Row>
+              <Field label="Role">
+                <select name="role" defaultValue={user?.role ?? 'rep'} style={INP}>
+                  {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </Field>
+              <Field label="Rep Code">
+                <input name="rep_code" defaultValue={user?.rep_code ?? ''} style={INP} />
+              </Field>
+            </Row>
+            <Row>
+              <Field label="Zone">
+                <input name="zone" defaultValue={user?.zone ?? ''} style={INP} />
+              </Field>
+              <Field label="Route">
+                <input name="route" defaultValue={user?.route ?? ''} style={INP} />
+              </Field>
+            </Row>
+            <Field label="Target (₹ Cr)">
+              <input name="target_cr" type="number" step="0.01" min="0"
+                defaultValue={user?.target_cr != null ? String(user.target_cr) : ''} style={INP} />
             </Field>
-            <Field label="Route">
-              <input name="route" defaultValue={user?.route ?? ''} style={INP} />
-            </Field>
-          </Row>
-          <Field label="Target (₹ Cr)">
-            <input name="target_cr" type="number" step="0.01" min="0"
-              defaultValue={user?.target_cr != null ? String(user.target_cr) : ''} style={INP} />
-          </Field>
-          {mode === 'edit' && (
-            <label style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer' }}>
-              {/* updateRep reads is_active === 'true'. A hidden 'false' before the
-                  checkbox guarantees a value when unchecked. */}
-              <input type="hidden" name="is_active" value="false" />
-              <input type="checkbox" name="is_active" value="true" defaultChecked={user?.is_active ?? true}
-                style={{ width: 15, height: 15, accentColor: '#1A5CB8', cursor: 'pointer' }} />
-              <span style={{ fontSize: 13, color: '#2C3E5A' }}>Active</span>
-            </label>
+            {mode === 'edit' && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer' }}>
+                {/* updateRep reads is_active === 'true'. A hidden 'false' before the
+                    checkbox guarantees a value when unchecked. */}
+                <input type="hidden" name="is_active" value="false" />
+                <input type="checkbox" name="is_active" value="true" defaultChecked={user?.is_active ?? true}
+                  style={{ width: 15, height: 15, accentColor: '#1A5CB8', cursor: 'pointer' }} />
+                <span style={{ fontSize: 13, color: '#2C3E5A' }}>Active</span>
+              </label>
+            )}
+
+            {error && <div style={ERR_BOX}>{error}</div>}
+
+            <button type="submit" disabled={pending} style={{ ...SUBMIT_BTN, opacity: pending ? 0.6 : 1 }}>
+              {pending ? 'Saving…' : mode === 'create' ? 'Create User' : 'Save Changes'}
+            </button>
+          </form>
+
+          {mode === 'edit' && user && (
+            <ResetPasswordPanel user={user} />
           )}
-
-          {error && <div style={ERR_BOX}>{error}</div>}
-
-          <button type="submit" disabled={pending} style={{ ...SUBMIT_BTN, opacity: pending ? 0.6 : 1 }}>
-            {pending ? 'Saving…' : mode === 'create' ? 'Create User' : 'Save Changes'}
-          </button>
-        </form>
+          {mode === 'create' && (
+            <div style={{ fontSize: 11, color: 'var(--fg-3)', borderTop: '1px solid var(--line)', paddingTop: 12 }}>
+              After creating the user, reopen them here to set a temporary password they can sign in with.
+            </div>
+          )}
+        </div>
       </div>
     </>
+  );
+}
+
+// ── Password reset (account-level) ─────────────────────────────
+
+function ResetPasswordPanel({ user }: { user: UserRow }) {
+  const [pending, start] = useTransition();
+  const [temp, setTemp] = useState('');
+  const [msg, setMsg] = useState('');
+  const [error, setError] = useState('');
+
+  function submit() {
+    setMsg(''); setError('');
+    if (temp.length < 8) { setError('Temporary password must be at least 8 characters'); return; }
+    const f = new FormData();
+    f.set('id', String(user.id));
+    f.set('temp_password', temp);
+    start(async () => {
+      try {
+        await resetUserPassword(f);
+        setTemp('');
+        setMsg('Temporary password set. The user must change it at next sign-in — share it with them securely.');
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to reset password');
+      }
+    });
+  }
+
+  return (
+    <div style={{ borderTop: '1px solid var(--line)', paddingTop: 14 }}>
+      <div style={LBL}>Reset Password</div>
+      <div style={{ fontSize: 11, color: 'var(--fg-3)', margin: '0 0 8px' }}>
+        Set a temporary password for {user.name}. They&apos;ll be forced to choose a new one at next sign-in.
+      </div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <input
+          type="text" value={temp} onChange={e => setTemp(e.target.value)}
+          placeholder="Temporary password (min 8 chars)"
+          style={{ ...INP, flex: 1, minWidth: 200 }}
+        />
+        <button type="button" disabled={pending || temp.length < 8} onClick={submit}
+          style={{ ...PRIMARY_BTN, opacity: pending || temp.length < 8 ? 0.5 : 1 }}>
+          {pending ? 'Setting…' : 'Set temporary password'}
+        </button>
+      </div>
+      {msg && <div style={{ ...OK_BOX, marginTop: 8 }}>{msg}</div>}
+      {error && <div style={{ ...ERR_BOX, marginTop: 8, marginBottom: 0 }}>{error}</div>}
+    </div>
   );
 }
 
@@ -304,10 +386,12 @@ const LBL: CSSProperties = { display: 'block', fontSize: 11, fontWeight: 700, co
 const INP: CSSProperties = { display: 'block', width: '100%', padding: '8px 10px', fontSize: 13, fontFamily: 'inherit', background: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: 6, color: '#0D1B2A', outline: 'none', boxSizing: 'border-box' };
 const PRIMARY_BTN: CSSProperties = { padding: '7px 14px', fontSize: 13, fontWeight: 600, background: '#0A3D8F', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 };
 const MINI_BTN: CSSProperties = { padding: '4px 9px', fontSize: 11, fontFamily: 'inherit', fontWeight: 500, background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', color: 'var(--fg-2)', borderRadius: 5, cursor: 'pointer', whiteSpace: 'nowrap' };
+const MINI_SELECT: CSSProperties = { padding: '4px 6px', fontSize: 11, fontFamily: 'inherit', background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', color: 'var(--fg-2)', borderRadius: 5, cursor: 'pointer' };
 const POS_BTN: CSSProperties = { background: 'var(--pos)', color: '#fff', border: '1px solid var(--pos)' };
 const NEG_OUTLINE: CSSProperties = { color: 'var(--neg)', border: '1px solid rgba(220,38,38,0.30)', background: 'transparent' };
 const NEG_SOLID: CSSProperties = { background: '#E02424', color: '#fff', border: '1px solid #E02424' };
 const ERR_BOX: CSSProperties = { padding: '9px 12px', background: '#FEE2E2', border: '1px solid rgba(220,38,38,0.20)', borderRadius: 5, fontSize: 12, color: '#9B1C1C', marginBottom: 12 };
+const OK_BOX: CSSProperties = { padding: '9px 12px', background: '#D1FAE5', border: '1px solid #6EE7B7', borderRadius: 5, fontSize: 12, color: '#065F46' };
 const DRAWER: CSSProperties = { position: 'fixed', top: 0, right: 0, bottom: 0, width: 480, maxWidth: '100vw', zIndex: 301, background: '#fff', boxShadow: '-8px 0 40px rgba(10,22,40,0.14)', display: 'flex', flexDirection: 'column' };
 const DRAWER_H: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #DDE6F5', flexShrink: 0 };
 const CLOSE_BTN: CSSProperties = { width: 28, height: 28, display: 'grid', placeItems: 'center', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 16, color: '#6B7FA3', borderRadius: 4 };

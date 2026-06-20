@@ -59,12 +59,11 @@ const ADMIN_NAV: NavItem[] = [
 
 // GROUP 3 — System Admin (sysadmin only)
 const SYSADMIN_ITEM: NavItem = {
-  id: 'access', href: '/admin', label: 'Access Approval', Icon: IcKey, isAlert: true,
+  id: 'access', href: '/admin', label: 'Users & Access', Icon: IcUser, isAlert: true,
 };
 
 const SYSADMIN_NAV: NavItem[] = [
   { id: 'reps-admin',     href: '/risansi/admin/reps',     label: 'Tours & Reps',    Icon: IcMap },
-  { id: 'users-admin',    href: '/risansi/admin/users',    label: 'User Management', Icon: IcUser },
   { id: 'audit-admin',    href: '/risansi/admin/audit',    label: 'Audit Log',       Icon: IcClipboard },
   { id: 'settings-admin', href: '/risansi/admin/settings', label: 'Settings',        Icon: IcGear },
 ];
@@ -72,7 +71,7 @@ const SYSADMIN_NAV: NavItem[] = [
 // Path → id mapping for URL-based active derivation
 const PATH_TO_ID: [string, string][] = [
   ['/admin',                    'access'],
-  ['/risansi/admin/users',      'users-admin'],
+  ['/risansi/admin/users',      'access'],   // legacy route → redirects to /admin
   ['/risansi/admin/tours',      'tours-admin'],
   ['/risansi/admin/unassigned', 'unassigned-admin'],
   ['/risansi/admin/audit',      'audit-admin'],

@@ -8,7 +8,7 @@ import { AddRepButton } from '@/components/risansi/AddRepButton';
 import { AddTourButton } from '@/components/risansi/AddTourButton';
 import { RepsToursTabs } from '@/components/risansi/RepsToursTabs';
 import { ToursClient, type TourMappingRow, type AssignableUser } from '../tours/ToursClient';
-import { UnassignedClient, type UnassignedRow, type OwnerOption, type TourOption } from '../unassigned/UnassignedClient';
+import { UnassignedClient, type UnassignedRow, type TourOption } from '../unassigned/UnassignedClient';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,7 +24,7 @@ export default async function SystemAdminPage() {
     return <AccessDenied crumbs={['System Admin', 'Tours & Reps']} />;
   }
 
-  const [reps, toursMapping, assignableUsers, unassignedClients, owners, tourOpts, counts] = await Promise.all([
+  const [reps, toursMapping, assignableUsers, unassignedClients, tourOpts, counts] = await Promise.all([
     // Reps & managers (with tour-based client counts) for the Reps tab + Add Tour primary-rep picker.
     q<RepData[]>(async () => (await risansiPool.query<RepData>(`
       SELECT r.*,
@@ -51,8 +51,8 @@ export default async function SystemAdminPage() {
       ORDER BY tr.zone ASC NULLS LAST, tr.name ASC`)).rows, []),
 
     q<AssignableUser[]>(async () => (await risansiPool.query<AssignableUser>(`
-      SELECT id::int AS id, name, zone, role FROM users
-      WHERE is_active = TRUE AND role IN ('rep','manager','admin','sysadmin') ORDER BY name ASC`)).rows, []),
+      SELECT id::int AS id, name, email, zone, role FROM users
+      WHERE is_active = TRUE AND role IN ('rep','manager') ORDER BY name ASC`)).rows, []),
 
     // Clients needing a tour (for the Clients tab).
     q<UnassignedRow[]>(async () => (await risansiPool.query<UnassignedRow>(`
@@ -63,10 +63,6 @@ export default async function SystemAdminPage() {
       WHERE c.deleted_at IS NULL
         AND (NOT EXISTS (SELECT 1 FROM tour_assignments ta WHERE ta.tour_id = c.tour_id AND ta.role = 'rep') OR c.tour_id IS NULL)
       ORDER BY c.legal_name ASC LIMIT 2000`)).rows, []),
-
-    q<OwnerOption[]>(async () => (await risansiPool.query<OwnerOption>(`
-      SELECT id::int AS id, name, zone FROM users
-      WHERE is_active = TRUE AND role IN ('rep','manager','admin','sysadmin') ORDER BY name ASC`)).rows, []),
 
     q<TourOption[]>(async () => (await risansiPool.query<TourOption>(`
       SELECT id::int AS id, name, zone FROM tour_routes ORDER BY name ASC`)).rows, []),
@@ -127,7 +123,7 @@ export default async function SystemAdminPage() {
           {
             value: 'clients',
             label: `Clients → Tours (${counts.needing})`,
-            content: <UnassignedClient clients={unassignedClients} users={owners} tours={tourOpts} counts={counts} />,
+            content: <UnassignedClient clients={unassignedClients} tours={tourOpts} counts={counts} />,
           },
         ]} />
       </div>

@@ -132,7 +132,7 @@ export async function deleteUser(formData: FormData): Promise<void> {
 
   await audit('user', id, 'delete', userRows[0], null, actor);
 
-  revalidatePath('/risansi/admin/users');
+  revalidatePath('/admin');
   revalidatePath('/risansi/admin/reps');
 }
 
@@ -165,8 +165,8 @@ export async function setUserTours(formData: FormData): Promise<void> {
 
   await audit('tour_assignment', userId, 'update', { tour_ids: beforeIds }, { tour_ids: tourIds, role }, actor);
 
-  revalidatePath('/risansi/admin/tours');
-  revalidatePath('/risansi/admin/users');
+  revalidatePath('/risansi/admin/reps');
+  revalidatePath('/admin');
 }
 
 // ── assignUserToTour ───────────────────────────────────────────
@@ -176,10 +176,15 @@ export async function assignUserToTour(formData: FormData): Promise<void> {
   const actor = await requireSysadmin();
   const tourId = parseInt(formData.get('tour_id') as string, 10);
   const userId = parseInt(formData.get('user_id') as string, 10);
-  const role = (formData.get('role') as string | null)?.trim() === 'manager' ? 'manager' : 'rep';
 
   if (!Number.isInteger(tourId) || tourId <= 0) throw new Error('Invalid tour id');
   if (!Number.isInteger(userId) || userId <= 0) throw new Error('Please select a user');
+
+  // The tour role follows the user's account role (set on the Reps & Managers
+  // tab) — managers join as 'manager', everyone else as 'rep'. It is never
+  // chosen per-tour.
+  const { rows: ur } = await risansiPool.query<{ role: string }>('SELECT role FROM users WHERE id = $1', [userId]);
+  const role = ur[0]?.role === 'manager' ? 'manager' : 'rep';
 
   await risansiPool.query(
     `INSERT INTO tour_assignments (tour_id, rep_id, role, assigned_by, assigned_at)
@@ -190,7 +195,7 @@ export async function assignUserToTour(formData: FormData): Promise<void> {
 
   await audit('tour_assignment', tourId, 'add', null, { user_id: userId, role }, actor);
 
-  revalidatePath('/risansi/admin/tours');
+  revalidatePath('/risansi/admin/reps');
 }
 
 // ── removeUserFromTour ─────────────────────────────────────────
@@ -210,14 +215,14 @@ export async function removeUserFromTour(formData: FormData): Promise<void> {
 
   await audit('tour_assignment', tourId, 'remove', { user_id: userId }, null, actor);
 
-  revalidatePath('/risansi/admin/tours');
+  revalidatePath('/risansi/admin/reps');
 }
 
 
 // ── mapClients ─────────────────────────────────────────────────
-// Bulk-map unassigned clients. For each client id: insert the given owner
-// users into client_assignments (idempotent), and/or set the client's tour.
-// At least one of ownerIds / tourId must be supplied.
+// Bulk-attach clients to a tour. Clients are linked to reps/managers only
+// through their tour (the tour is the bridge), so mapping a client just sets
+// its tour_id. A tour is required.
 
 export async function mapClients(formData: FormData): Promise<void> {
   const actor = await requireSysadmin();
