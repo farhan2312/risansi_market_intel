@@ -9,6 +9,8 @@ import { AddTourButton } from '@/components/risansi/AddTourButton';
 import { RepsToursTabs } from '@/components/risansi/RepsToursTabs';
 import { TabActionButton } from '@/components/risansi/TabActionButton';
 import { RepsZoneFilter } from '@/components/risansi/RepsZoneFilter';
+import { getCurrentUser } from '@/lib/risansi-auth';
+import { AccessDenied } from '../_components/AccessDenied';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
@@ -45,6 +47,12 @@ interface ClientStats {
 const ZONES = ['North', 'Central', 'West', 'South', 'Export'];
 
 export default async function RepsAdminPage() {
+  // Reps & Tours is a System Admin surface (moved from the admin tier).
+  const me = await getCurrentUser();
+  if (me.role !== 'sysadmin') {
+    return <AccessDenied crumbs={['System Admin', 'Reps & Tours']} />;
+  }
+
   const [reps, routes, _stats, repStats, tourStats, clientStats] = await Promise.all([
     q<RepData[]>(async () => {
       const { rows } = await risansiPool.query<RepData>(`

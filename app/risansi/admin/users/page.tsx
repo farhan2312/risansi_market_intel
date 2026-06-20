@@ -1,6 +1,6 @@
 import { Topbar } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, hasRole } from '@/lib/risansi-auth';
+import { getCurrentUser } from '@/lib/risansi-auth';
 import { AccessDenied } from '../_components/AccessDenied';
 import { UsersClient, type UserRow } from './UsersClient';
 
@@ -12,9 +12,9 @@ async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
 
 export default async function UsersAdminPage() {
   const me = await getCurrentUser();
-  // Sysadmin owns this page. Admins may view/manage too (sensitive but in-scope).
-  if (!hasRole(me.role, 'admin')) {
-    return <AccessDenied crumbs={['Admin', 'User Management']} />;
+  // System Admin only — admins are scoped to Client Master + Revenue Upload.
+  if (me.role !== 'sysadmin') {
+    return <AccessDenied crumbs={['System Admin', 'User Management']} />;
   }
   const isSysadmin = me.role === 'sysadmin';
 

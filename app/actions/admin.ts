@@ -4,16 +4,16 @@ import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { hasRole } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 
 const VALID_ROLES = ['rep', 'manager', 'admin', 'sysadmin'];
 
-async function requireAdmin() {
+// Access-approval / user creation is now a System Admin (sysadmin) capability.
+async function requireSysadmin() {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) redirect('/api/auth/signin');
   const role = session.user.role ?? '';
-  if (!hasRole(role, 'admin')) redirect('/api/auth/signin');
+  if (role !== 'sysadmin') redirect('/api/auth/signin');
   return session.user;
 }
 
@@ -32,7 +32,7 @@ async function auditTourAssignment(userId: number, adminEmail: string | null | u
 }
 
 export async function approveUser(formData: FormData) {
-  const admin    = await requireAdmin();
+  const admin    = await requireSysadmin();
   const id       = parseInt(formData.get('id') as string); // users.id
   const role     = formData.get('role') as string;
   const safeRole = VALID_ROLES.includes(role) ? role : 'rep';
@@ -80,7 +80,7 @@ export async function approveUser(formData: FormData) {
 // Create a new user row directly (e.g. when an admin adds someone manually).
 // Returns the new id. Email is the key.
 export async function createRepFromApproval(formData: FormData): Promise<number> {
-  await requireAdmin();
+  await requireSysadmin();
 
   const name  = (formData.get('name')  as string | null)?.trim() ?? '';
   const email = (formData.get('email') as string | null)?.trim().toLowerCase() || null;
@@ -108,7 +108,7 @@ export async function createRepFromApproval(formData: FormData): Promise<number>
 }
 
 export async function rejectUser(formData: FormData) {
-  await requireAdmin();
+  await requireSysadmin();
   const id = parseInt(formData.get('id') as string); // users.id
 
   await risansiPool.query(
@@ -119,7 +119,7 @@ export async function rejectUser(formData: FormData) {
 }
 
 export async function revokeUser(formData: FormData) {
-  await requireAdmin();
+  await requireSysadmin();
   const id = parseInt(formData.get('id') as string); // users.id
 
   // No 'Revoked' status in the CHECK constraint — use 'Rejected'.
@@ -131,7 +131,7 @@ export async function revokeUser(formData: FormData) {
 }
 
 export async function reapproveUser(formData: FormData) {
-  await requireAdmin();
+  await requireSysadmin();
   const id       = parseInt(formData.get('id') as string); // users.id
   const role     = formData.get('role') as string;
   const safeRole = VALID_ROLES.includes(role) ? role : 'rep';

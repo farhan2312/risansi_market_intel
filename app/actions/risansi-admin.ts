@@ -4,15 +4,15 @@ import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { hasRole } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 import { recordAudit } from '@/lib/audit';
 
-async function requireAdmin() {
+// Access-approval is now a System Admin (sysadmin) capability.
+async function requireSysadmin() {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) redirect('/api/auth/signin');
   const role = session.user.role ?? '';
-  if (!hasRole(role, 'admin')) redirect('/risansi');
+  if (role !== 'sysadmin') redirect('/risansi');
   return session.user;
 }
 
@@ -27,7 +27,7 @@ async function logActivity(entity: string, id: string, action: string, email: st
 // ── Approve a pending access request ──────────────────────────
 
 export async function approveAccessRequest(formData: FormData) {
-  const admin = await requireAdmin();
+  const admin = await requireSysadmin();
   const email = (formData.get('email') as string | null)?.trim() ?? '';
   if (!email) return;
 
@@ -45,7 +45,7 @@ export async function approveAccessRequest(formData: FormData) {
 // ── Reject a pending access request ───────────────────────────
 
 export async function rejectAccessRequest(formData: FormData) {
-  const admin = await requireAdmin();
+  const admin = await requireSysadmin();
   const email = (formData.get('email') as string | null)?.trim() ?? '';
   if (!email) return;
 
@@ -63,7 +63,7 @@ export async function rejectAccessRequest(formData: FormData) {
 // ── Revoke an approved user's access ──────────────────────────
 
 export async function revokeAccess(formData: FormData) {
-  const admin = await requireAdmin();
+  const admin = await requireSysadmin();
   const email = (formData.get('email') as string | null)?.trim() ?? '';
   if (!email) return;
 

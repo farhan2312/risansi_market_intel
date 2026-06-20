@@ -31,14 +31,14 @@ const MORE_SALES: Item[] = [
 const MORE_ADMIN: Item[] = [
   { href: '/risansi/admin/clients', label: 'Client Master',  Icon: ListChecks },
   { href: '/risansi/admin/revenue', label: 'Revenue Upload', Icon: Upload },
-  { href: '/risansi/admin/reps',    label: 'Reps & Tours',   Icon: Users },
 ];
 
 const MORE_SYSADMIN: Item[] = [
-  { href: '/admin',                  label: 'Access Approval', Icon: KeyRound },
-  { href: '/risansi/admin/users',    label: 'User Management', Icon: Users },
+  { href: '/risansi/admin/reps',     label: 'Reps & Tours',    Icon: Users },
   { href: '/risansi/admin/tours',    label: 'Tour Mapping',    Icon: MapIcon },
   { href: '/risansi/admin/unassigned', label: 'Unassigned',    Icon: ListChecks },
+  { href: '/risansi/admin/users',    label: 'User Management', Icon: Users },
+  { href: '/admin',                  label: 'Access Approval', Icon: KeyRound },
   { href: '/risansi/admin/audit',    label: 'Audit Log',       Icon: ClipboardList },
   { href: '/risansi/admin/settings', label: 'Settings',        Icon: Settings },
 ];

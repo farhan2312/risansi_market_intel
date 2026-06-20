@@ -55,7 +55,6 @@ const SALES_NAV: NavItem[] = [
 const ADMIN_NAV: NavItem[] = [
   { id: 'clients-admin', href: '/risansi/admin/clients', label: 'Client Master',  Icon: IcList },
   { id: 'revenue-admin', href: '/risansi/admin/revenue', label: 'Revenue Upload', Icon: IcBag },
-  { id: 'reps-admin',    href: '/risansi/admin/reps',    label: 'Reps & Tours',  Icon: IcUser },
 ];
 
 // GROUP 3 — System Admin (sysadmin only)
@@ -64,9 +63,10 @@ const SYSADMIN_ITEM: NavItem = {
 };
 
 const SYSADMIN_NAV: NavItem[] = [
-  { id: 'users-admin',      href: '/risansi/admin/users',      label: 'User Management', Icon: IcUser },
+  { id: 'reps-admin',       href: '/risansi/admin/reps',       label: 'Reps & Tours',    Icon: IcUser },
   { id: 'tours-admin',      href: '/risansi/admin/tours',      label: 'Tour Mapping',    Icon: IcMap },
   { id: 'unassigned-admin', href: '/risansi/admin/unassigned', label: 'Unassigned',      Icon: IcList },
+  { id: 'users-admin',      href: '/risansi/admin/users',      label: 'User Management', Icon: IcUser },
   { id: 'audit-admin',      href: '/risansi/admin/audit',      label: 'Audit Log',       Icon: IcClipboard },
   { id: 'settings-admin',   href: '/risansi/admin/settings',   label: 'Settings',        Icon: IcGear },
 ];

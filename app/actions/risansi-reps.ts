@@ -3,13 +3,13 @@
 import { getServerSession } from 'next-auth/next';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { hasRole } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 
-async function requireAdmin() {
+// Reps & Tours management is a System Admin (sysadmin) capability.
+async function requireSysadmin() {
   const session = await getServerSession(authOptions);
-  if (!hasRole(session?.user?.role, 'admin')) {
-    throw new Error('Admin access required');
+  if (session?.user?.role !== 'sysadmin') {
+    throw new Error('System admin access required');
   }
   return session!;
 }
@@ -19,7 +19,7 @@ function deriveInitials(name: string): string {
 }
 
 export async function createRep(formData: FormData) {
-  await requireAdmin();
+  await requireSysadmin();
 
   const name     = (formData.get('name')     as string | null)?.trim() ?? '';
   const repCode  = (formData.get('rep_code') as string | null)?.trim() || null;
@@ -49,7 +49,7 @@ export async function createRep(formData: FormData) {
 }
 
 export async function updateRep(repId: number, formData: FormData) {
-  await requireAdmin();
+  await requireSysadmin();
 
   const name     = (formData.get('name')  as string | null)?.trim() ?? '';
   const zone     = (formData.get('zone')  as string | null)?.trim() || null;
@@ -73,13 +73,13 @@ export async function updateRep(repId: number, formData: FormData) {
 }
 
 export async function updateRouteRep(routeId: number, repId: number | null) {
-  await requireAdmin();
+  await requireSysadmin();
   await risansiPool.query('UPDATE tour_routes SET primary_rep_id = $1 WHERE id = $2', [repId, routeId]);
   revalidatePath('/risansi/admin/reps');
 }
 
 export async function createTour(formData: FormData) {
-  await requireAdmin();
+  await requireSysadmin();
 
   const name            = (formData.get('name') as string | null)?.trim() ?? '';
   const zone            = (formData.get('zone') as string | null)?.trim() ?? '';
