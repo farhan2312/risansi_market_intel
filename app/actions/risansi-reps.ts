@@ -19,7 +19,7 @@ function deriveInitials(name: string): string {
 }
 
 export async function createRep(formData: FormData) {
-  await requireSysadmin();
+  const session = await requireSysadmin();
 
   const name     = (formData.get('name')     as string | null)?.trim() ?? '';
   const repCode  = (formData.get('rep_code') as string | null)?.trim() || null;
@@ -38,14 +38,34 @@ export async function createRep(formData: FormData) {
     throw new Error(`A user with email "${email}" already exists`);
   }
 
-  await risansiPool.query(
+  const { rows } = await risansiPool.query<{ id: number }>(
     `INSERT INTO users
        (rep_code, name, initials, email, zone, route, target_cr, role, status, is_active, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Approved',TRUE,NOW(),NOW())`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Approved',TRUE,NOW(),NOW())
+     RETURNING id`,
     [repCode, name, initials, email, zone, route, targetCr, role],
   );
+  const newUserId = rows[0].id;
+
+  // Optionally assign the new rep/manager to tours in the same step (capability 1).
+  const tourIds = (() => {
+    try {
+      const arr = JSON.parse((formData.get('tour_ids') as string) || '[]');
+      return Array.isArray(arr) ? arr.map(n => parseInt(String(n), 10)).filter(Number.isInteger) : [];
+    } catch { return []; }
+  })();
+  if ((role === 'rep' || role === 'manager') && tourIds.length > 0) {
+    for (const tid of tourIds) {
+      await risansiPool.query(
+        `INSERT INTO tour_assignments (tour_id, rep_id, role, assigned_by, assigned_at)
+         VALUES ($1, $2, $3, $4, NOW())`,
+        [tid, newUserId, role, session.user?.email ?? null],
+      );
+    }
+  }
 
   revalidatePath('/risansi/admin/reps');
+  revalidatePath('/risansi/admin/tours');
 }
 
 export async function updateRep(repId: number, formData: FormData) {

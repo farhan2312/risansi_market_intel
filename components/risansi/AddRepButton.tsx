@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type CSSProperties } from 'react';
+import { useState, useEffect, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { createRep } from '@/app/actions/risansi-reps';
 
@@ -8,13 +8,22 @@ export function AddRepButton() {
   const [open, setOpen]       = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
+  const [tours, setTours]     = useState<Array<{ id: string; name: string; zone: string | null }>>([]);
+  const [selectedTours, setSelectedTours] = useState<string[]>([]);
   const router = useRouter();
+
+  useEffect(() => {
+    if (!open) return;
+    fetch('/api/risansi/tours').then(r => r.json())
+      .then(d => setTours(Array.isArray(d) ? d : [])).catch(() => {});
+  }, [open]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true); setError('');
     try {
       const fd = new FormData(e.currentTarget);
+      fd.set('tour_ids', JSON.stringify(selectedTours));
       await createRep(fd);
       setOpen(false);
       router.refresh();
@@ -93,6 +102,29 @@ export function AddRepButton() {
                     <label style={LABEL}>Initials *</label>
                     <input name="initials" required style={INPUT} maxLength={5} placeholder="e.g. AA" />
                   </div>
+                </div>
+
+                <div>
+                  <label style={LABEL}>Assign Tours (optional)</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 130, overflowY: 'auto', padding: 8, border: '1px solid var(--line-strong)', borderRadius: 6 }}>
+                    {tours.length === 0 ? (
+                      <span style={{ fontSize: 12, color: 'var(--fg-3)' }}>No tours yet — create one first, or assign later in Tour Mapping.</span>
+                    ) : tours.map(t => {
+                      const on = selectedTours.includes(t.id);
+                      return (
+                        <button key={t.id} type="button"
+                          onClick={() => setSelectedTours(s => on ? s.filter(x => x !== t.id) : [...s, t.id])}
+                          style={{
+                            padding: '5px 10px', borderRadius: 999, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
+                            border: `1px solid ${on ? '#0A3D8F' : 'var(--line-strong)'}`,
+                            background: on ? '#EBF1FB' : 'white', color: on ? '#0A3D8F' : 'var(--fg-2)',
+                          }}>
+                          {on ? '✓ ' : ''}{t.name}{t.zone ? ` · ${t.zone}` : ''}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 4 }}>Tours apply to Field Rep / Sales Manager roles only.</div>
                 </div>
 
                 {error && (
