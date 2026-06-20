@@ -4,17 +4,18 @@ import { type CSSProperties, type ReactNode } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
-interface Props {
-  repsCount: number;
-  toursCount: number;
-  repsContent: ReactNode;
-  toursContent: ReactNode;
-}
+interface TabDef { value: string; label: string; content: ReactNode; }
 
-export function RepsToursTabs({ repsCount, toursCount, repsContent, toursContent }: Props) {
+/**
+ * URL-driven (?tab=) tab strip for the System Admin hub. Generic over any
+ * number of tabs; the active tab persists in the query string.
+ */
+export function RepsToursTabs({ tabs, defaultValue }: { tabs: TabDef[]; defaultValue?: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const currentTab = searchParams.get('tab') === 'tours' ? 'tours' : 'reps';
+  const fallback = defaultValue ?? tabs[0]?.value ?? '';
+  const param = searchParams.get('tab');
+  const currentTab = tabs.some(t => t.value === param) ? (param as string) : fallback;
 
   const handleTabChange = (value: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -23,50 +24,25 @@ export function RepsToursTabs({ repsCount, toursCount, repsContent, toursContent
   };
 
   const pillStyle = (value: string): CSSProperties => ({
-    fontSize: 13,
-    fontWeight: 600,
-    padding: '6px 16px',
-    borderRadius: 16,
-    border: 'none',
-    cursor: 'pointer',
-    fontFamily: 'inherit',
+    fontSize: 13, fontWeight: 600, padding: '6px 16px', borderRadius: 16,
+    border: 'none', cursor: 'pointer', fontFamily: 'inherit',
     background: currentTab === value ? '#0A3D8F' : 'transparent',
-    color: currentTab === value ? 'white' : 'var(--fg-3)',
-    boxShadow: 'none',
+    color: currentTab === value ? 'white' : 'var(--fg-3)', boxShadow: 'none',
   });
 
   return (
-    <Tabs
-      value={currentTab}
-      onValueChange={handleTabChange}
-      style={{ display: 'flex', flexDirection: 'column' }}
-    >
-      <TabsList
-        style={{
-          width: 'fit-content',
-          marginBottom: 16,
-          background: 'var(--bg-elev)',
-          borderRadius: 20,
-          padding: 3,
-          border: 'none',
-          boxShadow: 'none',
-        }}
-      >
-        <TabsTrigger value="reps" style={pillStyle('reps')}>
-          Reps ({repsCount})
-        </TabsTrigger>
-        <TabsTrigger value="tours" style={pillStyle('tours')}>
-          Tours ({toursCount})
-        </TabsTrigger>
+    <Tabs value={currentTab} onValueChange={handleTabChange} style={{ display: 'flex', flexDirection: 'column' }}>
+      <TabsList style={{
+        width: 'fit-content', marginBottom: 16, background: 'var(--bg-elev)',
+        borderRadius: 20, padding: 3, border: 'none', boxShadow: 'none', flexWrap: 'wrap',
+      }}>
+        {tabs.map(t => (
+          <TabsTrigger key={t.value} value={t.value} style={pillStyle(t.value)}>{t.label}</TabsTrigger>
+        ))}
       </TabsList>
-
-      <TabsContent value="reps" style={{ marginTop: 0 }}>
-        {repsContent}
-      </TabsContent>
-
-      <TabsContent value="tours" style={{ marginTop: 0 }}>
-        {toursContent}
-      </TabsContent>
+      {tabs.map(t => (
+        <TabsContent key={t.value} value={t.value} style={{ marginTop: 0 }}>{t.content}</TabsContent>
+      ))}
     </Tabs>
   );
 }

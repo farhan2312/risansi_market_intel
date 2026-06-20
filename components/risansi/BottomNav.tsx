@@ -34,9 +34,7 @@ const MORE_ADMIN: Item[] = [
 ];
 
 const MORE_SYSADMIN: Item[] = [
-  { href: '/risansi/admin/reps',     label: 'Reps & Tours',    Icon: Users },
-  { href: '/risansi/admin/tours',    label: 'Tour Mapping',    Icon: MapIcon },
-  { href: '/risansi/admin/unassigned', label: 'Unassigned',    Icon: ListChecks },
+  { href: '/risansi/admin/reps',     label: 'Tours & Reps',    Icon: MapIcon },
   { href: '/risansi/admin/users',    label: 'User Management', Icon: Users },
   { href: '/admin',                  label: 'Access Approval', Icon: KeyRound },
   { href: '/risansi/admin/audit',    label: 'Audit Log',       Icon: ClipboardList },
