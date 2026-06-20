@@ -59,46 +59,9 @@ async function resolveAssignableRepId(
   return repId;
 }
 
-// Replace a client's owner set (flat, all-equal) in client_assignments, and
-// writes an assignment_audit row. actorEmail is the acting user.
-async function syncClientAssignments(
-  clientId: number,
-  ownerIds: number[],
-  actorEmail: string,
-): Promise<void> {
-  const ids = [...new Set(ownerIds.filter(n => Number.isInteger(n) && n > 0))];
-
-  const { rows: before } = await risansiPool.query<{ user_id: number }>(
-    'SELECT user_id FROM client_assignments WHERE client_id = $1', [clientId],
-  );
-  const beforeIds = before.map(r => r.user_id);
-
-  await risansiPool.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
-  for (const uid of ids) {
-    await risansiPool.query(
-      `INSERT INTO client_assignments (client_id, user_id, assigned_by, assigned_at)
-       VALUES ($1, $2, (SELECT id FROM users WHERE lower(email) = lower($3)), NOW())
-       ON CONFLICT (client_id, user_id) DO NOTHING`,
-      [clientId, uid, actorEmail],
-    );
-  }
-
-  if (JSON.stringify(beforeIds.sort()) !== JSON.stringify([...ids].sort())) {
-    await risansiPool.query(
-      `INSERT INTO assignment_audit (entity_type, entity_id, action, old_value, new_value, changed_by)
-       VALUES ('client_owner', $1, 'update', $2::jsonb, $3::jsonb, $4)`,
-      [String(clientId), JSON.stringify(beforeIds), JSON.stringify(ids), actorEmail],
-    );
-  }
-}
-
-// Parse a JSON array of owner user ids from a form field.
-function parseOwnerIds(raw: FormDataEntryValue | null): number[] {
-  try {
-    const parsed = JSON.parse((raw as string) || '[]');
-    return Array.isArray(parsed) ? parsed.map(n => parseInt(String(n), 10)).filter(Number.isInteger) : [];
-  } catch { return []; }
-}
+// Responsible reps/managers now derive from the client's tour (tour_assignments);
+// there is no direct client→rep assignment table any more. A client is put on a
+// tour via clients.tour_id (set in add/updateClient and the Tour Mapping admin).
 
 // Can this user move / edit an opportunity owned by `oppRepId`?
 //   admin/sysadmin → always · assigned rep → own · manager → reps sharing a tour.
@@ -428,7 +391,7 @@ export async function updateClient(clientId: number, formData: FormData): Promis
   );
 
   // Owners (flat multi-owner model) + legacy shim + audit.
-  await syncClientAssignments(clientId, parseOwnerIds(formData.get('owner_ids')), email);
+  // Owners derive from the client's tour (set via tour_id above); no direct sync.
 
   // Save contacts
   await saveContacts(
@@ -716,9 +679,9 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
     repId = rows[0]?.rep_id ?? null;
     if (!repId && rows[0]?.client_id) {
       const { rows: cRows } = await risansiPool.query<{ primary_rep_id: number | null }>(
-        `SELECT (SELECT ca.user_id FROM client_assignments ca
-                  WHERE ca.client_id = $1
-                  ORDER BY ca.assigned_at, ca.user_id LIMIT 1) AS primary_rep_id`,
+        `SELECT (SELECT ta.rep_id FROM tour_assignments ta
+                  WHERE ta.tour_id = (SELECT tour_id FROM clients WHERE id = $1) AND ta.role = 'rep'
+                  ORDER BY ta.assigned_at, ta.rep_id LIMIT 1) AS primary_rep_id`,
         [rows[0].client_id],
       );
       repId = cRows[0]?.primary_rep_id ?? null;
@@ -1283,7 +1246,7 @@ export async function addClient(formData: FormData): Promise<void> {
   const clientId = result.rows[0].id;
 
   // Owners (flat multi-owner model) + legacy shim + audit.
-  await syncClientAssignments(clientId, parseOwnerIds(formData.get('owner_ids')), email);
+  // Owners derive from the client's tour (set via tour_id above); no direct sync.
 
   // Save contacts
   await saveContacts(

@@ -27,12 +27,12 @@ export default async function UnassignedAdminPage() {
           c.industry,
           c.zone,
           c.tour_id::int   AS tour_id,
-          (NOT EXISTS (SELECT 1 FROM client_assignments ca WHERE ca.client_id = c.id)) AS no_owner,
+          (NOT EXISTS (SELECT 1 FROM tour_assignments ta WHERE ta.tour_id = c.tour_id AND ta.role = 'rep')) AS no_owner,
           (c.tour_id IS NULL) AS no_tour
         FROM clients c
         WHERE c.deleted_at IS NULL
           AND (
-            NOT EXISTS (SELECT 1 FROM client_assignments ca WHERE ca.client_id = c.id)
+            NOT EXISTS (SELECT 1 FROM tour_assignments ta WHERE ta.tour_id = c.tour_id AND ta.role = 'rep')
             OR c.tour_id IS NULL
           )
         ORDER BY c.legal_name ASC
@@ -66,7 +66,7 @@ export default async function UnassignedAdminPage() {
           COUNT(*) FILTER (WHERE no_owner OR  no_tour)::text AS needing
         FROM (
           SELECT
-            (NOT EXISTS (SELECT 1 FROM client_assignments ca WHERE ca.client_id = c.id)) AS no_owner,
+            (NOT EXISTS (SELECT 1 FROM tour_assignments ta WHERE ta.tour_id = c.tour_id AND ta.role = 'rep')) AS no_owner,
             (c.tour_id IS NULL) AS no_tour
           FROM clients c WHERE c.deleted_at IS NULL
         ) s

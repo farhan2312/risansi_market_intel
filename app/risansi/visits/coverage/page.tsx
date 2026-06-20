@@ -46,8 +46,8 @@ export default async function CoverageMapPage() {
            (CURRENT_DATE - c.last_visit_date::date)::text AS days_since,
            COALESCE(
              (SELECT string_agg(u.name, ', ' ORDER BY u.name)
-                FROM client_assignments ca JOIN users u ON u.id = ca.user_id
-               WHERE ca.client_id = c.id),
+                FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
+               WHERE ta.tour_id = c.tour_id),
              '—') AS rep_name
          FROM clients c
          WHERE c.deleted_at IS NULL AND c.status = 'ACTIVE'${cVisAnd}

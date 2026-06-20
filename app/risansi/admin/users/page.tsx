@@ -32,10 +32,10 @@ export default async function UsersAdminPage() {
         u.rep_code,
         u.target_cr::float                          AS target_cr,
         COUNT(DISTINCT ta.tour_id)::int             AS tours_count,
-        COUNT(DISTINCT ca.client_id)::int           AS clients_count
+        COUNT(DISTINCT c.id)::int                   AS clients_count
       FROM users u
-      LEFT JOIN tour_assignments ta  ON ta.rep_id  = u.id
-      LEFT JOIN client_assignments ca ON ca.user_id = u.id
+      LEFT JOIN tour_assignments ta ON ta.rep_id = u.id
+      LEFT JOIN clients c ON c.tour_id = ta.tour_id AND c.deleted_at IS NULL
       GROUP BY u.id
       ORDER BY
         CASE u.status WHEN 'Pending' THEN 0 ELSE 1 END,

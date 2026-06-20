@@ -106,7 +106,7 @@ export async function deleteUser(formData: FormData): Promise<void> {
       clients: string; visits: string; opps: string;
     }>(
       `SELECT
-         (SELECT COUNT(*) FROM client_assignments WHERE user_id = $1)::text AS clients,
+         (SELECT COUNT(*) FROM clients WHERE tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = $1))::text AS clients,
          (SELECT COUNT(*) FROM visits        WHERE rep_id = $1)::text       AS visits,
          (SELECT COUNT(*) FROM opportunities WHERE rep_id = $1)::text       AS opps`,
       [id],
@@ -263,41 +263,26 @@ export async function setTourPrimaryUser(formData: FormData): Promise<void> {
 export async function mapClients(formData: FormData): Promise<void> {
   const actor = await requireSysadmin();
   const clientIds = parseIntArray(formData.get('client_ids'));
-  const ownerIds = parseIntArray(formData.get('owner_ids'));
   const rawTour = formData.get('tour_id') as string | null;
   const tourId = rawTour && rawTour !== '' ? parseInt(rawTour, 10) : null;
 
   if (clientIds.length === 0) throw new Error('Select at least one client');
-  if (ownerIds.length === 0 && !tourId) {
-    throw new Error('Select at least one owner or a tour to assign');
-  }
+  // Owners now come from the tour, so mapping a client = putting it on a tour.
+  if (!tourId) throw new Error('Select a tour to assign these clients to');
 
   for (const clientId of clientIds) {
-    if (ownerIds.length > 0) {
-      for (const uid of ownerIds) {
-        await risansiPool.query(
-          `INSERT INTO client_assignments (client_id, user_id, assigned_by, assigned_at)
-           VALUES ($1, $2, (SELECT id FROM users WHERE lower(email) = lower($3)), NOW())
-           ON CONFLICT (client_id, user_id) DO NOTHING`,
-          [clientId, uid, actor],
-        );
-      }
-    }
-
-    if (tourId) {
-      await risansiPool.query(
-        `UPDATE clients SET
-           tour_id   = $1,
-           updated_at = NOW()
-         WHERE id = $2`,
-        [tourId, clientId],
-      );
-    }
+    await risansiPool.query(
+      `UPDATE clients SET
+         tour_id    = $1,
+         updated_at = NOW()
+       WHERE id = $2`,
+      [tourId, clientId],
+    );
 
     await audit(
-      'client_owner', clientId, 'update',
+      'client_tour', clientId, 'update',
       null,
-      { owner_ids: ownerIds, tour_id: tourId },
+      { tour_id: tourId },
       actor,
     );
   }

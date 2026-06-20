@@ -50,10 +50,9 @@ export default async function RepsAdminPage() {
       const { rows } = await risansiPool.query<RepData>(`
         SELECT
           r.*,
-          (SELECT COUNT(DISTINCT ca.client_id)
-             FROM client_assignments ca
-             JOIN clients c2 ON c2.id = ca.client_id
-            WHERE ca.user_id = r.id
+          (SELECT COUNT(DISTINCT c2.id)
+             FROM clients c2
+            WHERE c2.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = r.id)
               AND c2.deleted_at IS NULL
               AND c2.status = 'ACTIVE')::text AS client_count,
           COUNT(DISTINCT v.id) FILTER (WHERE v.visit_date >= CURRENT_DATE - INTERVAL '30 days')::text AS visits_last_30d,
@@ -100,8 +99,8 @@ export default async function RepsAdminPage() {
           COUNT(DISTINCT c.id)::text AS client_count,
           COUNT(DISTINCT c.id) FILTER (WHERE c.last_visit_date >= CURRENT_DATE - INTERVAL '90 days')::text AS compliant_clients
         FROM users r
-        LEFT JOIN client_assignments ca ON ca.user_id = r.id
-        LEFT JOIN clients c ON c.id = ca.client_id AND c.deleted_at IS NULL AND c.status = 'ACTIVE'
+        LEFT JOIN tour_assignments ta ON ta.rep_id = r.id
+        LEFT JOIN clients c ON c.tour_id = ta.tour_id AND c.deleted_at IS NULL AND c.status = 'ACTIVE'
         WHERE r.is_active = TRUE
         GROUP BY r.zone
         ORDER BY r.zone ASC
@@ -139,8 +138,8 @@ export default async function RepsAdminPage() {
       const { rows } = await risansiPool.query<ClientStats>(`
         SELECT
           COUNT(*)::text AS total_clients,
-          COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM client_assignments ca WHERE ca.client_id = clients.id))::text AS clients_with_rep,
-          COUNT(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM client_assignments ca WHERE ca.client_id = clients.id))::text AS clients_without_rep
+          COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM tour_assignments ta WHERE ta.tour_id = clients.tour_id AND ta.role = 'rep'))::text AS clients_with_rep,
+          COUNT(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM tour_assignments ta WHERE ta.tour_id = clients.tour_id AND ta.role = 'rep'))::text AS clients_without_rep
         FROM clients
         WHERE deleted_at IS NULL
           AND status = 'ACTIVE'

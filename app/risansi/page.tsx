@@ -44,7 +44,7 @@ const REP_TASKS_QUERY = `SELECT ${TASK_SELECT}
     t.assigned_to_rep = $1
     OR t.created_by = $2
     OR EXISTS (SELECT 1 FROM visits vs WHERE vs.id = t.visit_id AND vs.rep_id = $1)
-    OR EXISTS (SELECT 1 FROM client_assignments ca WHERE ca.client_id = t.client_id AND ca.user_id = $1)
+    OR EXISTS (SELECT 1 FROM clients cl WHERE cl.id = t.client_id AND cl.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = $1))
   )${TASK_ORDER}`;
 
 // Admin/manager view: every task.

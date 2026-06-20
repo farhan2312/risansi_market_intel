@@ -3,7 +3,6 @@
 import { useState, useEffect, useTransition, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { addClient, updateClient } from '@/app/actions/risansi';
-import { OwnerSelector } from './RepSelector';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -57,7 +56,6 @@ export function ClientFormDrawer({ mode, client, existingContacts, onClose }: Pr
   // Tours (dropdown bound to tour_routes) + current owners (multi-owner picker)
   const [tours, setTours]   = useState<Array<{ id: string; name: string; zone: string | null }>>([]);
   const [tourId, setTourId] = useState<string>(client?.tour_id != null ? String(client.tour_id) : '');
-  const [ownerIds, setOwnerIds] = useState<number[]>([]);
 
   const [contacts, setContacts] = useState<ContactRow[]>(
     (existingContacts ?? []).map((c: any) => ({
@@ -95,14 +93,6 @@ export function ClientFormDrawer({ mode, client, existingContacts, onClose }: Pr
       .catch(() => {});
   }, []);
 
-  // On edit, prefill the current owners from client_assignments
-  useEffect(() => {
-    if (mode !== 'edit' || !client?.id) return;
-    fetch(`/api/risansi/client-owners?clientId=${client.id}`)
-      .then(r => r.json())
-      .then(d => setOwnerIds(Array.isArray(d?.owner_ids) ? d.owner_ids : []))
-      .catch(() => {});
-  }, [mode, client?.id]);
 
   function handleIndustryChange(val: string) {
     setIndustry(val);
@@ -383,11 +373,8 @@ export function ClientFormDrawer({ mode, client, existingContacts, onClose }: Pr
                   placeholder='e.g. 2019 or 21-22' style={INP} />
               </Field>
             </Row>
-            <OwnerSelector
-              label="Owners"
-              paramName="owner_ids"
-              defaultIds={ownerIds}
-            />
+            {/* Responsible reps/managers derive from the client's Tour (above);
+                there is no separate owner assignment any more. */}
           </Section>
 
           {/* ── 5. Contacts ── */}

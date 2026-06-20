@@ -99,9 +99,9 @@ export async function saveExpansionOpportunity(input: {
   }
   if (!repId) {
     const c = await risansiPool.query<{ primary_rep_id: number | null }>(
-      `SELECT (SELECT ca.user_id FROM client_assignments ca
-                WHERE ca.client_id = $1
-                ORDER BY ca.assigned_at, ca.user_id LIMIT 1) AS primary_rep_id`,
+      `SELECT (SELECT ta.rep_id FROM tour_assignments ta
+                WHERE ta.tour_id = (SELECT tour_id FROM clients WHERE id = $1) AND ta.role = 'rep'
+                ORDER BY ta.assigned_at, ta.rep_id LIMIT 1) AS primary_rep_id`,
       [input.clientId],
     );
     repId = c.rows[0]?.primary_rep_id ?? null;
@@ -409,13 +409,13 @@ export async function submitVisit(visitId: string) {
   // reps-by-email → session.repId → visit.rep_id.
   const repId = repRes.rows[0]?.id ?? session.user.repId ?? visit.rep_id ?? null;
 
-  // Assign both reps from the client's owners (flat model: first owner →
-  // primary, second owner → secondary), falling back to the (now hardened)
-  // submitting rep so an auto-created opp always has an owner.
+  // Assign both reps from the client's tour reps (first → primary, second →
+  // secondary), falling back to the (now hardened) submitting rep so an
+  // auto-created opp always has an owner.
   const clientRepRes = await risansiPool.query<{ user_id: number }>(
-    `SELECT ca.user_id FROM client_assignments ca
-      WHERE ca.client_id = $1
-      ORDER BY ca.assigned_at, ca.user_id`,
+    `SELECT ta.rep_id AS user_id FROM tour_assignments ta
+      WHERE ta.tour_id = (SELECT tour_id FROM clients WHERE id = $1) AND ta.role = 'rep'
+      ORDER BY ta.assigned_at, ta.rep_id`,
     [visit.client_id],
   );
   const primaryRepId   = clientRepRes.rows[0]?.user_id ?? repId;

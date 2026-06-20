@@ -200,8 +200,8 @@ export default async function ClientMasterPage({
         const { rows } = await risansiPool.query<RepOption>(
           `SELECT u.name AS rep_name, COUNT(DISTINCT c.id)::int AS client_count
            FROM users u
-           JOIN client_assignments ca ON ca.user_id = u.id
-           JOIN clients c ON c.id = ca.client_id
+           JOIN tour_assignments ta ON ta.rep_id = u.id
+           JOIN clients c ON c.tour_id = ta.tour_id
            WHERE u.is_active = TRUE
              AND c.deleted_at IS NULL
              ${ownerVisClause}

@@ -20,7 +20,9 @@ export async function GET(request: Request) {
     }
 
     const { rows } = await risansiPool.query<{ user_id: number }>(
-      `SELECT user_id FROM client_assignments WHERE client_id = $1 ORDER BY assigned_at ASC`,
+      `SELECT ta.rep_id AS user_id FROM tour_assignments ta
+        WHERE ta.tour_id = (SELECT tour_id FROM clients WHERE id = $1)
+        ORDER BY ta.assigned_at ASC`,
       [clientId],
     );
     return NextResponse.json({ owner_ids: rows.map(r => r.user_id) });

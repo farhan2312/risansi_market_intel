@@ -198,8 +198,8 @@ export default async function RevenuePage({
                 COALESCE(SUM(crm.total_value),0)::text AS total
          FROM client_revenue_monthly crm
          JOIN clients c ON c.id = crm.client_id
-         LEFT JOIN client_assignments ca ON ca.client_id = c.id
-         LEFT JOIN users u ON u.id = ca.user_id
+         LEFT JOIN tour_assignments ta ON ta.tour_id = c.tour_id AND ta.role = 'rep'
+         LEFT JOIN users u ON u.id = ta.rep_id
          WHERE c.deleted_at IS NULL AND crm.month >= $1 AND crm.month < $2${repCond}
          GROUP BY COALESCE(u.name, 'Unassigned'), u.zone, u.target_cr
          HAVING SUM(crm.total_value) > 0 ORDER BY SUM(crm.total_value) DESC LIMIT 30`,

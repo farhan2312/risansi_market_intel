@@ -14,9 +14,9 @@ export async function GET(request: Request) {
 
     const res = await risansiPool.query(
       `SELECT c.id, c.code, c.legal_name, c.city, c.state, c.industry,
-              -- first owner (by assignment order) stands in for the legacy primary rep
-              (SELECT ca.user_id FROM client_assignments ca
-                WHERE ca.client_id = c.id ORDER BY ca.assigned_at, ca.user_id LIMIT 1) AS primary_rep_id,
+              -- first rep on the client's tour stands in for the primary rep
+              (SELECT ta.rep_id FROM tour_assignments ta
+                WHERE ta.tour_id = c.tour_id AND ta.role = 'rep' ORDER BY ta.assigned_at, ta.rep_id LIMIT 1) AS primary_rep_id,
               NULL::int                                                     AS secondary_rep_id,
               (SELECT string_agg(u.name, ', ' ORDER BY u.name)
                  FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
