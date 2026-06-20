@@ -55,7 +55,7 @@ const ADMIN_TASKS_QUERY = `SELECT ${TASK_SELECT}${TASK_ORDER}`;
 const COMP_COLORS: Record<string, string> = {
   RIL:      '#0A3D8F',
   Roto:     '#1A5CB8',
-  Rotomac:  '#1A5CB8',
+  Rotomac:  '#5B8DD9',
   Gita:     '#00B4D8',
   Sintech:  '#DC2626',
   PSP:      '#D97706',
@@ -725,7 +725,8 @@ export default async function ExecDashboardPage({
 
   const shareData: MarketEntry[] = [
     { supplier: 'RIL',           units: rilUnits,          pct: (rilUnits / shareTotal) * 100,          color: compColor('RIL') },
-    { supplier: 'Roto+Rotomac',  units: rotoTotal,         pct: (rotoTotal / shareTotal) * 100,         color: compColor('Roto') },
+    { supplier: 'Roto',          units: cibTotals.roto,    pct: (cibTotals.roto / shareTotal) * 100,    color: compColor('Roto') },
+    { supplier: 'Rotomac',       units: cibTotals.rotomac, pct: (cibTotals.rotomac / shareTotal) * 100, color: compColor('Rotomac') },
     { supplier: 'Netzsch',       units: cibTotals.netzsch, pct: (cibTotals.netzsch / shareTotal) * 100, color: compColor('Netzsch') },
     { supplier: 'Gita',          units: cibTotals.gita,    pct: (cibTotals.gita / shareTotal) * 100,    color: compColor('Gita') },
     { supplier: 'PSP',           units: cibTotals.psp,     pct: (cibTotals.psp / shareTotal) * 100,     color: compColor('PSP') },

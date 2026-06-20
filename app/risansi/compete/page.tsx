@@ -12,7 +12,8 @@ async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
 
 const COMP_COLORS: Record<string, string> = {
   RIL:           '#1A5CB8',
-  'Roto+Rotomac': '#059669',
+  Roto:          '#059669',
+  Rotomac:       '#14B8A6',
   Netzsch:       '#7C3AED',
   Gita:          '#D97706',
   PSP:           '#0891B2',
@@ -340,8 +341,9 @@ export default async function CompetePage({
   const othersUnits = Math.max(0, totals.total_pcp - namedTotal);
 
   const donutSlices = [
-    { name: 'RIL',          units: totals.ril_pcp,    color: compColor('RIL') },
-    { name: 'Roto+Rotomac', units: rotoTotal,          color: compColor('Roto+Rotomac') },
+    { name: 'RIL',          units: totals.ril_pcp,     color: compColor('RIL') },
+    { name: 'Roto',         units: totals.roto_pcp,    color: compColor('Roto') },
+    { name: 'Rotomac',      units: totals.rotomac_pcp, color: compColor('Rotomac') },
     { name: 'Netzsch',      units: totals.netzsch_pcp, color: compColor('Netzsch') },
     { name: 'Gita',         units: totals.gita_pcp,    color: compColor('Gita') },
     { name: 'PSP',          units: totals.psp_pcp,     color: compColor('PSP') },

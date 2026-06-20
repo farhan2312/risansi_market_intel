@@ -92,7 +92,10 @@ interface ClientRevFY {
 }
 
 interface CompMaker { name: string; units: number; }
-interface CompBreakdown { rilUnits: number; totalUnits: number; makers: CompMaker[]; }
+interface CompBreakdown {
+  rilUnits: number; totalUnits: number; makers: CompMaker[];        // PCP
+  rilMmp: number;   totalMmp: number;   mmpMakers: CompMaker[];     // MMP
+}
 
 // competitor_installed_base PCP columns → display label (RIL handled separately, as "us").
 const COMPETITOR_PCP: Record<string, string> = {
@@ -105,6 +108,15 @@ const COMPETITOR_PCP: Record<string, string> = {
   naishit_pcp: 'Naishit', delta_pcp: 'Delta', varun_pcp: 'Varun', npi_pcp: 'NPI',
   hydroprocav_pcp: 'Hydroprocav', sre_pcp: 'SRE', span_engg_pcp: 'Span Engg',
   pandey_pcp: 'Pandey', mahalaxmi_pcp: 'Mahalaxmi', ravalgoan_pcp: 'Ravalgoan', others_pcp: 'Others',
+};
+
+// competitor_installed_base MMP columns → display label (RIL handled separately).
+const COMPETITOR_MMP: Record<string, string> = {
+  gita_mmp: 'Gita', sintech_mmp: 'Sintech', psp_mmp: 'PSP', syno_mmp: 'Syno',
+  ropman_mmp: 'Ropman', vikas_mmp: 'Vikas', indopump_mmp: 'Indopump', yaswant_mmp: 'Yaswant',
+  shivam_mmp: 'Shivam', elite_mmp: 'Elite', mather_mmp: 'Mather', varun_mmp: 'Varun',
+  vs_engg_mmp: 'VS Engg', span_engg_mmp: 'Span Engg', pandey_mmp: 'Pandey',
+  mahalaxmi_mmp: 'Mahalaxmi', ravalgoan_mmp: 'Ravalgoan', others_mmp: 'Others',
 };
 
 interface Visit {
@@ -242,24 +254,37 @@ export default async function ClientProfilePage({
       return rows;
     }, []),
 
-    // 4. Competitor installed base (PCP units by maker, from competitor_installed_base)
+    // 4. Competitor installed base (PCP + MMP units by maker, from competitor_installed_base)
     q<CompBreakdown>(async () => {
       const { rows } = await risansiPool.query<Record<string, number | string | null>>(
         `SELECT * FROM competitor_installed_base WHERE client_code = $1 LIMIT 1`,
         [client.code],
       );
       const row = rows[0];
-      if (!row) return { rilUnits: 0, totalUnits: 0, makers: [] };
+      if (!row) return { rilUnits: 0, totalUnits: 0, makers: [], rilMmp: 0, totalMmp: 0, mmpMakers: [] };
+
+      const byMaker = (labels: Record<string, string>) =>
+        Object.entries(labels)
+          .map(([col, name]) => ({ name, units: Number(row[col] ?? 0) }))
+          .filter(m => m.units > 0)
+          .sort((a, b) => b.units - a.units);
+
+      // PCP
       const rilUnits = Number(row.ril_pcp ?? 0);
-      const total    = Number(row.total_pcp ?? 0);
-      const makers = Object.entries(COMPETITOR_PCP)
-        .map(([col, name]) => ({ name, units: Number(row[col] ?? 0) }))
-        .filter(m => m.units > 0)
-        .sort((a, b) => b.units - a.units);
+      const makers   = byMaker(COMPETITOR_PCP);
       // Total should be at least RIL + named competitors even if total_pcp is blank.
       const sumNamed = rilUnits + makers.reduce((s, m) => s + m.units, 0);
-      return { rilUnits, totalUnits: Math.max(total, sumNamed), makers };
-    }, { rilUnits: 0, totalUnits: 0, makers: [] }),
+
+      // MMP
+      const rilMmp    = Number(row.ril_mmp ?? 0);
+      const mmpMakers = byMaker(COMPETITOR_MMP);
+      const sumNamedMmp = rilMmp + mmpMakers.reduce((s, m) => s + m.units, 0);
+
+      return {
+        rilUnits, totalUnits: Math.max(Number(row.total_pcp ?? 0), sumNamed), makers,
+        rilMmp,   totalMmp:   Math.max(Number(row.total_mmp ?? 0), sumNamedMmp), mmpMakers,
+      };
+    }, { rilUnits: 0, totalUnits: 0, makers: [], rilMmp: 0, totalMmp: 0, mmpMakers: [] }),
 
     // 5. Visit timeline (last 20)
     q<Visit[]>(async () => {
@@ -363,11 +388,26 @@ export default async function ClientProfilePage({
     return ((last / first) ** (1 / years) - 1) * 100;
   })();
 
-  // Competition KPIs — from competitor_installed_base (PCP units by maker)
+  // Competition KPIs — from competitor_installed_base (PCP + MMP units by maker)
   const rilUnits        = comp.rilUnits;
   const totalUnits      = comp.totalUnits;
   const competitorUnits = Math.max(0, totalUnits - rilUnits);
   const rilSharePct     = totalUnits > 0 ? Math.round((rilUnits / totalUnits) * 100) : 0;
+
+  const rilMmp          = comp.rilMmp;
+  const totalMmp        = comp.totalMmp;
+  const competitorMmp   = Math.max(0, totalMmp - rilMmp);
+  const rilMmpSharePct  = totalMmp > 0 ? Math.round((rilMmp / totalMmp) * 100) : 0;
+
+  // Risansi's own installed pumps at this client, split by type (the headline figure).
+  const rilPumpsTotal   = rilUnits + rilMmp;
+
+  // Installed-base breakdown sections (PCP + MMP), each rendered the same way.
+  const installedSections = [
+    totalUnits > 0 ? { key: 'PCP', ril: rilUnits, total: totalUnits, makers: comp.makers,    sharePct: rilSharePct }    : null,
+    totalMmp   > 0 ? { key: 'MMP', ril: rilMmp,   total: totalMmp,   makers: comp.mmpMakers,  sharePct: rilMmpSharePct } : null,
+  ].filter(Boolean) as { key: string; ril: number; total: number; makers: CompMaker[]; sharePct: number }[];
+  const competitorAll = competitorUnits + competitorMmp;
 
   // Last visit — from clients.last_visit_date (most recent COMPLETED visit only;
   // planned future visits never count). formatLastVisit treats future dates as "never".
@@ -518,9 +558,9 @@ export default async function ClientProfilePage({
               ? 'No visits logged'
               : new Date(client.last_visit_date!).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
             neg={lastVisitInfo.isOverdue} />
-          <MiniKpi label="Installed Base · PCP"
-            value={totalUnits > 0 ? `${rilUnits} / ${totalUnits}` : '—'}
-            sub={totalUnits > 0 ? `${Math.round((rilUnits / totalUnits) * 100)}% RIL share` : 'No PCP data'} />
+          <MiniKpi label="Risansi Pumps Installed"
+            value={rilPumpsTotal > 0 ? String(rilPumpsTotal) : '—'}
+            sub={rilPumpsTotal > 0 ? `${rilUnits} PCP · ${rilMmp} MMP` : 'No installed-base data'} />
           <MiniKpi label="Open Pipeline"
             value={fmtCr(pipelineTotal)}
             sub={openOpps.length > 0 ? `${openOpps.length} opportunit${openOpps.length === 1 ? 'y' : 'ies'}` : 'No open opportunities'} />
@@ -602,41 +642,68 @@ export default async function ClientProfilePage({
               </div>
             </div>
 
-            {/* Competition · PCP installed base (RIL vs competitors at this client) */}
+            {/* Competition · installed base (RIL vs competitors at this client, PCP + MMP) */}
             <div data-tabgroup="overview" style={PANEL}>
               <div style={PANEL_H}>
-                <span style={PANEL_TITLE}>Competition · PCP Installed Base · {totalUnits} pump{totalUnits !== 1 ? 's' : ''}</span>
-                {competitorUnits > 0 && (
+                <span style={PANEL_TITLE}>Competition · Installed Base</span>
+                {competitorAll > 0 && (
                   <div style={{ marginLeft: 'auto' }}>
-                    <Tag kind="warn">{competitorUnits} competitor unit{competitorUnits !== 1 ? 's' : ''}</Tag>
+                    <Tag kind="warn">{competitorAll} competitor unit{competitorAll !== 1 ? 's' : ''}</Tag>
                   </div>
                 )}
               </div>
-              {totalUnits > 0 ? (
+              {installedSections.length > 0 ? (
                 <div style={{ padding: 14 }}>
-                  <div style={{ fontSize: 12, color: 'var(--fg-3)', marginBottom: 12 }}>
-                    RIL share at this account: <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: rilSharePct >= 50 ? 'var(--pos)' : 'var(--neg)' }}>{rilSharePct}%</span>
-                    {' '}· {rilUnits} of {totalUnits} pumps
+                  {/* Headline: how many pumps here are ours, split by type */}
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+                    <div style={RIL_STAT}>
+                      <div style={RIL_STAT_LBL}>Risansi pumps here</div>
+                      <div style={RIL_STAT_VAL}>{rilPumpsTotal}</div>
+                      <div style={RIL_STAT_SUB}>{rilUnits} PCP · {rilMmp} MMP</div>
+                    </div>
+                    <div style={RIL_STAT}>
+                      <div style={RIL_STAT_LBL}>PCP share</div>
+                      <div style={{ ...RIL_STAT_VAL, color: totalUnits === 0 ? 'var(--fg-3)' : rilSharePct >= 50 ? 'var(--pos)' : 'var(--neg)' }}>
+                        {totalUnits > 0 ? `${rilSharePct}%` : '—'}
+                      </div>
+                      <div style={RIL_STAT_SUB}>{rilUnits} of {totalUnits} pumps</div>
+                    </div>
+                    <div style={RIL_STAT}>
+                      <div style={RIL_STAT_LBL}>MMP share</div>
+                      <div style={{ ...RIL_STAT_VAL, color: totalMmp === 0 ? 'var(--fg-3)' : rilMmpSharePct >= 50 ? 'var(--pos)' : 'var(--neg)' }}>
+                        {totalMmp > 0 ? `${rilMmpSharePct}%` : '—'}
+                      </div>
+                      <div style={RIL_STAT_SUB}>{rilMmp} of {totalMmp} pumps</div>
+                    </div>
                   </div>
-                  {[{ name: 'RIL', units: rilUnits, isRil: true }, ...comp.makers.map(m => ({ ...m, isRil: false }))]
-                    .filter(m => m.units > 0)
-                    .map(m => {
-                      const pct = totalUnits > 0 ? (m.units / totalUnits) * 100 : 0;
-                      const color = m.isRil ? '#1A5CB8' : '#94A3B8';
-                      return (
-                        <div key={m.name} style={{ marginBottom: 8 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 3 }}>
-                            <span style={{ fontWeight: m.isRil ? 600 : 400, color: m.isRil ? 'var(--accent)' : 'var(--fg-2)' }}>
-                              {m.name}{m.isRil ? ' (us)' : ''}
-                            </span>
-                            <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>{m.units} · {pct.toFixed(0)}%</span>
-                          </div>
-                          <div style={{ height: 6, background: 'var(--bg-sunk)', borderRadius: 3, overflow: 'hidden' }}>
-                            <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 3 }} />
-                          </div>
-                        </div>
-                      );
-                    })}
+
+                  {/* Per-type breakdown: RIL vs each competitor make */}
+                  {installedSections.map((sec, si) => (
+                    <div key={sec.key} style={{ marginTop: si > 0 ? 16 : 0 }}>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
+                        {sec.key} · {sec.total} pump{sec.total !== 1 ? 's' : ''}
+                      </div>
+                      {[{ name: 'RIL', units: sec.ril, isRil: true }, ...sec.makers.map(m => ({ ...m, isRil: false }))]
+                        .filter(m => m.units > 0)
+                        .map(m => {
+                          const pct = sec.total > 0 ? (m.units / sec.total) * 100 : 0;
+                          const color = m.isRil ? '#1A5CB8' : '#94A3B8';
+                          return (
+                            <div key={m.name} style={{ marginBottom: 8 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 3 }}>
+                                <span style={{ fontWeight: m.isRil ? 600 : 400, color: m.isRil ? 'var(--accent)' : 'var(--fg-2)' }}>
+                                  {m.name}{m.isRil ? ' (us)' : ''}
+                                </span>
+                                <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>{m.units} · {pct.toFixed(0)}%</span>
+                              </div>
+                              <div style={{ height: 6, background: 'var(--bg-sunk)', borderRadius: 3, overflow: 'hidden' }}>
+                                <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 3 }} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  ))}
                 </div>
               ) : (
                 <div style={{ padding: '24px 0', textAlign: 'center', fontSize: 12, color: 'var(--fg-3)' }}>
@@ -1190,6 +1257,20 @@ const REV_TH: CSSProperties = {
   padding: '5px 8px', textAlign: 'right', fontSize: 10,
   fontFamily: 'var(--font-mono)', color: 'var(--fg-3)', fontWeight: 400,
 };
+
+// Compact stat tiles for the "Risansi pumps here" headline (PCP/MMP counts + share).
+const RIL_STAT: CSSProperties = {
+  flex: '1 1 120px', minWidth: 120, padding: '8px 10px',
+  background: 'var(--bg-elev)', border: '1px solid var(--line)', borderRadius: 8,
+};
+const RIL_STAT_LBL: CSSProperties = {
+  fontSize: 9.5, fontWeight: 600, color: 'var(--fg-3)',
+  textTransform: 'uppercase', letterSpacing: '0.08em',
+};
+const RIL_STAT_VAL: CSSProperties = {
+  fontFamily: 'var(--font-mono)', fontSize: 20, fontWeight: 600, color: 'var(--fg)', lineHeight: 1.2, marginTop: 2,
+};
+const RIL_STAT_SUB: CSSProperties = { fontSize: 10, color: 'var(--fg-3)', marginTop: 1 };
 
 
 const CONTACT_LINK: CSSProperties = {

@@ -25,6 +25,14 @@ const COMPETITOR_PCP: Record<string, string> = {
   pandey_pcp: 'Pandey', mahalaxmi_pcp: 'Mahalaxmi', ravalgoan_pcp: 'Ravalgoan', others_pcp: 'Others',
 };
 
+const COMPETITOR_MMP: Record<string, string> = {
+  gita_mmp: 'Gita', sintech_mmp: 'Sintech', psp_mmp: 'PSP', syno_mmp: 'Syno',
+  ropman_mmp: 'Ropman', vikas_mmp: 'Vikas', indopump_mmp: 'Indopump', yaswant_mmp: 'Yaswant',
+  shivam_mmp: 'Shivam', elite_mmp: 'Elite', mather_mmp: 'Mather', varun_mmp: 'Varun',
+  vs_engg_mmp: 'VS Engg', span_engg_mmp: 'Span Engg', pandey_mmp: 'Pandey',
+  mahalaxmi_mmp: 'Mahalaxmi', ravalgoan_mmp: 'Ravalgoan', others_mmp: 'Others',
+};
+
 function fmtDate(v: string | Date | null | undefined): string {
   if (!v) return '—';
   const d = new Date(v);
@@ -99,14 +107,28 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
   for (const v of Object.values(revByFY)) { lifePump += v.pump; lifeSpare += v.spare; }
   const lifeTotal = lifePump + lifeSpare;
 
-  // ── Competition ──
-  const rilUnits = Number(compRow?.ril_pcp ?? 0);
-  const makers = compRow
-    ? Object.entries(COMPETITOR_PCP).map(([col, name]) => ({ name, units: Number(compRow[col] ?? 0) })).filter(m => m.units > 0).sort((a, b) => b.units - a.units)
+  // ── Competition (PCP + MMP installed base) ──
+  const mkMakers = (labels: Record<string, string>) => compRow
+    ? Object.entries(labels).map(([col, name]) => ({ name, units: Number(compRow[col] ?? 0) })).filter(m => m.units > 0).sort((a, b) => b.units - a.units)
     : [];
+
+  const rilUnits = Number(compRow?.ril_pcp ?? 0);
+  const makers = mkMakers(COMPETITOR_PCP);
   const sumNamed = rilUnits + makers.reduce((s, m) => s + m.units, 0);
   const totalUnits = Math.max(Number(compRow?.total_pcp ?? 0), sumNamed);
   const rilSharePct = totalUnits > 0 ? Math.round((rilUnits / totalUnits) * 100) : 0;
+
+  const rilMmp = Number(compRow?.ril_mmp ?? 0);
+  const mmpMakers = mkMakers(COMPETITOR_MMP);
+  const sumNamedMmp = rilMmp + mmpMakers.reduce((s, m) => s + m.units, 0);
+  const totalMmp = Math.max(Number(compRow?.total_mmp ?? 0), sumNamedMmp);
+  const rilMmpSharePct = totalMmp > 0 ? Math.round((rilMmp / totalMmp) * 100) : 0;
+  const rilPumpsTotal = rilUnits + rilMmp;
+
+  const compSections = [
+    totalUnits > 0 ? { key: 'PCP', ril: rilUnits, total: totalUnits, makers,    sharePct: rilSharePct }    : null,
+    totalMmp   > 0 ? { key: 'MMP', ril: rilMmp,   total: totalMmp,   makers: mmpMakers, sharePct: rilMmpSharePct } : null,
+  ].filter(Boolean) as { key: string; ril: number; total: number; makers: { name: string; units: number }[]; sharePct: number }[];
 
   const pipelineTotal = openOpps.reduce((s, o) => s + Number(o.value_cr), 0);
   const lastVisit = formatLastVisit(client.last_visit_date as string | null);
@@ -140,7 +162,7 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
             {[
               ['Lifetime Revenue', formatRev(lifeTotal * 100_000)],
               ['Last Visit', lastVisit.label],
-              ['PCP Installed Base', totalUnits > 0 ? `${rilUnits} / ${totalUnits}  ·  ${rilSharePct}% RIL` : '—'],
+              ['Risansi Pumps', rilPumpsTotal > 0 ? `${rilUnits} PCP · ${rilMmp} MMP` : '—'],
               ['Open Pipeline', openOpps.length > 0 ? `${fmtCr(pipelineTotal)} · ${openOpps.length}` : '—'],
             ].map(([l, v]) => (
               <div key={l} style={{ border: `1px solid ${C.line}`, borderRadius: 8, padding: 10 }}>
@@ -205,20 +227,27 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
             </Section>
           )}
 
-          <Section title={`Competition · PCP Installed Base${totalUnits > 0 ? ` · ${totalUnits} pumps` : ''}`} right={totalUnits > 0 ? `RIL share ${rilSharePct}%` : undefined}>
-            {totalUnits > 0 ? (
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead><tr>{['Make', 'Units', 'Share'].map(h => <th key={h} style={{ ...TH, textAlign: h === 'Make' ? 'left' : 'right' }}>{h}</th>)}</tr></thead>
-                <tbody>
-                  {[{ name: 'RIL (us)', units: rilUnits, isRil: true }, ...makers.map(m => ({ ...m, isRil: false }))].filter(m => m.units > 0).map(m => (
-                    <tr key={m.name}>
-                      <td style={{ ...TD, fontWeight: m.isRil ? 700 : 400, color: m.isRil ? C.accent : C.ink }}>{m.name}</td>
-                      <td style={{ ...TD, textAlign: 'right', fontFamily: 'monospace' }}>{m.units}</td>
-                      <td style={{ ...TD, textAlign: 'right', fontFamily: 'monospace' }}>{Math.round((m.units / totalUnits) * 100)}%</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <Section title="Competition · Installed Base" right={rilPumpsTotal > 0 ? `Risansi: ${rilUnits} PCP · ${rilMmp} MMP` : undefined}>
+            {compSections.length > 0 ? (
+              compSections.map(sec => (
+                <div key={sec.key} style={{ marginBottom: 10 }} className="avoid-break">
+                  <div style={{ fontSize: 9, fontWeight: 700, color: C.fg3, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>
+                    {sec.key} · {sec.total} pumps · RIL {sec.sharePct}%
+                  </div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead><tr>{['Make', 'Units', 'Share'].map(h => <th key={h} style={{ ...TH, textAlign: h === 'Make' ? 'left' : 'right' }}>{h}</th>)}</tr></thead>
+                    <tbody>
+                      {[{ name: 'RIL (us)', units: sec.ril, isRil: true }, ...sec.makers.map(m => ({ ...m, isRil: false }))].filter(m => m.units > 0).map(m => (
+                        <tr key={m.name}>
+                          <td style={{ ...TD, fontWeight: m.isRil ? 700 : 400, color: m.isRil ? C.accent : C.ink }}>{m.name}</td>
+                          <td style={{ ...TD, textAlign: 'right', fontFamily: 'monospace' }}>{m.units}</td>
+                          <td style={{ ...TD, textAlign: 'right', fontFamily: 'monospace' }}>{Math.round((m.units / sec.total) * 100)}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))
             ) : <div style={{ color: C.fg3 }}>No competitor installed-base data for this client</div>}
           </Section>
 
