@@ -23,8 +23,8 @@ const SORT_MAP: Record<string, string> = {
 
 // Owners aggregated from the flat client_assignments many-to-many.
 const OWNERS_SUBQUERY = `(SELECT string_agg(u.name, ', ' ORDER BY u.name)
-     FROM client_assignments ca JOIN users u ON u.id = ca.user_id
-    WHERE ca.client_id = c.id)`;
+     FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
+                WHERE ta.tour_id = c.tour_id)`;
 
 // Lifetime revenue (INR) per client, joined as rev.lifetime_rev.
 const REV_JOIN = `LEFT JOIN (
@@ -98,8 +98,8 @@ export default async function ClientListPage({
   if (repFilts.length > 0) {
     const rIdx = params.push(repFilts);
     whereConditions.push(
-      `EXISTS (SELECT 1 FROM client_assignments ca JOIN users u ON u.id = ca.user_id
-                WHERE ca.client_id = c.id AND u.name = ANY($${rIdx}::text[]))`
+      `EXISTS (SELECT 1 FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
+                WHERE ta.tour_id = c.tour_id AND u.name = ANY($${rIdx}::text[]))`
     );
   }
   if (fyFilts.length > 0) {

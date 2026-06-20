@@ -64,58 +64,50 @@ function intOrNull(v: unknown): number | null {
 
 /**
  * SQL predicate restricting a `clients` query (aliased `alias`) to what the
- * user may SEE:
- *   rep      → clients they're assigned to (client_assignments)
- *   manager  → assigned clients OR clients whose tour is one of their tours
- *   admin/+  → everything (returns null = no restriction)
- * A user with no linked id sees nothing ('FALSE').
+ * user may SEE. Visibility is purely TOUR-based:
+ *   rep / manager → clients whose tour is one of the tours they're on
+ *                   (tour_assignments). Rep and manager are identical here;
+ *                   the difference is only which tours each is assigned to.
+ *   admin / +     → everything (returns null = no restriction)
+ * A user with no linked id, or a client with no tour, is not visible ('FALSE').
  */
 export function clientVisibilitySql(user: CurrentUser, alias = 'c'): string | null {
   if (hasRole(user.role, 'admin')) return null;
   const uid = intOrNull(user.id);
   if (uid == null) return 'FALSE';
-  const assigned = `${alias}.id IN (SELECT client_id FROM client_assignments WHERE user_id = ${uid})`;
-  if (user.role === 'manager') {
-    return `(${assigned} OR ${alias}.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = ${uid}))`;
-  }
-  return assigned;
+  return `${alias}.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = ${uid})`;
 }
 
 /**
- * SQL predicate restricting a visits/opportunities query to what the user may
- * SEE, keyed on the owner column (e.g. 'v.rep_id', 'o.rep_id'):
- *   rep      → only their own
- *   manager  → own + anyone sharing one of their tours
- *   admin/+  → everything (null = no restriction)
+ * SQL predicate scoping a visits/opportunities/tasks query to the clients the
+ * user may SEE, keyed on that table's CLIENT-ID column (e.g. 'v.client_id',
+ * 'o.client_id'). A record is visible when its client's tour is one of the
+ * user's tours — i.e. fully tour-based, so a rep sees every visit/opportunity
+ * for clients on their tours, not only the ones they personally own.
+ *   rep / manager → records whose client is on one of their tours
+ *   admin / +     → everything (null = no restriction)
  */
-export function ownerVisibilitySql(user: CurrentUser, ownerCol: string): string | null {
+export function clientScopeSql(user: CurrentUser, clientIdCol: string): string | null {
   if (hasRole(user.role, 'admin')) return null;
   const uid = intOrNull(user.id);
   if (uid == null) return 'FALSE';
-  if (user.role === 'manager') {
-    return `${ownerCol} IN (
-      SELECT DISTINCT ta2.rep_id FROM tour_assignments ta1
-      JOIN tour_assignments ta2 ON ta1.tour_id = ta2.tour_id
-      WHERE ta1.rep_id = ${uid}
-      UNION SELECT ${uid}
-    )`;
-  }
-  return `${ownerCol} = ${uid}`;
+  return `${clientIdCol} IN (
+    SELECT id FROM clients
+     WHERE tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = ${uid})
+  )`;
 }
 
-/** Can this user SEE a single client? (mirrors clientVisibilitySql.) */
+/** Can this user SEE a single client? Tour-based (mirrors clientVisibilitySql). */
 export async function canViewClient(user: CurrentUser, clientId: number): Promise<boolean> {
   if (hasRole(user.role, 'admin')) return true;
   const uid = intOrNull(user.id);
   if (uid == null) return false;
   const { rows } = await risansiPool.query<{ ok: boolean }>(
     `SELECT EXISTS (
-       SELECT 1 FROM client_assignments WHERE client_id = $1 AND user_id = $2
-     ) OR ($3 = 'manager' AND EXISTS (
        SELECT 1 FROM clients c
        WHERE c.id = $1 AND c.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = $2)
-     )) AS ok`,
-    [clientId, uid, user.role],
+     ) AS ok`,
+    [clientId, uid],
   );
   return rows[0]?.ok ?? false;
 }

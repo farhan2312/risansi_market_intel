@@ -8,7 +8,7 @@ import { ExportPdfButton } from '@/components/risansi/ExportPdfButton';
 import { RefreshButton } from '@/components/risansi/RefreshButton';
 import { ActionQueueRow, type QueueTask } from '@/components/risansi/ActionQueueRow';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, clientVisibilitySql, ownerVisibilitySql } from '@/lib/risansi-auth';
+import { getCurrentUser, clientVisibilitySql, clientScopeSql } from '@/lib/risansi-auth';
 import {
   getCurrentFY, fyShortLabel,
   fyYtdPct, fyDaysLeft, formatIndianDate, formatTime, fmtCr, fmtL,
@@ -127,9 +127,9 @@ export default async function ExecDashboardPage({
   const currentUser = await getCurrentUser();
   const cVis = clientVisibilitySql(currentUser, 'c');               // clients aliased c
   const cVisAnd = cVis ? ` AND (${cVis})` : '';
-  const oppOwnerVis = ownerVisibilitySql(currentUser, 'o.rep_id');  // opportunities aliased o
+  const oppOwnerVis = clientScopeSql(currentUser, 'o.client_id');  // opportunities aliased o
   const oppOwnerAnd = oppOwnerVis ? ` AND (${oppOwnerVis})` : '';
-  const visitOwnerVis = ownerVisibilitySql(currentUser, 'v.rep_id'); // visits aliased v
+  const visitOwnerVis = clientScopeSql(currentUser, 'v.client_id'); // visits aliased v
   const visitOwnerAnd = visitOwnerVis ? ` AND (${visitOwnerVis})` : '';
 
   const sp       = await searchParams;

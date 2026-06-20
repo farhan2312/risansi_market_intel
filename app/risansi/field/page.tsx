@@ -5,7 +5,7 @@ import { getServerSession } from 'next-auth/next';
 import { Topbar, Tag } from '@/components/risansi';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, clientVisibilitySql, ownerVisibilitySql } from '@/lib/risansi-auth';
+import { getCurrentUser, clientVisibilitySql, clientScopeSql } from '@/lib/risansi-auth';
 import { IndiaMapWrapper } from '@/components/risansi/IndiaMapWrapper';
 import { ClientCoverageList } from '@/components/risansi/ClientCoverageList';
 import { WeekNav } from '@/components/risansi/WeekNav';
@@ -190,7 +190,7 @@ export default async function FieldActivityPage({
   const currentUser   = await getCurrentUser();
   const cVis          = clientVisibilitySql(currentUser, 'c');
   const cVisAnd       = cVis ? ` AND (${cVis})` : '';
-  const vVis          = ownerVisibilitySql(currentUser, 'v.rep_id');
+  const vVis          = clientScopeSql(currentUser, 'v.client_id');
   const vVisAnd       = vVis ? ` AND (${vVis})` : '';
 
   // ── Queries ──────────────────────────────────────────────────
@@ -252,8 +252,8 @@ export default async function FieldActivityPage({
            END AS days_overdue,
            COALESCE(
              (SELECT string_agg(u.name, ', ' ORDER BY u.name)
-                FROM client_assignments ca JOIN users u ON u.id = ca.user_id
-               WHERE ca.client_id = c.id),
+                FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
+                WHERE ta.tour_id = c.tour_id),
              '—') AS rep_name,
            NULL::text AS primary_rep_id
          FROM clients c
@@ -320,8 +320,8 @@ export default async function FieldActivityPage({
            EXTRACT(DAY FROM NOW() - c.last_visit_date)::int AS days_since,
            c.tier,
            (SELECT string_agg(u.name, ', ' ORDER BY u.name)
-              FROM client_assignments ca JOIN users u ON u.id = ca.user_id
-             WHERE ca.client_id = c.id) AS rep_name
+              FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
+                WHERE ta.tour_id = c.tour_id) AS rep_name
          FROM clients c
          WHERE c.status = 'ACTIVE' AND c.deleted_at IS NULL${cVisAnd}
          ORDER BY c.last_visit_date ASC NULLS FIRST`,

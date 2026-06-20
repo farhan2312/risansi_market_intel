@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, MultiSelectFilter, ActiveFilterBar } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, ownerVisibilitySql } from '@/lib/risansi-auth';
+import { getCurrentUser, clientScopeSql } from '@/lib/risansi-auth';
 import { getCurrentFY, fmtCr } from '@/lib/risansi-utils';
 import { NewOpportunityButton } from '@/components/risansi/NewOpportunityButton';
 import { OpportunityKanban } from '@/components/risansi/OpportunityKanban';
@@ -135,11 +135,11 @@ export default async function PipelinePage({
   // Per-user owner visibility — null for admin/sysadmin (no restriction).
   // Appended as raw text (integers inlined, no params) so $-indices are unchanged.
   const visUser     = await getCurrentUser();
-  const ownerVis    = ownerVisibilitySql(visUser, 'o.rep_id');
+  const ownerVis    = clientScopeSql(visUser, 'o.client_id');
   const ownerVisAnd = ownerVis ? ` AND (${ownerVis})` : '';
-  const ownerVisPo  = ownerVisibilitySql(visUser, 'po.rep_id');
+  const ownerVisPo  = clientScopeSql(visUser, 'po.client_id');
   const ownerVisPoAnd = ownerVisPo ? ` AND (${ownerVisPo})` : '';
-  const ownerVisBare  = ownerVisibilitySql(visUser, 'rep_id');
+  const ownerVisBare  = clientScopeSql(visUser, 'client_id');
   const ownerVisBareAnd = ownerVisBare ? ` AND (${ownerVisBare})` : '';
 
   const filterClause = (conds.length ? ` AND ${conds.join(' AND ')}` : '') + ownerVisAnd;

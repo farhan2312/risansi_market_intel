@@ -37,7 +37,7 @@ interface Client {
   tcd: number | null; klpd: number | null;
   // Reps (DB columns + joined)
   primary_rep_id: string | null; primary_rep_name: string | null;
-  rep_name: string | null;
+  rep_name: string | null; manager_name: string | null;
   rep_zone: string | null; rep_route: string | null; rep_email: string | null;
   secondary_rep_joined: string | null; secondary_rep_zone: string | null; secondary_rep_route: string | null;
   sec_rep_name: string | null; sec_rep_zone: string | null;
@@ -146,15 +146,18 @@ export default async function ClientProfilePage({
       `SELECT c.*,
               COALESCE(
                 (SELECT string_agg(u.name, ', ' ORDER BY u.name)
-                   FROM client_assignments ca JOIN users u ON u.id = ca.user_id
-                  WHERE ca.client_id = c.id),
+                   FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
+                  WHERE ta.tour_id = c.tour_id AND ta.role = 'rep'),
                 '—') AS rep_name,
               (SELECT string_agg(u.name, ', ' ORDER BY u.name)
-                 FROM client_assignments ca JOIN users u ON u.id = ca.user_id
-                WHERE ca.client_id = c.id) AS primary_rep_name,
-              (SELECT ca.user_id FROM client_assignments ca
-                WHERE ca.client_id = c.id
-                ORDER BY ca.assigned_at, ca.user_id LIMIT 1) AS primary_rep_id,
+                 FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
+                WHERE ta.tour_id = c.tour_id AND ta.role = 'rep') AS primary_rep_name,
+              (SELECT string_agg(u.name, ', ' ORDER BY u.name)
+                 FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
+                WHERE ta.tour_id = c.tour_id AND ta.role = 'manager') AS manager_name,
+              (SELECT ta.rep_id FROM tour_assignments ta
+                WHERE ta.tour_id = c.tour_id
+                ORDER BY (ta.role = 'rep') DESC, ta.assigned_at, ta.rep_id LIMIT 1) AS primary_rep_id,
               tr.name AS tour_name,
               tr.zone AS tour_zone
        FROM clients c
@@ -420,11 +423,11 @@ export default async function ClientProfilePage({
               {client.since_year && <><span style={{ margin: '0 8px' }}>·</span>Customer since {client.since_year}</>}
             </div>
 
-            {/* Owner + tour display row (flat client_assignments / tour_routes) */}
+            {/* Responsible people — reps + manager, derived from the client's tour */}
             <div style={{ display: 'flex', gap: 16, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              {/* Owners — all equal, from client_assignments */}
+              {/* Reps on the tour */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 500 }}>Owners</span>
+                <span style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 500 }}>Reps</span>
                 {client.rep_name && client.rep_name !== '—' ? (
                   <span style={{ fontSize: 12, fontWeight: 500 }}>{client.rep_name}</span>
                 ) : (
@@ -432,6 +435,14 @@ export default async function ClientProfilePage({
                 )}
                 {canEdit && <EditDrawerTrigger />}
               </div>
+
+              {/* Manager(s) on the tour */}
+              {client.manager_name && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 500 }}>Manager</span>
+                  <span style={{ fontSize: 12, fontWeight: 500 }}>{client.manager_name}</span>
+                </div>
+              )}
 
               {/* Tour route */}
               {client.tour_name && (

@@ -215,8 +215,8 @@ export default async function RevenuePage({
         `SELECT c.id::text AS id, c.code, c.legal_name, c.industry, c.state, c.tier,
                 COALESCE(
                   (SELECT string_agg(u.name, ', ' ORDER BY u.name)
-                     FROM client_assignments ca JOIN users u ON u.id = ca.user_id
-                    WHERE ca.client_id = c.id),
+                     FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
+                WHERE ta.tour_id = c.tour_id),
                   '—') AS rep_name,
                 COALESCE(SUM(crm.pump_value)  FILTER (WHERE crm.month >= $1 AND crm.month < $2),0)::text AS pump,
                 COALESCE(SUM(crm.spare_value) FILTER (WHERE crm.month >= $1 AND crm.month < $2),0)::text AS spare,

@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, Donut, Tag, KpiCard, MultiSelectFilter, ActiveFilterBar, SortableTH } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, clientVisibilitySql, ownerVisibilitySql } from '@/lib/risansi-auth';
+import { getCurrentUser, clientVisibilitySql, clientScopeSql } from '@/lib/risansi-auth';
 import { fmtCr } from '@/lib/risansi-utils';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
@@ -131,9 +131,9 @@ export default async function CompetePage({
   // Per-user visibility predicates (inline integer ids, no params).
   //   visits aliased v · opportunities aliased o · clients aliased c.
   const currentUser  = await getCurrentUser();
-  const vOwnerVis    = ownerVisibilitySql(currentUser, 'v.rep_id');
+  const vOwnerVis    = clientScopeSql(currentUser, 'v.client_id');
   const vOwnerAnd    = vOwnerVis ? ` AND (${vOwnerVis})` : '';
-  const oOwnerVis    = ownerVisibilitySql(currentUser, 'o.rep_id');
+  const oOwnerVis    = clientScopeSql(currentUser, 'o.client_id');
   const oOwnerAnd    = oOwnerVis ? ` AND (${oOwnerVis})` : '';
   const cVis         = clientVisibilitySql(currentUser, 'c');
   const cVisAnd      = cVis ? ` AND (${cVis})` : '';
@@ -187,8 +187,8 @@ export default async function CompetePage({
                 cib.total_pcp::text,
                 (cib.total_pcp - COALESCE(cib.ril_pcp, 0))::text AS competitor_pcp,
                 (SELECT string_agg(u.name, ', ' ORDER BY u.name)
-                   FROM client_assignments ca JOIN users u ON u.id = ca.user_id
-                  WHERE ca.client_id = c.id) AS rep_name
+                   FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
+                WHERE ta.tour_id = c.tour_id) AS rep_name
          FROM competitor_installed_base cib
          JOIN clients c ON c.code = cib.client_code
          ${dispWhere}${cVisAnd}

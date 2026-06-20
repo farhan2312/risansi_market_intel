@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 import { getGreeting, fmtCr, formatRev } from '@/lib/risansi-utils';
-import { getCurrentUser, clientVisibilitySql, ownerVisibilitySql } from '@/lib/risansi-auth';
+import { getCurrentUser, clientVisibilitySql, clientScopeSql } from '@/lib/risansi-auth';
 import { EmptyState } from '@/components/risansi/EmptyState';
 import Link from 'next/link';
 
@@ -45,9 +45,9 @@ export default async function MobileDayPage() {
   const currentUser = await getCurrentUser();
   const cVis  = clientVisibilitySql(currentUser, 'c');
   const cAnd  = cVis ? ` AND (${cVis})` : '';
-  const vVis  = ownerVisibilitySql(currentUser, 'v.rep_id');
+  const vVis  = clientScopeSql(currentUser, 'v.client_id');
   const vAnd  = vVis ? ` AND (${vVis})` : '';
-  const oVis  = ownerVisibilitySql(currentUser, 'o.rep_id');
+  const oVis  = clientScopeSql(currentUser, 'o.client_id');
   const oAnd  = oVis ? ` AND (${oVis})` : '';
 
   let repId: number | null = session?.user?.repId ?? null;

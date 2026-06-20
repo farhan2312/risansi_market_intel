@@ -44,8 +44,8 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
     const { rows } = await risansiPool.query<Record<string, unknown>>(
       `SELECT c.*,
               COALESCE((SELECT string_agg(u.name, ', ' ORDER BY u.name)
-                FROM client_assignments ca JOIN users u ON u.id = ca.user_id
-                WHERE ca.client_id = c.id), '—') AS rep_name,
+                FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
+                WHERE ta.tour_id = c.tour_id), '—') AS rep_name,
               tr.name AS tour_name, tr.zone AS tour_zone
        FROM clients c
        LEFT JOIN tour_routes tr ON tr.id = c.tour_id

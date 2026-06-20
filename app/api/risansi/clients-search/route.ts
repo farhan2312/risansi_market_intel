@@ -19,8 +19,8 @@ export async function GET(request: Request) {
                 WHERE ca.client_id = c.id ORDER BY ca.assigned_at, ca.user_id LIMIT 1) AS primary_rep_id,
               NULL::int                                                     AS secondary_rep_id,
               (SELECT string_agg(u.name, ', ' ORDER BY u.name)
-                 FROM client_assignments ca JOIN users u ON u.id = ca.user_id
-                WHERE ca.client_id = c.id)                                  AS primary_rep_name,
+                 FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
+                WHERE ta.tour_id = c.tour_id)                                  AS primary_rep_name,
               NULL::text                                                    AS secondary_rep_name
        FROM clients c
        WHERE c.deleted_at IS NULL
