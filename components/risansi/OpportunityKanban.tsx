@@ -121,7 +121,7 @@ export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] })
         </span>
       </div>
 
-      <div className="r-kanban" style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 10 }}>
+      <div className="r-kanban" style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 10 }}>
         {STAGES.map(stage => {
           const items = byStage[stage] ?? [];
           const stageTotal = items.reduce((s, o) => s + o.value_cr, 0);
@@ -188,13 +188,13 @@ export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] })
                         👁
                       </div>
                     )}
-                    <div style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                      <span>{opp.client_code}</span>
-                      <span>{opp.rep_name || '—'}</span>
+                    <div style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', display: 'flex', justifyContent: 'space-between', gap: 6, marginBottom: 4 }}>
+                      <span style={{ flexShrink: 0 }}>{opp.client_code}</span>
+                      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right' }}>{opp.rep_name || '—'}</span>
                     </div>
-                    <div style={{ fontSize: 12, fontWeight: 500, lineHeight: 1.3, marginBottom: 4, color: 'var(--fg)' }}>{opp.client_name}</div>
-                    <div style={{ fontSize: 11, color: 'var(--fg-2)', marginBottom: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{opp.product}</div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                    <div style={{ fontSize: 12, fontWeight: 500, lineHeight: 1.3, marginBottom: 4, color: 'var(--fg)', overflowWrap: 'anywhere' }}>{opp.client_name}</div>
+                    <div style={{ fontSize: 11, color: 'var(--fg-2)', marginBottom: 6, lineHeight: 1.35, overflowWrap: 'anywhere' }}>{opp.product}</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
                       <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: 'var(--brand-blue)' }}>
                         {opp.value_cr ? `₹${(opp.value_cr * 100).toFixed(1)}L` : '—'}
                       </span>
