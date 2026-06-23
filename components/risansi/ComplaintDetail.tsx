@@ -120,16 +120,19 @@ export function ComplaintDetail({ complaint, users, me, onClose }: {
               {STATUSES.map(s => {
                 const active = s === c.status;
                 const closedLocked = s === 'Closed' && !isAdmin;
+                // Closed is terminal for non-admins — they can't move it elsewhere.
+                const reopenLocked = c.status === 'Closed' && s !== 'Closed' && !isAdmin;
+                const locked = closedLocked || reopenLocked;
                 return (
-                  <button key={s} type="button" disabled={busy || active || closedLocked}
-                    title={closedLocked ? 'Only an admin can close' : undefined}
+                  <button key={s} type="button" disabled={busy || active || locked}
+                    title={reopenLocked ? 'Only an admin can re-open a closed complaint' : closedLocked ? 'Only an admin can close' : undefined}
                     onClick={() => run(() => setComplaintStatus(form({ status: s })))}
                     style={{
                       ...PILL,
                       background: active ? (STATUS_COLOR[s] ?? 'var(--fg-3)') : 'var(--bg-paper)',
-                      color: active ? '#fff' : closedLocked ? 'var(--fg-3)' : 'var(--fg-2)',
+                      color: active ? '#fff' : locked ? 'var(--fg-3)' : 'var(--fg-2)',
                       borderColor: active ? 'transparent' : 'var(--line-strong)',
-                      opacity: closedLocked ? 0.5 : 1, cursor: active || closedLocked ? 'default' : 'pointer',
+                      opacity: locked ? 0.5 : 1, cursor: active || locked ? 'default' : 'pointer',
                     }}>{s}</button>
                 );
               })}

@@ -4,8 +4,10 @@ import { revalidatePath } from 'next/cache';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, hasRole, canViewClient, type CurrentUser } from '@/lib/risansi-auth';
 
-export const COMPLAINT_STATUSES = ['Open', 'In Progress', 'Awaiting Client', 'Resolved', 'Closed'] as const;
-export const COMPLAINT_PRIORITIES = ['High', 'Medium', 'Low'] as const;
+// NOTE: a 'use server' module may only export async functions, so these stay
+// as local (non-exported) constants — exporting them breaks the production build.
+const COMPLAINT_STATUSES = ['Open', 'In Progress', 'Awaiting Client', 'Resolved', 'Closed'] as const;
+const COMPLAINT_PRIORITIES = ['High', 'Medium', 'Low'] as const;
 
 function str(fd: FormData, k: string): string | null {
   const v = (fd.get(k) as string | null)?.trim();
@@ -152,6 +154,12 @@ export async function setComplaintStatus(fd: FormData): Promise<void> {
   if (status === 'Closed' && !hasRole(user.role, 'admin')) {
     throw new Error('Only an admin can close a complaint — you can mark it Resolved');
   }
+  // Closed is terminal for everyone except admins: re-opening (Closed → other)
+  // is admin-only, mirroring the admin-only close.
+  if (row.status === 'Closed' && status !== 'Closed' && !hasRole(user.role, 'admin')) {
+    throw new Error('Only an admin can re-open a closed complaint');
+  }
+  if (row.status === status) return; // no-op
 
   const actor = user.email ?? 'system';
   await risansiPool.query(
