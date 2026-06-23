@@ -22,6 +22,16 @@ const COMP_COLORS: Record<string, string> = {
 };
 function compColor(name: string) { return COMP_COLORS[name] ?? COMP_COLORS.Others; }
 
+// MMP installed-base makers (RIL handled separately). The donut shows the top
+// few by units; the rest fold into "Others" alongside the others_mmp column.
+const MMP_MAKERS: Record<string, string> = {
+  gita_mmp: 'Gita', sintech_mmp: 'Sintech', psp_mmp: 'PSP', syno_mmp: 'Syno', ropman_mmp: 'Ropman',
+  vikas_mmp: 'Vikas', indopump_mmp: 'Indopump', yaswant_mmp: 'Yaswant', shivam_mmp: 'Shivam',
+  elite_mmp: 'Elite', ravalgoan_mmp: 'Ravalgoan', mather_mmp: 'Mather', varun_mmp: 'Varun',
+  vs_engg_mmp: 'VS Engg', span_engg_mmp: 'Span Engg', pandey_mmp: 'Pandey', mahalaxmi_mmp: 'Mahalaxmi',
+};
+const MMP_PALETTE = ['#7C3AED', '#D97706', '#0891B2', '#DC2626', '#059669', '#DB2777', '#475569'];
+
 function fmtD(d: string | null): string {
   if (!d) return '—';
   const dt = new Date(d);
@@ -141,7 +151,7 @@ export default async function CompetePage({
 
   const [
     totals, displacementAccounts, industryShare, zoneOptions, repOptions,
-    fieldSightings, competitorActivity, lostToRows, priceIntel,
+    fieldSightings, competitorActivity, lostToRows, priceIntel, mmpTotals,
   ] = await Promise.all([
 
     // 1. Aggregate totals
@@ -321,6 +331,16 @@ export default async function CompetePage({
       );
       return rows.map(r => ({ ...r, pics: Number(r.pics ?? 0) }));
     }, []),
+
+    // E. MMP installed-base totals (RIL + each MMP maker + market total).
+    q<Record<string, number>>(async () => {
+      const cols = ['ril_mmp', 'total_mmp', 'others_mmp', ...Object.keys(MMP_MAKERS)];
+      const sel = cols.map(c => `COALESCE(SUM(cib.${c}),0)::int AS ${c}`).join(', ');
+      const { rows } = await risansiPool.query<Record<string, number>>(
+        `SELECT ${sel} FROM competitor_installed_base cib
+         ${cVis ? `JOIN clients c ON c.code = cib.client_code WHERE (${cVis})` : ''}`);
+      return rows[0] ?? {};
+    }, {}),
   ]);
 
   // ── Field-sightings supplier rollup (which competitors we meet most) ──
@@ -351,9 +371,24 @@ export default async function CompetePage({
     ...(othersUnits > 0 ? [{ name: 'Others', units: othersUnits, color: compColor('Others') }] : []),
   ].filter(d => d.units > 0).map(d => ({ ...d, pct: (d.units / safeTotal) * 100 }));
 
-  const competitors = donutSlices.filter(d => d.name !== 'RIL');
-  const maxCompPct  = competitors.length > 0 ? Math.max(...competitors.map(c => c.pct)) : 1;
   const totalCompetitorUnits = displacementAccounts.reduce((s, r) => s + r.competitor_pcp, 0);
+
+  // ── MMP market share (separate market from PCP) ──
+  const rilMmp      = Number(mmpTotals.ril_mmp ?? 0);
+  const totalMmp    = Number(mmpTotals.total_mmp ?? 0);
+  const safeMmp     = Math.max(totalMmp, 1);
+  const rilMmpShare = (rilMmp / safeMmp) * 100;
+  const mmpNamed = Object.entries(MMP_MAKERS)
+    .map(([col, name]) => ({ name, units: Number(mmpTotals[col] ?? 0) }))
+    .filter(m => m.units > 0)
+    .sort((a, b) => b.units - a.units);
+  const MMP_TOP = 6;
+  const mmpRest = mmpNamed.slice(MMP_TOP).reduce((s, m) => s + m.units, 0) + Number(mmpTotals.others_mmp ?? 0);
+  const mmpDonut = [
+    { name: 'RIL', units: rilMmp, color: COMP_COLORS.RIL },
+    ...mmpNamed.slice(0, MMP_TOP).map((m, i) => ({ name: m.name, units: m.units, color: MMP_PALETTE[i % MMP_PALETTE.length] })),
+    ...(mmpRest > 0 ? [{ name: 'Others', units: mmpRest, color: COMP_COLORS.Others }] : []),
+  ].filter(d => d.units > 0).map(d => ({ ...d, pct: (d.units / safeMmp) * 100 }));
 
   const curSort  = sortKey;
   const curDir   = orderDir === 'DESC' ? 'desc' : 'asc';
@@ -372,8 +407,8 @@ export default async function CompetePage({
             Competition Intelligence
           </div>
           <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>
-            PCP installed base · master data from client files
-            {totals.total_pcp > 0 && ` · ${totals.total_pcp.toLocaleString()} total units tracked`}
+            PCP &amp; MMP installed base · master data from client files
+            {(totals.total_pcp + totalMmp) > 0 && ` · ${(totals.total_pcp + totalMmp).toLocaleString()} total units tracked`}
           </div>
         </div>
 
@@ -402,110 +437,28 @@ export default async function CompetePage({
           />
         </div>
 
-        {/* ── Donut + Competitor breakdown ──────────────────────── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: 14, marginBottom: 14 }}>
+        {/* ── PCP market share ──────────────────────────────────── */}
+        <MarketShareGrid
+          title="PCP Market Share" breakdownTitle="Competitor Breakdown · PCP" unitLabel="PCP Units"
+          donut={donutSlices} rilShare={rilShare} rilUnits={totals.ril_pcp} hasData={totals.total_pcp > 0}
+        />
 
-          <div style={PANEL}>
-            <div style={PANEL_H}><span style={PANEL_TITLE}>PCP Market Share</span></div>
-            <div style={{ padding: 20, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
-              {totals.total_pcp > 0 ? (
-                <>
-                  <Donut
-                    data={donutSlices.map(d => ({ pct: d.pct, color: d.color, name: d.name }))}
-                    size={160} thick={22}
-                    center={
-                      <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 24, fontWeight: 500, color: 'var(--fg)' }}>
-                          {rilShare.toFixed(1)}%
-                        </div>
-                        <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginTop: 2 }}>
-                          RIL Share
-                        </div>
-                      </div>
-                    }
-                  />
-                  <div style={{ width: '100%' }}>
-                    {donutSlices.map((d, i) => (
-                      <div key={d.name} style={{
-                        display: 'flex', alignItems: 'center', gap: 8,
-                        padding: '5px 0',
-                        borderBottom: i < donutSlices.length - 1 ? '1px solid var(--line)' : 'none',
-                        fontSize: 12,
-                      }}>
-                        <span style={{ width: 8, height: 8, borderRadius: 2, background: d.color, flexShrink: 0 }} />
-                        <span style={{ flex: 1, fontWeight: d.name === 'RIL' ? 600 : 400 }}>{d.name}</span>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--fg-2)' }}>
-                          {d.units.toLocaleString()}
-                        </span>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)', minWidth: 42, textAlign: 'right' }}>
-                          {d.pct.toFixed(1)}%
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              ) : (
-                <div style={{ fontSize: 12, color: 'var(--fg-3)', textAlign: 'center', padding: '48px 0' }}>
-                  No installed base data yet.
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div style={PANEL}>
-            <div style={PANEL_H}>
-              <span style={PANEL_TITLE}>Competitor Breakdown · PCP</span>
-              <span style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
-                {competitors.length} competitor{competitors.length !== 1 ? 's' : ''} tracked
-              </span>
-            </div>
-            {competitors.length === 0 ? (
-              <div style={{ fontSize: 12, color: 'var(--fg-3)', textAlign: 'center', padding: '48px 0' }}>
-                No competitor data
-              </div>
-            ) : (
-              <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead>
-                  <tr style={{ background: 'var(--bg-elev)' }}>
-                    {['Make', 'PCP Units', 'Share', '', 'vs RIL'].map(h => (
-                      <th key={h} style={TH}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {competitors.map(comp => {
-                    const barPct = maxCompPct > 0 ? (comp.pct / maxCompPct) * 100 : 0;
-                    const vsRil  = totals.ril_pcp > 0 ? ((comp.units - totals.ril_pcp) / totals.ril_pcp) * 100 : 0;
-                    return (
-                      <tr key={comp.name} style={{ borderBottom: '1px solid var(--line)' }}>
-                        <td data-label="" style={{ padding: '10px 12px', verticalAlign: 'middle' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span style={{ width: 8, height: 8, borderRadius: 2, background: comp.color, display: 'inline-block', flexShrink: 0 }} />
-                            <span style={{ fontWeight: 500 }}>{comp.name}</span>
-                          </div>
-                        </td>
-                        <td data-label="PCP Units" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
-                          {comp.units.toLocaleString()}
-                        </td>
-                        <td data-label="Share" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
-                          {comp.pct.toFixed(1)}%
-                        </td>
-                        <td data-label="Share trend" style={{ ...TD, width: 100, paddingLeft: 6, paddingRight: 12 }}>
-                          <div style={{ height: 6, background: 'var(--bg-sunk)', borderRadius: 3, overflow: 'hidden' }}>
-                            <div style={{ width: `${barPct}%`, height: '100%', background: comp.color, borderRadius: 3 }} />
-                          </div>
-                        </td>
-                        <td data-label="vs RIL" style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: vsRil > 0 ? 'var(--neg)' : 'var(--pos)' }}>
-                          {totals.ril_pcp > 0 ? `${vsRil > 0 ? '+' : ''}${vsRil.toFixed(0)}%` : '—'}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
+        {/* ── MMP installed base ────────────────────────────────── */}
+        <div style={{ margin: '22px 0 12px' }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--fg)' }}>MMP Installed Base</div>
+          <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 2 }}>
+            MMP pumps{totalMmp > 0 ? ` · ${totalMmp.toLocaleString()} units tracked` : ''}
           </div>
         </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 14 }}>
+          <KpiCard label="Total MMP Market" value={totalMmp > 0 ? totalMmp.toLocaleString() : '—'} sub="units in installed base" />
+          <KpiCard label="RIL MMP Units" value={rilMmp > 0 ? rilMmp.toLocaleString() : '—'} sub="our installed pumps" pos />
+          <KpiCard label="RIL MMP Share" value={totalMmp > 0 ? `${rilMmpShare.toFixed(1)}%` : '—'} sub="MMP installed base" />
+        </div>
+        <MarketShareGrid
+          title="MMP Market Share" breakdownTitle="Competitor Breakdown · MMP" unitLabel="MMP Units"
+          donut={mmpDonut} rilShare={rilMmpShare} rilUnits={rilMmp} hasData={totalMmp > 0}
+        />
 
         {/* ── RIL share by industry ────────────────────────────── */}
         {industryShare.length > 0 && (
@@ -789,6 +742,113 @@ export default async function CompetePage({
           )}
         </div>
 
+      </div>
+    </div>
+  );
+}
+
+// ── Market-share donut + competitor breakdown (shared by PCP and MMP) ──
+interface DonutSlice { name: string; units: number; color: string; pct: number }
+
+function MarketShareGrid({ title, breakdownTitle, unitLabel, donut, rilShare, rilUnits, hasData }: {
+  title: string; breakdownTitle: string; unitLabel: string;
+  donut: DonutSlice[]; rilShare: number; rilUnits: number; hasData: boolean;
+}) {
+  const competitors = donut.filter(d => d.name !== 'RIL');
+  const maxCompPct  = competitors.length > 0 ? Math.max(...competitors.map(c => c.pct)) : 1;
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: 14, marginBottom: 14 }}>
+      <div style={PANEL}>
+        <div style={PANEL_H}><span style={PANEL_TITLE}>{title}</span></div>
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+          {hasData ? (
+            <>
+              <Donut
+                data={donut.map(d => ({ pct: d.pct, color: d.color, name: d.name }))}
+                size={160} thick={22}
+                center={
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 24, fontWeight: 500, color: 'var(--fg)' }}>
+                      {rilShare.toFixed(1)}%
+                    </div>
+                    <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginTop: 2 }}>
+                      RIL Share
+                    </div>
+                  </div>
+                }
+              />
+              <div style={{ width: '100%' }}>
+                {donut.map((d, i) => (
+                  <div key={d.name} style={{
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0',
+                    borderBottom: i < donut.length - 1 ? '1px solid var(--line)' : 'none', fontSize: 12,
+                  }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 2, background: d.color, flexShrink: 0 }} />
+                    <span style={{ flex: 1, fontWeight: d.name === 'RIL' ? 600 : 400 }}>{d.name}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--fg-2)' }}>{d.units.toLocaleString()}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)', minWidth: 42, textAlign: 'right' }}>{d.pct.toFixed(1)}%</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div style={{ fontSize: 12, color: 'var(--fg-3)', textAlign: 'center', padding: '48px 0' }}>
+              No installed base data yet.
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={PANEL}>
+        <div style={PANEL_H}>
+          <span style={PANEL_TITLE}>{breakdownTitle}</span>
+          <span style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
+            {competitors.length} competitor{competitors.length !== 1 ? 's' : ''} tracked
+          </span>
+        </div>
+        {competitors.length === 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--fg-3)', textAlign: 'center', padding: '48px 0' }}>
+            No competitor data
+          </div>
+        ) : (
+          <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: 'var(--bg-elev)' }}>
+                {['Make', unitLabel, 'Share', '', 'vs RIL'].map(h => <th key={h} style={TH}>{h}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {competitors.map(comp => {
+                const barPct = maxCompPct > 0 ? (comp.pct / maxCompPct) * 100 : 0;
+                const vsRil  = rilUnits > 0 ? ((comp.units - rilUnits) / rilUnits) * 100 : 0;
+                return (
+                  <tr key={comp.name} style={{ borderBottom: '1px solid var(--line)' }}>
+                    <td data-label="" style={{ padding: '10px 12px', verticalAlign: 'middle' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 2, background: comp.color, display: 'inline-block', flexShrink: 0 }} />
+                        <span style={{ fontWeight: 500 }}>{comp.name}</span>
+                      </div>
+                    </td>
+                    <td data-label={unitLabel} style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
+                      {comp.units.toLocaleString()}
+                    </td>
+                    <td data-label="Share" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
+                      {comp.pct.toFixed(1)}%
+                    </td>
+                    <td data-label="Share trend" style={{ ...TD, width: 100, paddingLeft: 6, paddingRight: 12 }}>
+                      <div style={{ height: 6, background: 'var(--bg-sunk)', borderRadius: 3, overflow: 'hidden' }}>
+                        <div style={{ width: `${barPct}%`, height: '100%', background: comp.color, borderRadius: 3 }} />
+                      </div>
+                    </td>
+                    <td data-label="vs RIL" style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: vsRil > 0 ? 'var(--neg)' : 'var(--pos)' }}>
+                      {rilUnits > 0 ? `${vsRil > 0 ? '+' : ''}${vsRil.toFixed(0)}%` : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );
