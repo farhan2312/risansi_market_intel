@@ -113,6 +113,38 @@ export async function canViewClient(user: CurrentUser, clientId: number): Promis
 }
 
 /**
+ * Can this user access a single complaint? admin/sysadmin always; otherwise
+ * when they raised it, it's assigned to them, or its client is on their tour.
+ * Mirrors the complaints page visibility predicate.
+ */
+export async function canAccessComplaint(user: CurrentUser, complaintId: number): Promise<boolean> {
+  if (hasRole(user.role, 'admin')) return true;
+  const uid = intOrNull(user.id);
+  const { rows } = await risansiPool.query<{ client_id: number | null; assigned_to_user: number | null; created_by: string | null }>(
+    'SELECT client_id, assigned_to_user, created_by FROM complaints WHERE id = $1', [complaintId],
+  );
+  const r = rows[0];
+  if (!r) return false;
+  if (uid != null && r.assigned_to_user === uid) return true;
+  if (user.email && r.created_by && r.created_by.toLowerCase() === user.email.toLowerCase()) return true;
+  if (r.client_id != null) return canViewClient(user, r.client_id);
+  return false;
+}
+
+/** SQL predicate scoping a `complaints` query (aliased `cm`) to what a user may see. */
+export function complaintVisibilitySql(user: CurrentUser, alias = 'cm'): string | null {
+  if (hasRole(user.role, 'admin')) return null;
+  const uid = intOrNull(user.id);
+  if (uid == null) return 'FALSE';
+  const email = (user.email ?? '').replace(/'/g, "''").toLowerCase();
+  return `(
+    ${alias}.assigned_to_user = ${uid}
+    OR lower(${alias}.created_by) = '${email}'
+    OR ${alias}.client_id IN (SELECT id FROM clients WHERE tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = ${uid}))
+  )`;
+}
+
+/**
  * Every rep id that shares at least one tour with this manager, plus the
  * manager themselves. Used to build the "who can I assign to" set and to
  * validate assignments server-side.

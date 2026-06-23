@@ -49,6 +49,7 @@ const SALES_NAV: NavItem[] = [
   { id: 'revenue',   href: '/risansi/revenue',  label: 'Revenue',        Icon: IcBag },
   { id: 'pipeline',  href: '/risansi/pipeline', label: 'Opportunities',  Icon: IcPipeline },
   { id: 'compete',   href: '/risansi/compete',  label: 'Competition',    Icon: IcTower, alertKey: 'compete' },
+  { id: 'complaints',href: '/risansi/complaints', label: 'Complaints',   Icon: IcAlert },
 ];
 
 // GROUP 2 — Admin (admin / sysadmin only)
@@ -80,6 +81,7 @@ const PATH_TO_ID: [string, string][] = [
   ['/risansi/admin/revenue',    'revenue-admin'],
   ['/risansi/admin/reps',       'reps-admin'],
   ['/risansi/compete',          'compete'],
+  ['/risansi/complaints',       'complaints'],
   ['/risansi/clients',          'client360'],
   ['/risansi/pipeline',         'pipeline'],
   ['/risansi/field',            'field'],
@@ -279,3 +281,4 @@ function IcUser()     { return ic(<><circle cx="8" cy="6" r="3"/><path d="M2 14c
 function IcKey()      { return ic(<><circle cx="6.5" cy="9.5" r="3.5"/><path d="M10 6l4-4M12 4l2 2M10 8l1.5-1.5"/></>)(); }
 function IcClipboard(){ return ic(<><rect x="3" y="3" width="10" height="11" rx="1.5"/><path d="M6 3V2h4v1M5.5 7h5M5.5 10h3"/></>)(); }
 function IcGear()     { return ic(<><circle cx="8" cy="8" r="2"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.5 1.5M11.5 11.5L13 13M13 3l-1.5 1.5M4.5 11.5L3 13"/></>)(); }
+function IcAlert()    { return ic(<><path d="M8 2 1.5 13.5h13z"/><path d="M8 6.5v3M8 11.5h.01"/></>)(); }

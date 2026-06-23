@@ -182,6 +182,9 @@
   }
   table.r-cards td[data-label=""]::before { content: none; }
 
+  /* ── Complaints module: stack two-column form rows on phones ── */
+  .risansi-complaint-row { grid-template-columns: 1fr !important; }
+
   /* ── Touch targets (WCAG 44px) ──
      Small desktop controls get a comfortable hit area on phones without
      changing their look much. Opt-in via these classes on the controls. */

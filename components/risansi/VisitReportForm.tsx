@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback, type CSSProperties, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { saveVisitField, checkInVisit, addEquipment, updateEquipment, saveExpansionOpportunity } from '@/app/actions/risansi-visits';
+import { LogComplaintButton } from './LogComplaintButton';
 import { addTask, updateTaskStatus, deleteTask } from '@/app/actions/risansi-tasks';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -766,6 +767,14 @@ export function VisitReportForm({
           isClosed={isClosed}
           existingOpp={expansionOpp}
         />
+      </FormSection>
+
+      {/* ── SECTION: Complaint ──────────────────────────────── */}
+      <FormSection title="Complaint" icon="⚠">
+        <div style={{ fontSize: 12, color: 'var(--fg-3)', marginBottom: 10 }}>
+          Raise a service / product complaint for {visit.legal_name} and escalate it to a responsible person.
+        </div>
+        <LogComplaintButton clientId={Number(visit.client_id)} clientName={visit.legal_name} />
       </FormSection>
 
       </div>{/* end opps */}

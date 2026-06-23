@@ -4,6 +4,7 @@ import { useState, useTransition, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { saveVisitContacts, saveEquipmentEntries, submitVisitReport } from '@/app/actions/risansi';
 import { VisitPhotos } from '@/components/risansi/VisitPhotos';
+import { LogComplaintButton } from '@/components/risansi/LogComplaintButton';
 import type { ReportInitialData } from './page';
 
 // ── Constants ──────────────────────────────────────────────────
@@ -179,6 +180,12 @@ export function VisitReportClient({ initialData: d }: { initialData: ReportIniti
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Quick action: raise a complaint for this client */}
+      <div style={{ padding: '8px 16px', display: 'flex', justifyContent: 'flex-end', background: 'var(--bg-paper)', borderBottom: '1px solid var(--line)' }}>
+        <LogComplaintButton clientId={Number(d.clientId)} clientName={d.clientName}
+          style={{ padding: '6px 12px', fontSize: 12 }} />
       </div>
 
       {/* Step content */}
