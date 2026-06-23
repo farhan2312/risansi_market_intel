@@ -55,6 +55,9 @@ interface DisplacementAccount {
   ril_pcp:        number;
   total_pcp:      number;
   competitor_pcp: number;
+  ril_mmp:        number;
+  total_mmp:      number;
+  competitor_mmp: number;
   rep_name:       string | null;
 }
 
@@ -88,6 +91,10 @@ const SORT_MAP: Record<string, string> = {
   competitor_pcp: '(cib.total_pcp - COALESCE(cib.ril_pcp, 0))',
   total_pcp:      'cib.total_pcp',
   share:          '(COALESCE(cib.ril_pcp,0)::float / NULLIF(cib.total_pcp,0))',
+  ril_mmp:        'cib.ril_mmp',
+  competitor_mmp: '(cib.total_mmp - COALESCE(cib.ril_mmp, 0))',
+  total_mmp:      'cib.total_mmp',
+  mmp_share:      '(COALESCE(cib.ril_mmp,0)::float / NULLIF(cib.total_mmp,0))',
   rep:            'rep_name',
 };
 
@@ -121,7 +128,7 @@ export default async function CompetePage({
 
   // Build WHERE for displacement query
   const dispConds: string[] = [
-    `(cib.total_pcp - COALESCE(cib.ril_pcp, 0)) > 0`,
+    `((cib.total_pcp - COALESCE(cib.ril_pcp, 0)) > 0 OR (cib.total_mmp - COALESCE(cib.ril_mmp, 0)) > 0)`,
     `c.status = 'ACTIVE'`,
   ];
   const dispVals: (string | string[])[] = [];
@@ -190,13 +197,17 @@ export default async function CompetePage({
     q<DisplacementAccount[]>(async () => {
       const { rows } = await risansiPool.query<{
         client_name: string; zone: string | null;
-        ril_pcp: string; total_pcp: string;
-        competitor_pcp: string; rep_name: string | null;
+        ril_pcp: string; total_pcp: string; competitor_pcp: string;
+        ril_mmp: string; total_mmp: string; competitor_mmp: string;
+        rep_name: string | null;
       }>(
         `SELECT c.legal_name AS client_name, c.zone,
                 cib.ril_pcp::text,
                 cib.total_pcp::text,
                 (cib.total_pcp - COALESCE(cib.ril_pcp, 0))::text AS competitor_pcp,
+                COALESCE(cib.ril_mmp,0)::text   AS ril_mmp,
+                COALESCE(cib.total_mmp,0)::text AS total_mmp,
+                (COALESCE(cib.total_mmp,0) - COALESCE(cib.ril_mmp, 0))::text AS competitor_mmp,
                 (SELECT string_agg(u.name, ', ' ORDER BY u.name)
                    FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
                 WHERE ta.tour_id = c.tour_id) AS rep_name
@@ -213,6 +224,9 @@ export default async function CompetePage({
         ril_pcp:        Number(r.ril_pcp ?? 0),
         total_pcp:      Number(r.total_pcp ?? 0),
         competitor_pcp: Number(r.competitor_pcp ?? 0),
+        ril_mmp:        Number(r.ril_mmp ?? 0),
+        total_mmp:      Number(r.total_mmp ?? 0),
+        competitor_mmp: Number(r.competitor_mmp ?? 0),
         rep_name:       r.rep_name,
       }));
     }, []),
@@ -371,7 +385,7 @@ export default async function CompetePage({
     ...(othersUnits > 0 ? [{ name: 'Others', units: othersUnits, color: compColor('Others') }] : []),
   ].filter(d => d.units > 0).map(d => ({ ...d, pct: (d.units / safeTotal) * 100 }));
 
-  const totalCompetitorUnits = displacementAccounts.reduce((s, r) => s + r.competitor_pcp, 0);
+  const totalCompetitorUnits = displacementAccounts.reduce((s, r) => s + r.competitor_pcp + r.competitor_mmp, 0);
 
   // ── MMP market share (separate market from PCP) ──
   const rilMmp      = Number(mmpTotals.ril_mmp ?? 0);
@@ -503,11 +517,11 @@ export default async function CompetePage({
           <div style={PANEL_H}>
             <span style={PANEL_TITLE}>Accounts with Competitor Presence</span>
             <span style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
-              active clients · competitor PCP units installed
+              active clients · competitor PCP &amp; MMP units installed
             </span>
             {totalCompetitorUnits > 0 && (
               <div style={{ marginLeft: 'auto' }}>
-                <Tag kind="warn">{totalCompetitorUnits} competitor units</Tag>
+                <Tag kind="warn">{totalCompetitorUnits} competitor units (PCP+MMP)</Tag>
               </div>
             )}
           </div>
@@ -542,13 +556,18 @@ export default async function CompetePage({
                     <SortableTH col="ril_pcp"        label="RIL PCP"         currentSort={curSort} currentDir={curDir} align="right" />
                     <SortableTH col="competitor_pcp" label="Competitor PCP"  currentSort={curSort} currentDir={curDir} align="right" />
                     <SortableTH col="total_pcp"      label="Total PCP"       currentSort={curSort} currentDir={curDir} align="right" />
-                    <SortableTH col="share"          label="RIL Share"       currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="share"          label="PCP Share"       currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="ril_mmp"        label="RIL MMP"         currentSort={curSort} currentDir={curDir} align="right" />
+                    <SortableTH col="competitor_mmp" label="Competitor MMP"  currentSort={curSort} currentDir={curDir} align="right" />
+                    <SortableTH col="total_mmp"      label="Total MMP"       currentSort={curSort} currentDir={curDir} align="right" />
+                    <SortableTH col="mmp_share"      label="MMP Share"       currentSort={curSort} currentDir={curDir} />
                     <SortableTH col="rep"            label="Rep"             currentSort={curSort} currentDir={curDir} />
                   </tr>
                 </thead>
                 <tbody>
                   {displacementAccounts.map((acc, i) => {
                     const share = acc.total_pcp > 0 ? (acc.ril_pcp / acc.total_pcp) * 100 : 0;
+                    const mmpShare = acc.total_mmp > 0 ? (acc.ril_mmp / acc.total_mmp) * 100 : 0;
                     return (
                       <tr key={i} style={{ borderBottom: '1px solid var(--line)' }}>
                         <td data-label="" style={{ padding: '10px 12px', fontWeight: 500, verticalAlign: 'middle' }}>
@@ -560,21 +579,26 @@ export default async function CompetePage({
                         <td data-label="RIL PCP" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: acc.ril_pcp > 0 ? 'var(--pos)' : 'var(--fg-3)' }}>
                           {acc.ril_pcp}
                         </td>
-                        <td data-label="Competitor PCP" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--neg)' }}>
+                        <td data-label="Competitor PCP" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: acc.competitor_pcp > 0 ? 'var(--neg)' : 'var(--fg-3)' }}>
                           {acc.competitor_pcp}
                         </td>
                         <td data-label="Total PCP" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
                           {acc.total_pcp}
                         </td>
-                        <td data-label="RIL Share" style={TD}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <div style={{ flex: 1, height: 4, background: 'var(--bg-sunk)', borderRadius: 2, overflow: 'hidden', minWidth: 60 }}>
-                              <div style={{ width: `${share}%`, height: '100%', background: share >= 50 ? 'var(--pos)' : share >= 25 ? 'var(--accent)' : 'var(--neg)', borderRadius: 2 }} />
-                            </div>
-                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: share >= 50 ? 'var(--pos)' : 'var(--neg)', minWidth: 34 }}>
-                              {share.toFixed(0)}%
-                            </span>
-                          </div>
+                        <td data-label="PCP Share" style={TD}>
+                          <ShareBar pct={share} has={acc.total_pcp > 0} />
+                        </td>
+                        <td data-label="RIL MMP" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: acc.ril_mmp > 0 ? 'var(--pos)' : 'var(--fg-3)' }}>
+                          {acc.ril_mmp}
+                        </td>
+                        <td data-label="Competitor MMP" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: acc.competitor_mmp > 0 ? 'var(--neg)' : 'var(--fg-3)' }}>
+                          {acc.competitor_mmp}
+                        </td>
+                        <td data-label="Total MMP" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
+                          {acc.total_mmp}
+                        </td>
+                        <td data-label="MMP Share" style={TD}>
+                          <ShareBar pct={mmpShare} has={acc.total_mmp > 0} />
                         </td>
                         <td data-label="Rep" style={{ ...TD, color: 'var(--fg-3)', fontSize: 11 }}>
                           {acc.rep_name ?? '—'}
@@ -743,6 +767,21 @@ export default async function CompetePage({
         </div>
 
       </div>
+    </div>
+  );
+}
+
+// Inline RIL-share bar used in the displacement table (PCP + MMP columns).
+function ShareBar({ pct, has }: { pct: number; has: boolean }) {
+  if (!has) return <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)' }}>—</span>;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ flex: 1, height: 4, background: 'var(--bg-sunk)', borderRadius: 2, overflow: 'hidden', minWidth: 60 }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: pct >= 50 ? 'var(--pos)' : pct >= 25 ? 'var(--accent)' : 'var(--neg)', borderRadius: 2 }} />
+      </div>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: pct >= 50 ? 'var(--pos)' : 'var(--neg)', minWidth: 34 }}>
+        {pct.toFixed(0)}%
+      </span>
     </div>
   );
 }
