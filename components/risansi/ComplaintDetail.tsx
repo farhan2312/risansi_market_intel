@@ -208,7 +208,10 @@ export function ComplaintDetail({ complaint, users, me, onClose }: {
                   <img src={`/api/risansi/complaint-photo/${p.id}`} alt={p.caption || 'Complaint photo'}
                     style={{ width: 76, height: 76, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--line)' }} />
                   <button type="button" title="Delete" disabled={busy}
-                    onClick={() => run(async () => { await fetch(`/api/risansi/complaint-photo/${p.id}`, { method: 'DELETE' }); })}
+                    onClick={() => run(async () => {
+                      const res = await fetch(`/api/risansi/complaint-photo/${p.id}`, { method: 'DELETE' });
+                      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Could not delete photo');
+                    })}
                     style={PHOTO_DEL}>✕</button>
                 </div>
               ))}
