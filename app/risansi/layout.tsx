@@ -7,6 +7,7 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Sidebar } from '@/components/risansi';
 import type { SidebarRole } from '@/components/risansi/Sidebar';
 import { BottomNav } from '@/components/risansi/BottomNav';
+import { ActivityTracker } from '@/components/risansi/ActivityTracker';
 import risansiPool from '@/lib/db-risansi';
 
 const getSession = cache(() => getServerSession(authOptions));
@@ -117,6 +118,9 @@ export default async function RisansiLayout({ children }: { children: React.Reac
         role={toSidebarRole(role)}
         user={{ name: session.user.name ?? email, email }}
       />
+
+      {/* Records active time per page for the Audit Log → Usage tab */}
+      <ActivityTracker />
     </div>
   );
 }

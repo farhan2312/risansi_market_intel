@@ -13,12 +13,42 @@ async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch (err) { console.error('[admin/audit]', err); return fallback; }
 }
 
-type Tab = 'logins' | 'activity' | 'changes';
+type Tab = 'usage' | 'logins' | 'activity' | 'changes';
 const TABS: { id: Tab; label: string }[] = [
+  { id: 'usage',    label: 'Usage & Time' },
   { id: 'logins',   label: 'Logins & Sessions' },
   { id: 'activity', label: 'Activity' },
   { id: 'changes',  label: 'Ownership Changes' },
 ];
+
+// Time windows for the Usage tab.
+const WINDOWS: { id: string; label: string; interval: string | null }[] = [
+  { id: '1d',  label: 'Today',   interval: '1 day' },
+  { id: '7d',  label: '7 days',  interval: '7 days' },
+  { id: '30d', label: '30 days', interval: '30 days' },
+  { id: 'all', label: 'All',     interval: null },
+];
+
+// Friendly labels for normalised page paths (ActivityTracker stores :id paths).
+const PAGE_LABELS: Record<string, string> = {
+  '/risansi': 'Dashboard',
+  '/risansi/clients': 'Client 360 · list',
+  '/risansi/clients/:id': 'Client 360 · detail',
+  '/risansi/field': 'Field Activity',
+  '/risansi/revenue': 'Revenue',
+  '/risansi/pipeline': 'Opportunities',
+  '/risansi/compete': 'Competition',
+  '/risansi/complaints': 'Complaints',
+  '/risansi/visits/:id': 'Visit detail',
+  '/risansi/mobile': 'Mobile dashboard',
+  '/risansi/admin/reps': 'Tours & Reps',
+  '/risansi/admin/clients': 'Client Master',
+  '/risansi/admin/revenue': 'Revenue Upload',
+  '/risansi/admin/audit': 'Audit Log',
+  '/risansi/admin/settings': 'Settings',
+  '/admin': 'Users & Access',
+};
+function pageLabel(path: string): string { return PAGE_LABELS[path] ?? path; }
 
 const LOGIN_EVENTS = ['login', 'login_failed', 'logout', 'password_changed'];
 const ACTIVITY_ACTIONS = ['create', 'update', 'delete', 'submit', 'assign', 'export', 'activity'];
@@ -26,6 +56,9 @@ const ACTIVITY_ACTIONS = ['create', 'update', 'delete', 'submit', 'assign', 'exp
 interface LoginRow { id: number; event: string; email: string | null; role: string | null; ip: string | null; user_agent: string | null; reason: string | null; created_at: string; }
 interface ActivityRow { id: number; actor_email: string | null; actor_role: string | null; action: string; entity_type: string | null; entity_id: string | null; entity_label: string | null; summary: string | null; ip: string | null; created_at: string; }
 interface ChangeRow { id: number; entity_type: string; entity_id: string; action: string; old_value: unknown; new_value: unknown; changed_by: string | null; changed_at: string; }
+interface UsageUser { email: string; role: string | null; total: number; sessions: number; pages: number; last_active: string; }
+interface UsagePage { path: string; total: number; hits: number; last: string; }
+interface UsageSession { session_id: string; started: string; ended: string; active: number; }
 
 export default async function AuditPage({
   searchParams,
@@ -38,7 +71,11 @@ export default async function AuditPage({
   }
 
   const sp = await searchParams;
-  const tab: Tab = (typeof sp.tab === 'string' && TABS.some(t => t.id === sp.tab) ? sp.tab : 'logins') as Tab;
+  const tab: Tab = (typeof sp.tab === 'string' && TABS.some(t => t.id === sp.tab) ? sp.tab : 'usage') as Tab;
+  const win = typeof sp.win === 'string' && WINDOWS.some(w => w.id === sp.win) ? sp.win : '7d';
+  const winInterval = WINDOWS.find(w => w.id === win)?.interval ?? null;
+  const winClause = winInterval ? `AND occurred_at >= NOW() - INTERVAL '${winInterval}'` : '';
+  const selUser = typeof sp.user === 'string' ? sp.user.trim().toLowerCase() : '';
   const qStr = typeof sp.q === 'string' ? sp.q.trim() : '';
   const evt  = typeof sp.event === 'string' ? sp.event : '';
   const act  = typeof sp.action === 'string' ? sp.action : '';
@@ -60,8 +97,30 @@ export default async function AuditPage({
   // ── Tab data ──
   let total = 0;
   let logins: LoginRow[] = [], activity: ActivityRow[] = [], changes: ChangeRow[] = [];
+  let usageUsers: UsageUser[] = [], usagePages: UsagePage[] = [], usageSessions: UsageSession[] = [];
 
-  if (tab === 'logins') {
+  if (tab === 'usage') {
+    if (selUser) {
+      [usagePages, usageSessions] = await Promise.all([
+        q<UsagePage[]>(async () => (await risansiPool.query<UsagePage>(
+          `SELECT path, SUM(active_seconds)::int total, COUNT(*)::int hits, MAX(occurred_at)::text last
+             FROM page_activity WHERE lower(user_email) = $1 ${winClause}
+            GROUP BY path ORDER BY total DESC`, [selUser])).rows, []),
+        q<UsageSession[]>(async () => (await risansiPool.query<UsageSession>(
+          `SELECT COALESCE(session_id,'(unknown)') AS session_id, MIN(occurred_at)::text AS started,
+                  MAX(occurred_at)::text AS ended, SUM(active_seconds)::int AS active
+             FROM page_activity WHERE lower(user_email) = $1 ${winClause}
+            GROUP BY session_id ORDER BY MIN(occurred_at) DESC LIMIT 50`, [selUser])).rows, []),
+      ]);
+    } else {
+      usageUsers = await q<UsageUser[]>(async () => (await risansiPool.query<UsageUser>(
+        `SELECT lower(user_email) AS email, MAX(role) AS role, SUM(active_seconds)::int AS total,
+                COUNT(DISTINCT session_id)::int AS sessions, COUNT(DISTINCT path)::int AS pages,
+                MAX(occurred_at)::text AS last_active
+           FROM page_activity WHERE user_email IS NOT NULL ${winClause}
+          GROUP BY lower(user_email) ORDER BY total DESC LIMIT 200`)).rows, []);
+    }
+  } else if (tab === 'logins') {
     const conds: string[] = [], params: (string)[] = [];
     if (qStr) { params.push(`%${qStr.toLowerCase()}%`); conds.push(`(lower(email) LIKE $${params.length} OR ip LIKE $${params.length})`); }
     if (LOGIN_EVENTS.includes(evt)) { params.push(evt); conds.push(`event = $${params.length}`); }
@@ -138,6 +197,9 @@ export default async function AuditPage({
           ))}
         </div>
 
+        {tab === 'usage' ? (
+          <UsageView users={usageUsers} pages={usagePages} sessions={usageSessions} selUser={selUser} win={win} />
+        ) : (<>
         {/* Search + filters */}
         <form method="GET" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
           <input type="hidden" name="tab" value={tab} />
@@ -183,6 +245,7 @@ export default async function AuditPage({
             </div>
           </div>
         )}
+        </>)}
       </div>
     </div>
   );
@@ -287,7 +350,130 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
   );
 }
 
+function fmtDuration(sec: number): string {
+  if (!sec || sec < 0) return '0m';
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`;
+  if (m > 0) return `${m}m ${String(s).padStart(2, '0')}s`;
+  return `${s}s`;
+}
+
+// ── Usage & Time tab ────────────────────────────────────────────
+
+function UsageView({ users, pages, sessions, selUser, win }: {
+  users: UsageUser[]; pages: UsagePage[]; sessions: UsageSession[]; selUser: string; win: string;
+}) {
+  const link = (over: Record<string, string>) => {
+    const p = new URLSearchParams({ tab: 'usage', win, ...over });
+    return `/risansi/admin/audit?${p.toString()}`;
+  };
+  const windowPills = (
+    <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+      {WINDOWS.map(w => (
+        <Link key={w.id} href={link({ ...(selUser ? { user: selUser } : {}), win: w.id })} style={{
+          padding: '5px 12px', fontSize: 12, fontWeight: 600, borderRadius: 999, textDecoration: 'none',
+          border: `1px solid ${w.id === win ? '#0A3D8F' : 'var(--line-strong)'}`,
+          background: w.id === win ? '#0A3D8F' : 'var(--bg-paper)', color: w.id === win ? '#fff' : 'var(--fg-3)',
+        }}>{w.label}</Link>
+      ))}
+    </div>
+  );
+
+  // ── Per-user drill-down ──
+  if (selUser) {
+    const totalActive = pages.reduce((s, p) => s + p.total, 0);
+    const maxPage = Math.max(1, ...pages.map(p => p.total));
+    return (
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10, flexWrap: 'wrap' }}>
+          <Link href={link({})} style={{ fontSize: 12, color: 'var(--accent)', textDecoration: 'none' }}>← All users</Link>
+          <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--fg)' }}>{selUser}</span>
+          <span style={{ ...DUR_BADGE }}>{fmtDuration(totalActive)} active</span>
+          <span style={{ fontSize: 12, color: 'var(--fg-3)' }}>· {sessions.length} session{sessions.length !== 1 ? 's' : ''}</span>
+        </div>
+        {windowPills}
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: 14 }} className="r-grid-2">
+          {/* Time per page */}
+          <div style={PANEL}>
+            <div style={SECTION_H}>Time per page</div>
+            <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead><tr style={{ background: 'var(--bg-elev)' }}>{['Page', 'Active time', 'Visits'].map(h => <th key={h} style={TH}>{h}</th>)}</tr></thead>
+              <tbody>
+                {pages.length === 0 ? <tr><td colSpan={3} style={EMPTY}>No page activity</td></tr> : pages.map((p, i) => (
+                  <tr key={i} style={{ borderBottom: i < pages.length - 1 ? '1px solid var(--line)' : 'none' }}>
+                    <td data-label="" style={{ ...TD, fontWeight: 500 }}>
+                      {pageLabel(p.path)}
+                      <div style={{ height: 3, marginTop: 4, borderRadius: 2, background: 'var(--accent)', width: `${Math.round((p.total / maxPage) * 100)}%`, minWidth: 4, opacity: 0.5 }} />
+                    </td>
+                    <td data-label="Active time" style={{ ...MONO, color: 'var(--fg)' }}>{fmtDuration(p.total)}</td>
+                    <td data-label="Visits" style={MONO}>{p.hits}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {/* Sessions */}
+          <div style={PANEL}>
+            <div style={SECTION_H}>Sessions</div>
+            <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead><tr style={{ background: 'var(--bg-elev)' }}>{['Started', 'Active', 'Span'].map(h => <th key={h} style={TH}>{h}</th>)}</tr></thead>
+              <tbody>
+                {sessions.length === 0 ? <tr><td colSpan={3} style={EMPTY}>No sessions</td></tr> : sessions.map((s, i) => {
+                  const span = Math.max(0, Math.round((new Date(s.ended).getTime() - new Date(s.started).getTime()) / 1000));
+                  return (
+                    <tr key={i} style={{ borderBottom: i < sessions.length - 1 ? '1px solid var(--line)' : 'none' }}>
+                      <td data-label="" style={MONO}>{fmtWhen(s.started)}</td>
+                      <td data-label="Active" style={{ ...MONO, color: 'var(--fg)' }}>{fmtDuration(s.active)}</td>
+                      <td data-label="Span" style={MONO}>{fmtDuration(span)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Per-user summary ──
+  const grandTotal = users.reduce((s, u) => s + u.total, 0);
+  return (
+    <div>
+      {windowPills}
+      <div style={{ fontSize: 12, color: 'var(--fg-3)', marginBottom: 8 }}>
+        {users.length} user{users.length !== 1 ? 's' : ''} active · {fmtDuration(grandTotal)} total active time · click a user for the page breakdown
+      </div>
+      <div style={PANEL}>
+        <div style={{ overflowX: 'auto' }}>
+          <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead><tr style={{ background: 'var(--bg-elev)' }}>{['User', 'Role', 'Active time', 'Sessions', 'Pages', 'Last active'].map(h => <th key={h} style={TH}>{h}</th>)}</tr></thead>
+            <tbody>
+              {users.length === 0 ? (
+                <tr><td colSpan={6} style={EMPTY}>No activity recorded yet in this window. Data appears once users browse the portal.</td></tr>
+              ) : users.map((u, i) => (
+                <tr key={i} style={{ borderBottom: i < users.length - 1 ? '1px solid var(--line)' : 'none' }}>
+                  <td data-label="" style={{ ...TD, fontWeight: 500 }}>
+                    <Link href={link({ user: u.email })} style={{ color: 'var(--accent)', textDecoration: 'none' }}>{u.email}</Link>
+                  </td>
+                  <td data-label="Role" style={TD}>{u.role ? <Tag kind={u.role === 'sysadmin' || u.role === 'admin' ? 'accent' : undefined}>{u.role}</Tag> : '—'}</td>
+                  <td data-label="Active time" style={{ ...MONO, color: 'var(--fg)', fontWeight: 600 }}>{fmtDuration(u.total)}</td>
+                  <td data-label="Sessions" style={MONO}>{u.sessions}</td>
+                  <td data-label="Pages" style={MONO}>{u.pages}</td>
+                  <td data-label="Last active" style={MONO}>{fmtWhen(u.last_active)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const PANEL: CSSProperties = { background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', overflow: 'hidden' };
+const SECTION_H: CSSProperties = { padding: '10px 14px', borderBottom: '1px solid var(--line)', fontSize: 11, fontWeight: 700, color: '#0A3D8F', textTransform: 'uppercase', letterSpacing: '0.07em' };
+const DUR_BADGE: CSSProperties = { padding: '3px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600, background: 'var(--accent-soft, #EBF1FB)', color: '#0A3D8F', fontFamily: 'var(--font-mono)' };
 const TH: CSSProperties = { padding: '9px 12px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, color: 'var(--fg-3)', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
 const TD: CSSProperties = { padding: '10px 12px', verticalAlign: 'middle' };
 const MONO: CSSProperties = { ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap' };

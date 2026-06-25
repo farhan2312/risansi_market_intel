@@ -6,6 +6,7 @@ import { cache } from 'react';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Sidebar } from '@/components/risansi';
 import type { SidebarRole } from '@/components/risansi/Sidebar';
+import { ActivityTracker } from '@/components/risansi/ActivityTracker';
 import risansiPool from '@/lib/db-risansi';
 
 const getSession = cache(() => getServerSession(authOptions));
@@ -108,6 +109,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       <main style={{ flex: 1, overflowY: 'auto', background: '#F4F6FB', minWidth: 0 }}>
         {children}
       </main>
+      <ActivityTracker />
     </div>
   );
 }
