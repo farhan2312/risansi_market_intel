@@ -6,6 +6,7 @@ import { Tag } from '@/components/risansi';
 import {
   assignUserToTour, removeUserFromTour,
 } from '@/app/actions/sysadmin';
+import { deleteTour } from '@/app/actions/risansi-reps';
 
 interface TourMember { user_id: number; name: string; role: string; }
 
@@ -137,6 +138,7 @@ function TourCard({ tour, users, onError, onDone }: {
   const [clients, setClients] = useState<TourClientRow[] | null>(null);
   const [loadingClients, setLoadingClients] = useState(false);
   const [clientsErr, setClientsErr] = useState('');
+  const [confirmDel, setConfirmDel] = useState(false);
 
   function toggleClients() {
     const next = !clientsOpen;
@@ -178,6 +180,21 @@ function TourCard({ tour, users, onError, onDone }: {
           <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>{tour.name}</span>
           {tour.zone && <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--fg-3)' }}>{tour.zone}</span>}
         </div>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+        {confirmDel ? (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 11, color: 'var(--neg)' }}>
+              Delete this tour?{tour.client_count > 0 ? ` ${tour.client_count} client${tour.client_count !== 1 ? 's' : ''} will be unassigned.` : ''}
+            </span>
+            <button type="button" disabled={pending}
+              onClick={() => run(() => deleteTour(form({ id: String(tour.id) })))}
+              style={{ ...MINI_BTN, ...NEG_SOLID }}>Yes, delete</button>
+            <button type="button" onClick={() => setConfirmDel(false)} style={MINI_BTN}>Cancel</button>
+          </span>
+        ) : (
+          <button type="button" disabled={pending} onClick={() => setConfirmDel(true)}
+            title="Delete tour" style={{ ...MINI_BTN, ...NEG_OUTLINE }}>Delete</button>
+        )}
         <button type="button" onClick={toggleClients} disabled={tour.client_count === 0}
           aria-expanded={clientsOpen}
           title={tour.client_count === 0 ? 'No clients on this tour' : clientsOpen ? 'Hide clients' : 'Show clients on this tour'}
@@ -190,6 +207,7 @@ function TourCard({ tour, users, onError, onDone }: {
             </span>
           )}
         </button>
+        </div>
       </div>
 
       {clientsOpen && (
@@ -278,4 +296,5 @@ const INP: CSSProperties = { padding: '7px 10px', fontSize: 13, fontFamily: 'inh
 const PRIMARY_BTN: CSSProperties = { padding: '7px 14px', fontSize: 12, fontWeight: 600, background: '#0A3D8F', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 };
 const MINI_BTN: CSSProperties = { padding: '4px 9px', fontSize: 11, fontFamily: 'inherit', fontWeight: 500, background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', color: 'var(--fg-2)', borderRadius: 5, cursor: 'pointer', whiteSpace: 'nowrap' };
 const NEG_OUTLINE: CSSProperties = { color: 'var(--neg)', border: '1px solid rgba(220,38,38,0.30)', background: 'transparent' };
+const NEG_SOLID: CSSProperties = { background: '#E02424', color: '#fff', border: '1px solid #E02424' };
 const ERR_BOX: CSSProperties = { padding: '9px 12px', background: '#FEE2E2', border: '1px solid rgba(220,38,38,0.20)', borderRadius: 5, fontSize: 12, color: '#9B1C1C', marginBottom: 12 };

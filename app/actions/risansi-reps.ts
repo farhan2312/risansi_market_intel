@@ -147,3 +147,29 @@ export async function createTour(formData: FormData) {
 
   revalidatePath('/risansi/admin/reps');
 }
+
+// Delete a tour. Its clients are unassigned (tour_id → NULL) and its
+// rep/manager assignments removed first, in one transaction.
+export async function deleteTour(formData: FormData) {
+  await requireSysadmin();
+
+  const id = parseInt(formData.get('id') as string, 10);
+  if (!Number.isInteger(id) || id <= 0) throw new Error('Invalid tour');
+
+  const client = await risansiPool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('UPDATE clients SET tour_id = NULL, updated_at = NOW() WHERE tour_id = $1', [id]);
+    await client.query('DELETE FROM tour_assignments WHERE tour_id = $1', [id]);
+    await client.query('DELETE FROM tour_routes WHERE id = $1', [id]);
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+
+  revalidatePath('/risansi/admin/reps');
+  revalidatePath('/risansi/clients');
+}
