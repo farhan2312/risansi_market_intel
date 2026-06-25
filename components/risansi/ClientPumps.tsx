@@ -15,10 +15,23 @@ export interface PumpRow {
   head: string | null;
 }
 
+const norm = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '');
+
 // RIL pump detail for one client + the installed-base discrepancy.
-export function ClientPumps({ pumps, installedRil }: { pumps: PumpRow[]; installedRil: number }) {
+export function ClientPumps({ pumps, installedRil, clientName }: {
+  pumps: PumpRow[]; installedRil: number; clientName: string;
+}) {
   const [q, setQ] = useState('');
+  const clientKey = norm(clientName);
   const detailPumps = useMemo(() => pumps.reduce((s, p) => s + (p.quantity || 0), 0), [pumps]);
+
+  // Show "Supplier" only when it's a different party (e.g. an EPC), not the
+  // client itself — no point repeating the client's own name on every row.
+  const showSupplier = (s: string | null) => {
+    if (!s) return false;
+    const k = norm(s);
+    return !(k === clientKey || k.includes(clientKey) || clientKey.includes(k));
+  };
 
   const visible = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -31,10 +44,10 @@ export function ClientPumps({ pumps, installedRil }: { pumps: PumpRow[]; install
   const gap = installedRil - detailPumps;
   const disc = (() => {
     if (installedRil === 0 && detailPumps === 0) return null;
-    if (installedRil === 0) return { tone: 'warn' as const, text: `${detailPumps} pumps on record · no installed-base figure` };
+    if (installedRil === 0) return { tone: 'warn' as const, text: `no installed-base figure on record` };
     if (gap > 0) return { tone: 'neg' as const, text: `${gap} missing detail` };
     if (gap < 0) return { tone: 'warn' as const, text: `${-gap} more in detail than installed base` };
-    return { tone: 'pos' as const, text: 'All installed pumps have detail' };
+    return { tone: 'pos' as const, text: 'all installed pumps have detail' };
   })();
 
   return (
@@ -69,29 +82,25 @@ export function ClientPumps({ pumps, installedRil }: { pumps: PumpRow[]; install
               <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search model, SR no, year…" style={SEARCH} />
             </div>
           )}
-          <div style={{ maxHeight: 380, overflowY: 'auto' }}>
-            {visible.map((p, i) => (
-              <div key={p.id} style={{ ...ROW, borderTop: i === 0 ? 'none' : '1px solid var(--line)' }}>
-                {/* Year gutter */}
-                <span style={YEAR}>{p.year ?? '—'}</span>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  {/* Tier 1: model + qty */}
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color: 'var(--fg)' }}>
-                      {p.pump_model_plate ?? '—'}
-                    </span>
-                    {p.quantity > 1 && <span style={QTY}>×{p.quantity}</span>}
-                  </div>
-                  {/* Tier 2: specs (muted) */}
-                  {(p.liquid || p.capacity || p.head) && (
-                    <div style={SPECS}>{[p.liquid, p.capacity, p.head].filter(Boolean).join('  ·  ')}</div>
-                  )}
-                  {/* Tier 3: refs (tiny) */}
-                  <div style={REFS}>
-                    {p.pump_sl_no && <span>SR <span style={{ fontFamily: 'var(--font-mono)' }}>{p.pump_sl_no}</span></span>}
-                    {p.ec_number && <span>EC <span style={{ fontFamily: 'var(--font-mono)' }}>{p.ec_number}</span></span>}
-                    {p.supplier && <span>{p.supplier}</span>}
-                  </div>
+          <div style={{ maxHeight: 460, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {visible.map(p => (
+              <div key={p.id} style={CARD}>
+                {/* Tier 1 — year · model · qty */}
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                  <span style={YEAR}>{p.year ?? '—'}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color: 'var(--fg)' }}>
+                    {p.pump_model_plate ?? '—'}
+                  </span>
+                  {p.quantity > 1 && <span style={QTY}>×{p.quantity}</span>}
+                </div>
+                {/* Tier 2 — labelled detail */}
+                <div style={KV_GRID}>
+                  <KV k="Liquid" v={p.liquid} />
+                  <KV k="Capacity" v={p.capacity} />
+                  <KV k="Head" v={p.head} />
+                  <KV k="SR No" v={p.pump_sl_no} mono />
+                  <KV k="EC No" v={p.ec_number} mono />
+                  {showSupplier(p.supplier) && <KV k="Supplier" v={p.supplier} />}
                 </div>
               </div>
             ))}
@@ -99,6 +108,15 @@ export function ClientPumps({ pumps, installedRil }: { pumps: PumpRow[]; install
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function KV({ k, v, mono }: { k: string; v: string | null; mono?: boolean }) {
+  return (
+    <div>
+      <div style={{ fontSize: 9.5, fontWeight: 600, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{k}</div>
+      <div style={{ fontSize: 12, color: v ? 'var(--fg)' : 'var(--fg-3)', fontFamily: mono ? 'var(--font-mono)' : 'inherit' }}>{v || '—'}</div>
     </div>
   );
 }
@@ -114,8 +132,7 @@ const TONE: Record<string, CSSProperties> = {
   warn: { background: '#FEF3C7', color: '#92400E' },
 };
 const SEARCH: CSSProperties = { width: '100%', padding: '7px 10px', fontSize: 12, fontFamily: 'inherit', background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', borderRadius: 6, color: 'var(--fg)', outline: 'none', boxSizing: 'border-box' };
-const ROW: CSSProperties = { display: 'flex', gap: 12, padding: '10px 14px', alignItems: 'flex-start' };
-const YEAR: CSSProperties = { flexShrink: 0, width: 38, fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: 'var(--accent)', paddingTop: 1 };
-const QTY: CSSProperties = { fontSize: 10.5, fontWeight: 700, color: '#0A3D8F', background: 'var(--accent-soft, #EBF1FB)', padding: '1px 6px', borderRadius: 999 };
-const SPECS: CSSProperties = { fontSize: 11.5, color: 'var(--fg-2)', marginTop: 2 };
-const REFS: CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: 10, fontSize: 10, color: 'var(--fg-3)', marginTop: 3 };
+const CARD: CSSProperties = { border: '1px solid var(--line)', borderRadius: 8, padding: '10px 12px', background: 'var(--bg-elev)' };
+const YEAR: CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: 'var(--accent)' };
+const QTY: CSSProperties = { fontSize: 10.5, fontWeight: 700, color: '#0A3D8F', background: 'var(--accent-soft, #EBF1FB)', padding: '1px 7px', borderRadius: 999 };
+const KV_GRID: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '8px 14px' };

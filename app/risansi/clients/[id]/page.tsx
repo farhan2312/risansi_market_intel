@@ -753,7 +753,7 @@ export default async function ClientProfilePage({
             </div>
 
             {/* RIL pump detail + installed-base discrepancy */}
-            <ClientPumps pumps={clientPumps} installedRil={rilPumpsTotal} />
+            <ClientPumps pumps={clientPumps} installedRil={rilPumpsTotal} clientName={String(client.legal_name)} />
 
             {/* Complaints */}
             <ClientComplaints

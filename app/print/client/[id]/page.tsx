@@ -67,7 +67,7 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
   const currentUser = await getCurrentUser();
   if (!(await canViewClient(currentUser, Number(client.id)))) notFound();
 
-  const [contacts, clientRevByFY, compRow, visits, openOpps] = await Promise.all([
+  const [contacts, clientRevByFY, compRow, visits, openOpps, clientPumps] = await Promise.all([
     q(async () => (await risansiPool.query<Record<string, unknown>>(
       `SELECT name, designation, is_primary, phone, email, whatsapp, notes
          FROM contacts WHERE client_id = $1 ORDER BY is_primary DESC, created_at ASC`, [client.id],
@@ -93,6 +93,11 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
     q(async () => (await risansiPool.query<Record<string, unknown>>(
       `SELECT product, stage, value_cr::text AS value_cr, probability, expected_close_date
          FROM opportunities WHERE client_id = $1 AND stage NOT IN ('Won','Lost') ORDER BY value_cr DESC`, [client.id],
+    )).rows, [] as Record<string, unknown>[]),
+    q(async () => (await risansiPool.query<Record<string, unknown>>(
+      `SELECT COALESCE(EXTRACT(YEAR FROM so_date), EXTRACT(YEAR FROM ec_date))::int AS year,
+         pump_model_plate, quantity, customer_name AS supplier, ec_number, pump_sl_no, liquid, capacity, head
+       FROM client_pumps WHERE client_id = $1 ORDER BY so_date DESC NULLS LAST, id`, [client.id],
     )).rows, [] as Record<string, unknown>[]),
   ]);
 
@@ -124,6 +129,11 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
   const totalMmp = Math.max(Number(compRow?.total_mmp ?? 0), sumNamedMmp);
   const rilMmpSharePct = totalMmp > 0 ? Math.round((rilMmp / totalMmp) * 100) : 0;
   const rilPumpsTotal = rilUnits + rilMmp;
+
+  // RIL pump detail + discrepancy vs installed base (for the PDF).
+  const pumpDetailQty = clientPumps.reduce((s, p) => s + Number(p.quantity ?? 0), 0);
+  const clientKey = String(client.legal_name).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const pumpGap = rilPumpsTotal - pumpDetailQty;
 
   const compSections = [
     totalUnits > 0 ? { key: 'PCP', ril: rilUnits, total: totalUnits, makers,    sharePct: rilSharePct }    : null,
@@ -250,6 +260,36 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
               ))
             ) : <div style={{ color: C.fg3 }}>No competitor installed-base data for this client</div>}
           </Section>
+
+          {clientPumps.length > 0 && (
+            <Section title="RIL Pumps"
+              right={rilPumpsTotal > 0 ? `${pumpDetailQty} of ${rilPumpsTotal} installed have detail${pumpGap > 0 ? ` · ${pumpGap} missing` : pumpGap < 0 ? ` · ${-pumpGap} more` : ''}` : `${pumpDetailQty} pumps`}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead><tr>{['Year', 'Model', 'Qty', 'SR No', 'EC No', 'Liquid', 'Capacity', 'Head', 'Supplier'].map((h, i) =>
+                  <th key={h} style={{ ...TH, textAlign: i === 2 ? 'right' : 'left' }}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {clientPumps.map((p, i) => {
+                    const supKey = String(p.supplier ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+                    const showSup = supKey && !(supKey === clientKey || supKey.includes(clientKey) || clientKey.includes(supKey));
+                    const cell = (v: unknown) => (v == null || v === '') ? '—' : String(v);
+                    return (
+                      <tr key={i} className="avoid-break">
+                        <td style={{ ...TD, fontFamily: 'monospace' }}>{cell(p.year)}</td>
+                        <td style={{ ...TD, fontFamily: 'monospace', fontWeight: 600 }}>{cell(p.pump_model_plate)}</td>
+                        <td style={{ ...TD, textAlign: 'right', fontFamily: 'monospace' }}>{Number(p.quantity ?? 1)}</td>
+                        <td style={{ ...TD, fontFamily: 'monospace' }}>{cell(p.pump_sl_no)}</td>
+                        <td style={{ ...TD, fontFamily: 'monospace' }}>{cell(p.ec_number)}</td>
+                        <td style={TD}>{cell(p.liquid)}</td>
+                        <td style={TD}>{cell(p.capacity)}</td>
+                        <td style={TD}>{cell(p.head)}</td>
+                        <td style={{ ...TD, color: C.fg3 }}>{showSup ? String(p.supplier) : ''}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </Section>
+          )}
 
           {(str('action_points') || c.expected_to_pump != null || c.expected_to_spare != null || str('constraints_notes') || !!c.mgmt_intervention) && (
             <Section title="Plan of Action">
