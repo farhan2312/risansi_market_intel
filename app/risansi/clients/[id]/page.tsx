@@ -15,6 +15,7 @@ import { MobileTabs } from '@/components/risansi/MobileTabs';
 import { ClientComplaints } from '@/components/risansi/ClientComplaints';
 import { type ComplaintRow } from '@/components/risansi/ComplaintDetail';
 import { type UserOpt } from '@/components/risansi/ComplaintFormModal';
+import { ClientPumps, type PumpRow } from '@/components/risansi/ClientPumps';
 import type { DrawerRep } from '@/components/risansi/AssignVisitDrawer';
 
 // ── Safe query wrapper ─────────────────────────────────────────
@@ -197,7 +198,7 @@ export default async function ClientProfilePage({
 
   // ── Fetch supporting data in parallel ─────────────────────
 
-  const [contacts, revRows, clientRevByFY, comp, visits, openOpps, activityLog, reps, complaints, complaintUsers] = await Promise.all([
+  const [contacts, revRows, clientRevByFY, comp, visits, openOpps, activityLog, reps, complaints, complaintUsers, clientPumps] = await Promise.all([
 
     // 2. Contacts — single source of truth
     q<Contact[]>(async () => {
@@ -371,6 +372,15 @@ export default async function ClientProfilePage({
     // 10. Users to escalate complaints to (any internal user)
     q<UserOpt[]>(async () => (await risansiPool.query<UserOpt>(
       `SELECT id::int AS id, name, role FROM users WHERE is_active = TRUE ORDER BY name`)).rows, []),
+
+    // 11. RIL pump detail for this client (customer-wise pump records)
+    q<PumpRow[]>(async () => (await risansiPool.query<PumpRow>(`
+      SELECT id, pump_sl_no, pump_model_plate, model_no_internal, product_code, product_name, quantity,
+        liquid, capacity, head, pump_speed, drive_rating,
+        so_number, so_date::text AS so_date, so_val::float AS so_val, cust_po_number,
+        ec_number, ec_date::text AS ec_date, consignee_name, consignee_city
+      FROM client_pumps WHERE client_id = $1
+      ORDER BY so_date DESC NULLS LAST, id`, [client.id])).rows, []),
   ]);
 
   // ── Derived values ────────────────────────────────────────
@@ -741,6 +751,9 @@ export default async function ClientProfilePage({
                 </div>
               )}
             </div>
+
+            {/* RIL pump detail + installed-base discrepancy */}
+            <ClientPumps pumps={clientPumps} installedRil={rilPumpsTotal} />
 
             {/* Complaints */}
             <ClientComplaints
