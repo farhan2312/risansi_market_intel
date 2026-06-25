@@ -373,12 +373,12 @@ export default async function ClientProfilePage({
     q<UserOpt[]>(async () => (await risansiPool.query<UserOpt>(
       `SELECT id::int AS id, name, role FROM users WHERE is_active = TRUE ORDER BY name`)).rows, []),
 
-    // 11. RIL pump detail for this client (customer-wise pump records)
+    // 11. RIL pump detail for this client (only the report fields)
     q<PumpRow[]>(async () => (await risansiPool.query<PumpRow>(`
-      SELECT id, pump_sl_no, pump_model_plate, model_no_internal, product_code, product_name, quantity,
-        liquid, capacity, head, pump_speed, drive_rating,
-        so_number, so_date::text AS so_date, so_val::float AS so_val, cust_po_number,
-        ec_number, ec_date::text AS ec_date, consignee_name, consignee_city
+      SELECT id,
+        COALESCE(EXTRACT(YEAR FROM so_date), EXTRACT(YEAR FROM ec_date))::int AS year,
+        pump_model_plate, quantity, customer_name AS supplier, ec_number, pump_sl_no,
+        liquid, capacity, head
       FROM client_pumps WHERE client_id = $1
       ORDER BY so_date DESC NULLS LAST, id`, [client.id])).rows, []),
   ]);
