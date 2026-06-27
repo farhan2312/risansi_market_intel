@@ -57,6 +57,7 @@ const SALES_NAV: NavItem[] = [
 const ADMIN_NAV: NavItem[] = [
   { id: 'clients-admin', href: '/risansi/admin/clients', label: 'Client Master',  Icon: IcList },
   { id: 'revenue-admin', href: '/risansi/admin/revenue', label: 'Revenue Upload', Icon: IcBag },
+  { id: 'pumps-admin',   href: '/risansi/admin/pumps',   label: 'Pump Ingestion', Icon: IcPump },
 ];
 
 // GROUP 3 — System Admin (sysadmin only)
@@ -80,6 +81,7 @@ const PATH_TO_ID: [string, string][] = [
   ['/risansi/admin/settings',   'settings-admin'],
   ['/risansi/admin/clients',    'clients-admin'],
   ['/risansi/admin/revenue',    'revenue-admin'],
+  ['/risansi/admin/pumps',      'pumps-admin'],
   ['/risansi/admin/reps',       'reps-admin'],
   ['/risansi/compete',          'compete'],
   ['/risansi/complaints',       'complaints'],
@@ -279,6 +281,7 @@ function IcPipeline() { return ic(<path d="M3 4h10M4 8h8M5 12h6"/>)(); }
 function IcTasks()    { return ic(<><path d="M6 4h8M6 8h8M6 12h8"/><path d="M2.5 4l1 1 1.5-1.5M2.5 8l1 1 1.5-1.5M2.5 12l1 1 1.5-1.5"/></>)(); }
 function IcTower()    { return ic(<><path d="M2 14V8l6-5 6 5v6"/><circle cx="8" cy="9" r="1.5"/></>)(); }
 function IcBag()      { return ic(<><path d="M3 6h10l-1 8H4z"/><path d="M6 6V4a2 2 0 0 1 4 0v2"/></>)(); }
+function IcPump()     { return ic(<path d="M8 2c2.6 3 4 5.2 4 7.2a4 4 0 0 1-8 0c0-2 1.4-4.2 4-7.2z"/>)(); }
 function IcList()     { return ic(<><path d="M3 4h10M3 8h10M3 12h6"/></>)(); }
 function IcUser()     { return ic(<><circle cx="8" cy="6" r="3"/><path d="M2 14c0-3 2.7-5 6-5s6 2 6 5"/></>)(); }
 function IcKey()      { return ic(<><circle cx="6.5" cy="9.5" r="3.5"/><path d="M10 6l4-4M12 4l2 2M10 8l1.5-1.5"/></>)(); }

@@ -8,7 +8,7 @@ import { useTheme } from 'next-themes';
 import {
   LayoutGrid, Building2, MapPinned, Receipt, Menu, X,
   GitBranch, RadioTower, ListChecks, Upload, Users, KeyRound,
-  Map as MapIcon, ClipboardList, Settings, Sun, Moon, LogOut, AlertTriangle, ListTodo,
+  Map as MapIcon, ClipboardList, Settings, Sun, Moon, LogOut, AlertTriangle, ListTodo, Gauge,
 } from 'lucide-react';
 
 export type BottomNavRole = 'rep' | 'manager' | 'exec' | 'admin' | 'sysadmin';
@@ -33,6 +33,7 @@ const MORE_SALES: Item[] = [
 const MORE_ADMIN: Item[] = [
   { href: '/risansi/admin/clients', label: 'Client Master',  Icon: ListChecks },
   { href: '/risansi/admin/revenue', label: 'Revenue Upload', Icon: Upload },
+  { href: '/risansi/admin/pumps',   label: 'Pump Ingestion', Icon: Gauge },
 ];
 
 const MORE_SYSADMIN: Item[] = [
