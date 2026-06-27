@@ -1,7 +1,10 @@
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
+import { getCurrentUser, clientVisibilitySql } from '@/lib/risansi-auth';
 import { NewVisitClient } from './NewVisitClient';
+
+export const dynamic = 'force-dynamic';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
@@ -28,24 +31,26 @@ export default async function NewVisitPage() {
     return rows[0] ?? null;
   }, null);
 
-  // All active clients assigned to this rep (for autocomplete)
+  // Active clients the user may see (tour-based: admin → all, rep/manager →
+  // clients on their tours). Used as the "start visit" picker list.
+  const me = await getCurrentUser();
+  const cVis = clientVisibilitySql(me, 'c');
   const clients = await q<ClientOption[]>(async () => {
     const { rows } = await risansiPool.query<{
       id: string; client_code: string; legal_name: string; industry: string;
       last_visit: string | null; days_since: string | null;
     }>(`
-      SELECT c.id, c.client_code, c.legal_name, c.industry,
-             MAX(v.visit_date)::text AS last_visit,
+      SELECT c.id, c.code AS client_code, c.legal_name, COALESCE(c.industry, '') AS industry,
+             c.last_visit_date::text AS last_visit,
              CASE
-               WHEN MAX(v.visit_date) IS NULL THEN NULL
-               ELSE EXTRACT(DAY FROM NOW() - MAX(v.visit_date)::timestamp)::int
+               WHEN c.last_visit_date IS NULL THEN NULL
+               ELSE EXTRACT(DAY FROM NOW() - c.last_visit_date::timestamp)::int
              END::text AS days_since
       FROM clients c
-      LEFT JOIN visits v ON v.client_id = c.id AND v.status = 'completed'
-      WHERE c.rep_id = $1 AND c.status = 'Active'
-      GROUP BY c.id
+      WHERE c.status = 'ACTIVE' AND c.deleted_at IS NULL
+      ${cVis ? `AND (${cVis})` : ''}
       ORDER BY c.legal_name
-    `, [rep?.id ?? '']);
+    `);
     return rows.map(r => ({
       ...r,
       days_since: r.days_since != null ? Number(r.days_since) : null,

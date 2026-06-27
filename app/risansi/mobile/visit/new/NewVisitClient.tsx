@@ -30,12 +30,13 @@ export function NewVisitClient({
   const [gpsState, setGpsState] = useState<'idle' | 'locating' | 'done' | 'error'>('idle');
   const [statusMsg, setStatusMsg] = useState('');
 
-  const filtered = search.length >= 1
+  // Show the whole client list by default; filter it as the rep types.
+  const filtered = search.trim()
     ? clients.filter(c =>
         c.legal_name.toLowerCase().includes(search.toLowerCase()) ||
         c.client_code.toLowerCase().includes(search.toLowerCase())
-      ).slice(0, 8)
-    : [];
+      )
+    : clients;
 
   const handleSelect = (client: ClientOption) => {
     setSelected(client);
@@ -115,27 +116,39 @@ export function NewVisitClient({
         {/* Client search / selected card */}
         {!selected ? (
           <div>
-            <label style={LABEL}>Select Client</label>
-            <div style={{ position: 'relative', marginTop: 6 }}>
-              <svg style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--fg-3)', pointerEvents: 'none' }}
-                width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                <circle cx="7" cy="7" r="5"/><path d="M14 14l-3.5-3.5"/>
-              </svg>
-              <input
-                type="text"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Search by name or code…"
-                style={{ ...INPUT, paddingLeft: 36 }}
-                autoFocus
-              />
+            <div style={{ position: 'sticky', top: 0, zIndex: 5, background: 'var(--bg)', paddingBottom: 8 }}>
+              <label style={LABEL}>Select Client</label>
+              <div style={{ position: 'relative', marginTop: 6 }}>
+                <svg style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--fg-3)', pointerEvents: 'none' }}
+                  width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                  <circle cx="7" cy="7" r="5"/><path d="M14 14l-3.5-3.5"/>
+                </svg>
+                <input
+                  type="text"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="Search by name or code…"
+                  style={{ ...INPUT, paddingLeft: 36 }}
+                  autoFocus
+                />
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 6 }}>
+                {filtered.length} client{filtered.length !== 1 ? 's' : ''}{search.trim() ? ' match' : ' · tap one to start'}
+              </div>
             </div>
 
-            {filtered.length > 0 && (
+            {clients.length === 0 ? (
+              <div style={{ marginTop: 16, textAlign: 'center', fontSize: 13, color: 'var(--fg-3)' }}>
+                No clients available for your account.
+              </div>
+            ) : filtered.length === 0 ? (
+              <div style={{ marginTop: 12, textAlign: 'center', fontSize: 13, color: 'var(--fg-3)' }}>
+                No clients match “{search}”.
+              </div>
+            ) : (
               <div style={{
                 marginTop: 4, background: 'var(--bg-paper)',
-                border: '1px solid var(--line)', borderRadius: 8,
-                overflow: 'hidden',
+                border: '1px solid var(--line)', borderRadius: 8, overflow: 'hidden',
               }}>
                 {filtered.map((c, i) => (
                   <button key={c.id} onClick={() => handleSelect(c)} style={{
@@ -147,17 +160,11 @@ export function NewVisitClient({
                   }}>
                     <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--fg)' }}>{c.legal_name}</div>
                     <div style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
-                      {c.client_code} · {c.industry}
+                      {c.client_code}{c.industry ? ` · ${c.industry}` : ''}
                       {c.days_since != null ? ` · ${c.days_since}d ago` : ' · Never visited'}
                     </div>
                   </button>
                 ))}
-              </div>
-            )}
-
-            {search.length >= 1 && filtered.length === 0 && (
-              <div style={{ marginTop: 12, textAlign: 'center', fontSize: 13, color: 'var(--fg-3)' }}>
-                No clients found
               </div>
             )}
           </div>
