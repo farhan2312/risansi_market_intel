@@ -626,10 +626,10 @@ function Step5Commercial({
                           style={{ ...INPUT, height: 38, flex: 2 }}
                         />
                         <input
-                          type="number" inputMode="decimal" min="0" step="0.5"
+                          type="number" inputMode="numeric" min="0" step="1"
                           value={opportunityValue}
                           onChange={e => setOpportunityValue(e.target.value)}
-                          placeholder="₹ Cr"
+                          placeholder="Value ₹ e.g. 2500000"
                           style={{ ...INPUT, height: 38, flex: 1 }}
                         />
                       </div>

@@ -1359,8 +1359,8 @@ function ExpansionOpportunityForm({ visitId, clientId, clientName, repId, isClos
   const [product, setProduct]           = useState(existingOpp?.product ?? '');
   const [productType, setProductType]   = useState(existingOpp?.product_type ?? 'PCP');
   const [stage, setStage]               = useState(existingOpp?.stage ?? 'Suspect');
-  const [valueLakh, setValueLakh]       = useState(
-    existingOpp?.value_cr ? String(parseFloat(String(existingOpp.value_cr)) * 100) : '',
+  const [valueInr, setValueInr]         = useState(
+    existingOpp?.value_cr ? String(Math.round(parseFloat(String(existingOpp.value_cr)) * 10_000_000)) : '',
   );
   const [probability, setProbability]   = useState(existingOpp?.probability != null ? String(existingOpp.probability) : '20');
   const [etaText, setEtaText]           = useState(existingOpp?.eta_text ?? '');
@@ -1381,7 +1381,7 @@ function ExpansionOpportunityForm({ visitId, clientId, clientName, repId, isClos
       visitId, clientId, repId, hasExpansion,
       product: product.trim() || `Expansion — ${clientName}`,
       productType, stage,
-      valueLakh: valueLakh ? parseFloat(valueLakh) : null,
+      valueInr: valueInr ? parseFloat(valueInr) : null,
       probability: probability ? parseInt(probability, 10) : 20,
       etaText: etaText || null,
       quoteRef: quoteRef || null,
@@ -1390,7 +1390,7 @@ function ExpansionOpportunityForm({ visitId, clientId, clientName, repId, isClos
     saveTimer.current = setTimeout(() => { saveExpansionOpportunity(snapshot).catch(() => {}); }, 900);
     return () => clearTimeout(saveTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasExpansion, product, productType, stage, valueLakh, probability, etaText, quoteRef, notes]);
+  }, [hasExpansion, product, productType, stage, valueInr, probability, etaText, quoteRef, notes]);
 
   const toggleStyle = (active: boolean): CSSProperties => ({
     padding: '6px 16px', borderRadius: 6,
@@ -1452,8 +1452,9 @@ function ExpansionOpportunityForm({ visitId, clientId, clientName, repId, isClos
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
-              <label style={LBL}>Value (₹ Lakhs)</label>
-              <Input type="number" inputMode="decimal" step="0.1" min="0" placeholder="e.g. 12.5" value={valueLakh} onChange={e => setValueLakh(e.target.value)} disabled={isClosed} />
+              <label style={LBL}>Value (₹)</label>
+              <Input type="number" inputMode="numeric" step="1" min="0" placeholder="e.g. 2500000" value={valueInr} onChange={e => setValueInr(e.target.value)} disabled={isClosed} />
+              <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3 }}>Full amount in rupees</div>
             </div>
             <div>
               <label style={LBL}>Probability %</label>

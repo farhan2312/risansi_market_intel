@@ -79,8 +79,13 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
     }
   };
 
-  const lakhsFrom = (cr: number | string | null | undefined) =>
-    cr != null && cr !== '' ? (parseFloat(String(cr)) * 100).toFixed(1) : '';
+  // value_cr is stored in Crores; opportunity values are entered/shown as the
+  // full rupee amount (1 Cr = ₹10,000,000). inrFrom → raw integer for number
+  // inputs; inrLabel → grouped ₹ string for read-only display.
+  const inrFrom = (cr: number | string | null | undefined) =>
+    cr != null && cr !== '' ? String(Math.round(parseFloat(String(cr)) * 10_000_000)) : '';
+  const inrLabel = (cr: number | string | null | undefined) =>
+    cr != null && cr !== '' ? '₹' + Math.round(parseFloat(String(cr)) * 10_000_000).toLocaleString('en-IN') : '';
 
   const isLocked = opp.stage === 'Won' || opp.stage === 'Lost';
   // View-only when locked (Won/Lost) OR the viewer lacks edit rights.
@@ -166,10 +171,10 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
             <ReadOnlyRow label="Stage" value={opp.stage} />
             <ReadOnlyRow label="Product" value={opp.product} />
             <ReadOnlyRow label="Product Type" value={opp.product_type ?? '—'} />
-            <ReadOnlyRow label="Value (₹ Lakhs)" value={lakhsFrom(opp.value_cr) || '—'} />
+            <ReadOnlyRow label="Value" value={inrLabel(opp.value_cr) || '—'} />
             {opp.stage === 'Won' && (
               <>
-                <ReadOnlyRow label="Final Value (₹ Lakhs)" value={lakhsFrom(opp.final_value_cr) || '—'} />
+                <ReadOnlyRow label="Final Value" value={inrLabel(opp.final_value_cr) || '—'} />
                 <ReadOnlyRow label="PO Number" value={opp.po_number ?? '—'} />
               </>
             )}
@@ -240,9 +245,9 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
-                <label style={LABEL_STYLE}>Value</label>
-                <input name="value_lakh" type="number" step="0.1" min="0" defaultValue={lakhsFrom(opp.value_cr)} style={INPUT_STYLE} />
-                <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3 }}>₹ in lakhs</div>
+                <label style={LABEL_STYLE}>Value (₹)</label>
+                <input name="value_inr" type="number" step="1" min="0" inputMode="numeric" defaultValue={inrFrom(opp.value_cr)} style={INPUT_STYLE} />
+                <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3 }}>Full amount in rupees</div>
               </div>
               <div>
                 <label style={LABEL_STYLE}>Expected Close</label>
@@ -265,9 +270,9 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
             {stage === 'Won' && (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
-                  <label style={LABEL_STYLE}>Final Value</label>
-                  <input name="final_value_lakh" type="number" step="0.1" defaultValue={lakhsFrom(opp.final_value_cr)} style={INPUT_STYLE} />
-                  <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3 }}>₹ in lakhs</div>
+                  <label style={LABEL_STYLE}>Final Value (₹)</label>
+                  <input name="final_value_inr" type="number" step="1" inputMode="numeric" defaultValue={inrFrom(opp.final_value_cr)} style={INPUT_STYLE} />
+                  <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3 }}>Full amount in rupees</div>
                 </div>
                 <div>
                   <label style={LABEL_STYLE}>PO Number</label>

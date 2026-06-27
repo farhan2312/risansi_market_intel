@@ -26,8 +26,9 @@ export function OppCompletionModal({ opp, stage, onSave, onCancel }: {
       .catch(() => setCompetitors([]));
   }, [isLost]);
 
-  const lakhs = (cr: number | string | null | undefined) =>
-    cr != null && cr !== '' ? (parseFloat(String(cr)) * 100).toFixed(1) : '';
+  // value_cr is in Crores; the form takes the full rupee amount (1 Cr = ₹10,000,000).
+  const inr = (cr: number | string | null | undefined) =>
+    cr != null && cr !== '' ? String(Math.round(parseFloat(String(cr)) * 10_000_000)) : '';
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -37,7 +38,7 @@ export function OppCompletionModal({ opp, stage, onSave, onCancel }: {
       fd.set('stage', stage);
       fd.set('product', opp.product);
       fd.set('product_type', opp.product_type ?? 'PCP');
-      fd.set('value_lakh', lakhs(opp.value_cr) || '0');
+      fd.set('value_inr', inr(opp.value_cr) || '0');
       // Carry the opp's existing owner through so the Won update doesn't blank it.
       fd.set('rep_id', opp.rep_id ? String(opp.rep_id) : '');
       await updateOpportunity(Number(opp.id), fd);
@@ -84,12 +85,13 @@ export function OppCompletionModal({ opp, stage, onSave, onCancel }: {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <div>
-                    <label style={LABEL}>Final Value (₹ Lakhs) *</label>
+                    <label style={LABEL}>Final Value (₹) *</label>
                     <input
-                      name="final_value_lakh" type="number" step="0.1" min="0" required
-                      defaultValue={lakhs(opp.final_value_cr) || lakhs(opp.value_cr)}
-                      placeholder="e.g. 12.5" style={INPUT}
+                      name="final_value_inr" type="number" step="1" min="0" inputMode="numeric" required
+                      defaultValue={inr(opp.final_value_cr) || inr(opp.value_cr)}
+                      placeholder="e.g. 2500000" style={INPUT}
                     />
+                    <p style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 4 }}>Full amount in rupees</p>
                   </div>
                   <div>
                     <label style={LABEL}>PO Number</label>

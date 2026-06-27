@@ -550,10 +550,10 @@ export async function createPipelineOpportunity(formData: FormData) {
   const product  = (formData.get('product')          as string | null)?.trim() ?? 'New Opportunity';
   const prodType = (formData.get('product_type')      as string | null)?.trim() || 'PCP';
   const stage    = (formData.get('stage')            as string | null)?.trim() ?? 'Suspect';
-  // Accept value in Lakhs (₹12.5L → 0.125 Cr); fall back to legacy estimated_value (Cr)
-  const valueLakh = parseFloat((formData.get('value_lakh') as string | null) ?? '');
-  const value     = Number.isFinite(valueLakh)
-    ? valueLakh / 100
+  // Accept the full rupee amount (₹12,50,000 → 0.125 Cr); fall back to legacy estimated_value (Cr)
+  const valueInr = parseFloat((formData.get('value_inr') as string | null) ?? '');
+  const value     = Number.isFinite(valueInr)
+    ? valueInr / 10_000_000
     : (parseFloat((formData.get('estimated_value') as string | null) ?? '0') || 0);
   const prob     = parseInt((formData.get('probability')       as string | null) ?? '25', 10) || 25;
   const eta      = (formData.get('eta_text')         as string | null)?.trim()
@@ -661,8 +661,8 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
     throw new Error('This opportunity is locked and cannot be edited.');
   }
 
-  const valueLakh = parseFloat((formData.get('value_lakh')       as string | null) ?? '0');
-  const finalLakh = parseFloat((formData.get('final_value_lakh') as string | null) ?? '0');
+  const valueInr = parseFloat((formData.get('value_inr')       as string | null) ?? '0');
+  const finalInr = parseFloat((formData.get('final_value_inr') as string | null) ?? '0');
   const num = (k: string) => (formData.get(k) ? parseInt(formData.get(k) as string, 10) : null);
 
   // For rep_id: if the form omits it, preserve the opportunity's EXISTING
@@ -696,7 +696,7 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
     product:            (formData.get('product') as string | null)?.trim() || null,
     product_type:       (formData.get('product_type') as string | null) || 'PCP',
     stage:              (formData.get('stage') as string | null) || 'Suspect',
-    value_cr:           valueLakh > 0 ? valueLakh / 100 : null,
+    value_cr:           valueInr > 0 ? valueInr / 10_000_000 : null,
     probability:        num('probability'),
     eta_text:           (formData.get('eta_text') as string | null) || null,
     quote_ref:          (formData.get('quote_ref') as string | null) || null,
@@ -706,7 +706,7 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
     rep_id:             repId,
     secondary_rep_id:   secRepId,
     po_number:          (formData.get('po_number') as string | null) || null,
-    final_value_cr:     finalLakh > 0 ? finalLakh / 100 : null,
+    final_value_cr:     finalInr > 0 ? finalInr / 10_000_000 : null,
     lost_to_competitor: (formData.get('lost_to_competitor') as string | null) || null,
     lost_reason:        (formData.get('lost_reason') as string | null) || null,
   };
@@ -1090,11 +1090,12 @@ export async function submitVisitReport(
   // Auto-create opportunity if expansion plans flagged
   if (data.createOpportunity && clientId && data.opportunityProduct) {
     try {
+      // opportunityValue arrives as the full rupee amount; value_cr is Crores.
       await risansiPool.query(
         `INSERT INTO opportunities
            (client_id, product, stage, value_cr, probability, auto_created, created_at, updated_at)
          VALUES ($1, $2, 'Suspect', $3, 25, TRUE, NOW(), NOW())`,
-        [clientId, data.opportunityProduct, data.opportunityValue || 0],
+        [clientId, data.opportunityProduct, data.opportunityValue ? data.opportunityValue / 10_000_000 : 0],
       );
     } catch { /* ignore */ }
   }
@@ -1114,8 +1115,8 @@ export async function submitOpportunity(formData: FormData) {
   const product     = (formData.get('product')       as string | null)?.trim() ?? 'New Opportunity';
   const productType = (formData.get('product_type')  as string | null)?.trim() ?? 'PCP';
   const stage       = (formData.get('stage')         as string | null)?.trim() ?? 'Suspect';
-  const valueLakh   = parseFloat((formData.get('value_lakh') as string | null) ?? '0') || 0;
-  const valueCr     = valueLakh > 0 ? valueLakh / 100 : null;  // Lakhs → Crores
+  const valueInr    = parseFloat((formData.get('value_inr') as string | null) ?? '0') || 0;
+  const valueCr     = valueInr > 0 ? valueInr / 10_000_000 : null;  // Rupees → Crores
   const probability = parseInt((formData.get('probability') as string | null) ?? '0', 10) || null;
   const etaText     = (formData.get('eta_text')      as string | null)?.trim() || null;
   const quoteRef    = (formData.get('quote_ref')     as string | null)?.trim() || null;
@@ -1173,7 +1174,7 @@ export async function submitOpportunity(formData: FormData) {
     } catch { /* table may not exist */ }
   }
 
-  const desc = `${product} · ${stage}${valueLakh > 0 ? ` · ₹${valueLakh}L` : ''}`;
+  const desc = `${product} · ${stage}${valueInr > 0 ? ` · ₹${valueInr.toLocaleString('en-IN')}` : ''}`;
   await logActivity('client', clientId, `opportunity created: ${desc}`, user.email!);
 
   revalidatePath(`/risansi/clients/${clientId}`);

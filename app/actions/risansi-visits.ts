@@ -60,7 +60,7 @@ export async function saveExpansionOpportunity(input: {
   product: string;
   productType: string;
   stage: string;
-  valueLakh: number | null;
+  valueInr: number | null;
   probability: number;
   etaText: string | null;
   quoteRef: string | null;
@@ -108,7 +108,7 @@ export async function saveExpansionOpportunity(input: {
   }
 
   const product = input.product.trim() || 'Expansion';
-  const valueCr = input.valueLakh && input.valueLakh > 0 ? input.valueLakh / 100 : null;
+  const valueCr = input.valueInr && input.valueInr > 0 ? input.valueInr / 10_000_000 : null;
 
   if (existingId) {
     await risansiPool.query(
