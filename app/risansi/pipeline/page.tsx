@@ -141,6 +141,8 @@ export default async function PipelinePage({
   const ownerVisPoAnd = ownerVisPo ? ` AND (${ownerVisPo})` : '';
   const ownerVisBare  = clientScopeSql(visUser, 'client_id');
   const ownerVisBareAnd = ownerVisBare ? ` AND (${ownerVisBare})` : '';
+  const ownerVisCId   = clientScopeSql(visUser, 'c.id');
+  const ownerVisCIdAnd = ownerVisCId ? ` AND (${ownerVisCId})` : '';
 
   const filterClause = (conds.length ? ` AND ${conds.join(' AND ')}` : '') + ownerVisAnd;
   // Dropped is terminal (client-cancelled) — excluded from open pipeline, shown
@@ -216,7 +218,7 @@ export default async function PipelinePage({
       const { rows } = await risansiPool.query<{ booked_inr: string }>(
         `SELECT COALESCE(SUM(total_value), 0)::text AS booked_inr
          FROM client_revenue_monthly
-         WHERE month >= '2025-04-01' AND month < '2026-04-01'`,
+         WHERE month >= '2025-04-01' AND month < '2026-04-01'${ownerVisBareAnd}`,
       );
       return Number(rows[0]?.booked_inr ?? 0) / 10_000_000;
     }, 0),
@@ -267,14 +269,14 @@ export default async function PipelinePage({
     // 6. Filter options
     q<string[]>(async () => {
       const { rows } = await risansiPool.query<{ stage: string }>(
-        `SELECT DISTINCT stage FROM opportunities WHERE stage NOT IN ('Won','Lost','Dropped') ORDER BY stage`,
+        `SELECT DISTINCT stage FROM opportunities WHERE stage NOT IN ('Won','Lost','Dropped')${ownerVisBareAnd} ORDER BY stage`,
       );
       return rows.map(r => r.stage);
     }, ['Suspect', 'Prospect', 'Quoted', 'Negotiating']),
 
     q<string[]>(async () => {
       const { rows } = await risansiPool.query<{ product_type: string }>(
-        `SELECT DISTINCT product_type FROM opportunities WHERE product_type IS NOT NULL ORDER BY product_type`,
+        `SELECT DISTINCT product_type FROM opportunities WHERE product_type IS NOT NULL${ownerVisBareAnd} ORDER BY product_type`,
       );
       return rows.map(r => r.product_type);
     }, []),
@@ -288,7 +290,7 @@ export default async function PipelinePage({
 
     q<string[]>(async () => {
       const { rows } = await risansiPool.query<{ industry: string }>(
-        `SELECT DISTINCT c.industry FROM clients c WHERE c.industry IS NOT NULL ORDER BY c.industry`,
+        `SELECT DISTINCT c.industry FROM clients c WHERE c.industry IS NOT NULL${ownerVisCIdAnd} ORDER BY c.industry`,
       );
       return rows.map(r => r.industry);
     }, []),
