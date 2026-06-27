@@ -26,8 +26,19 @@ export function FilterBar({ q: initQ, sugar }: FilterBarProps) {
   const [pending, startTransition] = useTransition();
   const [search, setSearch] = useState(initQ);
   const mounted = useRef(false);
+  // The last value we pushed to the URL. A lagging server round-trip echoes the
+  // OLD `q` back as `initQ`; without this guard, syncing it into `search` would
+  // overwrite characters typed during the round-trip (the "auto-backspace" bug).
+  const lastPushed = useRef(initQ);
 
-  useEffect(() => { setSearch(initQ); }, [initQ]);
+  // Adopt `initQ` only when it changes EXTERNALLY (e.g. clearing the search chip),
+  // never when it's our own debounced update coming back.
+  useEffect(() => {
+    if (initQ !== lastPushed.current) {
+      lastPushed.current = initQ;
+      setSearch(initQ);
+    }
+  }, [initQ]);
 
   // Debounced search
   useEffect(() => {
@@ -37,6 +48,7 @@ export function FilterBar({ q: initQ, sugar }: FilterBarProps) {
       if (search) p.set('q', search);
       else        p.delete('q');
       p.delete('page');
+      lastPushed.current = search;
       startTransition(() => router.replace(`${pathname}?${p.toString()}`));
     }, 280);
     return () => clearTimeout(id);
