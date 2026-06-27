@@ -34,7 +34,13 @@
       "Bash(git add *)",
       "Bash(git commit *)",
       "Bash(git check-ignore *)",
-      "Bash(npx eslint *)"
+      "Bash(npx eslint *)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(echo \"EXIT: $?\")",
+      "PowerShell(npx tsc --noEmit)",
+      "PowerShell(npx tsc --noEmit; Write-Output \"EXITCODE=$LASTEXITCODE\")",
+      "Bash(echo \"TSC_EXIT=$?\")",
+      "Bash(git push *)"
     ]
   }
 }
