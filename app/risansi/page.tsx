@@ -7,7 +7,7 @@ import { Topbar, Sparkline, MiniBars, Donut, Tag } from '@/components/risansi';
 import { ExportPdfButton } from '@/components/risansi/ExportPdfButton';
 import { RefreshButton } from '@/components/risansi/RefreshButton';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, clientVisibilitySql, clientScopeSql } from '@/lib/risansi-auth';
+import { getCurrentUser, clientVisibilitySql, clientScopeSql, hasRole } from '@/lib/risansi-auth';
 import {
   getCurrentFY, fyShortLabel,
   fyYtdPct, fyDaysLeft, formatIndianDate, formatTime, fmtCr, fmtL,
@@ -76,11 +76,7 @@ interface AutoOpp {
 
 // ── Page ───────────────────────────────────────────────────────
 
-export default async function ExecDashboardPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ fy?: string; view?: string }>;
-}) {
+export default async function ExecDashboardPage() {
   // ── Mobile redirect (must live here, not in layout) ────────
   const headersList = await headers();
   const ua = headersList.get('user-agent') ?? '';
@@ -91,7 +87,6 @@ export default async function ExecDashboardPage({
   const session     = await getServerSession(authOptions);
   const displayName = session?.user?.name ?? session?.user?.email ?? 'Admin';
   const role        = session?.user?.role ?? '';
-  const isRep       = role === 'rep';
 
   // Per-user visibility predicates (inline integer ids, no params).
   const currentUser = await getCurrentUser();
@@ -102,10 +97,10 @@ export default async function ExecDashboardPage({
   const visitOwnerVis = clientScopeSql(currentUser, 'v.client_id'); // visits aliased v
   const visitOwnerAnd = visitOwnerVis ? ` AND (${visitOwnerVis})` : '';
 
-  const sp       = await searchParams;
-  const view     = typeof sp.view === 'string' ? sp.view : 'personal';
-  // Reps default to their personal dashboard; admins/managers always see full.
-  const showFull = role !== 'rep' || view === 'full';
+  // Only admin / sysadmin see the full company dashboard (incl. the target).
+  // Reps AND managers always get the tour-scoped personal view — their tours'
+  // numbers only, never the company-wide picture, and never the target.
+  const showFull = hasRole(role, 'admin');
 
   // ── Rep-specific dashboard (personal view) ─────────────────────
   if (!showFull) {
@@ -123,7 +118,7 @@ export default async function ExecDashboardPage({
     }, null);
     const repId = (session?.user?.repId != null ? String(session.user.repId) : null) ?? repRow?.id ?? null;
 
-    const [myVisitsCount, myOverdueCount, myPipelineValue, myClientsCount, myRecentVisits, myOverdueClients] = await Promise.all([
+    const [myVisitsCount, myOverdueCount, myPipelineValue, myClientsCount, myRecentVisits, myOverdueClients, myRevenue] = await Promise.all([
 
       // My visits this week — owner visibility on v.rep_id
       q<number>(async () => {
@@ -209,6 +204,19 @@ export default async function ExecDashboardPage({
         );
         return rows;
       }, []),
+
+      // My tours' booked revenue this FY (Crores) — tour-scoped via client visibility
+      q<number>(async () => {
+        if (!repId) return 0;
+        const { rows } = await risansiPool.query<{ total: string }>(
+          `SELECT COALESCE(SUM(crm.total_value),0)::text AS total
+           FROM client_revenue_monthly crm
+           JOIN clients c ON c.id = crm.client_id
+           WHERE crm.month >= '2025-04-01' AND crm.month < '2026-04-01'
+             AND c.deleted_at IS NULL${cVisAnd}`,
+        );
+        return Number(rows[0]?.total ?? 0) / 10_000_000;
+      }, 0),
     ]);
 
     return (
@@ -233,15 +241,13 @@ export default async function ExecDashboardPage({
           {/* Account-not-linked warning */}
           {!repId && <RepNotLinkedWarning />}
 
-          {/* View toggle (reps only) */}
-          <RepViewToggle view={view} />
-
-          {/* 4 KPI cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
-            <RepKpi label="Visits This Week" value={String(myVisitsCount)}  sub="Last 7 days" />
-            <RepKpi label="Overdue Clients"  value={String(myOverdueCount)} sub="No visit 90+ days" neg={myOverdueCount > 0} />
-            <RepKpi label="My Pipeline"      value={fmtCr(myPipelineValue)} sub="Open opportunities" />
-            <RepKpi label="My Clients"       value={String(myClientsCount)} sub="Active accounts" />
+          {/* 5 KPI cards — all tour-scoped (your tours only) */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
+            <RepKpi label="Revenue (FY 25-26)" value={fmtCr(myRevenue)}       sub="Booked · your tours" />
+            <RepKpi label="Visits This Week"   value={String(myVisitsCount)}  sub="Last 7 days" />
+            <RepKpi label="Overdue Clients"    value={String(myOverdueCount)} sub="No visit 90+ days" neg={myOverdueCount > 0} />
+            <RepKpi label="Pipeline"           value={fmtCr(myPipelineValue)} sub="Open opportunities" />
+            <RepKpi label="Active Clients"     value={String(myClientsCount)} sub="On your tours" />
           </div>
 
           {/* Two panels */}
@@ -708,9 +714,6 @@ export default async function ExecDashboardPage({
             <RefreshButton />
           </div>
         </div>
-
-        {/* View toggle (reps only — admins/managers don't see it) */}
-        {isRep && <RepViewToggle view={view} />}
 
         {/* ── Hero metrics row 1: full-width Revenue card ─────── */}
         <div style={{ marginBottom: 12 }}>
@@ -1318,25 +1321,6 @@ function RepNotLinkedWarning() {
         Your account is not linked to a rep record. Some features may not work
         correctly. Please contact your system administrator.
       </span>
-    </div>
-  );
-}
-
-// Rep-only toggle between personal and full-company dashboard views
-function RepViewToggle({ view }: { view: string }) {
-  const isFull = view === 'full';
-  const tab = (active: boolean): CSSProperties => ({
-    padding: '6px 16px', borderRadius: 6, fontSize: 13, fontWeight: 500,
-    textDecoration: 'none',
-    background: active ? '#fff' : 'transparent',
-    color: active ? '#1A5CB8' : 'var(--fg-3)',
-    boxShadow: active ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
-    transition: 'all 150ms',
-  });
-  return (
-    <div style={{ display: 'flex', gap: 0, marginBottom: 20, background: 'var(--bg-elev)', borderRadius: 8, padding: 4, width: 'fit-content' }}>
-      <a href="/risansi" style={tab(!isFull)}>My Dashboard</a>
-      <a href="/risansi?view=full" style={tab(isFull)}>Full View</a>
     </div>
   );
 }
