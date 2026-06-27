@@ -8,7 +8,7 @@ import { useTheme } from 'next-themes';
 import {
   LayoutGrid, Building2, MapPinned, Receipt, Menu, X,
   GitBranch, RadioTower, ListChecks, Upload, Users, KeyRound,
-  Map as MapIcon, ClipboardList, Settings, Sun, Moon, LogOut, AlertTriangle,
+  Map as MapIcon, ClipboardList, Settings, Sun, Moon, LogOut, AlertTriangle, ListTodo,
 } from 'lucide-react';
 
 export type BottomNavRole = 'rep' | 'manager' | 'exec' | 'admin' | 'sysadmin';
@@ -24,6 +24,7 @@ const TABS: Item[] = [
 ];
 
 const MORE_SALES: Item[] = [
+  { href: '/risansi/registry',   label: 'Action Registry', Icon: ListTodo },
   { href: '/risansi/pipeline',   label: 'Opportunities', Icon: GitBranch },
   { href: '/risansi/compete',    label: 'Competition',   Icon: RadioTower },
   { href: '/risansi/complaints', label: 'Complaints',    Icon: AlertTriangle },

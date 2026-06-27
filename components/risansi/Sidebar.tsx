@@ -44,6 +44,7 @@ interface NavItem {
 // GROUP 1 — Sales (all roles)
 const SALES_NAV: NavItem[] = [
   { id: 'dash',      href: '/risansi',          label: 'Dashboard',      Icon: IcDash },
+  { id: 'registry',  href: '/risansi/registry', label: 'Action Registry', Icon: IcTasks },
   { id: 'client360', href: '/risansi/clients',  label: 'Client 360',     Icon: IcClient },
   { id: 'field',     href: '/risansi/field',    label: 'Field Activity', Icon: IcMap },
   { id: 'revenue',   href: '/risansi/revenue',  label: 'Revenue',        Icon: IcBag },
@@ -87,6 +88,7 @@ const PATH_TO_ID: [string, string][] = [
   ['/risansi/field',            'field'],
   ['/risansi/visits',           'field'],   // visit report/coverage routes belong to Field Activity
   ['/risansi/revenue',          'revenue'],
+  ['/risansi/registry',         'registry'],
   ['/risansi',                  'dash'],
 ];
 
@@ -274,6 +276,7 @@ function IcCal()      { return ic(<><rect x="2" y="3" width="12" height="11" rx=
 function IcClient()   { return ic(<><path d="M2 14V6l6-3 6 3v8"/><path d="M6 14V9h4v5"/></>)(); }
 function IcMap()      { return ic(<><path d="M2 4l4-1 4 1 4-1v9l-4 1-4-1-4 1z"/><path d="M6 3v10M10 4v10"/></>)(); }
 function IcPipeline() { return ic(<path d="M3 4h10M4 8h8M5 12h6"/>)(); }
+function IcTasks()    { return ic(<><path d="M6 4h8M6 8h8M6 12h8"/><path d="M2.5 4l1 1 1.5-1.5M2.5 8l1 1 1.5-1.5M2.5 12l1 1 1.5-1.5"/></>)(); }
 function IcTower()    { return ic(<><path d="M2 14V8l6-5 6 5v6"/><circle cx="8" cy="9" r="1.5"/></>)(); }
 function IcBag()      { return ic(<><path d="M3 6h10l-1 8H4z"/><path d="M6 6V4a2 2 0 0 1 4 0v2"/></>)(); }
 function IcList()     { return ic(<><path d="M3 4h10M3 8h10M3 12h6"/></>)(); }
