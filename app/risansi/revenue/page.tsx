@@ -73,8 +73,9 @@ export default async function RevenuePage({
   // ── Fiscal year selection (data spans multiple FYs) ─────────
   const availableFys = await q<number[]>(async () => {
     const { rows } = await risansiPool.query<{ fy: number }>(
-      `SELECT DISTINCT (CASE WHEN EXTRACT(MONTH FROM month) >= 4 THEN EXTRACT(YEAR FROM month) ELSE EXTRACT(YEAR FROM month) - 1 END)::int AS fy
-         FROM client_revenue_monthly ORDER BY fy DESC`);
+      `SELECT DISTINCT (CASE WHEN EXTRACT(MONTH FROM crm.month) >= 4 THEN EXTRACT(YEAR FROM crm.month) ELSE EXTRACT(YEAR FROM crm.month) - 1 END)::int AS fy
+         FROM client_revenue_monthly crm JOIN clients c ON c.id = crm.client_id
+        WHERE c.deleted_at IS NULL${repCond} ORDER BY fy DESC`);
     return rows.map(r => r.fy);
   }, []);
   const fyList = availableFys.length ? availableFys : [2025];
@@ -258,8 +259,9 @@ export default async function RevenuePage({
     // 9. Month tiles — distinct months present in the current FY
     q<string[]>(async () => {
       const { rows } = await risansiPool.query<{ ym: string }>(
-        `SELECT DISTINCT to_char(month,'YYYY-MM-01') AS ym FROM client_revenue_monthly
-         WHERE month >= $1 AND month < $2 ORDER BY ym`,
+        `SELECT DISTINCT to_char(crm.month,'YYYY-MM-01') AS ym
+           FROM client_revenue_monthly crm JOIN clients c ON c.id = crm.client_id
+          WHERE crm.month >= $1 AND crm.month < $2 AND c.deleted_at IS NULL${repCond} ORDER BY ym`,
         [CUR_FY_START, CUR_FY_END],
       );
       return rows.map(r => r.ym);
