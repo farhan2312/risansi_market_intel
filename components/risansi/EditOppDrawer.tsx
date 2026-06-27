@@ -240,9 +240,9 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
-                <label style={LABEL_STYLE}>Value (₹ Lakhs)</label>
+                <label style={LABEL_STYLE}>Value</label>
                 <input name="value_lakh" type="number" step="0.1" min="0" defaultValue={lakhsFrom(opp.value_cr)} style={INPUT_STYLE} />
-                <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3 }}>Enter in Lakhs</div>
+                <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3 }}>₹ in lakhs</div>
               </div>
               <div>
                 <label style={LABEL_STYLE}>Expected Close</label>
@@ -265,8 +265,9 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
             {stage === 'Won' && (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
-                  <label style={LABEL_STYLE}>Final Value (₹ Lakhs)</label>
+                  <label style={LABEL_STYLE}>Final Value</label>
                   <input name="final_value_lakh" type="number" step="0.1" defaultValue={lakhsFrom(opp.final_value_cr)} style={INPUT_STYLE} />
+                  <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3 }}>₹ in lakhs</div>
                 </div>
                 <div>
                   <label style={LABEL_STYLE}>PO Number</label>

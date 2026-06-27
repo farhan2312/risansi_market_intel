@@ -291,9 +291,9 @@ function NewOppForm({ client, lockClient, currentUserName, currentUserRepId, cur
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div>
-            <label style={LBL}>Value (₹ Lakhs)</label>
+            <label style={LBL}>Value</label>
             <input name="value_lakh" type="number" step="0.1" min="0" placeholder="e.g. 12.5" style={INP} />
-            <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3 }}>Enter in Lakhs (₹12.5L = ₹0.125 Cr stored)</div>
+            <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3 }}>₹ in lakhs</div>
           </div>
           <div>
             <label style={LBL}>Probability %</label>
