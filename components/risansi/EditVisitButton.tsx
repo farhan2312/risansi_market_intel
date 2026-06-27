@@ -89,7 +89,9 @@ export function EditVisitButton({ visit, role, compact = false }: {
 
       {open && (
         <div onClick={(e) => { stop(e); setOpen(false); }} style={OVERLAY}>
-          <div onClick={stop} style={MODAL}>
+          {/* Only stop propagation here — do NOT preventDefault, or clicks on the
+              native date picker (which opens on click) get suppressed. */}
+          <div onClick={(e) => e.stopPropagation()} style={MODAL}>
             <div style={{ fontSize: 15, fontWeight: 600, color: '#0D1B2A', marginBottom: 2 }}>Edit Visit</div>
             <div style={{ fontSize: 12, color: '#64748B', marginBottom: 16 }}>{visit.client_name}</div>
 
