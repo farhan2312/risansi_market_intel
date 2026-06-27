@@ -12,6 +12,9 @@
    reveals them. (Desktop-only elements stay visible until the media query hides them.) */
 .r-mobile-only { display: none; }
 
+/* Floating "plan visit" action button — phones only (revealed in the media query). */
+.r-visit-fab { display: none; }
+
 /* Client-360 mobile tab bar — hidden on desktop; .r-tabbed does no filtering
    off-mobile, so every panel shows as before. */
 .r-detail-tabs { display: none; }
@@ -41,6 +44,17 @@
     align-items: stretch;
   }
   .risansi-more-sheet { display: block; position: fixed; inset: 0; z-index: 70; }
+
+  /* Floating "plan visit" button — sits above the bottom nav on the Client 360 page. */
+  .r-visit-fab {
+    display: flex !important; align-items: center; justify-content: center;
+    position: fixed; right: 16px; z-index: 60; cursor: pointer;
+    bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+    width: 56px; height: 56px; border-radius: 50%;
+    background: #1A5CB8; color: #fff; border: none;
+    box-shadow: 0 6px 18px rgba(10, 61, 143, 0.42);
+  }
+  .r-visit-fab:active { transform: scale(0.94); }
 
   /* ── Auto-collapse inline CSS grids on phones ──
      The app builds layouts with inline `grid-template-columns`. These
