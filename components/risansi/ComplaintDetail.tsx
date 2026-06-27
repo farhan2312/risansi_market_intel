@@ -47,6 +47,7 @@ export function ComplaintDetail({ complaint, users, me, onClose }: {
   const [editing, setEditing] = useState(false);
   const [reassigning, setReassigning] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [lightboxId, setLightboxId] = useState<number | null>(null);
 
   const reload = useCallback(() => {
     fetch(`/api/risansi/complaints/${c.id}/log`, { cache: 'no-store' })
@@ -206,7 +207,8 @@ export function ComplaintDetail({ complaint, users, me, onClose }: {
                 <div key={p.id} style={{ position: 'relative' }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={`/api/risansi/complaint-photo/${p.id}`} alt={p.caption || 'Complaint photo'}
-                    style={{ width: 76, height: 76, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--line)' }} />
+                    onClick={() => setLightboxId(p.id)}
+                    style={{ width: 76, height: 76, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--line)', cursor: 'zoom-in' }} />
                   <button type="button" title="Delete" disabled={busy}
                     onClick={() => run(async () => {
                       const res = await fetch(`/api/risansi/complaint-photo/${p.id}`, { method: 'DELETE' });
@@ -255,6 +257,16 @@ export function ComplaintDetail({ complaint, users, me, onClose }: {
           )}
         </div>
       </div>
+
+      {/* Photo lightbox — click a thumbnail to enlarge; click the backdrop or ✕ to close */}
+      {lightboxId !== null && (
+        <div onClick={() => setLightboxId(null)} style={LIGHTBOX_BACKDROP}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={`/api/risansi/complaint-photo/${lightboxId}`} alt="Complaint photo"
+            onClick={e => e.stopPropagation()} style={LIGHTBOX_IMG} />
+          <button type="button" onClick={() => setLightboxId(null)} style={LIGHTBOX_CLOSE} aria-label="Close">✕</button>
+        </div>
+      )}
     </>
   );
 }
@@ -325,3 +337,6 @@ const GHOST_BTN: CSSProperties = { padding: '7px 13px', fontSize: 12, fontWeight
 const ERR: CSSProperties = { padding: '8px 12px', background: '#FEE2E2', border: '1px solid rgba(220,38,38,0.20)', borderRadius: 6, fontSize: 12, color: '#9B1C1C' };
 const PHOTO_DEL: CSSProperties = { position: 'absolute', top: -6, right: -6, width: 20, height: 20, borderRadius: '50%', background: 'var(--neg)', color: '#fff', border: '2px solid var(--bg-paper)', fontSize: 10, cursor: 'pointer', display: 'grid', placeItems: 'center' };
 const PHOTO_ADD: CSSProperties = { width: 76, height: 76, borderRadius: 6, border: '1px dashed var(--line-strong)', background: 'var(--bg-elev)', color: 'var(--fg-3)', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' };
+const LIGHTBOX_BACKDROP: CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(10,22,40,0.85)', zIndex: 500, display: 'grid', placeItems: 'center', padding: 24, cursor: 'zoom-out' };
+const LIGHTBOX_IMG: CSSProperties = { maxWidth: '92vw', maxHeight: '92vh', objectFit: 'contain', borderRadius: 8, boxShadow: '0 8px 40px rgba(0,0,0,0.5)', cursor: 'default' };
+const LIGHTBOX_CLOSE: CSSProperties = { position: 'fixed', top: 16, right: 20, width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.15)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)', fontSize: 16, cursor: 'pointer', display: 'grid', placeItems: 'center' };
