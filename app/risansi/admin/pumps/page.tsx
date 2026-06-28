@@ -20,11 +20,10 @@ async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
 
 interface PumpRow {
   id:               string;
-  year:             number | null;
   pump_model_plate: string | null;
-  quantity:         number;
   pump_sl_no:       string | null;
   ec_number:        string | null;
+  so_number:        string | null;
   liquid:           string | null;
   capacity:         string | null;
   head:             string | null;
@@ -60,11 +59,10 @@ export default async function PumpAdminPage() {
       const { rows } = await risansiPool.query<PumpRow>(
         `SELECT
            cp.id::text,
-           COALESCE(EXTRACT(YEAR FROM cp.so_date), EXTRACT(YEAR FROM cp.ec_date))::int AS year,
            cp.pump_model_plate,
-           cp.quantity,
            cp.pump_sl_no,
            cp.ec_number,
+           cp.so_number,
            cp.liquid,
            cp.capacity,
            cp.head,
@@ -122,9 +120,9 @@ export default async function PumpAdminPage() {
                 fontFamily: 'var(--font-mono)', background: 'var(--bg-elev)',
                 padding: '8px 12px', borderRadius: 6, display: 'inline-block', lineHeight: 1.8,
               }}>
-                Columns: Client Code | Client Name | Model | Quantity | SR No | EC No | EC Date | SO Date | Liquid | Capacity | Head | Supplier
+                Columns: CUST | CUST_NAME | EC_NO | SO_NO | PUMP_SL_NO | PUMP_MODEL_AS_NAME_PLATE | LIQUID | CAPACITY | HEAD
                 <br />
-                Dates: YYYY-MM-DD (used for the install Year) · Re-uploading the same SR No updates that pump
+                CUST is the ERP customer code (reversed to the portal code) · Re-uploading the same serial updates that pump
               </div>
             </div>
             <a
@@ -224,11 +222,10 @@ export default async function PumpAdminPage() {
                   <tr style={{ background: 'var(--bg-elev)' }}>
                     <th style={TH}>Client Code</th>
                     <th style={TH}>Client Name</th>
-                    <th style={{ ...TH, textAlign: 'center' }}>Year</th>
                     <th style={TH}>Model</th>
-                    <th style={{ ...TH, textAlign: 'center' }}>Qty</th>
                     <th style={TH}>SR No</th>
                     <th style={TH}>EC No</th>
+                    <th style={TH}>SO No</th>
                     <th style={TH}>Liquid</th>
                     <th style={TH}>Capacity</th>
                     <th style={TH}>Head</th>
@@ -245,11 +242,10 @@ export default async function PumpAdminPage() {
                           {row.legal_name}
                         </a>
                       </td>
-                      <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{row.year ?? '—'}</td>
                       <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600 }}>{row.pump_model_plate ?? '—'}</td>
-                      <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)' }}>{row.quantity}</td>
                       <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11 }}>{row.pump_sl_no ?? '—'}</td>
                       <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11 }}>{row.ec_number ?? '—'}</td>
+                      <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11 }}>{row.so_number ?? '—'}</td>
                       <td style={{ ...TD, color: 'var(--fg-3)' }}>{row.liquid ?? '—'}</td>
                       <td style={{ ...TD, color: 'var(--fg-3)' }}>{row.capacity ?? '—'}</td>
                       <td style={{ ...TD, color: 'var(--fg-3)' }}>{row.head ?? '—'}</td>

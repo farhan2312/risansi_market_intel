@@ -10,18 +10,16 @@ import type { PumpUploadResult } from '@/app/actions/risansi-pumps';
 type RowStatus = 'valid' | 'invalid_code' | 'checking';
 
 interface UploadRow {
-  code:        string;
-  clientName:  string;   // from Excel (display only)
-  model:       string;
-  quantity:    number;
-  srNo:        string;
+  cust:        string;   // raw ERP customer code (CUST)
+  code:        string;   // reversed -> clients.code
+  custName:    string;   // CUST_NAME (display only)
   ecNo:        string;
-  ecDate:      string;   // ISO 'YYYY-MM-DD' or ''
-  soDate:      string;
+  soNo:        string;
+  srNo:        string;   // PUMP_SL_NO
+  model:       string;
   liquid:      string;
   capacity:    string;
   head:        string;
-  supplier:    string;
   status:      RowStatus;
   statusMsg:   string;
   dbClientName?: string;
@@ -29,35 +27,13 @@ interface UploadRow {
 
 type Stage = 'empty' | 'validating' | 'preview' | 'saving' | 'done';
 
-// ── Helpers ────────────────────────────────────────────────────
-
-// Normalise an Excel cell to an ISO date string. Handles JS Date (cellDates),
-// Excel serial numbers, and DD/MM/YYYY · DD-MM-YYYY · YYYY-MM-DD strings.
-function toIsoDate(v: unknown): string {
-  if (v == null || v === '') return '';
-  if (v instanceof Date) {
-    if (isNaN(v.getTime())) return '';
-    return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
-  }
-  if (typeof v === 'number') {
-    const dt = new Date(Math.round((v - 25569) * 86400 * 1000));
-    return isNaN(dt.getTime()) ? '' : dt.toISOString().slice(0, 10);
-  }
-  const s = String(v).trim();
-  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
-  const m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
-  if (m) {
-    const dd = m[1].padStart(2, '0');
-    const mm = m[2].padStart(2, '0');
-    const yy = m[3].length === 2 ? `20${m[3]}` : m[3];
-    return `${yy}-${mm}-${dd}`;
-  }
-  return '';
+// ERP CUST code -> portal clients.code is a 4-2-4 reversal (A00101HOSH -> HOSH01A001).
+function reverseCode(s: string): string {
+  const c = (s ?? '').trim().toUpperCase();
+  const m = c.match(/^(.{4})(\d\d)(.{4})$/);
+  return m ? m[3] + m[2] + m[1] : c;
 }
-
 const cell = (v: unknown) => (v == null ? '' : String(v).trim());
-
-// ── Styles ─────────────────────────────────────────────────────
 
 const TH = {
   padding: '9px 12px', fontSize: 11, fontWeight: 600,
@@ -85,7 +61,7 @@ export function PumpUploadBox() {
 
     try {
       const buffer = await file.arrayBuffer();
-      const wb     = XLSX.read(buffer, { type: 'array', cellDates: true });
+      const wb     = XLSX.read(buffer, { type: 'array' });
       const ws     = wb.Sheets[wb.SheetNames[0]];
       const raw    = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' }) as unknown[][];
 
@@ -98,65 +74,62 @@ export function PumpUploadBox() {
       const headers = (raw[0] as string[]).map(h => h?.toString().trim().toLowerCase());
       const find = (pred: (h: string) => boolean) => headers.findIndex(h => pred(h));
 
-      const colCode     = find(h => h.includes('code'));
-      const colName     = find(h => h.includes('name'));
+      // CUST first (its name column also contains "cust"), then the rest.
+      let colCust = find(h => h === 'cust');
+      if (colCust < 0) colCust = find(h => (h.includes('cust') || h.includes('code')) && !h.includes('name'));
+      const colName     = find(h => h.includes('name') && !h.includes('plate') && !h.includes('model'));
       const colModel    = find(h => h.includes('model'));
-      const colQty      = find(h => h.includes('qty') || h.includes('quantity'));
-      const colSr       = find(h => h.includes('sr') || h.includes('serial') || h.includes('sl no'));
-      const colEcDate   = find(h => h.includes('ec') && h.includes('date'));
-      const colSoDate   = find(h => h.includes('so') && h.includes('date'));
-      const colEcNo     = find(h => h.includes('ec') && (h.includes('no') || h.includes('number')) && !h.includes('date'));
+      const colSr       = find(h => h.includes('sl') || h.includes('serial'));
+      const colEc       = find(h => h.includes('ec'));
+      const colSo       = find(h => h.startsWith('so') || (h.includes('so') && h.includes('no')));
       const colLiquid   = find(h => h.includes('liquid'));
       const colCapacity = find(h => h.includes('capacity'));
       const colHead     = find(h => h.includes('head'));
-      const colSupplier = find(h => h.includes('supplier'));
 
-      if (colCode < 0 || colModel < 0) {
+      if (colCust < 0 || colModel < 0) {
         setError(
-          'Wrong template format. Expected columns: Client Code, Client Name, Model, Quantity, SR No, ' +
-          'EC No, EC Date, SO Date, Liquid, Capacity, Head, Supplier. Please use the official template.',
+          'Wrong template format. Expected columns: CUST, CUST_NAME, EC_NO, SO_NO, PUMP_SL_NO, ' +
+          'PUMP_MODEL_AS_NAME_PLATE, LIQUID, CAPACITY, HEAD. Please use the official template.',
         );
         setStage('empty');
         return;
       }
 
-      const dataRows = raw.slice(1).filter(row => (row as unknown[])[colCode]?.toString().trim());
+      const dataRows = raw.slice(1).filter(row => (row as unknown[])[colCust]?.toString().trim());
       if (dataRows.length === 0) {
         setError('No data rows found. Please fill in the template and try again.');
         setStage('empty');
         return;
       }
-      if (dataRows.length > 1000) {
-        setError('Too many rows. Maximum 1000 pumps per upload.');
+      if (dataRows.length > 8000) {
+        setError('Too many rows. Maximum 8000 pumps per upload.');
         setStage('empty');
         return;
       }
 
       const at = (row: unknown[], i: number) => (i >= 0 ? row[i] : '');
       const parsed: UploadRow[] = dataRows.map(r => {
-        const row = r as unknown[];
-        const qtyNum = parseInt(cell(at(row, colQty)).replace(/[^0-9]/g, ''), 10);
+        const row  = r as unknown[];
+        const cust = cell(at(row, colCust)).toUpperCase();
         return {
-          code:       cell(at(row, colCode)).toUpperCase(),
-          clientName: cell(at(row, colName)),
-          model:      cell(at(row, colModel)),
-          quantity:   Number.isFinite(qtyNum) && qtyNum > 0 ? qtyNum : 1,
-          srNo:       cell(at(row, colSr)),
-          ecNo:       cell(at(row, colEcNo)),
-          ecDate:     toIsoDate(at(row, colEcDate)),
-          soDate:     toIsoDate(at(row, colSoDate)),
-          liquid:     cell(at(row, colLiquid)),
-          capacity:   cell(at(row, colCapacity)),
-          head:       cell(at(row, colHead)),
-          supplier:   cell(at(row, colSupplier)),
-          status:     'checking' as const,
-          statusMsg:  'Validating…',
+          cust,
+          code:     reverseCode(cust),
+          custName: cell(at(row, colName)),
+          ecNo:     cell(at(row, colEc)),
+          soNo:     cell(at(row, colSo)),
+          srNo:     cell(at(row, colSr)),
+          model:    cell(at(row, colModel)),
+          liquid:   cell(at(row, colLiquid)),
+          capacity: cell(at(row, colCapacity)),
+          head:     cell(at(row, colHead)),
+          status:   'checking' as const,
+          statusMsg:'Validating…',
         };
       });
 
       setRows(parsed);
 
-      // Validate client codes against the DB (reuses the generic codes endpoint).
+      // Validate the REVERSED codes against clients.code (reuses the generic endpoint).
       const codes = [...new Set(parsed.map(r => r.code))];
       const res   = await fetch('/api/risansi/validate-revenue-codes', {
         method:  'POST',
@@ -170,7 +143,7 @@ export function PumpUploadBox() {
 
       setRows(parsed.map(row => {
         if (notFound.includes(row.code)) {
-          return { ...row, status: 'invalid_code' as const, statusMsg: `Code "${row.code}" not found in system` };
+          return { ...row, status: 'invalid_code' as const, statusMsg: `Code "${row.cust}" (→ ${row.code}) not found` };
         }
         return { ...row, status: 'valid' as const, statusMsg: 'Ready to import', dbClientName: found[row.code]?.legal_name };
       }));
@@ -200,18 +173,17 @@ export function PumpUploadBox() {
     setStage('saving');
     try {
       const payload = validRows.map(r => ({
-        client_code: r.code,
-        model:       r.model,
-        quantity:    r.quantity,
-        sr_no:       r.srNo,
-        ec_no:       r.ecNo,
-        ec_date:     r.ecDate,
-        so_date:     r.soDate,
-        liquid:      r.liquid,
-        capacity:    r.capacity,
-        head:        r.head,
-        supplier:    r.supplier,
-        filename:    fileName,
+        client_code:   r.code,
+        customer_code: r.cust,
+        customer_name: r.custName,
+        model:         r.model,
+        sr_no:         r.srNo,
+        ec_no:         r.ecNo,
+        so_no:         r.soNo,
+        liquid:        r.liquid,
+        capacity:      r.capacity,
+        head:          r.head,
+        filename:      fileName,
       }));
       const res = await uploadPumps(payload);
       setResult(res);
@@ -259,7 +231,7 @@ export function PumpUploadBox() {
             {stage === 'validating' ? 'Validating…' : 'Drop your Excel file here or click to browse'}
           </div>
           <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 6 }}>
-            Accepts .xlsx files only · Max 1000 pumps
+            Accepts .xlsx files only · One row per pump serial
           </div>
           <input id="pump-file-input" type="file" accept=".xlsx" style={{ display: 'none' }} onChange={handleFileInput} />
         </div>
@@ -272,7 +244,6 @@ export function PumpUploadBox() {
   if (stage === 'preview') {
     const validCount   = rows.filter(r => r.status === 'valid').length;
     const invalidCount = rows.length - validCount;
-    const totalPumps   = rows.filter(r => r.status === 'valid').reduce((s, r) => s + r.quantity, 0);
 
     return (
       <div style={{ background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', marginBottom: 16 }}>
@@ -302,12 +273,9 @@ export function PumpUploadBox() {
           </span>
           {invalidCount > 0 && (
             <span style={{ padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500, background: '#FDE8E8', color: '#9B1C1C' }}>
-              ✗ {invalidCount} will be skipped
+              ✗ {invalidCount} unmatched (skipped)
             </span>
           )}
-          <span style={{ padding: '4px 10px', borderRadius: 20, fontSize: 12, background: 'var(--bg-elev)', color: 'var(--fg-2)', fontFamily: 'var(--font-mono)' }}>
-            {totalPumps} pump unit{totalPumps !== 1 ? 's' : ''} total
-          </span>
         </div>
 
         <div style={{ overflowX: 'auto', maxHeight: 420, overflowY: 'auto' }}>
@@ -315,14 +283,13 @@ export function PumpUploadBox() {
             <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
               <tr>
                 <th style={{ ...TH, textAlign: 'left' }}>Status</th>
-                <th style={{ ...TH, textAlign: 'left' }}>Code</th>
+                <th style={{ ...TH, textAlign: 'left' }}>CUST</th>
                 <th style={{ ...TH, textAlign: 'left' }}>Client (from DB)</th>
                 <th style={{ ...TH, textAlign: 'left' }}>Model</th>
-                <th style={{ ...TH, textAlign: 'right' }}>Qty</th>
-                <th style={{ ...TH, textAlign: 'left' }}>SR No</th>
+                <th style={{ ...TH, textAlign: 'left' }}>Serial</th>
                 <th style={{ ...TH, textAlign: 'left' }}>EC No</th>
+                <th style={{ ...TH, textAlign: 'left' }}>SO No</th>
                 <th style={{ ...TH, textAlign: 'left' }}>Liquid</th>
-                <th style={{ ...TH, textAlign: 'left' }}>Supplier</th>
               </tr>
             </thead>
             <tbody>
@@ -331,18 +298,17 @@ export function PumpUploadBox() {
                   <td style={{ padding: '8px 12px' }}>
                     {row.status === 'valid'
                       ? <span style={{ color: '#065F46', fontSize: 11, fontWeight: 600 }}>✓ Ready</span>
-                      : <span title={row.statusMsg} style={{ color: '#9B1C1C', fontSize: 11, fontWeight: 600, cursor: 'help' }}>✗ Code not found</span>}
+                      : <span title={row.statusMsg} style={{ color: '#9B1C1C', fontSize: 11, fontWeight: 600, cursor: 'help' }}>✗ No client</span>}
                   </td>
-                  <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: 11, color: row.status !== 'valid' ? '#9B1C1C' : 'var(--fg)' }}>{row.code}</td>
+                  <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: 11, color: row.status !== 'valid' ? '#9B1C1C' : 'var(--fg)' }}>{row.cust}</td>
                   <td style={{ padding: '8px 12px', color: 'var(--fg-2)' }}>
                     {row.dbClientName ?? <span style={{ color: '#9B1C1C', fontStyle: 'italic', fontSize: 11 }}>{row.statusMsg}</span>}
                   </td>
                   <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{row.model || '—'}</td>
-                  <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{row.quantity}</td>
                   <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{row.srNo || '—'}</td>
                   <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{row.ecNo || '—'}</td>
+                  <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{row.soNo || '—'}</td>
                   <td style={{ padding: '8px 12px', color: 'var(--fg-2)' }}>{row.liquid || '—'}</td>
-                  <td style={{ padding: '8px 12px', color: 'var(--fg-2)' }}>{row.supplier || '—'}</td>
                 </tr>
               ))}
             </tbody>
