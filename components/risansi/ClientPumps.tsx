@@ -4,12 +4,12 @@ import { useState, useMemo, type CSSProperties } from 'react';
 
 export interface PumpRow {
   id: number;
-  year: number | null;
   pump_model_plate: string | null;  // Model
-  quantity: number;                 // Qty
+  quantity: number;                 // Qty (always 1 in serial-level data)
   supplier: string | null;          // Supplier (customer of record)
   ec_number: string | null;         // EC No
-  pump_sl_no: string | null;        // SR Number
+  so_number: string | null;         // SO No
+  pump_sl_no: string | null;        // Serial / SR No
   liquid: string | null;
   capacity: string | null;
   head: string | null;
@@ -37,7 +37,7 @@ export function ClientPumps({ pumps, installedRil, clientName }: {
     const s = q.trim().toLowerCase();
     if (!s) return pumps;
     return pumps.filter(p =>
-      [p.pump_model_plate, p.pump_sl_no, p.supplier, p.ec_number, p.liquid, String(p.year ?? '')]
+      [p.pump_model_plate, p.pump_sl_no, p.supplier, p.ec_number, p.so_number, p.liquid]
         .some(v => (v ?? '').toLowerCase().includes(s)));
   }, [pumps, q]);
 
@@ -87,7 +87,6 @@ export function ClientPumps({ pumps, installedRil, clientName }: {
               <div key={p.id} style={CARD}>
                 {/* Tier 1 — year · model · qty */}
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-                  <span style={YEAR}>{p.year ?? '—'}</span>
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color: 'var(--fg)' }}>
                     {p.pump_model_plate ?? '—'}
                   </span>
@@ -100,6 +99,7 @@ export function ClientPumps({ pumps, installedRil, clientName }: {
                   <KV k="Head" v={p.head} />
                   <KV k="SR No" v={p.pump_sl_no} mono />
                   <KV k="EC No" v={p.ec_number} mono />
+                  <KV k="SO No" v={p.so_number} mono />
                   {showSupplier(p.supplier) && <KV k="Supplier" v={p.supplier} />}
                 </div>
               </div>
@@ -133,6 +133,5 @@ const TONE: Record<string, CSSProperties> = {
 };
 const SEARCH: CSSProperties = { width: '100%', padding: '7px 10px', fontSize: 12, fontFamily: 'inherit', background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', borderRadius: 6, color: 'var(--fg)', outline: 'none', boxSizing: 'border-box' };
 const CARD: CSSProperties = { border: '1px solid var(--line)', borderRadius: 8, padding: '10px 12px', background: 'var(--bg-elev)' };
-const YEAR: CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: 'var(--accent)' };
 const QTY: CSSProperties = { fontSize: 10.5, fontWeight: 700, color: '#0A3D8F', background: 'var(--accent-soft, #EBF1FB)', padding: '1px 7px', borderRadius: 999 };
 const KV_GRID: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '8px 14px' };

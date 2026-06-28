@@ -95,9 +95,8 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
          FROM opportunities WHERE client_id = $1 AND stage NOT IN ('Won','Lost') ORDER BY value_cr DESC`, [client.id],
     )).rows, [] as Record<string, unknown>[]),
     q(async () => (await risansiPool.query<Record<string, unknown>>(
-      `SELECT COALESCE(EXTRACT(YEAR FROM so_date), EXTRACT(YEAR FROM ec_date))::int AS year,
-         pump_model_plate, quantity, customer_name AS supplier, ec_number, pump_sl_no, liquid, capacity, head
-       FROM client_pumps WHERE client_id = $1 ORDER BY so_date DESC NULLS LAST, id`, [client.id],
+      `SELECT pump_model_plate, quantity, customer_name AS supplier, ec_number, so_number, pump_sl_no, liquid, capacity, head
+       FROM client_pumps WHERE client_id = $1 ORDER BY id`, [client.id],
     )).rows, [] as Record<string, unknown>[]),
   ]);
 
@@ -265,8 +264,8 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
             <Section title="RIL Pumps"
               right={rilPumpsTotal > 0 ? `${pumpDetailQty} of ${rilPumpsTotal} installed have detail${pumpGap > 0 ? ` · ${pumpGap} missing` : pumpGap < 0 ? ` · ${-pumpGap} more` : ''}` : `${pumpDetailQty} pumps`}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead><tr>{['Year', 'Model', 'Qty', 'SR No', 'EC No', 'Liquid', 'Capacity', 'Head', 'Supplier'].map((h, i) =>
-                  <th key={h} style={{ ...TH, textAlign: i === 2 ? 'right' : 'left' }}>{h}</th>)}</tr></thead>
+                <thead><tr>{['Model', 'Qty', 'SR No', 'EC No', 'SO No', 'Liquid', 'Capacity', 'Head', 'Supplier'].map((h, i) =>
+                  <th key={h} style={{ ...TH, textAlign: i === 1 ? 'right' : 'left' }}>{h}</th>)}</tr></thead>
                 <tbody>
                   {clientPumps.map((p, i) => {
                     const supKey = String(p.supplier ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -274,11 +273,11 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
                     const cell = (v: unknown) => (v == null || v === '') ? '—' : String(v);
                     return (
                       <tr key={i} className="avoid-break">
-                        <td style={{ ...TD, fontFamily: 'monospace' }}>{cell(p.year)}</td>
                         <td style={{ ...TD, fontFamily: 'monospace', fontWeight: 600 }}>{cell(p.pump_model_plate)}</td>
                         <td style={{ ...TD, textAlign: 'right', fontFamily: 'monospace' }}>{Number(p.quantity ?? 1)}</td>
                         <td style={{ ...TD, fontFamily: 'monospace' }}>{cell(p.pump_sl_no)}</td>
                         <td style={{ ...TD, fontFamily: 'monospace' }}>{cell(p.ec_number)}</td>
+                        <td style={{ ...TD, fontFamily: 'monospace' }}>{cell(p.so_number)}</td>
                         <td style={TD}>{cell(p.liquid)}</td>
                         <td style={TD}>{cell(p.capacity)}</td>
                         <td style={TD}>{cell(p.head)}</td>
