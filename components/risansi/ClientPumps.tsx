@@ -100,7 +100,7 @@ export function ClientPumps({ pumps, installedRil, clientName }: {
                   <KV k="SR No" v={p.pump_sl_no} mono />
                   <KV k="EC No" v={p.ec_number} mono />
                   <KV k="SO No" v={p.so_number} mono />
-                  {showSupplier(p.supplier) && <KV k="Supplier" v={p.supplier} />}
+                  {showSupplier(p.supplier) && <KV k="Supplier" v={p.supplier} span={3} />}
                 </div>
               </div>
             ))}
@@ -112,9 +112,9 @@ export function ClientPumps({ pumps, installedRil, clientName }: {
   );
 }
 
-function KV({ k, v, mono }: { k: string; v: string | null; mono?: boolean }) {
+function KV({ k, v, mono, span }: { k: string; v: string | null; mono?: boolean; span?: number }) {
   return (
-    <div>
+    <div style={span ? { gridColumn: `span ${span}` } : undefined}>
       <div style={{ fontSize: 9.5, fontWeight: 600, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{k}</div>
       <div style={{ fontSize: 12, color: v ? 'var(--fg)' : 'var(--fg-3)', fontFamily: mono ? 'var(--font-mono)' : 'inherit' }}>{v || '—'}</div>
     </div>
