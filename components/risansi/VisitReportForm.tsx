@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback, type CSSProperties, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { saveVisitField, checkInVisit, addEquipment, updateEquipment, saveExpansionOpportunity } from '@/app/actions/risansi-visits';
+import { ClientPumpEditor } from './ClientPumpEditor';
 import { LogComplaintButton } from './LogComplaintButton';
 import { addTask, updateTaskStatus, deleteTask } from '@/app/actions/risansi-tasks';
 import { Input } from '@/components/ui/input';
@@ -582,6 +583,12 @@ export function VisitReportForm({
           ))}
         </div>
 
+        {/* RIL tab → editable client pumps (writes to client_pumps directly).
+            Competitor tab → the existing equipment capture. */}
+        {eqTab === 'ril' && <ClientPumpEditor clientId={visit.client_id} />}
+
+        {/* cast avoids narrowing eqTab to 'competitor' so the inner tab checks still type-check */}
+        {(eqTab as string) === 'competitor' && (<>
         {/* Equipment list */}
         {(eqTab === 'ril' ? rilEquipment : compEquipment).length === 0 ? (
           <div style={{ textAlign: 'center', padding: '16px', color: 'var(--fg-3)', fontSize: 13 }}>
@@ -750,6 +757,7 @@ export function VisitReportForm({
             </div>
           </div>
         )}
+        </>)}
       </FormSection>
 
       </div>{/* end STEP 3 */}

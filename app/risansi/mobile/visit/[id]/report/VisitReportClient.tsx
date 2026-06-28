@@ -3,6 +3,7 @@
 import { useState, useTransition, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { saveVisitContacts, saveEquipmentEntries, submitVisitReport } from '@/app/actions/risansi';
+import { ClientPumpEditor } from '@/components/risansi/ClientPumpEditor';
 import { VisitPhotos } from '@/components/risansi/VisitPhotos';
 import { LogComplaintButton } from '@/components/risansi/LogComplaintButton';
 import type { ReportInitialData } from './page';
@@ -11,14 +12,6 @@ import type { ReportInitialData } from './page';
 
 const VISIT_TYPES = ['Sugar Plant', 'Distillery', 'Dairy', 'Paper & Pulp', 'Brewery', 'Other'];
 
-const SUGAR_APPS = [
-  'Cane Prep', 'Juice Sulphitation', 'Juice Heating',
-  'Molasses Transfer', 'Massecuite Transfer', 'Melt Transfer',
-  'Dosing', 'Boiler Feed', 'Effluent (ETP)', 'Other',
-];
-const NON_SUGAR_APPS = ['Process Transfer', 'Dosing', 'Effluent', 'Utility', 'Boiler Feed', 'Other'];
-
-const CONDITIONS = ['Good', 'Needs Attention', 'End of Life', 'No Pump'];
 const COMP_CONDITIONS = ['Good', 'Needs Attention', 'End of Life'];
 
 const COMMERCIAL_Qs = [
@@ -37,13 +30,6 @@ const STEP_LABELS = ['Identity', 'Contacts', 'RIL Equip', 'Competitors', 'Commer
 
 // ── Types ──────────────────────────────────────────────────────
 
-interface EquipEntry {
-  application: string;
-  qty: number;
-  model: string;
-  condition: string;
-  notes: string;
-}
 
 interface CompEntry {
   supplier: string;
@@ -73,13 +59,6 @@ export function VisitReportClient({ initialData: d }: { initialData: ReportIniti
   // Step 2
   const [newContacts, setNewContacts] = useState<Array<{ name: string; designation: string; phone: string }>>([]);
 
-  // Step 3 — RIL equipment
-  const isSugar = visitType === 'Sugar Plant';
-  const appList = isSugar ? SUGAR_APPS : NON_SUGAR_APPS;
-  const [rilEquip, setRilEquip] = useState<Record<string, EquipEntry>>(() =>
-    Object.fromEntries(appList.map(a => [a, { application: a, qty: 0, model: '', condition: 'Good', notes: '' }]))
-  );
-
   // Step 4 — Competitor equipment
   const [compEquip, setCompEquip] = useState<CompEntry[]>([]);
 
@@ -104,14 +83,8 @@ export function VisitReportClient({ initialData: d }: { initialData: ReportIniti
     } else if (step === 1) {
       setStep(2);
     } else if (step === 2) {
-      // Save RIL equipment
-      const entries = Object.values(rilEquip)
-        .filter(e => e.qty > 0 || e.model.trim())
-        .map(e => ({ ...e, supplier: 'RIL', isRil: true }));
-      startSave(async () => {
-        if (entries.length > 0) await saveEquipmentEntries(d.visitId, d.clientId, entries);
-        setStep(3);
-      });
+      // RIL pumps are saved inline by ClientPumpEditor; just advance.
+      setStep(3);
     } else if (step === 3) {
       // Save competitor equipment
       const entries = compEquip
@@ -201,12 +174,14 @@ export function VisitReportClient({ initialData: d }: { initialData: ReportIniti
           newContacts={newContacts} setNewContacts={setNewContacts}
           metContacts={d.contacts.filter(c => contactIds.includes(c.id))}
         />}
-        {step === 2 && <Step3RilEquip
-          visitType={visitType}
-          rilEquip={rilEquip} setRilEquip={setRilEquip}
-          appList={appList}
-          existing={d.existingEquipment.filter(e => e.supplier === 'RIL')}
-        />}
+        {step === 2 && (
+          <div>
+            <div style={{ fontSize: 13, color: 'var(--fg-2)', marginBottom: 14, lineHeight: 1.5 }}>
+              Add or correct this client&apos;s installed RIL pumps. Each change saves straight to the client record.
+            </div>
+            <ClientPumpEditor clientId={d.clientId} compact />
+          </div>
+        )}
         {step === 3 && <Step4CompEquip
           compEquip={compEquip} setCompEquip={setCompEquip}
           existing={d.existingEquipment.filter(e => e.supplier !== 'RIL')}
@@ -410,80 +385,6 @@ function Step2Contacts({
         }}>
           + Add contact
         </button>
-      </div>
-    </div>
-  );
-}
-
-// ── Step 3: RIL Equipment ──────────────────────────────────────
-
-function Step3RilEquip({
-  visitType, rilEquip, setRilEquip, appList, existing,
-}: {
-  visitType: string;
-  rilEquip: Record<string, EquipEntry>;
-  setRilEquip: (v: Record<string, EquipEntry>) => void;
-  appList: string[];
-  existing: ReportInitialData['existingEquipment'];
-}) {
-  const updateEntry = (app: string, field: keyof EquipEntry, val: string | number) => {
-    setRilEquip({ ...rilEquip, [app]: { ...rilEquip[app], [field]: val } });
-  };
-
-  // Existing data for reference display
-  const existingByStation: Record<string, typeof existing[0]> = {};
-  for (const e of existing) if (e.station) existingByStation[e.station] = e;
-
-  return (
-    <div>
-      <div style={{ fontSize: 13, color: 'var(--fg-2)', marginBottom: 16, lineHeight: 1.5 }}>
-        Record RIL pump installations for this {visitType} visit. Leave qty at 0 if no RIL pump at an application.
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {appList.map(app => {
-          const e = rilEquip[app] ?? { application: app, qty: 0, model: '', condition: 'Good', notes: '' };
-          const ref = existingByStation[app];
-          return (
-            <div key={app} style={{ background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 10, padding: '12px 14px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--fg)' }}>{app}</span>
-                {ref && (
-                  <span style={{ fontSize: 10, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>
-                    Prev: {ref.model ?? '—'} ({ref.condition})
-                  </span>
-                )}
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr', gap: 8, marginBottom: 8 }}>
-                <input
-                  type="number" inputMode="numeric" min="0" max="99"
-                  value={e.qty || ''}
-                  onChange={ev => updateEntry(app, 'qty', Number(ev.target.value))}
-                  placeholder="Qty"
-                  style={{ ...INPUT, height: 38, textAlign: 'center' }}
-                />
-                <input
-                  value={e.model}
-                  onChange={ev => updateEntry(app, 'model', ev.target.value)}
-                  placeholder="Model / series"
-                  style={{ ...INPUT, height: 38 }}
-                />
-              </div>
-              {e.qty > 0 && (
-                <>
-                  <select value={e.condition} onChange={ev => updateEntry(app, 'condition', ev.target.value)} style={{ ...INPUT, height: 38, marginBottom: 8 }}>
-                    {CONDITIONS.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                  <input
-                    value={e.notes}
-                    onChange={ev => updateEntry(app, 'notes', ev.target.value)}
-                    placeholder="Feedback / notes (optional)"
-                    style={{ ...INPUT, height: 38 }}
-                  />
-                </>
-              )}
-            </div>
-          );
-        })}
       </div>
     </div>
   );

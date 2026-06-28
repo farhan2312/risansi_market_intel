@@ -3,7 +3,7 @@
 import { getServerSession } from 'next-auth/next';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { hasRole } from '@/lib/risansi-auth';
+import { hasRole, getCurrentUser, canViewClient } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 
 // Each uploaded row is one installed pump (unique serial), matching the EC/Serial
@@ -141,4 +141,70 @@ export async function deletePumpUpload(logId: number): Promise<void> {
   await risansiPool.query(`DELETE FROM pump_upload_log WHERE id = $1`, [logId]);
 
   revalidatePath('/risansi/admin/pumps');
+}
+
+// ── Visit-form pump editor (writes straight to client_pumps) ────────
+// Used from the RIL section of the visit report so reps can add / correct a
+// client's installed pumps on-site. Anyone who can SEE the client may edit.
+
+export interface ClientPumpInput {
+  id?:       number | null;   // existing row → update; null/absent → add
+  clientId:  number;
+  model:     string;          // pump_model_plate
+  sr_no:     string;          // pump_sl_no
+  ec_no:     string;          // ec_number
+  so_no:     string;          // so_number
+  liquid:    string;
+  capacity:  string;
+  head:      string;
+}
+
+const t = (s: string) => { const v = (s ?? '').trim(); return v === '' ? null : v; };
+
+export async function saveClientPump(input: ClientPumpInput): Promise<{ id: number }> {
+  const user = await getCurrentUser();
+  if (!(await canViewClient(user, input.clientId))) throw new Error('Unauthorized');
+  const email = user.email ?? null;
+
+  if (input.id) {
+    await risansiPool.query(
+      `UPDATE client_pumps SET
+         pump_model_plate = $2, pump_sl_no = $3, ec_number = $4, so_number = $5,
+         liquid = $6, capacity = $7, head = $8, entered_by = $9, entered_at = NOW()
+       WHERE id = $1 AND client_id = $10`,
+      [input.id, t(input.model), t(input.sr_no), t(input.ec_no), t(input.so_no),
+       t(input.liquid), t(input.capacity), t(input.head), email, input.clientId],
+    );
+    revalidatePath(`/risansi/clients/${input.clientId}`);
+    return { id: input.id };
+  }
+
+  const code = (await risansiPool.query<{ code: string }>(
+    `SELECT code FROM clients WHERE id = $1`, [input.clientId])).rows[0]?.code ?? null;
+
+  const { rows } = await risansiPool.query<{ id: number }>(
+    `INSERT INTO client_pumps
+       (client_id, client_code, pump_model_plate, pump_sl_no, ec_number, so_number,
+        liquid, capacity, head, quantity, source, entered_by, entered_at, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,1,'visit',$10,NOW(),NOW())
+     ON CONFLICT (client_id, pump_sl_no)
+       WHERE pump_sl_no IS NOT NULL AND pump_sl_no <> ''
+     DO UPDATE SET
+       pump_model_plate = EXCLUDED.pump_model_plate, ec_number = EXCLUDED.ec_number,
+       so_number = EXCLUDED.so_number, liquid = EXCLUDED.liquid,
+       capacity = EXCLUDED.capacity, head = EXCLUDED.head,
+       entered_by = EXCLUDED.entered_by, entered_at = NOW()
+     RETURNING id`,
+    [input.clientId, code, t(input.model), t(input.sr_no), t(input.ec_no), t(input.so_no),
+     t(input.liquid), t(input.capacity), t(input.head), email],
+  );
+  revalidatePath(`/risansi/clients/${input.clientId}`);
+  return { id: rows[0].id };
+}
+
+export async function deleteClientPump(id: number, clientId: number): Promise<void> {
+  const user = await getCurrentUser();
+  if (!(await canViewClient(user, clientId))) throw new Error('Unauthorized');
+  await risansiPool.query(`DELETE FROM client_pumps WHERE id = $1 AND client_id = $2`, [id, clientId]);
+  revalidatePath(`/risansi/clients/${clientId}`);
 }
