@@ -113,10 +113,13 @@ export function ClientPumps({ pumps, installedRil, clientName }: {
 }
 
 function KV({ k, v, mono, span }: { k: string; v: string | null; mono?: boolean; span?: number }) {
+  // minWidth:0 lets the grid cell shrink to its track; overflowWrap breaks long
+  // mono tokens (EC/SR/SO numbers) so they wrap inside the cell instead of
+  // overflowing into — and overlapping — the next column.
   return (
-    <div style={span ? { gridColumn: `span ${span}` } : undefined}>
+    <div style={{ minWidth: 0, ...(span ? { gridColumn: `span ${span}` } : {}) }}>
       <div style={{ fontSize: 9.5, fontWeight: 600, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{k}</div>
-      <div style={{ fontSize: 12, color: v ? 'var(--fg)' : 'var(--fg-3)', fontFamily: mono ? 'var(--font-mono)' : 'inherit' }}>{v || '—'}</div>
+      <div style={{ fontSize: 12, color: v ? 'var(--fg)' : 'var(--fg-3)', fontFamily: mono ? 'var(--font-mono)' : 'inherit', overflowWrap: 'anywhere' }}>{v || '—'}</div>
     </div>
   );
 }
@@ -134,4 +137,4 @@ const TONE: Record<string, CSSProperties> = {
 const SEARCH: CSSProperties = { width: '100%', padding: '7px 10px', fontSize: 12, fontFamily: 'inherit', background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', borderRadius: 6, color: 'var(--fg)', outline: 'none', boxSizing: 'border-box' };
 const CARD: CSSProperties = { border: '1px solid var(--line)', borderRadius: 8, padding: '10px 12px', background: 'var(--bg-elev)' };
 const QTY: CSSProperties = { fontSize: 10.5, fontWeight: 700, color: '#0A3D8F', background: 'var(--accent-soft, #EBF1FB)', padding: '1px 7px', borderRadius: 999 };
-const KV_GRID: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '8px 14px' };
+const KV_GRID: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(124px, 1fr))', gap: '8px 14px' };
