@@ -3,6 +3,8 @@ import { Topbar } from '@/components/risansi';
 import { CoverageMapSvg, type ClientPin } from '@/components/risansi/CoverageMapSvg';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, clientVisibilitySql } from '@/lib/risansi-auth';
+import { parseVisitFilters, getVisitFilterOptions } from '@/lib/risansi-visit-filters';
+import { VisitFilterControls } from '@/components/risansi/VisitFilterControls';
 
 // ── Safe query wrapper ─────────────────────────────────────────
 
@@ -21,11 +23,19 @@ interface TourRow {
 
 // ── Page ───────────────────────────────────────────────────────
 
-export default async function CoverageMapPage() {
+export default async function CoverageMapPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = await searchParams;
   // Per-user client visibility (inline integer ids, no params).
   const currentUser = await getCurrentUser();
   const cVis    = clientVisibilitySql(currentUser, 'c');
   const cVisAnd = cVis ? ` AND (${cVis})` : '';
+
+  const filters    = parseVisitFilters(sp);
+  const filterOpts = await getVisitFilterOptions(currentUser);
 
   const [clients, tours] = await Promise.all([
 
@@ -50,7 +60,7 @@ export default async function CoverageMapPage() {
                WHERE ta.tour_id = c.tour_id),
              '—') AS rep_name
          FROM clients c
-         WHERE c.deleted_at IS NULL AND c.status = 'ACTIVE'${cVisAnd}
+         WHERE c.deleted_at IS NULL AND c.status = 'ACTIVE'${cVisAnd}${filters.clientAnd}
          ORDER BY c.last_visit_date ASC NULLS FIRST`,
       );
       return rows.map(r => ({
@@ -82,7 +92,7 @@ export default async function CoverageMapPage() {
            )::text AS overdue
          FROM clients c
          LEFT JOIN tour_routes tr ON tr.id = c.tour_id
-         WHERE c.deleted_at IS NULL AND c.status = 'ACTIVE'${cVisAnd}
+         WHERE c.deleted_at IS NULL AND c.status = 'ACTIVE'${cVisAnd}${filters.clientAnd}
          GROUP BY tr.name
          ORDER BY COUNT(*) DESC`,
       );
@@ -124,6 +134,9 @@ export default async function CoverageMapPage() {
             {total} active clients · Field visit compliance overview
           </div>
         </div>
+
+        {/* Zone / Tour / Rep filters */}
+        <VisitFilterControls opts={filterOpts} sel={{ zones: filters.zones, tours: filters.tours, reps: filters.reps }} />
 
         {/* ── A. Stats strip ─────────────────────────────────── */}
         <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>

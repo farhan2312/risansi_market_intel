@@ -6,6 +6,8 @@ import { Topbar, Tag } from '@/components/risansi';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, clientVisibilitySql, clientScopeSql } from '@/lib/risansi-auth';
+import { parseVisitFilters, getVisitFilterOptions } from '@/lib/risansi-visit-filters';
+import { VisitFilterControls } from '@/components/risansi/VisitFilterControls';
 import { IndiaMapWrapper } from '@/components/risansi/IndiaMapWrapper';
 import { ClientCoverageList } from '@/components/risansi/ClientCoverageList';
 import { WeekNav } from '@/components/risansi/WeekNav';
@@ -193,6 +195,10 @@ export default async function FieldActivityPage({
   const vVis          = clientScopeSql(currentUser, 'v.client_id');
   const vVisAnd       = vVis ? ` AND (${vVis})` : '';
 
+  // Zone / tour / rep filters (clients aliased c, visits aliased v).
+  const filters    = parseVisitFilters(sp);
+  const filterOpts = await getVisitFilterOptions(currentUser);
+
   // ── Queries ──────────────────────────────────────────────────
 
   const [feed, overdue, calendarVisits, calendarReps, mapClients, stats, reportsVisits] = await Promise.all([
@@ -232,7 +238,7 @@ export default async function FieldActivityPage({
          FROM visits v
          JOIN clients c ON c.id = v.client_id
          LEFT JOIN users r ON r.id = v.rep_id
-         WHERE ${filter} ${repCond}
+         WHERE ${filter} ${repCond}${filters.visitAnd}
          ORDER BY ${orderBy}
          LIMIT 50`,
         params,
@@ -264,7 +270,7 @@ export default async function FieldActivityPage({
            AND (
              c.last_visit_date IS NULL OR
              c.last_visit_date < CURRENT_DATE - INTERVAL '90 days'
-           )${cVisAnd}
+           )${cVisAnd}${filters.clientAnd}
          ORDER BY ${sortCol} ${sortDir} NULLS FIRST
          LIMIT 200`,
       );
@@ -294,7 +300,7 @@ export default async function FieldActivityPage({
          LEFT JOIN users r ON r.id = v.rep_id
          WHERE v.visit_date >= $1
            AND v.visit_date < $2
-           ${repCond}
+           ${repCond}${filters.visitAnd}
          ORDER BY v.visit_date ASC, v.created_at ASC NULLS LAST`,
         params,
       );
@@ -323,7 +329,7 @@ export default async function FieldActivityPage({
               FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
                 WHERE ta.tour_id = c.tour_id) AS rep_name
          FROM clients c
-         WHERE c.status = 'ACTIVE' AND c.deleted_at IS NULL${cVisAnd}
+         WHERE c.status = 'ACTIVE' AND c.deleted_at IS NULL${cVisAnd}${filters.clientAnd}
          ORDER BY c.last_visit_date ASC NULLS FIRST`,
       );
       return rows;
@@ -344,7 +350,7 @@ export default async function FieldActivityPage({
            COUNT(*) FILTER (WHERE c.status = 'ACTIVE'
              AND c.last_visit_date IS NULL)::text                                                    AS never_visited
          FROM clients c
-         WHERE c.deleted_at IS NULL${cVisAnd}`,
+         WHERE c.deleted_at IS NULL${cVisAnd}${filters.clientAnd}`,
       );
       const r = rows[0];
       return {
@@ -397,7 +403,7 @@ export default async function FieldActivityPage({
          LEFT JOIN tasks t ON t.visit_id = v.id
          LEFT JOIN visit_sugar_report vsr ON vsr.visit_id = v.id
          WHERE v.submitted_at IS NOT NULL
-           ${repScope}
+           ${repScope}${filters.visitAnd}
          GROUP BY v.id, c.id, r.id, r.name
          ORDER BY v.visit_date DESC, v.submitted_at DESC
          LIMIT 100`,
@@ -463,8 +469,20 @@ export default async function FieldActivityPage({
   const calCompleted = calendarVisits.filter(v => v.status === 'completed').length;
   const calPct       = calPlanned > 0 ? Math.round((calCompleted / calPlanned) * 100) : 0;
 
+  // Calendar rep rows: with a rep filter show only those reps; with a zone/tour
+  // filter show only reps that have a (already-filtered) visit this period.
+  const anyZoneTour = filters.zones.length > 0 || filters.tours.length > 0;
+  const calReps = calendarReps.filter(rep => {
+    if (filters.reps.length) return filters.reps.includes(rep.name);
+    if (anyZoneTour) return calendarVisits.some(v => String(v.rep_id) === String(rep.id));
+    return true;
+  });
+
   function tabHref(t: string, extra?: Record<string, string>) {
     const p = new URLSearchParams({ tab: t, ...extra });
+    if (filters.zones.length) p.set('zone', filters.zones.join(','));
+    if (filters.tours.length) p.set('tour', filters.tours.join(','));
+    if (filters.reps.length)  p.set('rep',  filters.reps.join(','));
     return `/risansi/field?${p.toString()}`;
   }
 
@@ -501,6 +519,9 @@ export default async function FieldActivityPage({
             transform) and hideButton suppresses its own trigger, so no wrapper that
             sets display:none — that previously stopped the drawer from ever showing. */}
         <AssignVisitDrawer reps={calendarReps} hideButton={true} role={role} repId={repId ?? undefined} currentUserName={session?.user?.name ?? undefined} />
+
+        {/* Zone / Tour / Rep filters — apply across every tab */}
+        {!isRep && <VisitFilterControls opts={filterOpts} sel={{ zones: filters.zones, tours: filters.tours, reps: filters.reps }} />}
 
         {/* Tabs — underline on desktop, snappy scroll-snap pills on mobile (mobile.css) */}
         <div className="field-tabs" style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--line)', paddingBottom: 0, overflowX: 'auto', scrollSnapType: 'x proximity' }}>
@@ -687,13 +708,13 @@ export default async function FieldActivityPage({
                       </tr>
                     </thead>
                     <tbody>
-                      {calendarReps.length === 0 ? (
+                      {calReps.length === 0 ? (
                         <tr>
                           <td colSpan={8} style={{ padding: '40px 0', textAlign: 'center', color: 'var(--fg-3)', fontSize: 13 }}>
-                            No active reps
+                            No reps match the filter
                           </td>
                         </tr>
-                      ) : calendarReps.map(rep => (
+                      ) : calReps.map(rep => (
                         <tr key={rep.id}>
                           <td style={{
                             padding: '8px 10px', verticalAlign: 'top',
