@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
-import { getGreeting, fmtCr, formatRev } from '@/lib/risansi-utils';
+import { getGreeting, fmtCr, formatRev, getCurrentFY } from '@/lib/risansi-utils';
 import { getCurrentUser, clientVisibilitySql, clientScopeSql } from '@/lib/risansi-auth';
 import { EmptyState } from '@/components/risansi/EmptyState';
 import Link from 'next/link';
@@ -31,9 +31,6 @@ const STATUS_BG: Record<string, string> = {
   'planned': 'var(--bg-elev)', 'missed': 'var(--neg-soft)',
 };
 
-const FY_START = '2025-04-01', FY_END = '2026-04-01';
-const PFY_START = '2024-04-01', PFY_END = '2025-04-01';
-
 // ── Page ───────────────────────────────────────────────────────
 
 export default async function MobileDayPage() {
@@ -49,6 +46,13 @@ export default async function MobileDayPage() {
   const vAnd  = vVis ? ` AND (${vVis})` : '';
   const oVis  = clientScopeSql(currentUser, 'o.client_id');
   const oAnd  = oVis ? ` AND (${oVis})` : '';
+
+  // Fiscal year windows (dynamic, April→March).
+  const fy        = getCurrentFY();
+  const FY_START  = fy.startDate;                                  // e.g. 2026-04-01
+  const FY_END    = `${Number(FY_START.slice(0, 4)) + 1}-04-01`;   // 2027-04-01
+  const PFY_START = `${Number(FY_START.slice(0, 4)) - 1}-04-01`;   // 2025-04-01
+  const PFY_END   = FY_START;                                      // 2026-04-01
 
   let repId: number | null = session?.user?.repId ?? null;
   if (repId == null && email) {
@@ -261,7 +265,7 @@ export default async function MobileDayPage() {
           <Kpi label="Overdue"        value={String(overdueCount)} accent={overdueCount > 0 ? 'var(--neg)' : 'var(--pos)'}
             sub="90+ days no visit" href="/risansi/field?tab=overdue" />
           <Kpi label="Open Pipeline"  value={pipeline > 0 ? fmtCr(pipeline) : '—'} sub="open opportunities" href="/risansi/pipeline" />
-          <Kpi label="FY 25-26 Rev"   value={fyRev > 0 ? formatRev(fyRev) : '—'}
+          <Kpi label={`${fy.label} Rev`}   value={fyRev > 0 ? formatRev(fyRev) : '—'}
             sub={fyDelta != null ? `${fyDelta >= 0 ? '▲ +' : '▼ '}${fyDelta.toFixed(0)}% vs LY` : `target ₹${annTarget} Cr`}
             subColor={fyDelta == null ? 'var(--fg-3)' : fyDelta >= 0 ? 'var(--pos)' : 'var(--neg)'} href="/risansi/revenue" />
           <Kpi label="Tasks Due"      value={String(tasksDue)} accent={tasksDue > 0 ? 'var(--warn)' : 'var(--pos)'}

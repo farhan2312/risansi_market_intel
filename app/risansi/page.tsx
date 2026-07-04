@@ -102,6 +102,14 @@ export default async function ExecDashboardPage() {
   // numbers only, never the company-wide picture, and never the target.
   const showFull = hasRole(role, 'admin');
 
+  // Fiscal year (dynamic, April→March) — shared by both dashboard views and
+  // every revenue query, so nothing goes stale when the year rolls over.
+  const fy      = getCurrentFY();
+  const cyStart = fy.startDate;                                 // e.g. 2026-04-01
+  const cyEnd   = `${Number(cyStart.slice(0, 4)) + 1}-04-01`;   // 2027-04-01 (exclusive)
+  const pyStart = `${Number(cyStart.slice(0, 4)) - 1}-04-01`;   // 2025-04-01 (prev FY start)
+  const histStart = `${Number(cyStart.slice(0, 4)) - 6}-04-01`; // YoY chart: last 7 FYs
+
   // ── Rep-specific dashboard (personal view) ─────────────────────
   if (!showFull) {
     const email = session?.user?.email ?? '';
@@ -212,7 +220,7 @@ export default async function ExecDashboardPage() {
           `SELECT COALESCE(SUM(crm.total_value),0)::text AS total
            FROM client_revenue_monthly crm
            JOIN clients c ON c.id = crm.client_id
-           WHERE crm.month >= '2025-04-01' AND crm.month < '2026-04-01'
+           WHERE crm.month >= '${cyStart}' AND crm.month < '${cyEnd}'
              AND c.deleted_at IS NULL${cVisAnd}`,
         );
         return Number(rows[0]?.total ?? 0) / 10_000_000;
@@ -243,7 +251,7 @@ export default async function ExecDashboardPage() {
 
           {/* 5 KPI cards — all tour-scoped (your tours only) */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
-            <RepKpi label="Revenue (FY 25-26)" value={fmtCr(myRevenue)}       sub="Booked · your tours" />
+            <RepKpi label={`Revenue (${fy.label})`} value={fmtCr(myRevenue)}       sub="Booked · your tours" />
             <RepKpi label="Visits This Week"   value={String(myVisitsCount)}  sub="Last 7 days" />
             <RepKpi label="Overdue Clients"    value={String(myOverdueCount)} sub="No visit 90+ days" neg={myOverdueCount > 0} />
             <RepKpi label="Pipeline"           value={fmtCr(myPipelineValue)} sub="Open opportunities" />
@@ -329,13 +337,12 @@ export default async function ExecDashboardPage() {
     );
   }
 
-  const fy       = getCurrentFY();
   const ytdPct   = fyYtdPct(fy);
   const daysLeft = fyDaysLeft(fy);
   const today    = new Date();
 
   const INR_TO_L = 100_000;
-  const fyLabel  = 'FY 25–26';
+  const fyLabel  = fy.label;
 
   // ── All queries in parallel — replaces 10 sequential awaits ──
   const [
@@ -362,7 +369,7 @@ export default async function ExecDashboardPage() {
            COALESCE(SUM(pump_value), 0)::text AS pump_inr,
            COALESCE(SUM(spare_value),0)::text AS spare_inr
          FROM client_revenue_monthly
-         WHERE month >= '2025-04-01' AND month < '2026-04-01'`,
+         WHERE month >= '${cyStart}' AND month < '${cyEnd}'`,
       );
       return {
         pump:  Number(rows[0]?.pump_inr  ?? 0) / INR_TO_L,
@@ -375,7 +382,7 @@ export default async function ExecDashboardPage() {
       const { rows } = await risansiPool.query<{ total: string }>(
         `SELECT COALESCE(SUM(total_value),0)::text AS total
          FROM client_revenue_monthly
-         WHERE month >= '2024-04-01' AND month < '2025-04-01'`,
+         WHERE month >= '${pyStart}' AND month < '${cyStart}'`,
       );
       return Number(rows[0]?.total ?? 0) / INR_TO_L;
     }, 0),
@@ -392,34 +399,19 @@ export default async function ExecDashboardPage() {
     // 4. Historical YoY revenue from client_revenue_monthly
     q<HistoricalFY[]>(async () => {
       const { rows } = await risansiPool.query<{ fy: string; ord: string; total_inr: string }>(
-        `SELECT fy_label AS fy, fy_order AS ord, COALESCE(SUM(total_value),0)::text AS total_inr
-         FROM (
-           SELECT
-             CASE
-               WHEN month >= '2020-04-01' AND month < '2021-04-01' THEN 'FY20'
-               WHEN month >= '2021-04-01' AND month < '2022-04-01' THEN 'FY21'
-               WHEN month >= '2022-04-01' AND month < '2023-04-01' THEN 'FY22'
-               WHEN month >= '2023-04-01' AND month < '2024-04-01' THEN 'FY23'
-               WHEN month >= '2024-04-01' AND month < '2025-04-01' THEN 'FY24'
-               WHEN month >= '2025-04-01' AND month < '2026-04-01' THEN 'FY25'
-               ELSE NULL
-             END AS fy_label,
-             CASE
-               WHEN month >= '2020-04-01' AND month < '2021-04-01' THEN 1
-               WHEN month >= '2021-04-01' AND month < '2022-04-01' THEN 2
-               WHEN month >= '2022-04-01' AND month < '2023-04-01' THEN 3
-               WHEN month >= '2023-04-01' AND month < '2024-04-01' THEN 4
-               WHEN month >= '2024-04-01' AND month < '2025-04-01' THEN 5
-               WHEN month >= '2025-04-01' AND month < '2026-04-01' THEN 6
-               ELSE NULL
-             END AS fy_order,
-             total_value
-           FROM client_revenue_monthly
-         ) t
-         WHERE fy_label IS NOT NULL
-         GROUP BY fy_label, fy_order
+        `SELECT
+           'FY' || LPAD(((CASE WHEN EXTRACT(MONTH FROM month) >= 4
+                               THEN EXTRACT(YEAR FROM month)
+                               ELSE EXTRACT(YEAR FROM month) - 1 END) % 100)::int::text, 2, '0') AS fy,
+           (CASE WHEN EXTRACT(MONTH FROM month) >= 4
+                 THEN EXTRACT(YEAR FROM month)
+                 ELSE EXTRACT(YEAR FROM month) - 1 END)::int AS ord,
+           COALESCE(SUM(total_value),0)::text AS total_inr
+         FROM client_revenue_monthly
+         WHERE month >= '${histStart}'
+         GROUP BY 1, 2
          HAVING SUM(total_value) > 0
-         ORDER BY fy_order ASC`,
+         ORDER BY ord ASC`,
       );
       return rows.map(r => ({ code: r.fy, label: r.fy, total: Number(r.total_inr) / INR_TO_L }));
     }, []),
@@ -432,7 +424,7 @@ export default async function ExecDashboardPage() {
            COALESCE(SUM(crm.total_value), 0)::text AS ytd_inr
          FROM client_revenue_monthly crm
          JOIN clients c ON crm.client_id = c.id
-         WHERE crm.month >= '2025-04-01' AND crm.month < '2026-04-01'
+         WHERE crm.month >= '${cyStart}' AND crm.month < '${cyEnd}'
            AND c.deleted_at IS NULL${cVisAnd}
          GROUP BY COALESCE(c.industry, 'Other')
          ORDER BY 2::numeric DESC
@@ -449,7 +441,7 @@ export default async function ExecDashboardPage() {
            COALESCE(SUM(CASE WHEN c.market_type = 'Export'   THEN crm.total_value ELSE 0 END),0)::text AS export_inr
          FROM client_revenue_monthly crm
          JOIN clients c ON crm.client_id = c.id
-         WHERE crm.month >= '2025-04-01' AND crm.month < '2026-04-01'
+         WHERE crm.month >= '${cyStart}' AND crm.month < '${cyEnd}'
            AND c.deleted_at IS NULL${cVisAnd}`,
       );
       const r = rows[0];
@@ -508,7 +500,7 @@ export default async function ExecDashboardPage() {
          FROM clients c
          LEFT JOIN client_revenue_monthly crm
            ON crm.client_id = c.id
-           AND crm.month >= '2024-04-01' AND crm.month < '2026-04-01'
+           AND crm.month >= '${pyStart}' AND crm.month < '${cyEnd}'
          WHERE c.status = 'ACTIVE'
            AND c.deleted_at IS NULL
            AND (c.last_visit_date IS NULL OR c.last_visit_date < CURRENT_DATE - INTERVAL '18 months')
@@ -520,7 +512,7 @@ export default async function ExecDashboardPage() {
       };
     }, { count: 0, exposure: 0 }),
 
-    // 10. Top 7 accounts by FY25-26 revenue
+    // 10. Top 7 accounts by current-FY revenue
     q<TopAccount[]>(async () => {
       const { rows } = await risansiPool.query<{
         client_code: string; legal_name: string; industry: string; zone: string; status: string;
@@ -538,13 +530,13 @@ export default async function ExecDashboardPage() {
          LEFT JOIN (
            SELECT client_id, SUM(total_value) AS total_inr
            FROM client_revenue_monthly
-           WHERE month >= '2025-04-01' AND month < '2026-04-01'
+           WHERE month >= '${cyStart}' AND month < '${cyEnd}'
            GROUP BY client_id
          ) curr ON curr.client_id = c.id
          LEFT JOIN (
            SELECT client_id, SUM(total_value) AS total_inr
            FROM client_revenue_monthly
-           WHERE month >= '2024-04-01' AND month < '2025-04-01'
+           WHERE month >= '${pyStart}' AND month < '${cyStart}'
            GROUP BY client_id
          ) prev ON prev.client_id = c.id
          WHERE c.deleted_at IS NULL

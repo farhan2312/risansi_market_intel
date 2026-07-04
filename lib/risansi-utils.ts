@@ -7,19 +7,27 @@ export interface FYInfo {
   endDate:   string;  // '2026-03-31'
 }
 
-/** Current operational FY — April 2025 → March 2026 */
+/** The FY-start year for a given date — India FY runs April→March. */
+function fyStartYear(d: Date): number {
+  return d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;  // Apr = month index 3
+}
+
+/** Current operational FY, derived from today's date (April→March). */
 export function getCurrentFY(): FYInfo {
+  const s = fyStartYear(new Date());
+  const e = s + 1;
+  const code = `${String(s % 100).padStart(2, '0')}-${String(e % 100).padStart(2, '0')}`;
   return {
-    label:     'FY 25-26',
-    code:      '25-26',
-    startDate: '2025-04-01',
-    endDate:   '2026-03-31',
+    label:     `FY ${code}`,
+    code,
+    startDate: `${s}-04-01`,
+    endDate:   `${e}-03-31`,
   };
 }
 
-/** Previous N completed FYs, oldest first. E.g. n=5 → ['20-21'…'24-25'] */
+/** Previous N completed FYs, oldest first. E.g. n=5 in FY25-26 → ['20-21'…'24-25'] */
 export function getPreviousFYCodes(n: number): string[] {
-  const startYear = 25; // current FY start year (2025)
+  const startYear = fyStartYear(new Date()) % 100;
   const codes: string[] = [];
   for (let i = n; i >= 1; i--) {
     const s = startYear - i;

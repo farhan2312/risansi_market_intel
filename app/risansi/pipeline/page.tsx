@@ -72,6 +72,8 @@ export default async function PipelinePage({
 }) {
   const sp = await searchParams;
   const fy = getCurrentFY();
+  const cyStart = fy.startDate;                                 // e.g. 2026-04-01
+  const cyEnd   = `${Number(cyStart.slice(0, 4)) + 1}-04-01`;   // 2027-04-01 (exclusive)
 
   // ── Role / rep scoping ──────────────────────────────────────
   const session = await getServerSession(authOptions);
@@ -213,12 +215,12 @@ export default async function PipelinePage({
       }) as unknown as OppRow[];
     }, []),
 
-    // 2. Booked YTD — from client_revenue_monthly (FY 25-26), returned in Cr
+    // 2. Booked YTD — current FY, returned in Cr
     q<number>(async () => {
       const { rows } = await risansiPool.query<{ booked_inr: string }>(
         `SELECT COALESCE(SUM(total_value), 0)::text AS booked_inr
          FROM client_revenue_monthly
-         WHERE month >= '2025-04-01' AND month < '2026-04-01'${ownerVisBareAnd}`,
+         WHERE month >= '${cyStart}' AND month < '${cyEnd}'${ownerVisBareAnd}`,
       );
       return Number(rows[0]?.booked_inr ?? 0) / 10_000_000;
     }, 0),
