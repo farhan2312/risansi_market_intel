@@ -64,6 +64,7 @@ export async function getVisitFilterOptions(user: CurrentUser): Promise<VisitFil
       : q(`SELECT DISTINCT u.name AS v FROM users u
              JOIN tour_assignments ta ON ta.rep_id = u.id
             WHERE u.is_active = TRUE
+              AND u.role IN ('rep','manager')
               AND ta.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = ${uid})
             ORDER BY u.name`),
   ]);
