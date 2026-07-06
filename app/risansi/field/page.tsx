@@ -311,7 +311,7 @@ export default async function FieldActivityPage({
     q<DrawerRep[]>(async () => {
       if (isRep) return [];
       const { rows } = await risansiPool.query<{ id: string; name: string; route: string | null }>(
-        `SELECT id::text AS id, name, route FROM users WHERE is_active = TRUE ORDER BY name ASC`,
+        `SELECT id::text AS id, name, route FROM users WHERE is_active = TRUE AND role IN ('rep', 'manager') ORDER BY name ASC`,
       );
       return rows;
     }, []),
