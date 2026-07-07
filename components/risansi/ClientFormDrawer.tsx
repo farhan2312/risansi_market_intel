@@ -243,6 +243,12 @@ export function ClientFormDrawer({ mode, client, existingContacts, onClose }: Pr
                 </div>
               </Field>
             )}
+            {/* Rendered once (not inside the code field) so it never shares a DOM slot
+                with the code <input> — otherwise React reuses the node and the code box
+                inherits this "true"/"false" value on toggle. */}
+            {mode === 'create' && (
+              <input type="hidden" name="is_lead" value={entryType === 'lead' ? 'true' : 'false'} />
+            )}
             <Field label="Client Code" required={mode === 'edit' || entryType === 'client'}>
               {mode === 'create' ? (
                 entryType === 'client' ? (
@@ -256,7 +262,6 @@ export function ClientFormDrawer({ mode, client, existingContacts, onClose }: Pr
                   </>
                 ) : (
                   <>
-                    <input type="hidden" name="is_lead" value="true" />
                     <div style={{
                       padding: '9px 12px', background: 'var(--bg-sunk)', border: '1px solid var(--line)',
                       borderRadius: 6, fontSize: 13, color: 'var(--fg-2)', fontFamily: 'var(--font-mono)',
