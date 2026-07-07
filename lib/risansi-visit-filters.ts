@@ -70,3 +70,24 @@ export async function getVisitFilterOptions(user: CurrentUser): Promise<VisitFil
   ]);
   return { zones, tours, reps };
 }
+
+// Rep NAMES assigned to a tour matching the active zone/tour filter — so those
+// reps appear as calendar rows even with no visits in the period. Returns [] when
+// no zone/tour filter is active (the caller then shows all reps).
+export async function getScopedRepNames(f: VisitFilters): Promise<string[]> {
+  if (!f.zones.length && !f.tours.length) return [];
+  const conds: string[] = [];
+  if (f.zones.length) conds.push(`tr.zone IN (${arr(f.zones)})`);
+  if (f.tours.length) conds.push(`tr.name IN (${arr(f.tours)})`);
+  try {
+    const { rows } = await risansiPool.query<{ v: string }>(
+      `SELECT DISTINCT u.name AS v
+         FROM users u
+         JOIN tour_assignments ta ON ta.rep_id = u.id
+         JOIN tour_routes tr ON tr.id = ta.tour_id
+        WHERE u.is_active = TRUE AND u.role IN ('rep','manager') AND ${conds.join(' AND ')}
+        ORDER BY u.name`,
+    );
+    return rows.map(r => r.v);
+  } catch { return []; }
+}

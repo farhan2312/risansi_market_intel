@@ -6,7 +6,7 @@ import { Topbar, Tag } from '@/components/risansi';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, clientVisibilitySql, clientScopeSql } from '@/lib/risansi-auth';
-import { parseVisitFilters, getVisitFilterOptions } from '@/lib/risansi-visit-filters';
+import { parseVisitFilters, getVisitFilterOptions, getScopedRepNames } from '@/lib/risansi-visit-filters';
 import { VisitFilterControls } from '@/components/risansi/VisitFilterControls';
 import { IndiaMapWrapper } from '@/components/risansi/IndiaMapWrapper';
 import { ClientCoverageList } from '@/components/risansi/ClientCoverageList';
@@ -469,12 +469,14 @@ export default async function FieldActivityPage({
   const calCompleted = calendarVisits.filter(v => v.status === 'completed').length;
   const calPct       = calPlanned > 0 ? Math.round((calCompleted / calPlanned) * 100) : 0;
 
-  // Calendar rep rows: with a rep filter show only those reps; with a zone/tour
-  // filter show only reps that have a (already-filtered) visit this period.
+  // Calendar rep rows: rep filter → exactly those reps; zone/tour filter → the
+  // reps assigned to that zone/tour (shown even with no visits this period);
+  // no filter → all reps.
   const anyZoneTour = filters.zones.length > 0 || filters.tours.length > 0;
+  const scopedRepNames = anyZoneTour ? await getScopedRepNames(filters) : [];
   const calReps = calendarReps.filter(rep => {
     if (filters.reps.length) return filters.reps.includes(rep.name);
-    if (anyZoneTour) return calendarVisits.some(v => String(v.rep_id) === String(rep.id));
+    if (anyZoneTour) return scopedRepNames.includes(rep.name);
     return true;
   });
 
