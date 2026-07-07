@@ -225,13 +225,14 @@ export default async function PipelinePage({
       return Number(rows[0]?.booked_inr ?? 0) / 10_000_000;
     }, 0),
 
-    // 3. Annual target — sum of rep targets (Cr), fallback 32 Cr
+    // 3. Annual target — sysadmin-editable app setting (Cr), fallback 32 Cr.
+    //    Same source as the dashboard + Settings page (app_settings.annual_target_cr).
     q<number>(async () => {
-      const { rows } = await risansiPool.query<{ total_target_cr: string }>(
-        `SELECT COALESCE(SUM(target_cr), 32)::text AS total_target_cr
-         FROM users WHERE is_active = TRUE`,
+      const { rows } = await risansiPool.query<{ value: string }>(
+        `SELECT value FROM app_settings WHERE key = 'annual_target_cr' LIMIT 1`,
       );
-      return Number(rows[0]?.total_target_cr ?? 32);
+      const v = parseFloat(rows[0]?.value ?? '');
+      return Number.isFinite(v) && v > 0 ? v : 32;
     }, 32),
 
     // 4. Win / loss by industry
