@@ -86,7 +86,7 @@ export function NewOpportunityModal(props: NewOpportunityModalProps) {
       <div onClick={reset} style={{ position: 'fixed', inset: 0, background: 'rgba(10,22,40,0.35)', zIndex: 200 }} />
       <div className="risansi-modal" style={{
         position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-        width: 520, maxHeight: '90vh', background: '#fff', borderRadius: 12,
+        width: 520, maxHeight: '90vh', background: 'var(--bg-paper)', borderRadius: 12,
         boxShadow: '0 20px 60px rgba(10,61,143,0.2)', zIndex: 201, overflow: 'hidden',
         display: 'flex', flexDirection: 'column',
       }}>
@@ -198,17 +198,17 @@ function NewOppForm({ client, lockClient, currentUserName, currentUserRepId, cur
       {/* Selected client chip */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '8px 12px', marginBottom: 16, background: '#EBF1FB',
-        borderRadius: 6, border: '1px solid rgba(26,92,184,0.2)',
+        padding: '8px 12px', marginBottom: 16, background: 'var(--accent-soft)',
+        borderRadius: 6, border: '1px solid var(--brand-blue)',
       }}>
         <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#1A5CB8' }}>{client.legal_name}</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--brand-blue)' }}>{client.legal_name}</div>
           <div style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
             {client.code}{client.industry ? ` · ${client.industry}` : ''}
           </div>
         </div>
         {!lockClient && (
-          <button type="button" onClick={onBack} style={{ background: 'none', border: 'none', fontSize: 11, color: '#1A5CB8', cursor: 'pointer', textDecoration: 'underline' }}>
+          <button type="button" onClick={onBack} style={{ background: 'none', border: 'none', fontSize: 11, color: 'var(--brand-blue)', cursor: 'pointer', textDecoration: 'underline' }}>
             Change
           </button>
         )}
@@ -318,7 +318,7 @@ function NewOppForm({ client, lockClient, currentUserName, currentUserRepId, cur
         </div>
 
         {error && (
-          <div style={{ padding: '8px 12px', background: '#FDE8E8', border: '1px solid #F87171', borderLeft: '3px solid #E02424', borderRadius: 5, color: '#9B1C1C', fontSize: 12 }}>
+          <div style={{ padding: '8px 12px', background: 'var(--neg-soft)', border: '1px solid var(--neg)', borderLeft: '3px solid var(--neg)', borderRadius: 5, color: 'var(--neg-strong)', fontSize: 12 }}>
             {error}
           </div>
         )}
@@ -339,7 +339,7 @@ function NewOppForm({ client, lockClient, currentUserName, currentUserRepId, cur
 }
 
 const LBL: CSSProperties = {
-  display: 'block', fontSize: 11, fontWeight: 700, color: '#2C3E5A',
+  display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--fg-2)',
   textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6,
 };
 

@@ -260,7 +260,7 @@ export function VisitReportForm({
                   background: active || done ? '#1A5CB8' : 'var(--bg-paper)',
                   color: '#fff',
                   border: active || done ? '2px solid #1A5CB8' : '2px solid var(--line-strong)',
-                  boxShadow: active ? '0 0 0 4px #EBF1FB' : 'none',
+                  boxShadow: active ? '0 0 0 4px var(--accent-soft)' : 'none',
                 }}>{active ? i + 1 : done ? '✓' : ''}</span>
               </button>
             );
@@ -277,7 +277,7 @@ export function VisitReportForm({
             <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 2 }}>{steps[step]?.desc}</div>
           </div>
           <span style={{ fontSize: 11, fontWeight: 500, flexShrink: 0, whiteSpace: 'nowrap',
-            color: saveState === 'saved' ? '#059669' : saveState === 'error' ? '#DC2626' : 'var(--fg-3)', transition: 'color 300ms' }}>
+            color: saveState === 'saved' ? 'var(--pos)' : saveState === 'error' ? 'var(--neg)' : 'var(--fg-3)', transition: 'color 300ms' }}>
             {saveState === 'saving' && '⟳ Saving…'}
             {saveState === 'saved'  && '✓ Saved'}
             {saveState === 'error'  && '⚠ Save failed'}
@@ -289,8 +289,8 @@ export function VisitReportForm({
       {hasDraft && !isClosed && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-          background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 12,
-          padding: '10px 14px', fontSize: 12, color: '#92400E',
+          background: 'var(--warn-soft)', border: '1px solid #FCD34D', borderRadius: 12,
+          padding: '10px 14px', fontSize: 12, color: 'var(--warn)',
         }}>
           <span style={{ flex: 1, minWidth: 160 }}>
             Unsynced changes from an earlier session were found on this device.
@@ -449,7 +449,7 @@ export function VisitReportForm({
                   color: 'var(--fg-2)',
                 }}>
                   {c.name}{c.designation ? ` · ${c.designation}` : ''}
-                  {c.is_primary && <span style={{ marginLeft: 4, color: '#0A3D8F', fontSize: 10, fontWeight: 600 }}>PRIMARY</span>}
+                  {c.is_primary && <span style={{ marginLeft: 4, color: 'var(--title)', fontSize: 10, fontWeight: 600 }}>PRIMARY</span>}
                 </div>
               ))}
             </div>
@@ -486,7 +486,7 @@ export function VisitReportForm({
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <span style={{ fontWeight: 600, fontSize: 13 }}>{c.name}</span>
                   {c.is_primary && (
-                    <span style={{ fontSize: 10, fontWeight: 600, color: '#0A3D8F', background: 'rgba(26,92,184,0.08)', border: '1px solid rgba(26,92,184,0.2)', borderRadius: 10, padding: '1px 7px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Primary</span>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--title)', background: 'var(--accent-soft)', border: '1px solid var(--accent-line)', borderRadius: 10, padding: '1px 7px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Primary</span>
                   )}
                   {c.designation && <span style={{ fontSize: 12, color: 'var(--fg-3)' }}>· {c.designation}</span>}
                 </div>
@@ -563,19 +563,19 @@ export function VisitReportForm({
                 padding: '7px 16px', border: 'none', background: 'none',
                 fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
                 fontWeight: eqTab === id ? 600 : 400,
-                color: eqTab === id ? '#0A3D8F' : 'var(--fg-3)',
-                borderBottom: eqTab === id ? '2px solid #0A3D8F' : '2px solid transparent',
+                color: eqTab === id ? 'var(--title)' : 'var(--fg-3)',
+                borderBottom: eqTab === id ? '2px solid var(--title)' : '2px solid transparent',
                 marginBottom: -1,
               }}
             >
               {label}
               {id === 'ril' && rilEquipment.length > 0 && (
-                <span style={{ marginLeft: 6, fontSize: 10, background: '#EBF1FB', color: '#0A3D8F', padding: '1px 5px', borderRadius: 8 }}>
+                <span style={{ marginLeft: 6, fontSize: 10, background: 'var(--accent-soft)', color: 'var(--title)', padding: '1px 5px', borderRadius: 8 }}>
                   {rilEquipment.length}
                 </span>
               )}
               {id === 'competitor' && compEquipment.length > 0 && (
-                <span style={{ marginLeft: 6, fontSize: 10, background: '#FEE2E2', color: '#991B1B', padding: '1px 5px', borderRadius: 8 }}>
+                <span style={{ marginLeft: 6, fontSize: 10, background: 'var(--neg-soft)', color: 'var(--neg-strong)', padding: '1px 5px', borderRadius: 8 }}>
                   {compEquipment.length}
                 </span>
               )}
@@ -614,12 +614,12 @@ export function VisitReportForm({
                   <td data-label="Condition" style={{ padding: '8px 10px' }}>
                     <span style={{
                       fontSize: 11, padding: '2px 6px', borderRadius: 4,
-                      background: e.condition === 'EOL' ? '#FEE2E2' : e.condition === 'Good' ? '#D1FAE5' : '#FEF3C7',
-                      color: e.condition === 'EOL' ? '#991B1B' : e.condition === 'Good' ? '#065F46' : '#92400E',
+                      background: e.condition === 'EOL' ? 'var(--neg-soft)' : e.condition === 'Good' ? 'var(--pos-soft)' : 'var(--warn-soft)',
+                      color: e.condition === 'EOL' ? 'var(--neg-strong)' : e.condition === 'Good' ? 'var(--pos-strong)' : 'var(--warn)',
                     }}>
                       {String(e.condition ?? '—')}
                     </span>
-                    {Boolean(e.is_opportunity) && <span style={{ marginLeft: 4, fontSize: 10, color: '#7C3AED' }}>⚡ Opp</span>}
+                    {Boolean(e.is_opportunity) && <span style={{ marginLeft: 4, fontSize: 10, color: 'var(--brand-blue)' }}>⚡ Opp</span>}
                   </td>
                   <td data-label={eqTab === 'ril' ? 'Feedback' : 'Reason'} style={{ padding: '8px 10px', color: 'var(--fg-3)', fontSize: 11 }}>
                     {eqTab === 'ril' ? String(e.performance_feedback ?? '—') : String(e.reason_for_competitor ?? '—')}
@@ -647,7 +647,7 @@ export function VisitReportForm({
                           });
                         }}
                         className="r-tap"
-                        style={{ fontSize: 11, color: '#0A3D8F', background: 'none', border: '1px solid #0A3D8F', borderRadius: 5, padding: '3px 12px', cursor: 'pointer', fontFamily: 'inherit' }}
+                        style={{ fontSize: 11, color: 'var(--title)', background: 'none', border: '1px solid var(--title)', borderRadius: 5, padding: '3px 12px', cursor: 'pointer', fontFamily: 'inherit' }}
                       >
                         Edit
                       </button>
@@ -663,7 +663,7 @@ export function VisitReportForm({
         {!disabled && !showEqForm && (
           <button
             onClick={() => { setShowEqForm(true); setEditingEqId(null); setSupplierOther(false); setNewEq(prev => ({ ...prev, is_ril: eqTab === 'ril', supplier: eqTab === 'ril' ? 'RIL' : '' })); }}
-            style={{ fontSize: 12, color: '#0A3D8F', background: 'none', border: '1px dashed #0A3D8F', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontFamily: 'inherit' }}
+            style={{ fontSize: 12, color: 'var(--title)', background: 'none', border: '1px dashed var(--title)', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontFamily: 'inherit' }}
           >
             + Add {eqTab === 'ril' ? 'RIL' : 'Competitor'} Equipment
           </button>
@@ -726,7 +726,7 @@ export function VisitReportForm({
             </div>
 
             {newEq.condition === 'EOL' && eqTab === 'competitor' && (
-              <div style={{ padding: '8px 12px', background: '#EDE9FE', borderRadius: 6, fontSize: 12, color: '#5B21B6', marginBottom: 10 }}>
+              <div style={{ padding: '8px 12px', background: 'var(--accent-soft)', borderRadius: 6, fontSize: 12, color: 'var(--brand-blue)', marginBottom: 10 }}>
                 ⚡ EOL detected — a displacement opportunity will be flagged on submit
               </div>
             )}
@@ -922,10 +922,10 @@ export function VisitReportForm({
       {/* ── SECTION 7: Preview (before submit) ────────────── */}
       {!isClosed && willPreview && (
         <div style={{
-          border: '1px solid #1A5CB8', borderRadius: 8, padding: 16,
-          background: '#EBF1FB',
+          border: '1px solid var(--brand-blue)', borderRadius: 8, padding: 16,
+          background: 'var(--accent-soft)',
         }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#0A3D8F', marginBottom: 10 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--title)', marginBottom: 10 }}>
             On Submit, the following will be created:
           </div>
           {followUp && (
@@ -1117,7 +1117,7 @@ function CheckInButton({ visitId, onDone }: { visitId: string; onDone: () => voi
       </div>
       {error && (
         <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 12, color: '#D97706' }}>{error}</span>
+          <span style={{ fontSize: 12, color: 'var(--warn)' }}>{error}</span>
           <button
             type="button" onClick={manualCheckIn} disabled={loading}
             style={{
@@ -1161,7 +1161,7 @@ function SugarSection({
       {showPumps && (<>
       {/* RIL Screw counts */}
       <div>
-        <div style={{ fontSize: 12, fontWeight: 600, color: '#0A3D8F', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>RIL Screw Pumps Installed</div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--title)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>RIL Screw Pumps Installed</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {SCREW_APPS.map(app => (
             <div key={app} style={{ textAlign: 'center' }}>
@@ -1180,7 +1180,7 @@ function SugarSection({
 
       {/* RIL Rota counts */}
       <div>
-        <div style={{ fontSize: 12, fontWeight: 600, color: '#0A3D8F', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>RIL Rota Pumps Installed</div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--title)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>RIL Rota Pumps Installed</div>
         <div style={{ display: 'flex', gap: 8 }}>
           {ROTA_APPS.map(app => (
             <div key={app} style={{ textAlign: 'center' }}>
@@ -1201,7 +1201,7 @@ function SugarSection({
       {showCommercial && (<>
       {/* Commercial discussion */}
       <div>
-        <div style={{ fontSize: 12, fontWeight: 600, color: '#0A3D8F', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Commercial Discussion</div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--title)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Commercial Discussion</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {/* Complaints */}
           <YesNoField
@@ -1298,9 +1298,9 @@ function YesNoField({
               onClick={() => onChange(v)}
               style={{
                 padding: '4px 12px', borderRadius: 5, fontSize: 12, cursor: disabled ? 'default' : 'pointer',
-                fontFamily: 'inherit', border: value === v ? '2px solid #0A3D8F' : '1px solid var(--line-strong)',
-                background: value === v ? '#EBF1FB' : 'var(--bg-paper)',
-                color: value === v ? '#0A3D8F' : 'var(--fg-3)', fontWeight: value === v ? 600 : 400,
+                fontFamily: 'inherit', border: value === v ? '2px solid var(--title)' : '1px solid var(--line-strong)',
+                background: value === v ? 'var(--accent-soft)' : 'var(--bg-paper)',
+                color: value === v ? 'var(--title)' : 'var(--fg-3)', fontWeight: value === v ? 600 : 400,
               }}
             >
               {v ? 'Yes' : 'No'}
@@ -1311,7 +1311,7 @@ function YesNoField({
       {value && (
         <>
           {warningIfYes && (
-            <div style={{ fontSize: 11, color: '#92400E', background: '#FEF3C7', padding: '4px 8px', borderRadius: 4, marginBottom: 6 }}>
+            <div style={{ fontSize: 11, color: 'var(--warn)', background: 'var(--warn-soft)', padding: '4px 8px', borderRadius: 4, marginBottom: 6 }}>
               {warningIfYes}
             </div>
           )}
@@ -1682,7 +1682,7 @@ function AddTaskForm({ visitId, clientId, reps, onAdded }: {
 // ── Styles ─────────────────────────────────────────────────────
 
 const LBL: CSSProperties = {
-  display: 'block', fontSize: 11, fontWeight: 700, color: '#2C3E5A',
+  display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--fg-2)',
   textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 5,
 };
 

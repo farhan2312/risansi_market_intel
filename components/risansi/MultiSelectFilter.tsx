@@ -66,9 +66,9 @@ export function MultiSelectFilter({ param, label, options, selected }: Props) {
           height:      30,
           fontSize:    12,
           fontFamily:  'inherit',
-          background:  isActive ? '#EBF1FB' : 'var(--bg-paper)',
-          border:      `1px solid ${isActive ? '#1A5CB8' : 'var(--line-strong)'}`,
-          color:       isActive ? '#0A3D8F' : 'var(--fg-2)',
+          background:  isActive ? 'var(--accent-soft)' : 'var(--bg-paper)',
+          border:      `1px solid ${isActive ? 'var(--brand-blue)' : 'var(--line-strong)'}`,
+          color:       isActive ? 'var(--brand-blue)' : 'var(--fg-2)',
           borderRadius: 5,
           cursor:      'pointer',
           whiteSpace:  'nowrap',
@@ -101,8 +101,8 @@ export function MultiSelectFilter({ param, label, options, selected }: Props) {
           top:       'calc(100% + 4px)',
           left:      0,
           zIndex:    200,
-          background: '#fff',
-          border:    '1px solid #CBD5E1',
+          background: 'var(--bg-paper)',
+          border:    '1px solid var(--line-strong)',
           borderRadius: 6,
           boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
           minWidth:  180,
@@ -124,19 +124,19 @@ export function MultiSelectFilter({ param, label, options, selected }: Props) {
                   padding:    '7px 12px',
                   fontSize:   12,
                   cursor:     'pointer',
-                  background: checked ? '#F0F5FF' : 'transparent',
-                  borderBottom: '1px solid #F1F5F9',
+                  background: checked ? 'var(--accent-soft)' : 'transparent',
+                  borderBottom: '1px solid var(--line)',
                 }}
               >
                 <input
                   type="checkbox"
                   checked={checked}
                   onChange={() => toggle(val)}
-                  style={{ accentColor: '#0A3D8F', flexShrink: 0 }}
+                  style={{ accentColor: 'var(--brand-blue)', flexShrink: 0 }}
                 />
-                <span style={{ color: '#0D1B2A', flex: 1 }}>{lbl}</span>
+                <span style={{ color: 'var(--fg)', flex: 1 }}>{lbl}</span>
                 {cnt != null && (
-                  <span style={{ fontSize: 10, color: '#6B7FA3', fontFamily: 'var(--font-mono)' }}>{cnt}</span>
+                  <span style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>{cnt}</span>
                 )}
               </label>
             );

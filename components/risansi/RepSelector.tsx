@@ -58,7 +58,7 @@ export function RepSelector({ label, paramName, nameName, defaultId, defaultName
     <div>
       <label style={LBL}>
         {label}
-        {required && <span style={{ color: '#E02424', marginLeft: 2 }}>*</span>}
+        {required && <span style={{ color: 'var(--neg)', marginLeft: 2 }}>*</span>}
       </label>
 
       {/* Hidden fields that get submitted with the form */}
@@ -70,8 +70,8 @@ export function RepSelector({ label, paramName, nameName, defaultId, defaultName
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{
             flex: 1, padding: '7px 10px',
-            background: '#EFF6FF', border: '1px solid #93C5FD',
-            borderRadius: 6, fontSize: 13, color: '#1D4ED8', fontWeight: 500,
+            background: 'var(--accent-soft)', border: '1px solid var(--brand-blue)',
+            borderRadius: 6, fontSize: 13, color: 'var(--brand-blue)', fontWeight: 500,
           }}>
             {selName}
           </div>
@@ -93,10 +93,10 @@ export function RepSelector({ label, paramName, nameName, defaultId, defaultName
               <div
                 onClick={() => select(null)}
                 style={OPTION_STYLE}
-                onMouseEnter={e => (e.currentTarget.style.background = '#F1F5F9')}
+                onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-elev)')}
                 onMouseLeave={e => (e.currentTarget.style.background = '')}
               >
-                <span style={{ color: '#94A3B8', fontStyle: 'italic', fontSize: 12 }}>— No rep assigned</span>
+                <span style={{ color: 'var(--fg-3)', fontStyle: 'italic', fontSize: 12 }}>— No rep assigned</span>
               </div>
 
               {filtered.slice(0, 40).map(r => (
@@ -104,12 +104,12 @@ export function RepSelector({ label, paramName, nameName, defaultId, defaultName
                   key={r.id}
                   onClick={() => select(r)}
                   style={OPTION_STYLE}
-                  onMouseEnter={e => (e.currentTarget.style.background = '#F1F5F9')}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-elev)')}
                   onMouseLeave={e => (e.currentTarget.style.background = '')}
                 >
                   <span style={{ fontWeight: 500, fontSize: 13 }}>{r.name}</span>
                   {(r.zone || r.route) && (
-                    <span style={{ fontSize: 11, color: '#6B7FA3', marginLeft: 6 }}>
+                    <span style={{ fontSize: 11, color: 'var(--fg-3)', marginLeft: 6 }}>
                       {[r.zone, r.route].filter(Boolean).join(' · ')}
                     </span>
                   )}
@@ -117,7 +117,7 @@ export function RepSelector({ label, paramName, nameName, defaultId, defaultName
               ))}
 
               {filtered.length === 0 && (
-                <div style={{ padding: '10px 12px', fontSize: 12, color: '#94A3B8', fontStyle: 'italic' }}>
+                <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--fg-3)', fontStyle: 'italic' }}>
                   No reps found
                 </div>
               )}
@@ -200,7 +200,7 @@ export function OwnerSelector({ label, paramName, defaultIds, required }: OwnerS
     <div>
       <label style={LBL}>
         {label}
-        {required && <span style={{ color: '#E02424', marginLeft: 2 }}>*</span>}
+        {required && <span style={{ color: 'var(--neg)', marginLeft: 2 }}>*</span>}
       </label>
 
       {/* Single hidden field — JSON array of ids */}
@@ -238,19 +238,19 @@ export function OwnerSelector({ label, paramName, defaultIds, required }: OwnerS
                 key={r.id}
                 onClick={() => add(r)}
                 style={OPTION_STYLE}
-                onMouseEnter={e => (e.currentTarget.style.background = '#F1F5F9')}
+                onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-elev)')}
                 onMouseLeave={e => (e.currentTarget.style.background = '')}
               >
                 <span style={{ fontWeight: 500, fontSize: 13 }}>{r.name}</span>
                 {(r.zone || r.route) && (
-                  <span style={{ fontSize: 11, color: '#6B7FA3', marginLeft: 6 }}>
+                  <span style={{ fontSize: 11, color: 'var(--fg-3)', marginLeft: 6 }}>
                     {[r.zone, r.route].filter(Boolean).join(' · ')}
                   </span>
                 )}
               </div>
             ))}
             {filtered.length === 0 && (
-              <div style={{ padding: '10px 12px', fontSize: 12, color: '#94A3B8', fontStyle: 'italic' }}>
+              <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--fg-3)', fontStyle: 'italic' }}>
                 {reps.length === 0 ? 'Loading…' : 'No more users'}
               </div>
             )}
@@ -264,48 +264,48 @@ export function OwnerSelector({ label, paramName, defaultIds, required }: OwnerS
 // ── Styles ─────────────────────────────────────────────────────
 
 const LBL: CSSProperties = {
-  display: 'block', fontSize: 11, fontWeight: 700, color: '#2C3E5A',
+  display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--fg-2)',
   textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 5,
 };
 
 const CHIP: CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 6,
   padding: '4px 6px 4px 10px',
-  background: '#EFF6FF', border: '1px solid #93C5FD',
-  borderRadius: 14, fontSize: 12, color: '#1D4ED8', fontWeight: 500,
+  background: 'var(--accent-soft)', border: '1px solid var(--brand-blue)',
+  borderRadius: 14, fontSize: 12, color: 'var(--brand-blue)', fontWeight: 500,
 };
 
 const CHIP_X: CSSProperties = {
   width: 16, height: 16, display: 'grid', placeItems: 'center',
-  background: 'transparent', border: 'none', color: '#1D4ED8',
+  background: 'transparent', border: 'none', color: 'var(--brand-blue)',
   borderRadius: '50%', cursor: 'pointer', fontSize: 14, lineHeight: 1,
 };
 
 const INP: CSSProperties = {
   display: 'block', width: '100%', padding: '8px 10px',
   fontSize: 13, fontFamily: 'inherit',
-  background: '#F8FAFC', border: '1px solid #CBD5E1',
-  borderRadius: 6, color: '#0D1B2A', outline: 'none',
+  background: 'var(--bg-sunk)', border: '1px solid var(--line-strong)',
+  borderRadius: 6, color: 'var(--fg)', outline: 'none',
   boxSizing: 'border-box',
 };
 
 const DROPDOWN: CSSProperties = {
   position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200,
-  background: '#fff', border: '1px solid #CBD5E1', borderRadius: 6,
+  background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', borderRadius: 6,
   boxShadow: '0 4px 20px rgba(0,0,0,0.12)', maxHeight: 240, overflowY: 'auto',
   marginTop: 2,
 };
 
 const OPTION_STYLE: CSSProperties = {
   padding: '9px 12px', cursor: 'pointer',
-  borderBottom: '1px solid #F1F5F9',
+  borderBottom: '1px solid var(--line)',
   display: 'flex', alignItems: 'center',
   transition: 'background 0.1s',
 };
 
 const CLEAR_BTN: CSSProperties = {
   width: 30, height: 34, display: 'grid', placeItems: 'center',
-  background: 'transparent', border: '1px solid #CBD5E1',
-  color: '#94A3B8', borderRadius: 6, cursor: 'pointer',
+  background: 'transparent', border: '1px solid var(--line-strong)',
+  color: 'var(--fg-3)', borderRadius: 6, cursor: 'pointer',
   fontSize: 16, flexShrink: 0,
 };

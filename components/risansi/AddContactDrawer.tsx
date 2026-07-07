@@ -52,16 +52,16 @@ export function AddContactDrawer({
       {/* Slide-in drawer */}
       <div className="risansi-drawer" style={{
         position: 'fixed', top: 0, right: 0, bottom: 0, width: 480, zIndex: 50,
-        background: '#fff', boxShadow: '-8px 0 40px rgba(10,22,40,0.14)',
+        background: 'var(--bg-paper)', boxShadow: '-8px 0 40px rgba(10,22,40,0.14)',
         display: 'flex', flexDirection: 'column',
       }}>
 
         {/* Header */}
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '16px 20px', borderBottom: '1px solid #DDE6F5', flexShrink: 0,
+          padding: '16px 20px', borderBottom: '1px solid var(--line)', flexShrink: 0,
         }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: '#0A3D8F', letterSpacing: '-0.01em' }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--title)', letterSpacing: '-0.01em' }}>
             Add Contact
           </div>
           <button type="button" onClick={onClose} style={CLOSE_BTN}>✕</button>
@@ -111,9 +111,9 @@ export function AddContactDrawer({
               <input
                 type="checkbox" checked={sameAsPhone}
                 onChange={e => setSameAsPhone(e.target.checked)}
-                style={{ width: 14, height: 14, accentColor: '#1A5CB8', cursor: 'pointer' }}
+                style={{ width: 14, height: 14, accentColor: 'var(--brand-blue)', cursor: 'pointer' }}
               />
-              <span style={{ fontSize: 12, color: '#2C3E5A' }}>WhatsApp same as phone number</span>
+              <span style={{ fontSize: 12, color: 'var(--fg-2)' }}>WhatsApp same as phone number</span>
             </label>
             {!sameAsPhone && (
               <Field label="WhatsApp">
@@ -136,11 +136,11 @@ export function AddContactDrawer({
           <label style={{ display: 'flex', alignItems: 'flex-start', gap: 9, cursor: 'pointer', marginTop: 4 }}>
             <input
               type="checkbox" name="is_primary" value="true"
-              style={{ width: 14, height: 14, marginTop: 2, accentColor: '#1A5CB8', cursor: 'pointer', flexShrink: 0 }}
+              style={{ width: 14, height: 14, marginTop: 2, accentColor: 'var(--brand-blue)', cursor: 'pointer', flexShrink: 0 }}
             />
             <div>
-              <div style={{ fontSize: 13, color: '#2C3E5A' }}>Set as primary contact</div>
-              <div style={{ fontSize: 11, color: '#6B7FA3', marginTop: 2 }}>
+              <div style={{ fontSize: 13, color: 'var(--fg-2)' }}>Set as primary contact</div>
+              <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 2 }}>
                 Removes primary status from any existing primary contact
               </div>
             </div>
@@ -148,9 +148,9 @@ export function AddContactDrawer({
 
           {error && (
             <div style={{
-              padding: '9px 12px', background: '#FEE2E2',
-              border: '1px solid rgba(220,38,38,0.20)', borderRadius: 5,
-              fontSize: 12, color: '#9B1C1C',
+              padding: '9px 12px', background: 'var(--neg-soft)',
+              border: '1px solid var(--neg)', borderRadius: 5,
+              fontSize: 12, color: 'var(--neg-strong)',
             }}>
               {error}
             </div>
@@ -180,7 +180,7 @@ function Field({ label, required, children }: { label: string; required?: boolea
     <div>
       <label style={LBL}>
         {label}
-        {required && <span style={{ color: '#E02424', marginLeft: 2 }}>*</span>}
+        {required && <span style={{ color: 'var(--neg)', marginLeft: 2 }}>*</span>}
       </label>
       {children}
     </div>
@@ -192,19 +192,19 @@ function Field({ label, required, children }: { label: string; required?: boolea
 const CLOSE_BTN: CSSProperties = {
   width: 28, height: 28, display: 'grid', placeItems: 'center',
   background: 'transparent', border: 'none', cursor: 'pointer',
-  fontSize: 16, color: '#6B7FA3', borderRadius: 4,
+  fontSize: 16, color: 'var(--fg-3)', borderRadius: 4,
 };
 
 const LBL: CSSProperties = {
-  display: 'block', fontSize: 11, fontWeight: 700, color: '#2C3E5A',
+  display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--fg-2)',
   textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 5,
 };
 
 const INP: CSSProperties = {
   display: 'block', width: '100%', padding: '8px 10px',
   fontSize: 13, fontFamily: 'inherit',
-  background: '#F8FAFC', border: '1px solid #CBD5E1',
-  borderRadius: 6, color: '#0D1B2A', outline: 'none',
+  background: 'var(--bg-sunk)', border: '1px solid var(--line-strong)',
+  borderRadius: 6, color: 'var(--fg)', outline: 'none',
   boxSizing: 'border-box',
 };
 

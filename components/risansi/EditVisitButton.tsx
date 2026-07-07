@@ -92,8 +92,8 @@ export function EditVisitButton({ visit, role, compact = false }: {
           {/* Only stop propagation here — do NOT preventDefault, or clicks on the
               native date picker (which opens on click) get suppressed. */}
           <div onClick={(e) => e.stopPropagation()} style={MODAL}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: '#0D1B2A', marginBottom: 2 }}>Edit Visit</div>
-            <div style={{ fontSize: 12, color: '#64748B', marginBottom: 16 }}>{visit.client_name}</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--fg)', marginBottom: 2 }}>Edit Visit</div>
+            <div style={{ fontSize: 12, color: 'var(--fg-3)', marginBottom: 16 }}>{visit.client_name}</div>
 
             <label style={LBL}>Visit date</label>
             <input type="date" value={date} onChange={e => setDate(e.target.value)} style={INP} />
@@ -114,7 +114,7 @@ export function EditVisitButton({ visit, role, compact = false }: {
               </>
             )}
 
-            {err && <div style={{ color: '#DC2626', fontSize: 12, marginTop: 12 }}>{err}</div>}
+            {err && <div style={{ color: 'var(--neg-strong)', fontSize: 12, marginTop: 12 }}>{err}</div>}
 
             <div style={{ display: 'flex', gap: 8, marginTop: 18 }}>
               <button type="button" onClick={(e) => { stop(e); setOpen(false); }} style={BTN_GHOST}>Cancel</button>
@@ -125,14 +125,14 @@ export function EditVisitButton({ visit, role, compact = false }: {
             </div>
 
             {/* Danger zone */}
-            <div style={{ borderTop: '1px solid #E2E8F0', marginTop: 18, paddingTop: 14 }}>
+            <div style={{ borderTop: '1px solid var(--line)', marginTop: 18, paddingTop: 14 }}>
               {!confirmDel ? (
                 <button type="button" onClick={(e) => { stop(e); setConfirmDel(true); }} style={BTN_DELETE}>
                   Delete visit
                 </button>
               ) : (
                 <div>
-                  <div style={{ fontSize: 12.5, color: '#9B1C1C', marginBottom: 10 }}>
+                  <div style={{ fontSize: 12.5, color: 'var(--neg-strong)', marginBottom: 10 }}>
                     Delete this planned visit? This cannot be undone.
                   </div>
                   <div style={{ display: 'flex', gap: 8 }}>
@@ -156,8 +156,8 @@ function iconBtn(compact: boolean): CSSProperties {
   return {
     display: 'inline-grid', placeItems: 'center',
     width: compact ? 16 : 22, height: compact ? 16 : 22,
-    padding: 0, background: 'rgba(255,255,255,0.7)', color: '#5B6B85',
-    border: '1px solid var(--line, #CBD5E1)', borderRadius: 4,
+    padding: 0, background: 'var(--bg-paper)', color: 'var(--fg-3)',
+    border: '1px solid var(--line-strong)', borderRadius: 4,
     cursor: 'pointer', flexShrink: 0,
   };
 }
@@ -166,17 +166,17 @@ const OVERLAY: CSSProperties = {
   display: 'grid', placeItems: 'center', zIndex: 1000, padding: 20,
 };
 const MODAL: CSSProperties = {
-  width: '100%', maxWidth: 380, background: '#fff', borderRadius: 12,
+  width: '100%', maxWidth: 380, background: 'var(--bg-paper)', borderRadius: 12,
   padding: '20px 22px', boxShadow: '0 24px 60px rgba(0,0,0,0.3)', cursor: 'default',
 };
 const LBL: CSSProperties = {
-  display: 'block', fontSize: 11, fontWeight: 700, color: '#2C3E5A',
+  display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--fg-2)',
   textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5,
 };
 const INP: CSSProperties = {
   display: 'block', width: '100%', padding: '8px 10px', fontSize: 13,
-  fontFamily: 'inherit', background: '#F8FAFC', border: '1px solid #CBD5E1',
-  borderRadius: 6, color: '#0D1B2A', outline: 'none', boxSizing: 'border-box',
+  fontFamily: 'inherit', background: 'var(--bg-sunk)', border: '1px solid var(--line-strong)',
+  borderRadius: 6, color: 'var(--fg)', outline: 'none', boxSizing: 'border-box',
 };
 const BTN_PRIMARY: CSSProperties = {
   padding: '8px 16px', fontSize: 13, fontWeight: 600, background: '#0A3D8F',
@@ -184,11 +184,11 @@ const BTN_PRIMARY: CSSProperties = {
 };
 const BTN_GHOST: CSSProperties = {
   padding: '8px 14px', fontSize: 13, fontWeight: 500, background: 'transparent',
-  color: '#475569', border: '1px solid #CBD5E1', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
+  color: 'var(--fg-3)', border: '1px solid var(--line-strong)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
 };
 const BTN_DELETE: CSSProperties = {
   padding: '7px 12px', fontSize: 12.5, fontWeight: 600, background: 'transparent',
-  color: '#DC2626', border: '1px solid rgba(220,38,38,0.4)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
+  color: 'var(--neg-strong)', border: '1px solid var(--neg)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
 };
 const BTN_DELETE_SOLID: CSSProperties = {
   padding: '8px 14px', fontSize: 12.5, fontWeight: 600, background: '#DC2626',

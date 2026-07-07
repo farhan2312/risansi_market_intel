@@ -178,7 +178,7 @@ export function ClientFormDrawer({ mode, client, existingContacts, onClose }: Pr
       <div style={{
         position: 'fixed', top: 0, right: 0, bottom: 0,
         width: 560, maxWidth: '100vw', zIndex: 50,
-        background: '#fff',
+        background: 'var(--bg-paper)',
         boxShadow: '-8px 0 40px rgba(10,22,40,0.14)',
         display: 'flex', flexDirection: 'column',
         transform: visible ? 'translateX(0)' : 'translateX(100%)',
@@ -188,12 +188,12 @@ export function ClientFormDrawer({ mode, client, existingContacts, onClose }: Pr
         {/* Header */}
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '16px 20px', borderBottom: '1px solid #DDE6F5', flexShrink: 0,
+          padding: '16px 20px', borderBottom: '1px solid var(--line)', flexShrink: 0,
         }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: '#0A3D8F', letterSpacing: '-0.01em' }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--title)', letterSpacing: '-0.01em' }}>
             {mode === 'create' ? 'New Client' : 'Edit Client'}
             {mode === 'edit' && (
-              <span style={{ fontFamily: 'monospace', fontWeight: 400, color: '#6B7FA3', marginLeft: 8, fontSize: 13 }}>
+              <span style={{ fontFamily: 'monospace', fontWeight: 400, color: 'var(--fg-3)', marginLeft: 8, fontSize: 13 }}>
                 · {client?.code}
               </span>
             )}
@@ -284,8 +284,8 @@ export function ClientFormDrawer({ mode, client, existingContacts, onClose }: Pr
             <label style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer' }}>
               <input type="checkbox" name="is_tender" value="true"
                 defaultChecked={Boolean(client?.is_tender)}
-                style={{ width: 15, height: 15, accentColor: '#1A5CB8', cursor: 'pointer' }} />
-              <span style={{ fontSize: 13, color: '#2C3E5A' }}>Tender account</span>
+                style={{ width: 15, height: 15, accentColor: 'var(--brand-blue)', cursor: 'pointer' }} />
+              <span style={{ fontSize: 13, color: 'var(--fg-2)' }}>Tender account</span>
             </label>
             <Field label="Capacity Bracket">
               <select name="capacity_bracket" style={INP} defaultValue={client?.capacity_bracket ?? ''}>
@@ -334,7 +334,7 @@ export function ClientFormDrawer({ mode, client, existingContacts, onClose }: Pr
                 placeholder="https://maps.google.com/…" style={INP} />
               {/^https?:/i.test(mapsUrl.trim()) && (
                 <a href={mapsUrl.trim()} target="_blank" rel="noreferrer"
-                  style={{ ...HINT, color: 'var(--accent, #1A5CB8)', display: 'inline-flex', gap: 4, textDecoration: 'none' }}>
+                  style={{ ...HINT, color: 'var(--brand-blue)', display: 'inline-flex', gap: 4, textDecoration: 'none' }}>
                   📍 Preview
                 </a>
               )}
@@ -380,7 +380,7 @@ export function ClientFormDrawer({ mode, client, existingContacts, onClose }: Pr
           {/* ── 5. Contacts ── */}
           <Section label="Contacts" count={contacts.length}>
             {contacts.length === 0 && (
-              <div style={{ fontSize: 12, color: '#94A3B8', fontStyle: 'italic' }}>
+              <div style={{ fontSize: 12, color: 'var(--fg-3)', fontStyle: 'italic' }}>
                 No contacts yet — add up to {MAX_CONTACTS}.
               </div>
             )}
@@ -390,7 +390,7 @@ export function ClientFormDrawer({ mode, client, existingContacts, onClose }: Pr
                 gridTemplateColumns: '1.5fr 1fr 1fr 1fr auto',
                 gap: 6, alignItems: 'center',
                 padding: '6px 0',
-                borderBottom: '1px solid var(--line-2, #EEF2F8)',
+                borderBottom: '1px solid var(--line)',
               }}>
                 <input placeholder="Name *" value={c.name}
                   onChange={e => patchContact(i, { name: e.target.value })} style={SMALL_INP} />
@@ -403,7 +403,7 @@ export function ClientFormDrawer({ mode, client, existingContacts, onClose }: Pr
                 <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                   <input type="checkbox" title="Set as primary" checked={c.is_primary}
                     onChange={e => setPrimary(i, e.target.checked)}
-                    style={{ width: 14, height: 14, accentColor: '#1A5CB8', cursor: 'pointer' }} />
+                    style={{ width: 14, height: 14, accentColor: 'var(--brand-blue)', cursor: 'pointer' }} />
                   <button type="button" title="Remove" onClick={() => removeContactRow(i)} style={CONTACT_DEL}>×</button>
                 </div>
               </div>
@@ -416,9 +416,9 @@ export function ClientFormDrawer({ mode, client, existingContacts, onClose }: Pr
 
           {error && (
             <div style={{
-              padding: '9px 12px', background: '#FEE2E2',
-              border: '1px solid rgba(220,38,38,0.20)', borderRadius: 5,
-              fontSize: 12, color: '#9B1C1C',
+              padding: '9px 12px', background: 'var(--neg-soft)',
+              border: '1px solid var(--neg)', borderRadius: 5,
+              fontSize: 12, color: 'var(--neg-strong)',
             }}>
               {error}
             </div>
@@ -459,7 +459,7 @@ function Section({ label, count, children }: { label: string; count?: number; ch
           {label}
           {count != null && count > 0 && <span style={COUNT_BADGE}>{count}</span>}
         </span>
-        <span style={{ fontSize: 11, color: '#6B7FA3' }}>{open ? '▾' : '▸'}</span>
+        <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>{open ? '▾' : '▸'}</span>
       </button>
       {open && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
@@ -479,7 +479,7 @@ function Field({ label, required, children }: { label: string; required?: boolea
     <div>
       <label style={LBL}>
         {label}
-        {required && <span style={{ color: '#E02424', marginLeft: 2 }}>*</span>}
+        {required && <span style={{ color: 'var(--neg)', marginLeft: 2 }}>*</span>}
       </label>
       {children}
     </div>
@@ -491,9 +491,9 @@ function Pill({ active, onClick, children }: { active: boolean; onClick: () => v
     <button type="button" onClick={onClick} style={{
       flex: 1, padding: '8px 10px', fontSize: 13, fontFamily: 'inherit',
       fontWeight: active ? 600 : 500, cursor: 'pointer', borderRadius: 6,
-      background: active ? '#0A3D8F' : '#F8FAFC',
-      color:      active ? '#fff' : '#2C3E5A',
-      border: `1px solid ${active ? '#0A3D8F' : '#CBD5E1'}`,
+      background: active ? '#0A3D8F' : 'var(--bg-sunk)',
+      color:      active ? '#fff' : 'var(--fg-2)',
+      border: `1px solid ${active ? '#0A3D8F' : 'var(--line-strong)'}`,
     }}>
       {children}
     </button>
@@ -513,59 +513,59 @@ const PRIMARY_BTN: CSSProperties = {
 const CLOSE_BTN: CSSProperties = {
   width: 28, height: 28, display: 'grid', placeItems: 'center',
   background: 'transparent', border: 'none', cursor: 'pointer',
-  fontSize: 16, color: '#6B7FA3', borderRadius: 4,
+  fontSize: 16, color: 'var(--fg-3)', borderRadius: 4,
 };
 
 const SECTION_HEADER: CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
   width: '100%', padding: '0 0 6px', cursor: 'pointer',
-  background: 'transparent', border: 'none', borderBottom: '1px solid #DDE6F5',
-  fontSize: 10, fontWeight: 700, color: '#0A3D8F',
+  background: 'transparent', border: 'none', borderBottom: '1px solid var(--line)',
+  fontSize: 10, fontWeight: 700, color: 'var(--title)',
   textTransform: 'uppercase', letterSpacing: '0.10em',
   fontFamily: 'inherit',
 };
 
 const COUNT_BADGE: CSSProperties = {
-  background: '#EFF6FF', color: '#1D4ED8', borderRadius: 10,
+  background: 'var(--accent-soft)', color: 'var(--brand-blue)', borderRadius: 10,
   padding: '0 7px', fontSize: 11, fontWeight: 700, letterSpacing: 0,
 };
 
 const LBL: CSSProperties = {
-  display: 'block', fontSize: 11, fontWeight: 700, color: '#2C3E5A',
+  display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--fg-2)',
   textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 5,
 };
 
 const HINT: CSSProperties = {
-  fontSize: 11, color: '#6B7FA3', marginTop: 4,
+  fontSize: 11, color: 'var(--fg-3)', marginTop: 4,
 };
 
 const INP: CSSProperties = {
   display: 'block', width: '100%', padding: '8px 10px',
   fontSize: 13, fontFamily: 'inherit',
-  background: '#F8FAFC', border: '1px solid #CBD5E1',
-  borderRadius: 6, color: '#0D1B2A', outline: 'none',
+  background: 'var(--bg-sunk)', border: '1px solid var(--line-strong)',
+  borderRadius: 6, color: 'var(--fg)', outline: 'none',
   boxSizing: 'border-box',
 };
 
 const SMALL_INP: CSSProperties = {
   display: 'block', width: '100%', padding: '6px 8px',
   fontSize: 12, fontFamily: 'inherit',
-  background: '#F8FAFC', border: '1px solid #CBD5E1',
-  borderRadius: 5, color: '#0D1B2A', outline: 'none',
+  background: 'var(--bg-sunk)', border: '1px solid var(--line-strong)',
+  borderRadius: 5, color: 'var(--fg)', outline: 'none',
   boxSizing: 'border-box', minWidth: 0,
 };
 
 const CONTACT_DEL: CSSProperties = {
   width: 22, height: 22, display: 'grid', placeItems: 'center',
-  background: 'transparent', border: '1px solid #E2E8F0',
-  color: '#94A3B8', borderRadius: 5, cursor: 'pointer', fontSize: 14,
+  background: 'transparent', border: '1px solid var(--line)',
+  color: 'var(--fg-3)', borderRadius: 5, cursor: 'pointer', fontSize: 14,
 };
 
 const ADD_CONTACT_BTN: CSSProperties = {
   alignSelf: 'flex-start', padding: '6px 12px', fontSize: 12,
   fontFamily: 'inherit', fontWeight: 500, cursor: 'pointer',
-  background: '#EFF6FF', color: '#1D4ED8',
-  border: '1px solid #BFDBFE', borderRadius: 6,
+  background: 'var(--accent-soft)', color: 'var(--brand-blue)',
+  border: '1px solid var(--brand-blue)', borderRadius: 6,
 };
 
 const SUBMIT_BTN: CSSProperties = {

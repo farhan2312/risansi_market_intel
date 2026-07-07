@@ -248,7 +248,7 @@ function UserDrawer({ mode, user, onClose, onSaved }: {
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(10,22,40,0.35)', zIndex: 300 }} />
       <div style={DRAWER}>
         <div style={DRAWER_H}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: '#0A3D8F' }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--title)' }}>
             {mode === 'create' ? 'New User' : 'Edit User'}
           </div>
           <button type="button" onClick={onClose} style={CLOSE_BTN}>✕</button>
@@ -289,8 +289,8 @@ function UserDrawer({ mode, user, onClose, onSaved }: {
                     checkbox guarantees a value when unchecked. */}
                 <input type="hidden" name="is_active" value="false" />
                 <input type="checkbox" name="is_active" value="true" defaultChecked={user?.is_active ?? true}
-                  style={{ width: 15, height: 15, accentColor: '#1A5CB8', cursor: 'pointer' }} />
-                <span style={{ fontSize: 13, color: '#2C3E5A' }}>Active</span>
+                  style={{ width: 15, height: 15, accentColor: 'var(--brand-blue)', cursor: 'pointer' }} />
+                <span style={{ fontSize: 13, color: 'var(--fg-2)' }}>Active</span>
               </label>
             )}
 
@@ -368,7 +368,7 @@ function ResetPasswordPanel({ user }: { user: UserRow }) {
 function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
   return (
     <div>
-      <label style={LBL}>{label}{required && <span style={{ color: '#E02424', marginLeft: 2 }}>*</span>}</label>
+      <label style={LBL}>{label}{required && <span style={{ color: 'var(--neg)', marginLeft: 2 }}>*</span>}</label>
       {children}
     </div>
   );
@@ -382,17 +382,17 @@ function Row({ children }: { children: React.ReactNode }) {
 const PANEL: CSSProperties = { background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', overflow: 'hidden' };
 const TH: CSSProperties = { padding: '9px 12px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, color: 'var(--fg-3)', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
 const TD: CSSProperties = { padding: '10px 12px', verticalAlign: 'middle' };
-const LBL: CSSProperties = { display: 'block', fontSize: 11, fontWeight: 700, color: '#2C3E5A', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 5 };
-const INP: CSSProperties = { display: 'block', width: '100%', padding: '8px 10px', fontSize: 13, fontFamily: 'inherit', background: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: 6, color: '#0D1B2A', outline: 'none', boxSizing: 'border-box' };
+const LBL: CSSProperties = { display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--fg-2)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 5 };
+const INP: CSSProperties = { display: 'block', width: '100%', padding: '8px 10px', fontSize: 13, fontFamily: 'inherit', background: 'var(--bg-sunk)', border: '1px solid var(--line-strong)', borderRadius: 6, color: 'var(--fg)', outline: 'none', boxSizing: 'border-box' };
 const PRIMARY_BTN: CSSProperties = { padding: '7px 14px', fontSize: 13, fontWeight: 600, background: '#0A3D8F', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 };
 const MINI_BTN: CSSProperties = { padding: '4px 9px', fontSize: 11, fontFamily: 'inherit', fontWeight: 500, background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', color: 'var(--fg-2)', borderRadius: 5, cursor: 'pointer', whiteSpace: 'nowrap' };
 const MINI_SELECT: CSSProperties = { padding: '4px 6px', fontSize: 11, fontFamily: 'inherit', background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', color: 'var(--fg-2)', borderRadius: 5, cursor: 'pointer' };
 const POS_BTN: CSSProperties = { background: 'var(--pos)', color: '#fff', border: '1px solid var(--pos)' };
-const NEG_OUTLINE: CSSProperties = { color: 'var(--neg)', border: '1px solid rgba(220,38,38,0.30)', background: 'transparent' };
+const NEG_OUTLINE: CSSProperties = { color: 'var(--neg)', border: '1px solid var(--neg)', background: 'transparent' };
 const NEG_SOLID: CSSProperties = { background: '#E02424', color: '#fff', border: '1px solid #E02424' };
-const ERR_BOX: CSSProperties = { padding: '9px 12px', background: '#FEE2E2', border: '1px solid rgba(220,38,38,0.20)', borderRadius: 5, fontSize: 12, color: '#9B1C1C', marginBottom: 12 };
-const OK_BOX: CSSProperties = { padding: '9px 12px', background: '#D1FAE5', border: '1px solid #6EE7B7', borderRadius: 5, fontSize: 12, color: '#065F46' };
-const DRAWER: CSSProperties = { position: 'fixed', top: 0, right: 0, bottom: 0, width: 480, maxWidth: '100vw', zIndex: 301, background: '#fff', boxShadow: '-8px 0 40px rgba(10,22,40,0.14)', display: 'flex', flexDirection: 'column' };
-const DRAWER_H: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #DDE6F5', flexShrink: 0 };
-const CLOSE_BTN: CSSProperties = { width: 28, height: 28, display: 'grid', placeItems: 'center', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 16, color: '#6B7FA3', borderRadius: 4 };
+const ERR_BOX: CSSProperties = { padding: '9px 12px', background: 'var(--neg-soft)', border: '1px solid var(--neg)', borderRadius: 5, fontSize: 12, color: 'var(--neg-strong)', marginBottom: 12 };
+const OK_BOX: CSSProperties = { padding: '9px 12px', background: 'var(--pos-soft)', border: '1px solid var(--pos)', borderRadius: 5, fontSize: 12, color: 'var(--pos-strong)' };
+const DRAWER: CSSProperties = { position: 'fixed', top: 0, right: 0, bottom: 0, width: 480, maxWidth: '100vw', zIndex: 301, background: 'var(--bg-paper)', boxShadow: '-8px 0 40px rgba(10,22,40,0.14)', display: 'flex', flexDirection: 'column' };
+const DRAWER_H: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)', flexShrink: 0 };
+const CLOSE_BTN: CSSProperties = { width: 28, height: 28, display: 'grid', placeItems: 'center', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 16, color: 'var(--fg-3)', borderRadius: 4 };
 const SUBMIT_BTN: CSSProperties = { width: '100%', padding: '12px 0', fontSize: 14, fontWeight: 600, background: '#0A3D8F', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', marginTop: 4 };
