@@ -52,6 +52,9 @@
    `:root` token block (0,1,0); a bare `.dark` would lose to it on order.
    next-themes adds the `dark` class to <html>. */
 :root.dark {
+  /* Native controls (date picker, select, scrollbars) render dark chrome. */
+  color-scheme: dark;
+
   /* Text — brightened for legibility on the dark surfaces below. */
   --fg:   #F0F4F8;
   --fg-2: #CBD5E0;
@@ -87,6 +90,9 @@
   --pos-soft:  rgba(52, 211, 153, 0.15);
   --neg:       #F87171;
   --neg-soft:  rgba(248, 113, 113, 0.15);
+  /* Strong on-tint text: readable when set as text ON --pos-soft / --neg-soft. */
+  --pos-strong: #6EE7B7;
+  --neg-strong: #FCA5A5;
   --warn:      #FBBF24;
   --warn-soft: rgba(251, 191, 36, 0.15);
   --info:      #60A5FA;
@@ -248,6 +254,8 @@ body {
 
 /* ── Risansi design tokens ──────────────────────────────────── */
 :root {
+  color-scheme: light;
+
   /* Surface */
   --bg:           #F4F6FB;
   --bg-paper:     #FFFFFF;
@@ -295,6 +303,9 @@ body {
   --pos-soft:  #D1FAE5;
   --neg:       #DC2626;
   --neg-soft:  #FEE2E2;
+  /* Strong on-tint text: readable when set as text ON --pos-soft / --neg-soft. */
+  --pos-strong: #065F46;
+  --neg-strong: #991B1B;
   --warn:      #D97706;
   --warn-soft: #FEF3C7;
   --info:      #2563EB;

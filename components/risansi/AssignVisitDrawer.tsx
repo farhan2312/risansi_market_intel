@@ -342,8 +342,8 @@ export default function AssignVisitDrawer({
       <div className="risansi-drawer" style={{
         position: 'fixed', top: 0, right: 0, bottom: 0,
         width: 480, zIndex: 50,
-        background: '#fff',
-        boxShadow: '-8px 0 40px rgba(10,22,40,0.14)',
+        background: 'var(--bg-paper)', color: 'var(--fg)',
+        boxShadow: '-8px 0 40px rgba(0,0,0,0.35)',
         display: 'flex', flexDirection: 'column',
         transform: open ? 'translateX(0)' : 'translateX(100%)',
         transition: 'transform 0.26s cubic-bezier(0.32,0,0.67,0)',
@@ -352,13 +352,13 @@ export default function AssignVisitDrawer({
         {/* Drawer header */}
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '16px 20px', borderBottom: '1px solid #DDE6F5', flexShrink: 0,
+          padding: '16px 20px', borderBottom: '1px solid var(--line)', flexShrink: 0,
         }}>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#0A3D8F', letterSpacing: '-0.01em' }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--title)', letterSpacing: '-0.01em' }}>
               {PLAN_VISIT_LABEL}
             </div>
-            <div style={{ fontSize: 11, color: '#6B7FA3', marginTop: 2 }}>
+            <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 2 }}>
               {lockClientMode
                 ? `Schedule a visit for ${selectedClient?.legal_name ?? 'this client'}`
                 : 'Schedule a planned visit for a rep'}
@@ -381,11 +381,11 @@ export default function AssignVisitDrawer({
               /* Read-only display when client is pre-filled and locked */
               <div style={{
                 padding: '10px 12px',
-                background: 'var(--bg-sunk, #F8FAFC)',
-                border: '1px solid #DDE6F5',
+                background: 'var(--bg-sunk)',
+                border: '1px solid var(--line)',
                 borderRadius: 6,
                 fontSize: 13,
-                color: '#2C3E5A',
+                color: 'var(--fg-2)',
               }}>
                 {selectedClient.legal_name}
                 {selectedClient.code ? ` · ${selectedClient.code}` : ''}
@@ -404,17 +404,17 @@ export default function AssignVisitDrawer({
                   placeholder="Search by name, code, or city…"
                   style={{
                     ...INP,
-                    borderColor: query.length > 1 && !selectedClient ? '#F59E0B' : '#CBD5E1',
+                    borderColor: query.length > 1 && !selectedClient ? '#F59E0B' : 'var(--line-strong)',
                   }}
                   autoComplete="off"
                 />
                 {searching && (
-                  <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: '#6B7FA3' }}>
+                  <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: 'var(--fg-3)' }}>
                     searching…
                   </span>
                 )}
                 {selectedClient && (
-                  <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 13, color: '#0E9F6E' }}>
+                  <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 13, color: 'var(--pos)' }}>
                     ✓
                   </span>
                 )}
@@ -432,7 +432,7 @@ export default function AssignVisitDrawer({
                         style={DROP_ITEM}
                       >
                         <span style={{ fontWeight: 500, fontSize: 13 }}>{c.legal_name}</span>
-                        <span style={{ fontSize: 11, color: '#6B7FA3', marginTop: 2 }}>
+                        <span style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 2 }}>
                           {c.code}{c.city ? ` · ${c.city}` : ''}{c.industry ? ` · ${c.industry}` : ''}
                         </span>
                       </button>
@@ -443,7 +443,7 @@ export default function AssignVisitDrawer({
             )}
             <input type="hidden" name="client_id" value={selectedClient?.id ?? ''} />
             {!lockClientMode && selectedClient && (
-              <div style={{ marginTop: 4, fontSize: 11, color: '#6B7FA3' }}>
+              <div style={{ marginTop: 4, fontSize: 11, color: 'var(--fg-3)' }}>
                 {selectedClient.code}
                 {selectedClient.city ? ` · ${selectedClient.city}` : ''}
                 {selectedClient.industry ? ` · ${selectedClient.industry}` : ''}
@@ -453,7 +453,7 @@ export default function AssignVisitDrawer({
             {/* Recommended overdue accounts — one-tap pick before searching */}
             {!lockClientMode && !selectedClient && query.trim().length < 2 && overdue.length > 0 && (
               <div style={{ marginTop: 12 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7FA3', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>
                   Recommended · overdue accounts
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 240, overflowY: 'auto' }}>
@@ -465,12 +465,12 @@ export default function AssignVisitDrawer({
                       style={REC_ITEM}
                     >
                       <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-                        <span style={{ fontWeight: 500, fontSize: 13, color: '#0D1B2A' }}>{c.legal_name}</span>
-                        <span style={{ fontSize: 11, color: '#DC2626', fontFamily: 'monospace', flexShrink: 0 }}>
+                        <span style={{ fontWeight: 500, fontSize: 13, color: 'var(--fg)' }}>{c.legal_name}</span>
+                        <span style={{ fontSize: 11, color: 'var(--neg)', fontFamily: 'monospace', flexShrink: 0 }}>
                           {c.days_since != null ? `${c.days_since}d overdue` : 'Never visited'}
                         </span>
                       </span>
-                      <span style={{ fontSize: 11, color: '#6B7FA3', marginTop: 2 }}>
+                      <span style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 2 }}>
                         {c.code}{c.city ? ` · ${c.city}` : ''}{c.industry ? ` · ${c.industry}` : ''}
                       </span>
                     </button>
@@ -542,7 +542,7 @@ export default function AssignVisitDrawer({
           <div>
             <label style={LBL}>
               Notes{' '}
-              <span style={{ color: '#6B7FA3', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
+              <span style={{ color: 'var(--fg-3)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
                 (optional)
               </span>
             </label>
@@ -561,17 +561,17 @@ export default function AssignVisitDrawer({
               type="checkbox"
               name="is_planned"
               defaultChecked
-              style={{ width: 15, height: 15, accentColor: '#1A5CB8', cursor: 'pointer' }}
+              style={{ width: 15, height: 15, accentColor: 'var(--brand-blue)', cursor: 'pointer' }}
             />
-            <span style={{ fontSize: 13, color: '#2C3E5A' }}>Mark as planned visit</span>
+            <span style={{ fontSize: 13, color: 'var(--fg-2)' }}>Mark as planned visit</span>
           </label>
 
           {/* Error */}
           {error && (
             <div style={{
               padding: '9px 12px',
-              background: '#FEE2E2', border: '1px solid rgba(220,38,38,0.20)',
-              borderRadius: 5, fontSize: 12, color: '#9B1C1C',
+              background: 'var(--neg-soft)', border: '1px solid var(--neg)',
+              borderRadius: 5, fontSize: 12, color: 'var(--neg-strong)',
             }}>
               {error}
             </div>
@@ -581,8 +581,8 @@ export default function AssignVisitDrawer({
           {success && (
             <div style={{
               padding: '12px 16px',
-              background: '#D1FAE5', border: '1px solid #6EE7B7',
-              borderRadius: 6, fontSize: 13, color: '#065F46',
+              background: 'var(--pos-soft)', border: '1px solid var(--pos)',
+              borderRadius: 6, fontSize: 13, color: 'var(--pos-strong)',
               textAlign: 'center', fontWeight: 600,
             }}>
               ✓ Visit scheduled successfully!
@@ -610,7 +610,7 @@ export default function AssignVisitDrawer({
 }
 
 function Req() {
-  return <span style={{ color: '#E02424', marginLeft: 2 }}>*</span>;
+  return <span style={{ color: 'var(--neg)', marginLeft: 2 }}>*</span>;
 }
 
 // ── Styles ─────────────────────────────────────────────────────
@@ -627,33 +627,33 @@ const ROW_BTN: CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 4,
   padding: '4px 10px', fontSize: 11, fontFamily: 'inherit',
   fontWeight: 500, background: 'transparent',
-  border: '1px solid #CBD5E1', color: '#0A3D8F',
+  border: '1px solid var(--line-strong)', color: 'var(--brand-blue)',
   borderRadius: 5, cursor: 'pointer', whiteSpace: 'nowrap',
 };
 
 const CLOSE_BTN: CSSProperties = {
   width: 28, height: 28, display: 'grid', placeItems: 'center',
   background: 'transparent', border: 'none', cursor: 'pointer',
-  fontSize: 16, color: '#6B7FA3', borderRadius: 4,
+  fontSize: 16, color: 'var(--fg-3)', borderRadius: 4,
 };
 
 const LBL: CSSProperties = {
-  display: 'block', fontSize: 11, fontWeight: 700, color: '#2C3E5A',
+  display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--fg-2)',
   textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6,
 };
 
 const INP: CSSProperties = {
   display: 'block', width: '100%', padding: '9px 12px',
   fontSize: 13, fontFamily: 'inherit',
-  background: '#F8FAFC', border: '1px solid #CBD5E1',
-  borderRadius: 6, color: '#0D1B2A', outline: 'none',
+  background: 'var(--bg-sunk)', border: '1px solid var(--line-strong)',
+  borderRadius: 6, color: 'var(--fg)', outline: 'none',
   boxSizing: 'border-box',
 };
 
 const DROP: CSSProperties = {
   position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 60,
-  background: '#fff', border: '1px solid #DDE6F5',
-  borderRadius: 6, boxShadow: '0 4px 20px rgba(10,22,40,0.13)',
+  background: 'var(--bg-paper)', border: '1px solid var(--line)',
+  borderRadius: 6, boxShadow: '0 4px 20px rgba(10,22,40,0.28)',
   maxHeight: 260, overflowY: 'auto', marginTop: 2,
 };
 
@@ -661,15 +661,15 @@ const DROP_ITEM: CSSProperties = {
   display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
   width: '100%', padding: '10px 14px',
   background: 'transparent', border: 'none',
-  borderBottom: '1px solid #EBF1FB',
+  borderBottom: '1px solid var(--line)', color: 'var(--fg)',
   cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
 };
 
 const REC_ITEM: CSSProperties = {
   display: 'flex', flexDirection: 'column', alignItems: 'stretch',
   width: '100%', padding: '9px 12px',
-  background: '#fff', border: '1px solid #EBF1FB',
-  borderLeft: '3px solid #DC2626', borderRadius: 6,
+  background: 'var(--bg-paper)', border: '1px solid var(--line)',
+  borderLeft: '3px solid var(--neg)', borderRadius: 6,
   cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
 };
 
