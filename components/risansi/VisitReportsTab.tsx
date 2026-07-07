@@ -6,12 +6,15 @@ import { useState, type CSSProperties } from 'react';
 // (COUNT → bigint), flags as 0/1 — the component coerces defensively.
 export type VisitReportRow = Record<string, any>;
 
+// A KPI tile that doubles as a one-click list filter.
+type FacetDef = { key: string; label: string; color?: string; pred: (v: VisitReportRow) => boolean };
+
 const PURPOSES = [
   'Routine', 'Quote Follow-up', 'Complaint Resolution',
   'New Opportunity', 'Equipment Assessment', 'Management Relationship Visit',
 ];
 
-const BRAND = '#0A3D8F';
+const BRAND = 'var(--title)';   // #0A3D8F in light, brightened in dark
 
 function num(v: unknown): number {
   const n = parseInt(String(v ?? '0'), 10);
@@ -20,15 +23,35 @@ function num(v: unknown): number {
 function truthy(v: unknown): boolean {
   return v === true || v === 1 || v === '1' || v === 't';
 }
+// Explicit false (not null/undefined) — e.g. a GPS check that ran and failed.
+function isFalse(v: unknown): boolean {
+  return v === false || v === 0 || v === '0' || v === 'f';
+}
 
 export function VisitReportsTab({ visits, role }: { visits: VisitReportRow[]; role: string }) {
   const [search, setSearch]   = useState('');
   const [purpose, setPurpose] = useState('');
   const [repName, setRepName] = useState('');
+  const [facet, setFacet]     = useState('');   // active KPI-tile filter (key)
 
   const repOptions = Array.from(
     new Set(visits.map(v => String(v.rep_name)).filter(n => n && n !== '—')),
   ).sort();
+
+  // KPI tiles double as one-click filters. Each facet's tile shows the count over
+  // the full rep-scoped set (a stable overview); clicking narrows the list (ANDed
+  // with search / purpose / rep). Single-select — clicking the active tile, or the
+  // "Total Reports" tile, clears it.
+  const FACETS: FacetDef[] = [
+    { key: 'expansion',  label: 'Expansion Leads',     color: 'var(--pos)',  pred: v => truthy(v.has_expansion) },
+    { key: 'opps',       label: 'New Opportunities',   color: 'var(--pos)',  pred: v => num(v.auto_opp_count) > 0 },
+    { key: 'complaints', label: 'Complaints',          color: 'var(--neg)',  pred: v => truthy(v.has_complaints) },
+    { key: 'followup',   label: 'Open Follow-ups',     color: 'var(--warn)', pred: v => truthy(v.follow_up_required) },
+    { key: 'competitor', label: 'Competitor Activity', color: 'var(--purple)', pred: v => truthy(v.competitor_activity_observed) },
+    { key: 'equipment',  label: 'With Equipment',      color: BRAND,         pred: v => num(v.ril_equip_count) + num(v.competitor_equip_count) > 0 },
+    { key: 'gps',        label: 'GPS Flagged',         color: 'var(--warn)', pred: v => isFalse(v.gps_within_radius) },
+  ];
+  const activeFacet = FACETS.find(f => f.key === facet) ?? null;
 
   const filtered = visits.filter(v => {
     if (search) {
@@ -39,17 +62,14 @@ export function VisitReportsTab({ visits, role }: { visits: VisitReportRow[]; ro
     }
     if (purpose && v.purpose !== purpose) return false;
     if (repName && v.rep_name !== repName) return false;
+    if (activeFacet && !activeFacet.pred(v)) return false;
     return true;
   });
 
-  // ── Stats (from the full rep-scoped set, not the filtered view) ──
-  const totalVisits    = visits.length;
-  const withExpansion  = visits.filter(v => truthy(v.has_expansion)).length;
-  const withFollowUp   = visits.filter(v => truthy(v.follow_up_required)).length;
-  const totalEquipment = visits.reduce((s, v) => s + num(v.ril_equip_count) + num(v.competitor_equip_count), 0);
+  const totalVisits = visits.length;
 
-  const clearFilters = () => { setSearch(''); setPurpose(''); setRepName(''); };
-  const hasFilters = !!(search || purpose || repName);
+  const clearFilters = () => { setSearch(''); setPurpose(''); setRepName(''); setFacet(''); };
+  const hasFilters = !!(search || purpose || repName || facet);
 
   if (totalVisits === 0) {
     return (
@@ -67,12 +87,20 @@ export function VisitReportsTab({ visits, role }: { visits: VisitReportRow[]; ro
 
   return (
     <div>
-      {/* Stats strip */}
+      {/* KPI tiles — click to filter the list below */}
+      <style>{`.vr-facet:not(.vr-facet--on):hover{border-color:var(--line-strong)}`}</style>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
-        <StatChip label="Total Reports"    value={totalVisits} />
-        <StatChip label="Expansion Leads"  value={withExpansion}  color="var(--pos)" />
-        <StatChip label="Open Follow-ups"  value={withFollowUp}   color="var(--warn)" />
-        <StatChip label="Equipment Logged" value={totalEquipment} color={BRAND} />
+        <FacetTile label="Total Reports" value={totalVisits} active={facet === ''} onClick={() => setFacet('')} />
+        {FACETS.map(f => (
+          <FacetTile
+            key={f.key}
+            label={f.label}
+            color={f.color}
+            value={visits.filter(f.pred).length}
+            active={facet === f.key}
+            onClick={() => setFacet(cur => (cur === f.key ? '' : f.key))}
+          />
+        ))}
       </div>
 
       {/* Filter bar */}
@@ -190,8 +218,8 @@ function VisitReportRowItem({ visit }: { visit: VisitReportRow }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{
             fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 10,
-            background: visit.submitted_at ? '#D1FAE5' : 'var(--bg-sunk)',
-            color: visit.submitted_at ? '#065F46' : 'var(--fg-3)', whiteSpace: 'nowrap',
+            background: visit.submitted_at ? 'var(--pos-soft)' : 'var(--bg-sunk)',
+            color: visit.submitted_at ? 'var(--pos-strong)' : 'var(--fg-3)', whiteSpace: 'nowrap',
           }}>
             {visit.submitted_at ? 'Submitted' : String(visit.status ?? '')}
           </span>
@@ -306,14 +334,37 @@ function fmtTime(d: unknown): string {
   return isNaN(dt.getTime()) ? '—' : dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 }
 
-function StatChip({ label, value, color }: { label: string; value: number; color?: string }) {
+function FacetTile({ label, value, color, active, onClick }: {
+  label: string; value: number; color?: string; active: boolean; onClick: () => void;
+}) {
+  // Selection is shown with a coloured border + inset ring only — no accent-tinted
+  // background or accent-coloured label, both of which drop the small label / number
+  // below AA contrast on the mid-tone accents (warn, pos). The number keeps its
+  // facet colour (large 20px text); the label stays neutral.
+  const accent = color ?? 'var(--brand-blue)';
   return (
-    <div style={{ background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', padding: '8px 14px', minWidth: 120 }}>
-      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fg-3)', fontWeight: 600 }}>{label}</div>
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 20, fontWeight: 700, color: color ?? 'var(--fg)', lineHeight: 1.2, marginTop: 2 }}>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={active ? 'vr-facet vr-facet--on' : 'vr-facet'}
+      title={active ? 'Click to clear this filter' : `Show only: ${label}`}
+      style={{
+        textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit',
+        background: 'var(--bg-paper)',
+        border: `1px solid ${active ? accent : 'var(--line)'}`,
+        boxShadow: active ? `inset 0 0 0 1px ${accent}` : 'none',
+        borderRadius: 'var(--radius)', padding: '8px 14px', minWidth: 118,
+        transition: 'border-color 120ms, box-shadow 120ms',
+      }}
+    >
+      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, color: 'var(--fg-3)' }}>
+        {label}
+      </div>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 20, fontWeight: 700, lineHeight: 1.2, marginTop: 2, color: color ?? 'var(--fg)' }}>
         {value.toLocaleString('en-IN')}
       </div>
-    </div>
+    </button>
   );
 }
 

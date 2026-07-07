@@ -97,6 +97,7 @@
   --warn-soft: rgba(251, 191, 36, 0.15);
   --info:      #60A5FA;
   --info-soft: rgba(96, 165, 250, 0.15);
+  --purple:    #A78BFA;
 }
 
 /* ── Tailwind theme mappings ─────────────────────────────────────
@@ -310,6 +311,7 @@ body {
   --warn-soft: #FEF3C7;
   --info:      #2563EB;
   --info-soft: #DBEAFE;
+  --purple:    #7C3AED;
 
   /* Radii */
   --radius-sm: 4px;
