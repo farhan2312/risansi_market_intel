@@ -12,6 +12,9 @@ import { IndiaMapWrapper } from '@/components/risansi/IndiaMapWrapper';
 import { ClientCoverageList } from '@/components/risansi/ClientCoverageList';
 import { WeekNav } from '@/components/risansi/WeekNav';
 import { MonthNav } from '@/components/risansi/MonthNav';
+import { QuarterNav } from '@/components/risansi/QuarterNav';
+import { CalViewToggle } from '@/components/risansi/CalViewToggle';
+import { FieldMonthCalendar } from '@/components/risansi/FieldMonthCalendar';
 import { ActivitiesTab, type ActivityTask } from '@/components/risansi/ActivitiesTab';
 import { AssignVisitButton } from '@/components/risansi/AssignVisitButton';
 import AssignVisitDrawer, { AssignVisitRowBtn } from '@/components/risansi/AssignVisitDrawer';
@@ -161,18 +164,46 @@ export default async function FieldActivityPage({
   const monthStart = dateStr(mDate);
   const monthEnd   = dateStr(mNext);
   const monthLabel = mDate.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
-  const daysInMonth    = new Date(mDate.getFullYear(), mDate.getMonth() + 1, 0).getDate();
-  const firstDayOffset = (mDate.getDay() + 6) % 7; // 0=Mon
-  const monthDays = Array.from({ length: daysInMonth }, (_, i) => {
-    const d = new Date(mDate.getFullYear(), mDate.getMonth(), i + 1);
-    const ds = dateStr(d);
-    return {
-      date:      ds,
-      dayNum:    i + 1,
-      isToday:   ds === todayISO,
-      isWeekend: d.getDay() === 0 || d.getDay() === 6,
-    };
-  });
+
+  // ── Calendar view (week / month / quarter) ───────────────────
+  const calViewRaw = typeof sp.cal === 'string' ? sp.cal : '';
+  const calView: 'week' | 'month' | 'quarter' =
+    calViewRaw === 'month' || calViewRaw === 'quarter' || calViewRaw === 'week'
+      ? calViewRaw
+      : (isRep ? 'month' : 'week');
+  const quarterOffset = parseInt(typeof sp.q === 'string' ? sp.q : '0', 10) || 0;
+
+  // Visible grid bounds for a month: Monday before the 1st … day after the last
+  // Sunday (exclusive), so leading/trailing cells from adjacent months show visits too.
+  const gridBounds = (y: number, m: number): [string, string] => {
+    const first    = new Date(y, m, 1);
+    const startOff = (first.getDay() + 6) % 7;              // 0 = Mon
+    const gStart   = new Date(y, m, 1 - startOff);
+    const last     = new Date(y, m + 1, 0);
+    const endOff   = 6 - ((last.getDay() + 6) % 7);
+    const gEnd     = new Date(y, m, last.getDate() + endOff + 1);   // exclusive
+    return [dateStr(gStart), dateStr(gEnd)];
+  };
+
+  const [mGridStart, mGridEnd] = gridBounds(mDate.getFullYear(), mDate.getMonth());
+
+  // Quarter = the calendar quarter (Jan–Mar / Apr–Jun / …) containing today, shifted by q.
+  const qStart0      = todayDate.getMonth() - (todayDate.getMonth() % 3);
+  const qMonths      = [0, 1, 2].map(i => new Date(todayDate.getFullYear(), qStart0 + quarterOffset * 3 + i, 1));
+  const [qGridStart] = gridBounds(qMonths[0].getFullYear(), qMonths[0].getMonth());
+  const [, qGridEnd] = gridBounds(qMonths[2].getFullYear(), qMonths[2].getMonth());
+
+  // Months handed to FieldMonthCalendar for the active view (1 for month, 3 for quarter).
+  const calMonths = (calView === 'quarter' ? qMonths : [mDate]).map(d => ({
+    year:  d.getFullYear(),
+    month: d.getMonth(),
+    label: d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }),
+  }));
+  const quarterLabel = (() => {
+    const a = qMonths[0], b = qMonths[2];
+    const same = a.getFullYear() === b.getFullYear();
+    return `${a.toLocaleDateString('en-IN', same ? { month: 'short' } : { month: 'short', year: 'numeric' })} – ${b.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}`;
+  })();
 
   // ── Rep lookup ───────────────────────────────────────────────
 
@@ -277,9 +308,12 @@ export default async function FieldActivityPage({
       return rows;
     }, []),
 
-    // 3. Calendar visits (week for admin, month for rep)
+    // 3. Calendar visits — window follows the selected view (week / month / quarter)
     q<CalendarVisit[]>(async () => {
-      const [from, to] = isRep ? [monthStart, monthEnd] : [weekStart, weekEndExclusive];
+      const [from, to] =
+        calView === 'quarter' ? [qGridStart, qGridEnd]
+        : calView === 'month' ? [mGridStart, mGridEnd]
+        : [weekStart, weekEndExclusive];
       const repCond    = vVisAnd;
       const params: (string | null)[] = [from, to];
       const { rows } = await risansiPool.query<CalendarVisit>(
@@ -480,6 +514,25 @@ export default async function FieldActivityPage({
     return true;
   });
 
+  // Reps present in the window's visits (name-sorted) — legend + week-grid fallback.
+  const derivedReps = Array.from(
+    new Map(
+      calendarVisits
+        .filter(v => v.rep_id)
+        .map(v => [v.rep_id, { id: v.rep_id, name: v.rep_name, route: '' as string | null }]),
+    ).values(),
+  ).sort((a, b) => a.name.localeCompare(b.name));
+  // Stable colour basis for the month/quarter calendar: roster ∪ visit-reps, so a
+  // rep keeps the same colour regardless of which reps have visits this period.
+  const colorReps = Array.from(
+    new Map<string, { id: string; name: string }>([
+      ...calReps.map(r => [r.id, { id: r.id, name: r.name }] as const),
+      ...derivedReps.map(r => [r.id, { id: r.id, name: r.name }] as const),
+    ]).values(),
+  ).sort((a, b) => a.name.localeCompare(b.name));
+  // Week-grid rows: the roster when we have it, else the reps seen in visits.
+  const weekReps = calReps.length ? calReps : derivedReps;
+
   function tabHref(t: string, extra?: Record<string, string>) {
     const p = new URLSearchParams({ tab: t, ...extra });
     if (filters.zones.length) p.set('zone', filters.zones.join(','));
@@ -644,21 +697,22 @@ export default async function FieldActivityPage({
 
         {/* ── Tab: Calendar ────────────────────────────────────── */}
         {tab === 'calendar' && (
-          !isRep ? (
-            /* ─── ADMIN / MANAGER: Week Grid ─── */
-            <div>
-              {/* Calendar header */}
-              <div style={{
-                display: 'flex', justifyContent: 'space-between',
-                alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10,
-              }}>
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--fg)' }}>Week of {weekLabel}</div>
-                  <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                    <span style={CHIP}>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{calPlanned}</span>
-                      {' '}visits
-                    </span>
+          <div>
+            {/* Calendar header — view label + Week/Month/Quarter toggle + nav */}
+            <div style={{
+              display: 'flex', justifyContent: 'space-between',
+              alignItems: 'flex-start', marginBottom: 16, flexWrap: 'wrap', gap: 10,
+            }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--fg)' }}>
+                  {calView === 'week' ? `Week of ${weekLabel}` : calView === 'quarter' ? quarterLabel : monthLabel}
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                  <span style={CHIP}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{calPlanned}</span>
+                    {' '}visits
+                  </span>
+                  {calView === 'week' && (
                     <span style={{
                       ...CHIP,
                       color: calPct >= 80 ? '#065F46' : calPct >= 50 ? '#92400E' : '#9B1C1C',
@@ -668,15 +722,31 @@ export default async function FieldActivityPage({
                       <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{calPct}%</span>
                       {' '}done
                     </span>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <AssignVisitButton reps={calendarReps} role={role} repId={repId ?? undefined} currentUserName={session?.user?.name ?? undefined} />
-                  <WeekNav currentOffset={weekOffset} />
+                  )}
                 </div>
               </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                <CalViewToggle current={calView} />
+                {calView === 'week'
+                  ? <WeekNav currentOffset={weekOffset} />
+                  : calView === 'quarter'
+                    ? <QuarterNav currentOffset={quarterOffset} />
+                    : <MonthNav currentOffset={monthOffset} />}
+                <AssignVisitButton reps={calendarReps} role={role} repId={repId ?? undefined} currentUserName={session?.user?.name ?? undefined} />
+              </div>
+            </div>
 
-              {/* Week grid */}
+            {calView !== 'week' ? (
+              <FieldMonthCalendar
+                view={calView}
+                months={calMonths}
+                visits={calendarVisits}
+                reps={colorReps}
+                todayISO={todayISO}
+                purposeColors={PURPOSE_COLORS}
+              />
+            ) : (
+              /* ─── Week grid (reps × days) ─── */
               <div style={{
                 background: 'var(--bg-paper)', border: '1px solid var(--line)',
                 borderRadius: 'var(--radius)', overflow: 'hidden',
@@ -710,13 +780,13 @@ export default async function FieldActivityPage({
                       </tr>
                     </thead>
                     <tbody>
-                      {calReps.length === 0 ? (
+                      {weekReps.length === 0 ? (
                         <tr>
                           <td colSpan={8} style={{ padding: '40px 0', textAlign: 'center', color: 'var(--fg-3)', fontSize: 13 }}>
                             No reps match the filter
                           </td>
                         </tr>
-                      ) : calReps.map(rep => (
+                      ) : weekReps.map(rep => (
                         <tr key={rep.id}>
                           <td style={{
                             padding: '8px 10px', verticalAlign: 'top',
@@ -761,100 +831,8 @@ export default async function FieldActivityPage({
                   ))}
                 </div>
               </div>
-            </div>
-          ) : (
-            /* ─── REP: Month Grid ─── */
-            <div>
-              {/* Month header */}
-              <div style={{
-                display: 'flex', justifyContent: 'space-between',
-                alignItems: 'center', marginBottom: 16,
-              }}>
-                <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--fg)' }}>
-                  {monthLabel}
-                  <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--fg-3)', marginLeft: 10 }}>
-                    {calendarVisits.length} visit{calendarVisits.length !== 1 ? 's' : ''}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <AssignVisitButton reps={calendarReps} role={role} repId={repId ?? undefined} currentUserName={session?.user?.name ?? undefined} />
-                  <MonthNav currentOffset={monthOffset} />
-                </div>
-              </div>
-
-              {/* Month grid */}
-              <div style={{
-                background: 'var(--bg-paper)', border: '1px solid var(--line)',
-                borderRadius: 'var(--radius)', overflow: 'hidden',
-              }}>
-                {/* Day headers */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: '1px solid var(--line)' }}>
-                  {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => (
-                    <div key={d} style={{
-                      padding: '8px', textAlign: 'center', fontSize: 11,
-                      fontWeight: 600, color: 'var(--fg-3)',
-                      textTransform: 'uppercase', letterSpacing: '0.06em',
-                    }}>{d}</div>
-                  ))}
-                </div>
-
-                {/* Calendar cells */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)' }}>
-                  {/* Leading empty cells */}
-                  {Array.from({ length: firstDayOffset }).map((_, i) => (
-                    <div key={`e-${i}`} style={{
-                      minHeight: 90, background: 'var(--bg-elev)',
-                      borderRight: '1px solid var(--line)', borderBottom: '1px solid var(--line)',
-                    }} />
-                  ))}
-
-                  {/* Day cells */}
-                  {monthDays.map(day => {
-                    const dayVisits = calendarVisits.filter(v => v.visit_date === day.date);
-                    return (
-                      <div key={day.date} style={{
-                        minHeight: 90, padding: 6,
-                        borderRight: '1px solid var(--line)', borderBottom: '1px solid var(--line)',
-                        background: day.isToday ? 'rgba(235,241,251,0.6)' : day.isWeekend ? 'var(--bg-elev)' : 'var(--bg-paper)',
-                      }}>
-                        {/* Day number */}
-                        <div style={{
-                          width: 22, height: 22, borderRadius: '50%', marginBottom: 4,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          fontSize: 12, fontWeight: day.isToday ? 700 : 400,
-                          background: day.isToday ? '#1A5CB8' : 'transparent',
-                          color: day.isToday ? '#fff' : 'var(--fg-3)',
-                        }}>
-                          {day.dayNum}
-                        </div>
-
-                        {/* Visit cards */}
-                        {dayVisits.map(v => <CalendarVisitCard key={v.id} visit={v} compact role={role} />)}
-
-                        {/* Empty placeholder */}
-                        {dayVisits.length === 0 && !day.isWeekend && (
-                          <div style={{ height: 16, border: '1px dashed rgba(0,0,0,0.08)', borderRadius: 3, opacity: 0.5 }} />
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Legend */}
-                <div style={{
-                  padding: '10px 14px', borderTop: '1px solid var(--line)',
-                  display: 'flex', gap: 16, flexWrap: 'wrap', background: 'var(--bg-elev)',
-                }}>
-                  {Object.entries(STATUS_BG).slice(0, 4).map(([status, bg]) => (
-                    <div key={status} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--fg-3)' }}>
-                      <div style={{ width: 8, height: 8, borderRadius: 2, background: bg, border: '1px solid rgba(0,0,0,0.1)', flexShrink: 0 }} />
-                      {status}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )
+            )}
+          </div>
         )}
 
         {/* ── Tab: Overdue ─────────────────────────────────────── */}
