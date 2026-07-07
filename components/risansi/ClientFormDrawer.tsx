@@ -3,6 +3,7 @@
 import { useState, useEffect, useTransition, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { addClient, updateClient } from '@/app/actions/risansi';
+import { leadCodeBase } from '@/lib/risansi-lead-code';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -47,6 +48,12 @@ export function ClientFormDrawer({ mode, client, existingContacts, onClose }: Pr
   const [isPending, startTransition] = useTransition();
   const [visible, setVisible] = useState(false);
   const [error, setError]     = useState('');
+
+  // Create-mode: is this a full Client (admin types the code) or a Lead (code auto-
+  // generated from the name)? `nameForCode` mirrors the legal-name input for the live
+  // LEAD_ preview.
+  const [entryType, setEntryType]     = useState<'client' | 'lead'>('client');
+  const [nameForCode, setNameForCode] = useState<string>(client?.legal_name ?? '');
 
   const [industries, setIndustries] = useState<string[]>([]);
   const [industry, setIndustry]     = useState<string>(client?.industry ?? '');
@@ -209,16 +216,59 @@ export function ClientFormDrawer({ mode, client, existingContacts, onClose }: Pr
 
           {/* ── 1. Identity ── */}
           <Section label="Identity">
-            <Field label="Client Code" required>
+            {mode === 'create' && (
+              <Field label="Record Type">
+                <div style={{ display: 'inline-flex', border: '1px solid var(--line-strong)', borderRadius: 7, overflow: 'hidden' }}>
+                  {(['client', 'lead'] as const).map((t, i) => {
+                    const on = entryType === t;
+                    return (
+                      <button
+                        key={t} type="button" onClick={() => setEntryType(t)}
+                        style={{
+                          padding: '7px 18px', fontSize: 13, fontFamily: 'inherit', cursor: on ? 'default' : 'pointer',
+                          border: 'none', borderLeft: i === 0 ? 'none' : '1px solid var(--line)',
+                          background: on ? 'var(--brand-blue)' : 'transparent',
+                          color: on ? '#fff' : 'var(--fg-2)', fontWeight: on ? 600 : 500,
+                        }}
+                      >
+                        {t === 'client' ? 'Client' : 'Lead'}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div style={HINT}>
+                  {entryType === 'client'
+                    ? 'A full client — you enter the client code.'
+                    : 'A lead — the code is auto-generated (LEAD_…) from the company name.'}
+                </div>
+              </Field>
+            )}
+            <Field label="Client Code" required={mode === 'edit' || entryType === 'client'}>
               {mode === 'create' ? (
-                <>
-                  <input
-                    type="text" name="code" required maxLength={20}
-                    placeholder="e.g. PUNE01A162" style={INP}
-                    onChange={e => (e.currentTarget.value = e.currentTarget.value.toUpperCase())}
-                  />
-                  <div style={HINT}>e.g. PUNE01A162</div>
-                </>
+                entryType === 'client' ? (
+                  <>
+                    <input
+                      type="text" name="code" required maxLength={20}
+                      placeholder="e.g. PUNE01A162" style={INP}
+                      onChange={e => (e.currentTarget.value = e.currentTarget.value.toUpperCase())}
+                    />
+                    <div style={HINT}>e.g. PUNE01A162</div>
+                  </>
+                ) : (
+                  <>
+                    <input type="hidden" name="is_lead" value="true" />
+                    <div style={{
+                      padding: '9px 12px', background: 'var(--bg-sunk)', border: '1px solid var(--line)',
+                      borderRadius: 6, fontSize: 13, color: 'var(--fg-2)', fontFamily: 'var(--font-mono)',
+                    }}>
+                      {nameForCode.trim() ? leadCodeBase(nameForCode) : 'LEAD_…'}
+                      <span style={{ marginLeft: 8, fontFamily: 'inherit', fontStyle: 'italic', color: 'var(--fg-3)', fontSize: 11 }}>
+                        auto-generated
+                      </span>
+                    </div>
+                    <div style={HINT}>Finalised on save — a number is appended if it collides.</div>
+                  </>
+                )
               ) : (
                 <>
                   <div style={{
@@ -237,7 +287,8 @@ export function ClientFormDrawer({ mode, client, existingContacts, onClose }: Pr
             </Field>
             <Field label="Legal Name" required>
               <input type="text" name="legal_name" required maxLength={200}
-                defaultValue={client?.legal_name ?? ''} placeholder="Full legal entity name" style={INP} />
+                defaultValue={client?.legal_name ?? ''} placeholder="Full legal entity name" style={INP}
+                onChange={e => setNameForCode(e.currentTarget.value)} />
             </Field>
             <Row>
               <Field label="Trade Name">

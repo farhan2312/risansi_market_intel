@@ -7,6 +7,7 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { getManagerAssignableReps, hasRole } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 import { recordAudit } from '@/lib/audit';
+import { normalizeClientName, uniqueLeadCode } from '@/lib/risansi-lead-code';
 
 // ── Helper ─────────────────────────────────────────────────────
 
@@ -1191,18 +1192,29 @@ export async function addClient(formData: FormData): Promise<void> {
   }
   const email = session!.user.email ?? 'system';
 
-  const code      = (formData.get('code')       as string | null)?.toUpperCase().trim() ?? '';
-  const legalName = (formData.get('legal_name') as string | null)?.trim() ?? '';
-
-  if (!code)      throw new Error('Client code is required.');
+  // Client names are always stored uppercase, regardless of what was typed.
+  const legalName = normalizeClientName((formData.get('legal_name') as string | null) ?? '');
   if (!legalName) throw new Error('Legal name is required.');
 
-  // Duplicate check
-  const existing = await risansiPool.query<{ id: number }>(
-    'SELECT id FROM clients WHERE code = $1 AND deleted_at IS NULL', [code],
-  );
-  if (existing.rows.length > 0) {
-    throw new Error(`Code ${code} already exists`);
+  const isLead = formData.get('is_lead') === 'true';
+
+  let code: string;
+  if (isLead) {
+    // Lead: auto-generate a unique LEAD_ code from the company name. Check against
+    // ALL codes (incl. soft-deleted) since the unique index is not partial.
+    const { rows } = await risansiPool.query<{ code: string }>('SELECT code FROM clients');
+    const taken = new Set(rows.map(r => String(r.code).toUpperCase()));
+    code = uniqueLeadCode(legalName, c => taken.has(c));
+  } else {
+    // Client: the admin supplies the code.
+    code = (formData.get('code') as string | null)?.toUpperCase().trim() ?? '';
+    if (!code) throw new Error('Client code is required.');
+    const existing = await risansiPool.query<{ id: number }>(
+      'SELECT id FROM clients WHERE code = $1 AND deleted_at IS NULL', [code],
+    );
+    if (existing.rows.length > 0) {
+      throw new Error(`Code ${code} already exists`);
+    }
   }
 
   const result = await risansiPool.query<{ id: number }>(
