@@ -191,7 +191,7 @@ export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] })
               </div>
               {/* Cards scroll within each column so a huge column (e.g. Quoted) stays
                   usable instead of ballooning the whole board. Header/total stay fixed. */}
-              <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 60, maxHeight: '68vh', overflowY: 'auto' }}>
+              <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 60, maxHeight: '48vh', overflowY: 'auto' }}>
                 {items.map(opp => {
                   const isWon  = opp.stage === 'Won';
                   const isLost = opp.stage === 'Lost';
