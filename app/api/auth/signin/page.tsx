@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
+import Link from 'next/link';
 import { signIn } from 'next-auth/react';
+import { AUTH_LABEL, AUTH_INP, authFocusOn, authFocusOff } from '@/components/risansi/AuthShell';
 
 export default function SignInPage() {
   const [email,    setEmail]    = useState('');
@@ -14,23 +16,14 @@ export default function SignInPage() {
     e.preventDefault();
     setError('');
     setLoading(true);
-
     try {
-      const result = await signIn('credentials', {
-        email,
-        password,
-        redirect: false,
-      });
-
+      const result = await signIn('credentials', { email, password, redirect: false });
       if (result?.error) {
         setError('Invalid email or password. Please try again.');
         setLoading(false);
         return;
       }
-
-      if (result?.ok) {
-        window.location.href = '/risansi';
-      }
+      if (result?.ok) window.location.href = '/risansi';
     } catch {
       setError('Something went wrong. Please try again.');
       setLoading(false);
@@ -38,266 +31,82 @@ export default function SignInPage() {
   }
 
   return (
-    <div className="login-grid" style={{
-      minHeight: '100vh',
-      display: 'grid',
-      gridTemplateColumns: '1fr 1fr',
-      fontFamily: '"IBM Plex Sans", system-ui, sans-serif',
-      WebkitFontSmoothing: 'antialiased',
-    }}>
-      {/* ── Left panel — brand (hidden on phones) ──────────── */}
-      <div className="login-brand" style={{
-        background: '#0A1628',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'space-between',
-        padding: '48px 56px',
-        position: 'relative',
-        overflow: 'hidden',
-      }}>
-        {/* Geometric background accents */}
-        <svg
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0.06 }}
-          viewBox="0 0 600 900" fill="none" preserveAspectRatio="xMidYMid slice"
-        >
-          <circle cx="500" cy="200" r="300" stroke="#00A3C4" strokeWidth="80"/>
-          <circle cx="100" cy="700" r="200" stroke="#1A5CB8" strokeWidth="60"/>
-          <line x1="0" y1="450" x2="600" y2="450" stroke="#fff" strokeWidth="1"/>
-          <line x1="300" y1="0" x2="300" y2="900" stroke="#fff" strokeWidth="1"/>
-        </svg>
-
-        {/* Logo */}
-        <div style={{ position: 'relative' }}>
-          <div style={{ background: '#fff', borderRadius: 10, padding: '8px 14px', display: 'inline-flex', alignItems: 'center' }}>
-            <img src="/logo.png" alt="Risansi Industries Ltd" style={{ height: '48px', width: 'auto', objectFit: 'contain', display: 'block' }} />
-          </div>
-        </div>
-
-        {/* Tagline */}
-        <div style={{ position: 'relative' }}>
-          <p style={{
-            fontSize: 28,
-            fontWeight: 300,
-            color: '#ffffff',
-            lineHeight: 1.35,
-            letterSpacing: '-0.01em',
-            marginBottom: 16,
-          }}>
-            Intelligence for<br />
-            <span style={{ color: '#00A3C4', fontWeight: 500 }}>every customer</span>
-          </p>
-          <p style={{ fontSize: 13, color: '#4A6FA5', lineHeight: 1.6, maxWidth: 320 }}>
-            Real-time competitive positioning, visit analytics,
-            and revenue intelligence for the Risansi field team.
-          </p>
-        </div>
-
-        {/* Footer */}
-        <div style={{ position: 'relative', fontSize: 11, color: '#2D4A6E' }}>
-          Risansi Industries Ltd · Internal use only
-        </div>
+    <div className="auth-fade" style={{ width: '100%', maxWidth: 380 }}>
+      <div style={{ marginBottom: 30 }}>
+        <img src="/logo.png" alt="Risansi" style={{ height: 40, width: 'auto', objectFit: 'contain', display: 'block' }} />
       </div>
 
-      {/* ── Right panel — form ──────────────────────────────── */}
-      <div className="login-form" style={{
-        background: '#EEF2FA',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '48px 40px',
-      }}>
-        <div style={{
-          background: '#ffffff',
-          border: '1px solid rgba(10,22,40,0.08)',
-          borderRadius: 12,
-          padding: '36px 32px',
-          width: '100%',
-          maxWidth: 400,
-          boxShadow: '0 4px 24px rgba(10,61,143,0.10)',
-        }}>
+      <h1 style={{ fontSize: 28, fontWeight: 600, color: '#0D1B2E', letterSpacing: '-0.02em', margin: '0 0 7px' }}>
+        Welcome back
+      </h1>
+      <p style={{ fontSize: 14, color: '#6B7F96', margin: '0 0 30px' }}>
+        Sign in to continue to the Risansi platform.
+      </p>
 
-          {/* Logo */}
-          <div style={{ textAlign: 'center', marginBottom: 28 }}>
-            <div style={{ display: 'inline-flex', alignItems: 'center', background: '#F0F4FA', borderRadius: 10, padding: '8px 16px', border: '1px solid #DDE6F5' }}>
-            <img
-              src="/logo.png"
-              alt="Risansi Industries Ltd"
-              style={{ height: '56px', width: 'auto', objectFit: 'contain', display: 'inline-block' }}
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <label style={AUTH_LABEL}>Email</label>
+          <input
+            type="email" required autoComplete="email" value={email}
+            onChange={e => setEmail(e.target.value)} placeholder="you@risansi.com"
+            style={AUTH_INP} onFocus={authFocusOn} onBlur={authFocusOff}
+          />
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <label style={AUTH_LABEL}>Password</label>
+          <div style={{ position: 'relative' }}>
+            <input
+              type={showPassword ? 'text' : 'password'} required autoComplete="current-password"
+              value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••"
+              style={{ ...AUTH_INP, paddingRight: 42 }} onFocus={authFocusOn} onBlur={authFocusOff}
             />
-            </div>
-          </div>
-
-          {/* Heading */}
-          <div style={{ marginBottom: 32 }}>
-            <h1 style={{
-              fontSize: 22,
-              fontWeight: 600,
-              color: '#0D1B2E',
-              letterSpacing: '-0.01em',
-              marginBottom: 6,
-            }}>
-              Sign in
-            </h1>
-            <p style={{ fontSize: 13, color: '#6B7F96' }}>
-              Access the Risansi intelligence platform
-            </p>
-          </div>
-
-          {/* Form */}
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-              <label style={{
-                fontSize: 11, fontWeight: 500, color: '#2D3E55',
-                letterSpacing: '0.04em', textTransform: 'uppercase',
-              }}>
-                Email
-              </label>
-              <input
-                type="email"
-                required
-                autoComplete="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                placeholder="you@risansi.com"
-                style={{
-                  padding: '9px 12px',
-                  fontSize: 13,
-                  fontFamily: 'inherit',
-                  background: '#F4F6FB',
-                  border: '1px solid rgba(10,22,40,0.16)',
-                  borderRadius: 6,
-                  color: '#0D1B2E',
-                  outline: 'none',
-                  transition: 'border-color 0.15s',
-                }}
-                onFocus={e => (e.currentTarget.style.borderColor = '#1A5CB8')}
-                onBlur={e  => (e.currentTarget.style.borderColor = 'rgba(10,22,40,0.16)')}
-              />
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-              <label style={{
-                fontSize: 11, fontWeight: 500, color: '#2D3E55',
-                letterSpacing: '0.04em', textTransform: 'uppercase',
-              }}>
-                Password
-              </label>
-              <div style={{ position: 'relative' }}>
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  style={{
-                    width: '100%',
-                    boxSizing: 'border-box',
-                    padding: '9px 40px 9px 12px',
-                    fontSize: 13,
-                    fontFamily: 'inherit',
-                    background: '#F4F6FB',
-                    border: '1px solid rgba(10,22,40,0.16)',
-                    borderRadius: 6,
-                    color: '#0D1B2E',
-                    outline: 'none',
-                    transition: 'border-color 0.15s',
-                  }}
-                  onFocus={e => (e.currentTarget.style.borderColor = '#1A5CB8')}
-                  onBlur={e  => (e.currentTarget.style.borderColor = 'rgba(10,22,40,0.16)')}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(v => !v)}
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  aria-pressed={showPassword}
-                  tabIndex={-1}
-                  title={showPassword ? 'Hide password' : 'Show password'}
-                  style={{
-                    position: 'absolute',
-                    right: 6,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    display: 'grid',
-                    placeItems: 'center',
-                    width: 30,
-                    height: 30,
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: '#6B7F96',
-                    padding: 0,
-                  }}
-                >
-                  {showPassword ? (
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-                      <line x1="1" y1="1" x2="23" y2="23"/>
-                    </svg>
-                  ) : (
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/>
-                      <circle cx="12" cy="12" r="3"/>
-                    </svg>
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {error && (
-              <div style={{
-                padding: '10px 12px',
-                background: '#FDE8E8',
-                border: '1px solid #F87171',
-                borderLeft: '3px solid #E02424',
-                borderRadius: 6,
-                color: '#9B1C1C',
-                fontSize: 13,
-                marginBottom: 12,
-              }}>
-                {error}
-              </div>
-            )}
-
             <button
-              type="submit"
-              disabled={loading}
-              style={{
-                marginTop: 4,
-                padding: '11px 0',
-                fontSize: 13,
-                fontFamily: 'inherit',
-                fontWeight: 500,
-                background: '#1A5CB8',
-                color: '#ffffff',
-                border: 'none',
-                borderRadius: 6,
-                cursor: loading ? 'not-allowed' : 'pointer',
-                letterSpacing: '-0.005em',
-                opacity: loading ? 0.7 : 1,
-                transition: 'opacity 0.15s',
-              }}
+              type="button" onClick={() => setShowPassword(v => !v)} tabIndex={-1}
+              aria-label={showPassword ? 'Hide password' : 'Show password'} aria-pressed={showPassword}
+              style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', display: 'grid', placeItems: 'center', width: 32, height: 32, background: 'none', border: 'none', cursor: 'pointer', color: '#6B7F96', padding: 0 }}
             >
-              {loading ? 'Signing in…' : 'Sign in'}
+              {showPassword ? (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                  <line x1="1" y1="1" x2="23" y2="23"/>
+                </svg>
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/>
+                  <circle cx="12" cy="12" r="3"/>
+                </svg>
+              )}
             </button>
-          </form>
-
-          <p style={{ textAlign: 'center', marginTop: 16, marginBottom: 0, fontSize: 13, color: '#6B7F96' }}>
-            New to Risansi?{' '}
-            <a href="/api/auth/signup" style={{ color: '#1A5CB8', textDecoration: 'none', fontWeight: 500 }}>
-              Request access
-            </a>
-          </p>
-
-          <p style={{
-            fontSize: 11, color: '#A8BAC8',
-            textAlign: 'center', marginTop: 16, marginBottom: 0,
-          }}>
-            Risansi Industries Ltd · Internal use only
-          </p>
+          </div>
         </div>
-      </div>
+
+        {error && (
+          <div style={{ padding: '10px 12px', background: '#FDE8E8', border: '1px solid #F87171', borderLeft: '3px solid #E02424', borderRadius: 8, color: '#9B1C1C', fontSize: 13 }}>
+            {error}
+          </div>
+        )}
+
+        <button type="submit" disabled={loading} style={{
+          marginTop: 4, padding: '12px 0', fontSize: 14, fontFamily: 'inherit', fontWeight: 600,
+          background: '#1A5CB8', color: '#fff', border: 'none', borderRadius: 8,
+          cursor: loading ? 'not-allowed' : 'pointer', letterSpacing: '-0.005em',
+          opacity: loading ? 0.7 : 1, transition: 'opacity 0.15s',
+          boxShadow: '0 6px 18px rgba(26,92,184,0.28)',
+        }}>
+          {loading ? 'Signing in…' : 'Sign in'}
+        </button>
+      </form>
+
+      <p style={{ textAlign: 'center', marginTop: 22, marginBottom: 0, fontSize: 13, color: '#6B7F96' }}>
+        New to Risansi?{' '}
+        <Link href="/api/auth/signup" style={{ color: '#1A5CB8', textDecoration: 'none', fontWeight: 600 }}>
+          Request access
+        </Link>
+      </p>
+      <p style={{ fontSize: 11, color: '#A8BAC8', textAlign: 'center', marginTop: 26, marginBottom: 0 }}>
+        Risansi Industries Ltd · Internal use only
+      </p>
     </div>
   );
 }
