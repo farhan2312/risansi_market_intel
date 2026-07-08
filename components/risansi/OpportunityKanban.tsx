@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { fmtCr } from '@/lib/risansi-utils';
 import { EditOppDrawer, type EditableOpp } from './EditOppDrawer';
 import { OppCompletionModal } from './OppCompletionModal';
+import { QuotedDetailsModal } from './QuotedDetailsModal';
 
 export interface KanbanOpp extends EditableOpp {
   value_cr:   number;
@@ -43,6 +44,8 @@ export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] })
   const [completion, setCompletion] = useState<{
     opp: KanbanOpp; stage: 'Won' | 'Lost'; previousStage: string;
   } | null>(null);
+  const [quotedFor, setQuotedFor] = useState<{ opp: KanbanOpp; previousStage: string } | null>(null);
+  const [notice, setNotice]       = useState('');
 
   // Sync from server when the underlying data actually changes (e.g. after create/edit).
   // Signature keyed on id+stage so optimistic drag state isn't clobbered by unrelated renders.
@@ -57,6 +60,22 @@ export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] })
     if (!current || current.stage === newStage) return;
     // Ownership guard (server also enforces). Non-editable cards can't move.
     if (current.can_edit === false) return;
+
+    // Gate: Quoted is a mandatory gateway — a card can't skip to Negotiating / Won /
+    // Lost without being Quoted first (so it can never jump straight to Won/Lost).
+    if (['Negotiating', 'Won', 'Lost'].includes(newStage) && !['Quoted', 'Negotiating'].includes(current.stage)) {
+      setNotice('Move this card through Quoted first.');
+      setTimeout(() => setNotice(''), 4000);
+      return;
+    }
+
+    // Moving to Quoted needs the quotation details — open modal, don't save yet.
+    if (newStage === 'Quoted') {
+      const previousStage = current.stage;
+      setOpps(p => p.map(o => (o.id === oppId ? { ...o, stage: newStage } : o)));
+      setQuotedFor({ opp: { ...current, stage: newStage }, previousStage });
+      return;
+    }
 
     // Moving to Won/Lost needs completion details — open modal, don't save yet
     if (newStage === 'Won' || newStage === 'Lost') {
@@ -101,6 +120,18 @@ export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] })
 
   const handleCompletionSave = () => {
     setCompletion(null);
+    router.refresh();
+  };
+
+  const handleQuotedCancel = () => {
+    if (!quotedFor) return;
+    const { opp, previousStage } = quotedFor;
+    setOpps(p => p.map(o => (o.id === opp.id ? { ...o, stage: previousStage } : o)));
+    setQuotedFor(null);
+  };
+
+  const handleQuotedSave = () => {
+    setQuotedFor(null);
     router.refresh();
   };
 
@@ -243,6 +274,25 @@ export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] })
           onSave={handleCompletionSave}
           onCancel={handleCompletionCancel}
         />
+      )}
+
+      {quotedFor && (
+        <QuotedDetailsModal
+          opp={quotedFor.opp}
+          onSave={handleQuotedSave}
+          onCancel={handleQuotedCancel}
+        />
+      )}
+
+      {notice && (
+        <div style={{
+          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', zIndex: 500,
+          padding: '10px 16px', borderRadius: 8, fontSize: 13, fontWeight: 500,
+          background: 'var(--warn-soft)', color: 'var(--warn)', border: '1px solid var(--warn)',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+        }}>
+          {notice}
+        </div>
       )}
     </div>
   );

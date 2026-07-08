@@ -23,11 +23,20 @@ export async function PATCH(
   }
 
   // Ownership — assigned rep, their tour manager, or admin/sysadmin only.
-  const oppRes = await risansiPool.query<{ rep_id: number | null }>(
-    'SELECT rep_id FROM opportunities WHERE id = $1', [id],
+  const oppRes = await risansiPool.query<{ rep_id: number | null; stage: string }>(
+    'SELECT rep_id, stage FROM opportunities WHERE id = $1', [id],
   );
   if (!oppRes.rows[0]) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+  // Gate: Quoted is a mandatory gateway — Negotiating / Won / Lost require the
+  // card to have been Quoted, so it can never skip straight to Won/Lost.
+  if (['Negotiating', 'Won', 'Lost'].includes(stage)
+      && !['Quoted', 'Negotiating', 'Won', 'Lost'].includes(oppRes.rows[0].stage)) {
+    return NextResponse.json(
+      { error: 'Move this opportunity through Quoted first.' },
+      { status: 422 },
+    );
   }
   const oppRepId = oppRes.rows[0].rep_id;
   const role  = session.user.role;

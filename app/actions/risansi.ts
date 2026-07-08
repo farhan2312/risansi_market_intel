@@ -622,12 +622,18 @@ export async function updateOpportunityStage(id: string, formData: FormData) {
   const stage = (formData.get('stage') as string | null)?.trim() ?? 'Suspect';
 
   // Ownership — assigned rep, their tour manager, or admin/sysadmin only.
-  const { rows: oppRows } = await risansiPool.query<{ rep_id: number | null }>(
-    'SELECT rep_id FROM opportunities WHERE id = $1', [id],
+  const { rows: oppRows } = await risansiPool.query<{ rep_id: number | null; stage: string }>(
+    'SELECT rep_id, stage FROM opportunities WHERE id = $1', [id],
   );
   if (!oppRows[0]) throw new Error('Opportunity not found');
   if (!(await userCanEditOpp(user, oppRows[0].rep_id))) {
     throw new Error('You do not have permission to edit this opportunity.');
+  }
+  // Gate: Quoted is a mandatory gateway — Negotiating / Won / Lost are only
+  // reachable once a card has been Quoted, so it can never skip straight to Won/Lost.
+  if (['Negotiating', 'Won', 'Lost'].includes(stage)
+      && !['Quoted', 'Negotiating', 'Won', 'Lost'].includes(oppRows[0].stage)) {
+    throw new Error('Move this opportunity through Quoted first.');
   }
 
   await risansiPool.query(
@@ -636,6 +642,58 @@ export async function updateOpportunityStage(id: string, formData: FormData) {
   );
 
   await logActivity('opportunity', id, `stage updated to ${stage}`, user.email!);
+  revalidatePath('/risansi/pipeline');
+  revalidatePath('/risansi');
+}
+
+// ── Pipeline: move to Quoted + capture the quotation details ───
+// Dedicated to the "move to Quoted" flow so unrelated columns are never wiped
+// (unlike updateOpportunity, which nulls any candidate field the form omits).
+export async function saveQuotedDetails(oppId: number, formData: FormData) {
+  const user = await requireSession();
+
+  const { rows } = await risansiPool.query<{ stage: string; rep_id: number | null }>(
+    'SELECT stage, rep_id FROM opportunities WHERE id = $1', [oppId],
+  );
+  if (!rows[0]) throw new Error('Opportunity not found');
+  if (rows[0].stage === 'Won' || rows[0].stage === 'Lost') {
+    throw new Error('This opportunity is locked and cannot be edited.');
+  }
+  if (!(await userCanEditOpp(user, rows[0].rep_id))) {
+    throw new Error('You do not have permission to edit this opportunity.');
+  }
+
+  const s = (k: string) => { const v = (formData.get(k) as string | null)?.trim(); return v ? v : null; };
+  const n = (k: string) => { const v = formData.get(k) as string | null; const f = v ? parseFloat(v) : NaN; return Number.isFinite(f) ? f : null; };
+  const i = (k: string) => { const v = formData.get(k) as string | null; const p = v ? parseInt(v, 10) : NaN; return Number.isFinite(p) ? p : null; };
+
+  const offerInr = n('offer_value_inr');
+  const valueCr  = offerInr != null ? offerInr / 10_000_000 : null;
+
+  await risansiPool.query(
+    `UPDATE opportunities SET
+       stage = 'Quoted',
+       quote_ref = $1, quote_date = $2, enquiry_no = $3, quotation_link = $4,
+       offer_value_inr = $5, offer_value_usd = $6, pump_model = $7, pump_qty = $8,
+       product_type    = COALESCE($9, product_type),
+       value_cr        = COALESCE($10, value_cr),
+       notes           = COALESCE($11, notes),
+       updated_at = NOW()
+     WHERE id = $12`,
+    [s('quote_ref'), s('quote_date'), s('enquiry_no'), s('quotation_link'),
+     offerInr, n('offer_value_usd'), s('pump_model'), i('pump_qty'),
+     s('product_type'), valueCr, s('notes'), oppId],
+  );
+
+  try {
+    await risansiPool.query(
+      `INSERT INTO opportunity_stage_log (opportunity_id, from_stage, to_stage, notes, changed_by)
+       VALUES ($1, $2, 'Quoted', 'Quoted via board', $3)`,
+      [oppId, rows[0].stage, user.email],
+    );
+  } catch { /* log table optional */ }
+
+  await logActivity('opportunity', String(oppId), `moved to Quoted${s('quote_ref') ? ` · ${s('quote_ref')}` : ''}`, user.email!);
   revalidatePath('/risansi/pipeline');
   revalidatePath('/risansi');
 }
@@ -660,6 +718,11 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
   const newStage     = (formData.get('stage') as string | null) ?? currentStage;
   if ((currentStage === 'Won' || currentStage === 'Lost') && newStage === currentStage) {
     throw new Error('This opportunity is locked and cannot be edited.');
+  }
+  // Gate: Quoted is a mandatory gateway (see updateOpportunityStage).
+  if (['Negotiating', 'Won', 'Lost'].includes(newStage ?? '')
+      && !['Quoted', 'Negotiating', 'Won', 'Lost'].includes(currentStage ?? '')) {
+    throw new Error('Move this opportunity through Quoted first.');
   }
 
   const valueInr = parseFloat((formData.get('value_inr')       as string | null) ?? '0');
