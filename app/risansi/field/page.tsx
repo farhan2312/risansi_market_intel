@@ -15,6 +15,7 @@ import { MonthNav } from '@/components/risansi/MonthNav';
 import { QuarterNav } from '@/components/risansi/QuarterNav';
 import { CalViewToggle } from '@/components/risansi/CalViewToggle';
 import { FieldMonthCalendar } from '@/components/risansi/FieldMonthCalendar';
+import { DateRangeFilter } from '@/components/risansi/DateRangeFilter';
 import { ActivitiesTab, type ActivityTask } from '@/components/risansi/ActivitiesTab';
 import { AssignVisitButton } from '@/components/risansi/AssignVisitButton';
 import AssignVisitDrawer, { AssignVisitRowBtn } from '@/components/risansi/AssignVisitDrawer';
@@ -120,6 +121,12 @@ export default async function FieldActivityPage({
   const feedTab    = typeof sp.feed === 'string' ? sp.feed : 'today';
   const sortKey    = typeof sp.sort === 'string' ? sp.sort : 'days_overdue';
   const sortDir    = sp.dir === 'asc' ? 'ASC' : 'DESC';
+
+  // Server-side date-range filters — Visit Feed (ffrom/fto) and Visit Reports
+  // (rfrom/rto). Both queries are LIMITed, so the range scopes the query itself.
+  const isoDate  = (v: unknown): string => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '');
+  const feedFrom = isoDate(sp.ffrom), feedTo = isoDate(sp.fto);
+  const repFrom  = isoDate(sp.rfrom), repTo  = isoDate(sp.rto);
   const sortCol    = SORT_MAP[sortKey] ?? 'days_overdue';
   const weekOffset  = parseInt(typeof sp.week  === 'string' ? sp.week  : '0', 10) || 0;
   const monthOffset = parseInt(typeof sp.month === 'string' ? sp.month : '0', 10) || 0;
@@ -238,6 +245,10 @@ export default async function FieldActivityPage({
     q<VisitFeedRow[]>(async () => {
       const repCond = vVisAnd;
       const params: (string | null)[] = [];
+      const dateConds: string[] = [];
+      if (feedFrom) { params.push(feedFrom); dateConds.push(`v.visit_date >= $${params.length}`); }
+      if (feedTo)   { params.push(feedTo);   dateConds.push(`v.visit_date <= $${params.length}`); }
+      const dateSql = dateConds.length ? ` AND ${dateConds.join(' AND ')}` : '';
       const filter =
         feedTab === 'upcoming' ? `v.status = 'planned' AND v.visit_date >= CURRENT_DATE`
         : feedTab === 'today'  ? `v.visit_date = CURRENT_DATE`
@@ -269,7 +280,7 @@ export default async function FieldActivityPage({
          FROM visits v
          JOIN clients c ON c.id = v.client_id
          LEFT JOIN users r ON r.id = v.rep_id
-         WHERE ${filter} ${repCond}${filters.visitAnd}
+         WHERE ${filter} ${repCond}${filters.visitAnd}${dateSql}
          ORDER BY ${orderBy}
          LIMIT 50`,
         params,
@@ -400,6 +411,11 @@ export default async function FieldActivityPage({
     q<VisitReportRow[]>(async () => {
       if (tab !== 'reports') return [];
       const repScope = vVisAnd;
+      const params: string[] = [];
+      const dateConds: string[] = [];
+      if (repFrom) { params.push(repFrom); dateConds.push(`v.visit_date >= $${params.length}`); }
+      if (repTo)   { params.push(repTo);   dateConds.push(`v.visit_date <= $${params.length}`); }
+      const dateSql = dateConds.length ? ` AND ${dateConds.join(' AND ')}` : '';
       const { rows } = await risansiPool.query(
         `SELECT
            v.id::text AS id, v.visit_date::text AS visit_date, v.status,
@@ -437,10 +453,11 @@ export default async function FieldActivityPage({
          LEFT JOIN tasks t ON t.visit_id = v.id
          LEFT JOIN visit_sugar_report vsr ON vsr.visit_id = v.id
          WHERE v.submitted_at IS NOT NULL
-           ${repScope}${filters.visitAnd}
+           ${repScope}${filters.visitAnd}${dateSql}
          GROUP BY v.id, c.id, r.id, r.name
          ORDER BY v.visit_date DESC, v.submitted_at DESC
          LIMIT 100`,
+        params,
       );
       return rows as VisitReportRow[];
     }, []),
@@ -604,29 +621,33 @@ export default async function FieldActivityPage({
         {/* ── Tab: Visit Feed ──────────────────────────────────── */}
         {tab === 'feed' && (
           <div>
-            {/* Sub-tabs */}
-            <div style={{ display: 'flex', gap: 4, marginBottom: 14 }}>
-              {[
-                { id: 'upcoming', label: 'Upcoming' },
-                { id: 'today',    label: 'Today' },
-                { id: 'past',     label: 'Past' },
-              ].map(st => (
-                <a key={st.id} href={tabHref('feed', { feed: st.id })} style={{
-                  padding: '5px 14px', borderRadius: 6, fontSize: 12,
-                  fontWeight: feedTab === st.id ? 600 : 400,
-                  textDecoration: 'none',
-                  color: feedTab === st.id ? '#0A3D8F' : 'var(--fg-3)',
-                  background: feedTab === st.id ? '#EBF1FB' : 'transparent',
-                  border: `1px solid ${feedTab === st.id ? '#1A5CB8' : 'var(--line)'}`,
-                }}>
-                  {st.label}
-                </a>
-              ))}
+            {/* Sub-tabs + date-range filter */}
+            <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {[
+                  { id: 'upcoming', label: 'Upcoming' },
+                  { id: 'today',    label: 'Today' },
+                  { id: 'past',     label: 'Past' },
+                ].map(st => (
+                  <a key={st.id} href={tabHref('feed', { feed: st.id, ...(feedFrom ? { ffrom: feedFrom } : {}), ...(feedTo ? { fto: feedTo } : {}) })} style={{
+                    padding: '5px 14px', borderRadius: 6, fontSize: 12,
+                    fontWeight: feedTab === st.id ? 600 : 400,
+                    textDecoration: 'none',
+                    color: feedTab === st.id ? '#0A3D8F' : 'var(--fg-3)',
+                    background: feedTab === st.id ? '#EBF1FB' : 'transparent',
+                    border: `1px solid ${feedTab === st.id ? '#1A5CB8' : 'var(--line)'}`,
+                  }}>
+                    {st.label}
+                  </a>
+                ))}
+              </div>
+              <DateRangeFilter fromParam="ffrom" toParam="fto" from={feedFrom} to={feedTo} />
             </div>
 
             {feed.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--fg-3)', fontSize: 13 }}>
-                {feedTab === 'upcoming' ? 'No upcoming visits planned'
+                {(feedFrom || feedTo) ? 'No visits in this date range'
+                  : feedTab === 'upcoming' ? 'No upcoming visits planned'
                   : feedTab === 'today' ? 'No visits scheduled today'
                   : 'No past visits'}
               </div>
@@ -688,7 +709,7 @@ export default async function FieldActivityPage({
 
         {/* ── Tab: Visit Reports ───────────────────────────────── */}
         {tab === 'reports' && (
-          <VisitReportsTab visits={reportsVisits} role={role} />
+          <VisitReportsTab visits={reportsVisits} role={role} dateFrom={repFrom} dateTo={repTo} />
         )}
 
         {tab === 'activities' && (

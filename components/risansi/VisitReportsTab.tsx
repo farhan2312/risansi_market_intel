@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, type CSSProperties } from 'react';
+import { DateRangeFilter } from './DateRangeFilter';
 
 // Rows come straight from the page's aggregate query. Counts arrive as strings
 // (COUNT → bigint), flags as 0/1 — the component coerces defensively.
@@ -28,7 +29,7 @@ function isFalse(v: unknown): boolean {
   return v === false || v === 0 || v === '0' || v === 'f';
 }
 
-export function VisitReportsTab({ visits, role }: { visits: VisitReportRow[]; role: string }) {
+export function VisitReportsTab({ visits, role, dateFrom = '', dateTo = '' }: { visits: VisitReportRow[]; role: string; dateFrom?: string; dateTo?: string }) {
   const [search, setSearch]   = useState('');
   const [purpose, setPurpose] = useState('');
   const [repName, setRepName] = useState('');
@@ -71,7 +72,10 @@ export function VisitReportsTab({ visits, role }: { visits: VisitReportRow[]; ro
   const clearFilters = () => { setSearch(''); setPurpose(''); setRepName(''); setFacet(''); };
   const hasFilters = !!(search || purpose || repName || facet);
 
-  if (totalVisits === 0) {
+  // Only show the full empty state when there is genuinely nothing to show. With a
+  // date range active, fall through so the filter bar (and its Date control) stays
+  // visible — otherwise an empty range would trap the user with no way to clear it.
+  if (totalVisits === 0 && !dateFrom && !dateTo) {
     return (
       <div style={{ padding: '48px 24px', textAlign: 'center', color: 'var(--fg-3)' }}>
         <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
@@ -122,6 +126,7 @@ export function VisitReportsTab({ visits, role }: { visits: VisitReportRow[]; ro
             {repOptions.map(n => <option key={n} value={n}>{n}</option>)}
           </select>
         )}
+        <DateRangeFilter fromParam="rfrom" toParam="rto" from={dateFrom} to={dateTo} />
         {hasFilters && (
           <button onClick={clearFilters} style={{ fontSize: 11, color: 'var(--neg)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>
             Clear filters
