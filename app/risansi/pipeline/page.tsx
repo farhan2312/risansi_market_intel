@@ -172,8 +172,11 @@ export default async function PipelinePage({
 
   const [openOpps, closedOpps, bookedYTD, annualTarget, winLossRows, lostToRows, stageOptions, productTypeOptions, repOptions, industryOptions] = await Promise.all([
 
-    // 1. Open opportunities with filters + sort (feeds KPIs + Active Opportunities table).
-    //    SELECT o.* keeps this resilient to which optional columns exist.
+    // 1. Open opportunities with filters + sort. Feeds the KPIs, the kanban (every
+    //    open card must show), and the Active Opportunities table — so NO row cap
+    //    here, or low-value cards drop off the board and the KPI counts undercount.
+    //    The table slices to 50 itself. SELECT o.* keeps this resilient to which
+    //    optional columns exist.
     q<OppRow[]>(async () => {
       const { rows } = await risansiPool.query(`
         SELECT o.*,
@@ -185,7 +188,6 @@ export default async function PipelinePage({
         LEFT JOIN users r ON r.id = o.rep_id
         ${openWhere}
         ORDER BY ${sortCol} ${orderDir} NULLS LAST
-        LIMIT 200
       `, vals as (string | number)[]
       );
       return rows.map((r) => {
@@ -433,7 +435,7 @@ export default async function PipelinePage({
               </span>
             </div>
 
-            <ActiveOppsTable opps={openOpps} />
+            <ActiveOppsTable opps={openOpps.slice(0, 50)} />
           </div>
 
           {/* Win Rate + Lost To */}
