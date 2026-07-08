@@ -397,6 +397,25 @@ export default async function PipelinePage({
           </div>
         </div>
 
+        {/* Pipeline filters — scope the kanban AND the table below (server-side). */}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: anyFilter ? 8 : 14 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginRight: 2 }}>Filter</span>
+          <MultiSelectFilter param="stage"        label="Stage"        options={stageOptions}       selected={stageFilts}    />
+          <MultiSelectFilter param="product_type" label="Product Type" options={productTypeOptions}  selected={prodTypeFilts} />
+          <MultiSelectFilter param="rep"          label="Rep"          options={repOptions}          selected={repFilts}      />
+          <MultiSelectFilter param="industry"     label="Industry"     options={industryOptions}     selected={indFilts}      />
+        </div>
+        {anyFilter && (
+          <div style={{ marginBottom: 12 }}>
+            <ActiveFilterBar filters={[
+              { param: 'stage',        label: 'Stage',    values: stageFilts    },
+              { param: 'product_type', label: 'Type',     values: prodTypeFilts },
+              { param: 'rep',          label: 'Rep',      values: repFilts      },
+              { param: 'industry',     label: 'Industry', values: indFilts      },
+            ]} />
+          </div>
+        )}
+
         {/* Kanban — open + recently-closed opps. Drag to change stage, or click to edit. */}
         <div style={{ marginBottom: 14 }}>
           <OpportunityKanban initialOpps={[...openOpps, ...closedOpps]} />
@@ -413,26 +432,6 @@ export default async function PipelinePage({
                 {Math.min(openOpps.length, 50)} of {openOpps.length}
               </span>
             </div>
-
-            {/* Filter row */}
-            <div style={{ padding: '10px 14px 0', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <MultiSelectFilter param="stage"        label="Stage"        options={stageOptions}       selected={stageFilts}    />
-              <MultiSelectFilter param="product_type" label="Product Type" options={productTypeOptions}  selected={prodTypeFilts} />
-              <MultiSelectFilter param="rep"          label="Rep"          options={repOptions}          selected={repFilts}      />
-              <MultiSelectFilter param="industry"     label="Industry"     options={industryOptions}     selected={indFilts}      />
-            </div>
-
-            {/* Active filter pills */}
-            {anyFilter && (
-              <div style={{ padding: '4px 14px 0' }}>
-                <ActiveFilterBar filters={[
-                  { param: 'stage',        label: 'Stage',    values: stageFilts    },
-                  { param: 'product_type', label: 'Type',     values: prodTypeFilts },
-                  { param: 'rep',          label: 'Rep',      values: repFilts      },
-                  { param: 'industry',     label: 'Industry', values: indFilts      },
-                ]} />
-              </div>
-            )}
 
             <ActiveOppsTable opps={openOpps} />
           </div>
