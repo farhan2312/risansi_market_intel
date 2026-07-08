@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, type CSSProperties } from 'react';
-import { DateRangeFilter } from './DateRangeFilter';
 
 // Rows come straight from the page's aggregate query. Counts arrive as strings
 // (COUNT → bigint), flags as 0/1 — the component coerces defensively.
@@ -9,11 +8,6 @@ export type VisitReportRow = Record<string, any>;
 
 // A KPI tile that doubles as a one-click list filter.
 type FacetDef = { key: string; label: string; color?: string; pred: (v: VisitReportRow) => boolean };
-
-const PURPOSES = [
-  'Routine', 'Quote Follow-up', 'Complaint Resolution',
-  'New Opportunity', 'Equipment Assessment', 'Management Relationship Visit',
-];
 
 const BRAND = 'var(--title)';   // #0A3D8F in light, brightened in dark
 
@@ -29,20 +23,13 @@ function isFalse(v: unknown): boolean {
   return v === false || v === 0 || v === '0' || v === 'f';
 }
 
-export function VisitReportsTab({ visits, role, dateFrom = '', dateTo = '' }: { visits: VisitReportRow[]; role: string; dateFrom?: string; dateTo?: string }) {
-  const [search, setSearch]   = useState('');
-  const [purpose, setPurpose] = useState('');
-  const [repName, setRepName] = useState('');
-  const [facet, setFacet]     = useState('');   // active KPI-tile filter (key)
+export function VisitReportsTab({ visits, filterActive = false }: { visits: VisitReportRow[]; filterActive?: boolean }) {
+  const [facet, setFacet] = useState('');   // active KPI-tile filter (key)
 
-  const repOptions = Array.from(
-    new Set(visits.map(v => String(v.rep_name)).filter(n => n && n !== '—')),
-  ).sort();
-
-  // KPI tiles double as one-click filters. Each facet's tile shows the count over
-  // the full rep-scoped set (a stable overview); clicking narrows the list (ANDed
-  // with search / purpose / rep). Single-select — clicking the active tile, or the
-  // "Total Reports" tile, clears it.
+  // KPI tiles double as one-click filters over the current (already server-filtered)
+  // set; clicking narrows the list to that facet. Single-select — clicking the active
+  // tile, or "Total Reports", clears it. Search / purpose / rep / date live in the
+  // shared filter bar above the tabs (server-side), so `visits` arrives pre-filtered.
   const FACETS: FacetDef[] = [
     { key: 'expansion',  label: 'Expansion Leads',     color: 'var(--pos)',  pred: v => truthy(v.has_expansion) },
     { key: 'opps',       label: 'New Opportunities',   color: 'var(--pos)',  pred: v => num(v.auto_opp_count) > 0 },
@@ -54,36 +41,18 @@ export function VisitReportsTab({ visits, role, dateFrom = '', dateTo = '' }: { 
   ];
   const activeFacet = FACETS.find(f => f.key === facet) ?? null;
 
-  const filtered = visits.filter(v => {
-    if (search) {
-      const q = search.toLowerCase();
-      const name = String(v.client_name ?? '').toLowerCase();
-      const code = String(v.client_code ?? '').toLowerCase();
-      if (!name.includes(q) && !code.includes(q)) return false;
-    }
-    if (purpose && v.purpose !== purpose) return false;
-    if (repName && v.rep_name !== repName) return false;
-    if (activeFacet && !activeFacet.pred(v)) return false;
-    return true;
-  });
-
+  const filtered = activeFacet ? visits.filter(v => activeFacet.pred(v)) : visits;
   const totalVisits = visits.length;
 
-  const clearFilters = () => { setSearch(''); setPurpose(''); setRepName(''); setFacet(''); };
-  const hasFilters = !!(search || purpose || repName || facet);
-
-  // Only show the full empty state when there is genuinely nothing to show. With a
-  // date range active, fall through so the filter bar (and its Date control) stays
-  // visible — otherwise an empty range would trap the user with no way to clear it.
-  if (totalVisits === 0 && !dateFrom && !dateTo) {
+  if (totalVisits === 0) {
     return (
       <div style={{ padding: '48px 24px', textAlign: 'center', color: 'var(--fg-3)' }}>
         <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
         <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--fg-2)', marginBottom: 4 }}>
-          No submitted visit reports yet
+          {filterActive ? 'No reports match the filters' : 'No submitted visit reports yet'}
         </div>
         <div style={{ fontSize: 13 }}>
-          Reports appear here once a rep submits a completed visit form
+          {filterActive ? 'Adjust or clear the filters above.' : 'Reports appear here once a rep submits a completed visit form'}
         </div>
       </div>
     );
@@ -107,41 +76,16 @@ export function VisitReportsTab({ visits, role, dateFrom = '', dateTo = '' }: { 
         ))}
       </div>
 
-      {/* Filter bar */}
-      <div style={{ display: 'flex', gap: 8, margin: '12px 0', flexWrap: 'wrap', alignItems: 'center' }}>
-        <input
-          type="text"
-          placeholder="Search client or code…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{ padding: '7px 12px', borderRadius: 6, border: '1px solid var(--line-strong)', fontSize: 12, minWidth: 200, fontFamily: 'inherit', background: 'var(--bg-paper)', color: 'var(--fg)', outline: 'none', boxSizing: 'border-box' }}
-        />
-        <select value={purpose} onChange={e => setPurpose(e.target.value)} style={SELECT}>
-          <option value="">All Purposes</option>
-          {PURPOSES.map(p => <option key={p} value={p}>{p}</option>)}
-        </select>
-        {role !== 'rep' && repOptions.length > 0 && (
-          <select value={repName} onChange={e => setRepName(e.target.value)} style={SELECT}>
-            <option value="">All Reps</option>
-            {repOptions.map(n => <option key={n} value={n}>{n}</option>)}
-          </select>
-        )}
-        <DateRangeFilter fromParam="rfrom" toParam="rto" from={dateFrom} to={dateTo} />
-        {hasFilters && (
-          <button onClick={clearFilters} style={{ fontSize: 11, color: 'var(--neg)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>
-            Clear filters
-          </button>
-        )}
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
-          {filtered.length} of {totalVisits}
-        </span>
+      {/* Count — search / purpose / rep / date filtering happens in the shared bar above. */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '10px 0', fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
+        {facet ? `${filtered.length} of ${totalVisits}` : `${totalVisits} report${totalVisits !== 1 ? 's' : ''}`}
       </div>
 
       {/* List */}
       <div style={{ background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
         {filtered.length === 0 ? (
           <div style={{ padding: '32px', textAlign: 'center', color: 'var(--fg-3)', fontSize: 13 }}>
-            No visits match {search ? `"${search}"` : 'the current filters'}
+            No reports match the selected tile
           </div>
         ) : (
           filtered.map(v => <VisitReportRowItem key={String(v.id)} visit={v} />)
@@ -408,11 +352,6 @@ function SubNote({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
-
-const SELECT: CSSProperties = {
-  padding: '7px 10px', borderRadius: 6, border: '1px solid var(--line-strong)',
-  fontSize: 12, fontFamily: 'inherit', background: 'var(--bg-paper)', color: 'var(--fg)', outline: 'none',
-};
 
 function flag(color: string): CSSProperties {
   return {

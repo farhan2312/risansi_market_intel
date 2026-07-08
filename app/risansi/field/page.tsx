@@ -7,7 +7,7 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, clientVisibilitySql, clientScopeSql } from '@/lib/risansi-auth';
 import { parseVisitFilters, getVisitFilterOptions, getScopedRepNames } from '@/lib/risansi-visit-filters';
-import { VisitFilterControls } from '@/components/risansi/VisitFilterControls';
+import { FieldFilterBar } from '@/components/risansi/FieldFilterBar';
 import { IndiaMapWrapper } from '@/components/risansi/IndiaMapWrapper';
 import { ClientCoverageList } from '@/components/risansi/ClientCoverageList';
 import { WeekNav } from '@/components/risansi/WeekNav';
@@ -15,7 +15,6 @@ import { MonthNav } from '@/components/risansi/MonthNav';
 import { QuarterNav } from '@/components/risansi/QuarterNav';
 import { CalViewToggle } from '@/components/risansi/CalViewToggle';
 import { FieldMonthCalendar } from '@/components/risansi/FieldMonthCalendar';
-import { DateRangeFilter } from '@/components/risansi/DateRangeFilter';
 import { ActivitiesTab, type ActivityTask } from '@/components/risansi/ActivitiesTab';
 import { AssignVisitButton } from '@/components/risansi/AssignVisitButton';
 import AssignVisitDrawer, { AssignVisitRowBtn } from '@/components/risansi/AssignVisitDrawer';
@@ -127,6 +126,9 @@ export default async function FieldActivityPage({
   const isoDate  = (v: unknown): string => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '');
   const feedFrom = isoDate(sp.ffrom), feedTo = isoDate(sp.fto);
   const repFrom  = isoDate(sp.rfrom), repTo  = isoDate(sp.rto);
+  // Visit Reports search + purpose (server-side, driven from the shared filter bar).
+  const repSearch  = (typeof sp.rsearch  === 'string' ? sp.rsearch  : '').trim();
+  const repPurpose =  typeof sp.rpurpose === 'string' ? sp.rpurpose : '';
   const sortCol    = SORT_MAP[sortKey] ?? 'days_overdue';
   const weekOffset  = parseInt(typeof sp.week  === 'string' ? sp.week  : '0', 10) || 0;
   const monthOffset = parseInt(typeof sp.month === 'string' ? sp.month : '0', 10) || 0;
@@ -412,10 +414,12 @@ export default async function FieldActivityPage({
       if (tab !== 'reports') return [];
       const repScope = vVisAnd;
       const params: string[] = [];
-      const dateConds: string[] = [];
-      if (repFrom) { params.push(repFrom); dateConds.push(`v.visit_date >= $${params.length}`); }
-      if (repTo)   { params.push(repTo);   dateConds.push(`v.visit_date <= $${params.length}`); }
-      const dateSql = dateConds.length ? ` AND ${dateConds.join(' AND ')}` : '';
+      const conds: string[] = [];
+      if (repFrom)    { params.push(repFrom);            conds.push(`v.visit_date >= $${params.length}`); }
+      if (repTo)      { params.push(repTo);              conds.push(`v.visit_date <= $${params.length}`); }
+      if (repPurpose) { params.push(repPurpose);         conds.push(`v.purpose = $${params.length}`); }
+      if (repSearch)  { params.push(`%${repSearch}%`);   conds.push(`(c.legal_name ILIKE $${params.length} OR c.code ILIKE $${params.length})`); }
+      const filterSql = conds.length ? ` AND ${conds.join(' AND ')}` : '';
       const { rows } = await risansiPool.query(
         `SELECT
            v.id::text AS id, v.visit_date::text AS visit_date, v.status,
@@ -453,7 +457,7 @@ export default async function FieldActivityPage({
          LEFT JOIN tasks t ON t.visit_id = v.id
          LEFT JOIN visit_sugar_report vsr ON vsr.visit_id = v.id
          WHERE v.submitted_at IS NOT NULL
-           ${repScope}${filters.visitAnd}${dateSql}
+           ${repScope}${filters.visitAnd}${filterSql}
          GROUP BY v.id, c.id, r.id, r.name
          ORDER BY v.visit_date DESC, v.submitted_at DESC
          LIMIT 100`,
@@ -592,8 +596,17 @@ export default async function FieldActivityPage({
             sets display:none — that previously stopped the drawer from ever showing. */}
         <AssignVisitDrawer reps={calendarReps} hideButton={true} role={role} repId={repId ?? undefined} currentUserName={session?.user?.name ?? undefined} />
 
-        {/* Zone / Tour / Rep filters — apply across every tab */}
-        {!isRep && <VisitFilterControls opts={filterOpts} sel={{ zones: filters.zones, tours: filters.tours, reps: filters.reps }} />}
+        {/* Shared filter row — Zone/Tour/Rep, plus Search/Purpose (reports) and the
+            right-aligned date range (reports/feed). One row above the tabs. */}
+        <FieldFilterBar
+          tab={tab}
+          isRep={isRep}
+          opts={filterOpts}
+          sel={{ zones: filters.zones, tours: filters.tours, reps: filters.reps }}
+          purposes={Object.keys(PURPOSE_COLORS)}
+          search={repSearch}
+          purpose={repPurpose}
+        />
 
         {/* Tabs — underline on desktop, snappy scroll-snap pills on mobile (mobile.css) */}
         <div className="field-tabs" style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--line)', paddingBottom: 0, overflowX: 'auto', scrollSnapType: 'x proximity' }}>
@@ -621,27 +634,24 @@ export default async function FieldActivityPage({
         {/* ── Tab: Visit Feed ──────────────────────────────────── */}
         {tab === 'feed' && (
           <div>
-            {/* Sub-tabs + date-range filter */}
-            <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', gap: 4 }}>
-                {[
-                  { id: 'upcoming', label: 'Upcoming' },
-                  { id: 'today',    label: 'Today' },
-                  { id: 'past',     label: 'Past' },
-                ].map(st => (
-                  <a key={st.id} href={tabHref('feed', { feed: st.id, ...(feedFrom ? { ffrom: feedFrom } : {}), ...(feedTo ? { fto: feedTo } : {}) })} style={{
-                    padding: '5px 14px', borderRadius: 6, fontSize: 12,
-                    fontWeight: feedTab === st.id ? 600 : 400,
-                    textDecoration: 'none',
-                    color: feedTab === st.id ? '#0A3D8F' : 'var(--fg-3)',
-                    background: feedTab === st.id ? '#EBF1FB' : 'transparent',
-                    border: `1px solid ${feedTab === st.id ? '#1A5CB8' : 'var(--line)'}`,
-                  }}>
-                    {st.label}
-                  </a>
-                ))}
-              </div>
-              <DateRangeFilter fromParam="ffrom" toParam="fto" from={feedFrom} to={feedTo} />
+            {/* Sub-tabs (the date range lives in the shared filter bar above). */}
+            <div style={{ display: 'flex', gap: 4, marginBottom: 14 }}>
+              {[
+                { id: 'upcoming', label: 'Upcoming' },
+                { id: 'today',    label: 'Today' },
+                { id: 'past',     label: 'Past' },
+              ].map(st => (
+                <a key={st.id} href={tabHref('feed', { feed: st.id, ...(feedFrom ? { ffrom: feedFrom } : {}), ...(feedTo ? { fto: feedTo } : {}) })} style={{
+                  padding: '5px 14px', borderRadius: 6, fontSize: 12,
+                  fontWeight: feedTab === st.id ? 600 : 400,
+                  textDecoration: 'none',
+                  color: feedTab === st.id ? '#0A3D8F' : 'var(--fg-3)',
+                  background: feedTab === st.id ? '#EBF1FB' : 'transparent',
+                  border: `1px solid ${feedTab === st.id ? '#1A5CB8' : 'var(--line)'}`,
+                }}>
+                  {st.label}
+                </a>
+              ))}
             </div>
 
             {feed.length === 0 ? (
@@ -709,7 +719,7 @@ export default async function FieldActivityPage({
 
         {/* ── Tab: Visit Reports ───────────────────────────────── */}
         {tab === 'reports' && (
-          <VisitReportsTab visits={reportsVisits} role={role} dateFrom={repFrom} dateTo={repTo} />
+          <VisitReportsTab visits={reportsVisits} filterActive={!!(repSearch || repPurpose || repFrom || repTo)} />
         )}
 
         {tab === 'activities' && (
