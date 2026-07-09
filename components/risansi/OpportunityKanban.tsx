@@ -46,6 +46,9 @@ export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] })
   } | null>(null);
   const [quotedFor, setQuotedFor] = useState<{ opp: KanbanOpp; previousStage: string } | null>(null);
   const [notice, setNotice]       = useState('');
+  // Per-column card filter (client id / name). Keyed by stage so each column's
+  // search box filters only its own cards, not the rest of the board.
+  const [colSearch, setColSearch] = useState<Record<string, string>>({});
 
   // Sync from server when the underlying data actually changes (e.g. after create/edit).
   // Signature keyed on id+stage so optimistic drag state isn't clobbered by unrelated renders.
@@ -155,6 +158,14 @@ export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] })
       <div className="r-kanban" style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 10 }}>
         {STAGES.map(stage => {
           const items = byStage[stage] ?? [];
+          const q = (colSearch[stage] ?? '').trim().toLowerCase();
+          const filtered = q
+            ? items.filter(o =>
+                (o.client_code ?? '').toLowerCase().includes(q) ||
+                (o.client_name ?? '').toLowerCase().includes(q))
+            : items;
+          // Stage ₹ total stays the full-column figure — a search filter shouldn't
+          // make the pipeline value appear to drop.
           const stageTotal = items.reduce((s, o) => s + o.value_cr, 0);
           const color = STAGE_COLOR[stage];
           const isOver = overStage === stage;
@@ -182,17 +193,31 @@ export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] })
                     {STAGE_LABEL[stage] ?? stage}
                   </span>
                   <span style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
-                    {items.length}
+                    {q ? `${filtered.length}/${items.length}` : items.length}
                   </span>
                 </div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--fg)', marginTop: 4 }}>
                   {stageTotal > 0 ? fmtCr(stageTotal) : '—'}
                 </div>
+                {items.length > 0 && (
+                  <input
+                    type="search"
+                    value={colSearch[stage] ?? ''}
+                    onChange={e => setColSearch(s => ({ ...s, [stage]: e.target.value }))}
+                    placeholder="Filter id / name…"
+                    aria-label={`Filter ${stage} by client id or name`}
+                    style={{
+                      width: '100%', marginTop: 8, padding: '5px 8px', fontSize: 11,
+                      fontFamily: 'inherit', background: 'var(--bg-sunk)', color: 'var(--fg)',
+                      border: '1px solid var(--line-strong)', borderRadius: 4, outline: 'none',
+                    }}
+                  />
+                )}
               </div>
               {/* Cards scroll within each column so a huge column (e.g. Quoted) stays
                   usable instead of ballooning the whole board. Header/total stay fixed. */}
               <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 60, maxHeight: '48vh', overflowY: 'auto' }}>
-                {items.map(opp => {
+                {filtered.map(opp => {
                   const isWon  = opp.stage === 'Won';
                   const isLost = opp.stage === 'Lost';
                   const canEdit = opp.can_edit !== false;
@@ -256,9 +281,9 @@ export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] })
                   </div>
                   );
                 })}
-                {items.length === 0 && (
+                {filtered.length === 0 && (
                   <div style={{ fontSize: 10, color: 'var(--fg-3)', textAlign: 'center', padding: 20 }}>
-                    {isOver ? 'Drop here' : 'No opps'}
+                    {q ? 'No matches' : isOver ? 'Drop here' : 'No opps'}
                   </div>
                 )}
               </div>
