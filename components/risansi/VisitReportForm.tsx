@@ -191,6 +191,9 @@ export function VisitReportForm({
 
   // Equipment
   const [eqTab, setEqTab]   = useState<'ril' | 'competitor'>('ril');
+  // Live count of the client's installed pumps (client_pumps), reported by the
+  // RIL editor, so the RIL tab badge matches what that tab actually shows.
+  const [rilPumpCount, setRilPumpCount] = useState<number | null>(null);
   const [showEqForm, setShowEqForm] = useState(false);
   // id of the equipment row being edited (null = adding a new row)
   const [editingEqId, setEditingEqId] = useState<number | null>(null);
@@ -569,9 +572,9 @@ export function VisitReportForm({
               }}
             >
               {label}
-              {id === 'ril' && rilEquipment.length > 0 && (
+              {id === 'ril' && (rilPumpCount ?? 0) > 0 && (
                 <span style={{ marginLeft: 6, fontSize: 10, background: 'var(--accent-soft)', color: 'var(--title)', padding: '1px 5px', borderRadius: 8 }}>
-                  {rilEquipment.length}
+                  {rilPumpCount}
                 </span>
               )}
               {id === 'competitor' && compEquipment.length > 0 && (
@@ -585,7 +588,7 @@ export function VisitReportForm({
 
         {/* RIL tab → editable client pumps (writes to client_pumps directly).
             Competitor tab → the existing equipment capture. */}
-        {eqTab === 'ril' && <ClientPumpEditor clientId={visit.client_id} />}
+        {eqTab === 'ril' && <ClientPumpEditor clientId={visit.client_id} onCount={setRilPumpCount} />}
 
         {/* cast avoids narrowing eqTab to 'competitor' so the inner tab checks still type-check */}
         {(eqTab as string) === 'competitor' && (<>

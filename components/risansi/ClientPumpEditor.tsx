@@ -28,7 +28,7 @@ const toDraft = (p: Pump): Draft => ({
 
 // Editable list of a client's installed pumps. Writes straight to client_pumps,
 // so edits show up immediately in Client 360. Used in the visit report's RIL section.
-export function ClientPumpEditor({ clientId, compact = false }: { clientId: number | string; compact?: boolean }) {
+export function ClientPumpEditor({ clientId, compact = false, onCount }: { clientId: number | string; compact?: boolean; onCount?: (n: number) => void }) {
   const cid = Number(clientId);
   const [pumps, setPumps]   = useState<Pump[]>([]);
   const [loading, setLoad]  = useState(true);
@@ -44,15 +44,24 @@ export function ClientPumpEditor({ clientId, compact = false }: { clientId: numb
     let active = true;
     fetch(`/api/risansi/client-pumps?clientId=${cid}`, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : { pumps: [] })
-      .then(d => { if (active) setPumps(d.pumps ?? []); })
-      .catch(() => { if (active) setPumps([]); })
+      .then(d => { if (active) { const list: Pump[] = d.pumps ?? []; setPumps(list); onCount?.(list.length); } })
+      .catch(() => { if (active) { setPumps([]); onCount?.(0); } })
       .finally(() => { if (active) setLoad(false); });
     return () => { active = false; };
-  }, [cid, reloadKey]);
+  }, [cid, reloadKey, onCount]);
 
   const save = async () => {
     if (!draft) return;
     if (!draft.model.trim() && !draft.sr_no.trim()) { setErr('Enter at least a model or serial number.'); return; }
+    // Duplicate guard: serialed pumps upsert on (client_id, serial), but a
+    // blank-serial pump bypasses that index, so identical models can pile up.
+    // Warn before adding a second serial-less match (a plant may genuinely have
+    // two identical pumps, so allow it on confirm rather than hard-blocking).
+    if (draft.id === null && !draft.sr_no.trim()) {
+      const m = draft.model.trim().toLowerCase();
+      const dup = pumps.some(p => !(p.pump_sl_no ?? '').trim() && (p.pump_model_plate ?? '').trim().toLowerCase() === m);
+      if (dup && !window.confirm(`A "${draft.model.trim()}" with no serial number is already on record for this client. Add another anyway?`)) return;
+    }
     setBusy(true); setErr('');
     try {
       await saveClientPump({
