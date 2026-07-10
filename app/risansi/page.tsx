@@ -6,6 +6,7 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, Sparkline, MiniBars, Donut, Tag } from '@/components/risansi';
 import { ExportPdfButton } from '@/components/risansi/ExportPdfButton';
 import { RefreshButton } from '@/components/risansi/RefreshButton';
+import { ExecutiveViews } from '@/components/risansi/ExecutiveViews';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, clientVisibilitySql, clientScopeSql, hasRole } from '@/lib/risansi-auth';
 import {
@@ -1107,6 +1108,9 @@ export default async function ExecDashboardPage() {
           </div>
 
         </div>
+
+        {/* ── Executive Views — monthly TSM review dashboards ── */}
+        <ExecutiveViews />
       </div>
     </div>
   );
