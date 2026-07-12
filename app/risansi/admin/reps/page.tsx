@@ -56,7 +56,7 @@ export default async function SystemAdminPage() {
 
     // Clients needing a tour (for the Clients tab).
     q<UnassignedRow[]>(async () => (await risansiPool.query<UnassignedRow>(`
-      SELECT c.id::int AS id, c.code, c.legal_name, c.industry, c.zone, c.tour_id::int AS tour_id,
+      SELECT c.id::int AS id, c.code, c.legal_name, c.industry, c.zone, c.status, c.tour_id::int AS tour_id,
         (NOT EXISTS (SELECT 1 FROM tour_assignments ta WHERE ta.tour_id = c.tour_id AND ta.role = 'rep')) AS no_owner,
         (c.tour_id IS NULL) AS no_tour
       FROM clients c
