@@ -1,0 +1,241 @@
+'use client';
+
+import { useState, useEffect, useCallback, type CSSProperties } from 'react';
+import * as XLSX from 'xlsx';
+import { uploadOutstanding, type OutstandingUploadResult } from '@/app/actions/risansi-outstanding';
+
+type RowStatus = 'valid' | 'invalid_code';
+
+interface UploadRow {
+  code:          string;
+  debtor:        string;
+  clientName:    string;   // from sheet (display)
+  amount:        number;
+  status:        RowStatus;
+  dbClientName?: string;
+}
+
+type Stage = 'empty' | 'validating' | 'preview' | 'saving' | 'done';
+
+const TH: CSSProperties = {
+  padding: '9px 12px', fontSize: 11, fontWeight: 600, color: 'var(--fg-3)',
+  textTransform: 'uppercase', letterSpacing: '0.06em',
+  borderBottom: '2px solid var(--line)', whiteSpace: 'nowrap', background: 'var(--bg-elev)',
+};
+const num = (v: unknown) => parseFloat(String(v ?? '').replace(/[^0-9.-]/g, '')) || 0;
+
+export function OutstandingUploadBox() {
+  const [dragOver, setDragOver] = useState(false);
+  const [rows,   setRows]   = useState<UploadRow[]>([]);
+  const [fileName, setFileName] = useState('');
+  const [asOf,   setAsOf]   = useState('');   // YYYY-MM-DD
+  const [stage,  setStage]  = useState<Stage>('empty');
+  const [result, setResult] = useState<OutstandingUploadResult | null>(null);
+  const [error,  setError]  = useState('');
+
+  // Default the as-of date to today (set client-side to avoid a hydration mismatch).
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { setAsOf(new Date().toISOString().slice(0, 10)); }, []);
+
+  const processFile = useCallback(async (file: File) => {
+    if (!file) return;
+    setFileName(file.name); setStage('validating'); setError(''); setRows([]);
+    try {
+      const wb  = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      const ws  = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' }) as unknown[][];
+      if (!raw || raw.length < 2) { setError('File appears empty or unreadable.'); setStage('empty'); return; }
+
+      const headers = (raw[0] as string[]).map(h => h?.toString().trim().toLowerCase());
+      const colCode   = headers.findIndex(h => h.includes('subledger') || h.includes('code'));
+      const colDebtor = headers.findIndex(h => h.includes('debtor'));
+      const colName   = headers.findIndex(h => h.includes('name'));
+      const colAmount = headers.findIndex(h => h.includes('outstanding') || h.includes('amount') || h.includes('total'));
+      if (colCode < 0 || colAmount < 0) {
+        setError('Wrong template. Expected columns: Subledger Code, Debtor, Name, Total Outstanding. Please use the official template.');
+        setStage('empty'); return;
+      }
+
+      const dataRows = (raw.slice(1) as string[][]).filter(r => r[colCode]?.toString().trim());
+      if (dataRows.length === 0) { setError('No data rows found.'); setStage('empty'); return; }
+      if (dataRows.length > 2000) { setError('Too many rows. Maximum 2000 per upload.'); setStage('empty'); return; }
+
+      const parsed: UploadRow[] = dataRows.map(r => ({
+        code:       r[colCode]?.toString().trim().toUpperCase() ?? '',
+        debtor:     colDebtor >= 0 ? (r[colDebtor]?.toString().trim().toUpperCase() ?? '') : '',
+        clientName: colName   >= 0 ? (r[colName]?.toString().trim() ?? '') : '',
+        amount:     num(r[colAmount]),
+        status:     'valid',
+      }));
+      setRows(parsed);
+
+      const codes = [...new Set(parsed.map(r => r.code))];
+      const res = await fetch('/api/risansi/validate-revenue-codes', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ codes }),
+      });
+      const { found, notFound } = await res.json() as {
+        found: Record<string, { id: string; legal_name: string }>; notFound: string[];
+      };
+      setRows(parsed.map(r => notFound.includes(r.code)
+        ? { ...r, status: 'invalid_code' as const }
+        : { ...r, status: 'valid' as const, dbClientName: found[r.code]?.legal_name }));
+      setStage('preview');
+    } catch (err) {
+      setError('Failed to parse file: ' + (err instanceof Error ? err.message : 'Unknown error'));
+      setStage('empty');
+    }
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault(); setDragOver(false);
+    const f = e.dataTransfer.files[0]; if (f) processFile(f);
+  }, [processFile]);
+
+  const handleSave = async () => {
+    const valid = rows.filter(r => r.status === 'valid');
+    if (!valid.length || !asOf) return;
+    setStage('saving');
+    try {
+      const res = await uploadOutstanding(
+        valid.map(r => ({ client_code: r.code, debtor: r.debtor, amount: r.amount })),
+        asOf, fileName,
+      );
+      setResult(res); setStage('done');
+    } catch (err) {
+      setError('Save failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+      setStage('preview');
+    }
+  };
+
+  const reset = () => { setRows([]); setFileName(''); setStage('empty'); setResult(null); setError(''); };
+
+  // ── empty / validating ──
+  if (stage === 'empty' || stage === 'validating') {
+    return (
+      <div style={CARD}>
+        <div style={CARD_H}>Upload Outstanding Data</div>
+        <div style={{ padding: '14px 20px 0' }}>
+          <div style={WARN}>
+            ⚠ Each upload <b>replaces all</b> existing outstanding data. The previous month is cleared and this sheet becomes the current snapshot.
+          </div>
+          <label style={{ display: 'block', marginTop: 14, fontSize: 12, fontWeight: 600, color: 'var(--fg-2)' }}>
+            Outstanding as of
+            <input type="date" value={asOf} onChange={e => setAsOf(e.target.value)}
+              style={{ display: 'block', marginTop: 5, padding: '8px 10px', fontSize: 13, fontFamily: 'inherit',
+                background: 'var(--bg-sunk)', border: '1px solid var(--line-strong)', borderRadius: 6, color: 'var(--fg)' }} />
+          </label>
+        </div>
+        {error && <div style={{ margin: '14px 20px 0', ...ERR }}>⚠ {error}</div>}
+        <div
+          onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handleDrop}
+          onClick={() => document.getElementById('out-file-input')?.click()}
+          style={{ margin: 20, border: `2px dashed ${dragOver ? 'var(--accent)' : 'var(--line-strong)'}`,
+            borderRadius: 10, padding: '44px 24px', textAlign: 'center',
+            background: dragOver ? 'var(--accent-soft)' : 'var(--bg-elev)', transition: 'all 200ms',
+            cursor: stage === 'validating' ? 'default' : 'pointer' }}
+        >
+          <div style={{ fontSize: 32, marginBottom: 8 }}>💰</div>
+          <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--fg-2)' }}>
+            {stage === 'validating' ? 'Validating…' : 'Drop the outstanding Excel here or click to browse'}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 6 }}>.xlsx only · matched on subledger (client) code</div>
+          <input id="out-file-input" type="file" accept=".xlsx" style={{ display: 'none' }}
+            onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f); }} />
+        </div>
+      </div>
+    );
+  }
+
+  // ── preview ──
+  if (stage === 'preview') {
+    const validCount = rows.filter(r => r.status === 'valid').length;
+    const invalid    = rows.length - validCount;
+    const total      = rows.filter(r => r.status === 'valid').reduce((s, r) => s + r.amount, 0);
+    return (
+      <div style={CARD}>
+        <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <div>
+            <span style={{ fontSize: 14, fontWeight: 600 }}>Preview · {fileName}</span>
+            <span style={{ marginLeft: 12, fontSize: 12, color: 'var(--fg-3)' }}>{rows.length} rows · as of {asOf || '—'}</span>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={reset} style={BTN_GHOST}>Cancel</button>
+            <button onClick={handleSave} disabled={validCount === 0 || !asOf}
+              style={{ ...BTN_PRIMARY, background: (validCount && asOf) ? '#0A3D8F' : 'var(--bg-sunk)', color: (validCount && asOf) ? '#fff' : 'var(--fg-3)', cursor: (validCount && asOf) ? 'pointer' : 'not-allowed' }}>
+              Replace with {validCount} row{validCount !== 1 ? 's' : ''}
+            </button>
+          </div>
+        </div>
+        <div style={{ padding: '10px 20px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <span style={CHIP_POS}>✓ {validCount} ready</span>
+          {invalid > 0 && <span style={CHIP_NEG}>✗ {invalid} unmatched (skipped)</span>}
+          <span style={CHIP_MONO}>Total: ₹{total.toLocaleString('en-IN')}</span>
+        </div>
+        <div style={{ overflowX: 'auto', maxHeight: 420, overflowY: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+              <tr>
+                <th style={{ ...TH, textAlign: 'left' }}>Status</th>
+                <th style={{ ...TH, textAlign: 'left' }}>Code</th>
+                <th style={{ ...TH, textAlign: 'left' }}>Client (DB)</th>
+                <th style={{ ...TH, textAlign: 'left' }}>Debtor</th>
+                <th style={{ ...TH, textAlign: 'right' }}>Outstanding ₹</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i} style={{ background: r.status !== 'valid' ? 'var(--neg-soft)' : 'transparent', borderBottom: '1px solid var(--line)' }}>
+                  <td style={{ padding: '8px 12px' }}>
+                    {r.status === 'valid'
+                      ? <span style={{ color: 'var(--pos-strong)', fontSize: 11, fontWeight: 600 }}>✓ Ready</span>
+                      : <span style={{ color: 'var(--neg-strong)', fontSize: 11, fontWeight: 600 }}>✗ Code not found</span>}
+                  </td>
+                  <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{r.code}</td>
+                  <td style={{ padding: '8px 12px', color: 'var(--fg-2)' }}>{r.dbClientName ?? <span style={{ color: 'var(--neg-strong)', fontStyle: 'italic', fontSize: 11 }}>{r.clientName || '—'}</span>}</td>
+                  <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)' }}>{r.debtor || '—'}</td>
+                  <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{r.amount ? r.amount.toLocaleString('en-IN') : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  if (stage === 'saving') {
+    return <div style={{ ...CARD, padding: '48px 24px', textAlign: 'center' }}>
+      <div style={{ fontSize: 28, marginBottom: 12 }}>⏳</div>
+      <div style={{ fontSize: 14, fontWeight: 500 }}>Replacing outstanding data…</div>
+    </div>;
+  }
+
+  if (stage === 'done' && result) {
+    return <div style={{ ...CARD, padding: '32px 24px', textAlign: 'center' }}>
+      <div style={{ fontSize: 36, marginBottom: 12 }}>✅</div>
+      <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>Outstanding Replaced</div>
+      <div style={{ fontSize: 13, color: 'var(--fg-3)' }}>
+        <b style={{ color: 'var(--pos-strong)' }}>{result.matched}</b> clients updated ·{' '}
+        <b style={{ color: result.skipped > 0 ? 'var(--neg-strong)' : 'var(--fg-3)' }}>{result.skipped}</b> skipped ·{' '}
+        total ₹{result.grandTotal.toLocaleString('en-IN')}
+      </div>
+      {result.skippedCodes.length > 0 && (
+        <div style={{ marginTop: 8, fontSize: 12, color: 'var(--neg-strong)' }}>Codes not found: {result.skippedCodes.slice(0, 30).join(', ')}{result.skippedCodes.length > 30 ? '…' : ''}</div>
+      )}
+      <button onClick={() => window.location.reload()} style={{ ...BTN_PRIMARY, marginTop: 20 }}>Done</button>
+    </div>;
+  }
+  return null;
+}
+
+const CARD: CSSProperties = { background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', marginBottom: 16 };
+const CARD_H: CSSProperties = { padding: '14px 20px', borderBottom: '1px solid var(--line)', fontSize: 14, fontWeight: 600, color: 'var(--fg)' };
+const WARN: CSSProperties = { padding: '10px 14px', background: 'var(--warn-soft)', border: '1px solid var(--warn)', borderRadius: 6, color: 'var(--warn)', fontSize: 12.5, lineHeight: 1.5 };
+const ERR: CSSProperties = { padding: '10px 14px', background: 'var(--neg-soft)', border: '1px solid var(--neg)', borderRadius: 6, color: 'var(--neg-strong)', fontSize: 13 };
+const BTN_PRIMARY: CSSProperties = { padding: '7px 16px', borderRadius: 6, fontFamily: 'inherit', background: '#0A3D8F', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 500 };
+const BTN_GHOST: CSSProperties = { padding: '7px 14px', borderRadius: 6, fontFamily: 'inherit', border: '1px solid var(--line-strong)', background: 'var(--bg-paper)', color: 'var(--fg-2)', cursor: 'pointer', fontSize: 13 };
+const CHIP_POS: CSSProperties = { padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500, background: 'var(--pos-soft)', color: 'var(--pos-strong)' };
+const CHIP_NEG: CSSProperties = { padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500, background: 'var(--neg-soft)', color: 'var(--neg-strong)' };
+const CHIP_MONO: CSSProperties = { padding: '4px 10px', borderRadius: 20, fontSize: 12, background: 'var(--bg-elev)', color: 'var(--fg-2)', fontFamily: 'var(--font-mono)' };

@@ -11,6 +11,7 @@ export interface UnassignedRow {
   legal_name: string;
   industry:   string | null;
   zone:       string | null;
+  status:     string | null;
   tour_id:    number | null;
   no_owner:   boolean;
   no_tour:    boolean;
@@ -34,8 +35,10 @@ export function UnassignedClient({ clients, tours, counts }: {
   // Filters
   const [search, setSearch]   = useState('');
   const [zoneF, setZoneF]     = useState('');
+  const [statusF, setStatusF] = useState('');
   const [missing, setMissing] = useState('all'); // all | noowner | notour | both
-  const zones = [...new Set(clients.map(c => c.zone).filter(Boolean) as string[])].sort();
+  const zones    = [...new Set(clients.map(c => c.zone).filter(Boolean) as string[])].sort();
+  const statuses = [...new Set(clients.map(c => c.status).filter(Boolean) as string[])].sort();
 
   const visible = clients.filter(c => {
     if (search) {
@@ -43,6 +46,7 @@ export function UnassignedClient({ clients, tours, counts }: {
       if (!c.legal_name.toLowerCase().includes(qq) && !c.code.toLowerCase().includes(qq)) return false;
     }
     if (zoneF && c.zone !== zoneF) return false;
+    if (statusF && c.status !== statusF) return false;
     if (missing === 'noowner' && !c.no_owner) return false;
     if (missing === 'notour'  && !c.no_tour) return false;
     if (missing === 'both'    && !(c.no_owner && c.no_tour)) return false;
@@ -99,6 +103,10 @@ export function UnassignedClient({ clients, tours, counts }: {
           <option value="">All zones</option>
           {zones.map(z => <option key={z} value={z}>{z}</option>)}
         </select>
+        <select value={statusF} onChange={e => setStatusF(e.target.value)} style={SEL}>
+          <option value="">All statuses</option>
+          {statuses.map(s => <option key={s} value={s}>{s === 'PROSPECTIVE' ? 'Prospective (leads)' : s.charAt(0) + s.slice(1).toLowerCase()}</option>)}
+        </select>
         <select value={missing} onChange={e => setMissing(e.target.value)} style={SEL}>
           <option value="all">Missing: any</option>
           <option value="noowner">Missing rep</option>
@@ -140,12 +148,12 @@ export function UnassignedClient({ clients, tours, counts }: {
                 <th style={{ ...TH, width: 36 }}>
                   <input type="checkbox" checked={allSelected} onChange={toggleAll} style={{ accentColor: '#1A5CB8' }} />
                 </th>
-                {['Code', 'Client', 'Industry', 'Zone', 'Missing'].map(h => <th key={h} style={TH}>{h}</th>)}
+                {['Code', 'Client', 'Status', 'Industry', 'Zone', 'Missing'].map(h => <th key={h} style={TH}>{h}</th>)}
               </tr>
             </thead>
             <tbody>
               {visible.length === 0 ? (
-                <tr><td colSpan={6} style={{ padding: '40px 0', textAlign: 'center', color: 'var(--fg-3)' }}>
+                <tr><td colSpan={7} style={{ padding: '40px 0', textAlign: 'center', color: 'var(--fg-3)' }}>
                   {clients.length === 0 ? 'All clients have an owner and a tour. 🎉' : 'No clients match the current filters.'}
                 </td></tr>
               ) : visible.map((c, i) => (
@@ -155,6 +163,9 @@ export function UnassignedClient({ clients, tours, counts }: {
                   </td>
                   <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>{c.code}</td>
                   <td style={{ ...TD, fontWeight: 500, color: 'var(--fg)' }}>{c.legal_name}</td>
+                  <td style={TD}>{c.status
+                    ? <Tag kind={c.status === 'PROSPECTIVE' ? 'accent' : c.status === 'ACTIVE' ? 'pos' : c.status === 'CLOSED' ? 'neg' : 'warn'}>{c.status}</Tag>
+                    : '—'}</td>
                   <td style={TD}>{c.industry ? <Tag>{c.industry}</Tag> : '—'}</td>
                   <td style={TD}>{c.zone ?? '—'}</td>
                   <td style={{ ...TD, whiteSpace: 'nowrap' }}>

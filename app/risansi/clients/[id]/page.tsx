@@ -59,6 +59,8 @@ interface Client {
   expected_to_pump:       number | null;
   expected_to_spare:      number | null;
   total_outstanding:      number | null;
+  outstanding_as_of:      string | null;
+  outstanding_owner_name: string | null;
   weightage_score:        number | null;
   competitors_observed:   string | null;
   ice_dispersal_by:       string | null;
@@ -175,7 +177,8 @@ export default async function ClientProfilePage({
                 WHERE ta.tour_id = c.tour_id
                 ORDER BY (ta.role = 'rep') DESC, ta.assigned_at, ta.rep_id LIMIT 1) AS primary_rep_id,
               tr.name AS tour_name,
-              tr.zone AS tour_zone
+              tr.zone AS tour_zone,
+              (SELECT name FROM users WHERE id = c.outstanding_owner_id) AS outstanding_owner_name
        FROM clients c
        LEFT JOIN tour_routes tr ON tr.id = c.tour_id
        WHERE ${whereClause} AND c.deleted_at IS NULL`,
@@ -586,7 +589,7 @@ export default async function ClientProfilePage({
         <MobileTabs>
 
         {/* ── KPI cards ────────────────────────────────────────── */}
-        <div data-tabgroup="overview" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+        <div data-tabgroup="overview" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 16 }}>
           <MiniKpi label="Lifetime Revenue"
             value={formatRev(lifetimeTotal * 100_000)}
             sub={`${client.since_year ?? '—'} – present · ${lifetimeOrders} orders`} />
@@ -603,6 +606,12 @@ export default async function ClientProfilePage({
           <MiniKpi label="Open Pipeline"
             value={fmtCr(pipelineTotal)}
             sub={openOpps.length > 0 ? `${openOpps.length} opportunit${openOpps.length === 1 ? 'y' : 'ies'}` : 'No open opportunities'} />
+          <MiniKpi label="Outstanding"
+            value={client.total_outstanding != null ? formatRev(Number(client.total_outstanding)) : '—'}
+            valueColor={client.total_outstanding ? 'var(--neg)' : undefined}
+            sub={client.total_outstanding != null
+              ? `as of ${client.outstanding_as_of ? new Date(client.outstanding_as_of).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}${client.outstanding_owner_name ? ' · ' + client.outstanding_owner_name : ''}`
+              : 'None on record'} />
         </div>
 
         {/* ── Main 2-col layout ────────────────────────────────── */}
