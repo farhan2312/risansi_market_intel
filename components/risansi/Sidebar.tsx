@@ -57,6 +57,7 @@ const SALES_NAV: NavItem[] = [
 const ADMIN_NAV: NavItem[] = [
   { id: 'clients-admin', href: '/risansi/admin/clients', label: 'Client Master',  Icon: IcList },
   { id: 'revenue-admin', href: '/risansi/admin/revenue', label: 'Revenue Upload', Icon: IcBag },
+  { id: 'outstanding-admin', href: '/risansi/admin/outstanding', label: 'Outstanding Upload', Icon: IcBag },
   { id: 'pumps-admin',   href: '/risansi/admin/pumps',   label: 'Pump Ingestion', Icon: IcPump },
 ];
 
@@ -81,6 +82,7 @@ const PATH_TO_ID: [string, string][] = [
   ['/risansi/admin/settings',   'settings-admin'],
   ['/risansi/admin/clients',    'clients-admin'],
   ['/risansi/admin/revenue',    'revenue-admin'],
+  ['/risansi/admin/outstanding', 'outstanding-admin'],
   ['/risansi/admin/pumps',      'pumps-admin'],
   ['/risansi/admin/reps',       'reps-admin'],
   ['/risansi/compete',          'compete'],
