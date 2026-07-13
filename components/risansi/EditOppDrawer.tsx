@@ -32,6 +32,9 @@ export interface EditableOpp {
   lost_reason?: string | null;
 }
 
+interface QItem { id: number; pump_model: string | null; pump_qty: number | null; pump_speed: string | null; geared_motor_detail: string | null; motor_price: number | null; gearbox_vbelt_price: number | null; offer_value_inr: number | null; offer_value_usd: number | null; detailed_specifications: string | null; }
+interface QMeta { market?: string | null; ril_rep?: string | null; qtn_prepared_by?: string | null; client_status_at_quote?: string | null; unit_project?: string | null; location?: string | null; qtr?: string | null; probability_code?: string | null; enquiry_no?: string | null; enquiry_date?: string | null; revised_offer_date?: string | null; revised_offer_value_inr?: number | null; quotation_link?: string | null; }
+
 const STAGE_COLORS: Record<string, string> = {
   Suspect:     '#6B7FA3',
   Prospect:    '#1A5CB8',
@@ -51,6 +54,8 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
   const [reps, setReps]       = useState<Rep[]>([]);
   const [primaryRepId, setPrimaryRepId]     = useState<string>(opp.rep_id != null ? String(opp.rep_id) : '');
   const [secondaryRepId, setSecondaryRepId] = useState<string>(opp.secondary_rep_id != null ? String(opp.secondary_rep_id) : '');
+  const [quoteItems, setQuoteItems] = useState<QItem[]>([]);
+  const [quoteMeta, setQuoteMeta]   = useState<QMeta | null>(null);
   const repsLoaded = useRef(false);
 
   useEffect(() => {
@@ -62,6 +67,16 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
       .catch(() => setReps([]));
     // Don't touch primaryRepId/secondaryRepId — they're already seeded from opp.
   }, []);
+
+  // Load the quoted items + quote-level attributes for the read view.
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/risansi/opportunities/${opp.id}/items`)
+      .then(r => (r.ok ? r.json() : { items: [], meta: null }))
+      .then(d => { if (active) { setQuoteItems(d.items ?? []); setQuoteMeta(d.meta ?? null); } })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [opp.id]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -190,6 +205,7 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
             <ReadOnlyRow label="Quote Ref" value={opp.quote_ref ?? '—'} />
             <ReadOnlyRow label="Rep" value={opp.rep_name ?? '—'} />
             <ReadOnlyRow label="Notes" value={opp.notes ?? '—'} />
+            <QuotedItemsSection items={quoteItems} meta={quoteMeta} />
           </div>
         ) : (
         /* Editable form */
@@ -332,6 +348,8 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
               <textarea name="notes" rows={3} defaultValue={opp.notes ?? ''} style={{ ...INPUT_STYLE, resize: 'vertical' }} />
             </div>
 
+            <QuotedItemsSection items={quoteItems} meta={quoteMeta} />
+
             {error && (
               <div style={{ padding: '8px 12px', background: '#FDE8E8', border: '1px solid #F87171', borderLeft: '3px solid #E02424', borderRadius: 5, color: '#9B1C1C', fontSize: 12 }}>
                 {error}
@@ -368,6 +386,60 @@ function ReadOnlyRow({ label, value }: { label: string; value: string }) {
       }}>
         {value || '—'}
       </div>
+    </div>
+  );
+}
+
+function QuotedItemsSection({ items, meta }: { items: QItem[]; meta: QMeta | null }) {
+  const inr = (v: number | null | undefined) => v != null ? '₹' + Math.round(v).toLocaleString('en-IN') : null;
+  const facts: [string, string][] = [];
+  if (meta) {
+    const add = (l: string, v: unknown) => { const s = v == null ? '' : String(v).trim(); if (s && s !== '—') facts.push([l, s]); };
+    add('Market', meta.market); add('Quarter', meta.qtr); add('RIL Rep', meta.ril_rep);
+    add('Prepared By', meta.qtn_prepared_by); add('Client Status', meta.client_status_at_quote);
+    add('Enquiry No', meta.enquiry_no); add('Enquiry Date', meta.enquiry_date);
+    add('Unit / Project', meta.unit_project); add('Location', meta.location);
+    add('Probability', meta.probability_code); add('Revised Offer Date', meta.revised_offer_date);
+    const rev = inr(meta.revised_offer_value_inr); if (rev) add('Revised Offer', rev);
+  }
+  if (!items.length && !facts.length) return null;
+  return (
+    <div style={{ marginTop: 4, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+      <div style={{ ...LABEL_STYLE, marginBottom: 8 }}>Quotation Details</div>
+      {facts.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px 12px', marginBottom: items.length ? 12 : 0 }}>
+          {facts.map(([l, v]) => (
+            <div key={l}>
+              <div style={{ fontSize: 9.5, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>{l}</div>
+              <div style={{ fontSize: 12.5, color: 'var(--fg)', marginTop: 1 }}>{v}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      {meta?.quotation_link && <a href={meta.quotation_link} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: '#1A5CB8', textDecoration: 'none' }}>Open quotation ↗</a>}
+      {items.length > 0 && (
+        <>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--fg-3)', margin: '12px 0 6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Quoted Items ({items.length})</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {items.map(it => (
+              <div key={it.id} style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '9px 11px', background: 'var(--bg-elev)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, fontWeight: 600, color: 'var(--fg)', overflowWrap: 'anywhere' }}>{it.pump_model || '—'}</span>
+                  {inr(it.offer_value_inr) && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: '#0A3D8F', flexShrink: 0 }}>{inr(it.offer_value_inr)}</span>}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 3, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  {it.pump_qty != null && <span>Qty {it.pump_qty}</span>}
+                  {it.pump_speed && <span>{it.pump_speed}</span>}
+                  {inr(it.motor_price) && <span>Motor {inr(it.motor_price)}</span>}
+                  {inr(it.gearbox_vbelt_price) && <span>GB/V-belt {inr(it.gearbox_vbelt_price)}</span>}
+                </div>
+                {it.geared_motor_detail && <div style={{ fontSize: 11, color: 'var(--fg-2)', marginTop: 4, whiteSpace: 'pre-wrap' }}>{it.geared_motor_detail}</div>}
+                {it.detailed_specifications && <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 4, whiteSpace: 'pre-wrap' }}>{it.detailed_specifications}</div>}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
