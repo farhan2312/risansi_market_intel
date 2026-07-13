@@ -343,6 +343,12 @@ export function ClientFormDrawer({ mode, client, existingContacts, onClose }: Pr
                 style={{ width: 15, height: 15, accentColor: 'var(--brand-blue)', cursor: 'pointer' }} />
               <span style={{ fontSize: 13, color: 'var(--fg-2)' }}>Tender account</span>
             </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer' }}>
+              <input type="checkbox" name="is_end_client" value="true"
+                defaultChecked={Boolean((client as { is_end_client?: boolean } | null)?.is_end_client)}
+                style={{ width: 15, height: 15, accentColor: 'var(--brand-blue)', cursor: 'pointer' }} />
+              <span style={{ fontSize: 13, color: 'var(--fg-2)' }}>End Client <span style={{ color: 'var(--fg-3)', fontWeight: 400 }}>— supplied indirectly (OEM/trader)</span></span>
+            </label>
             <Field label="Capacity Bracket">
               <select name="capacity_bracket" style={INP} defaultValue={client?.capacity_bracket ?? ''}>
                 <option value="">—</option>

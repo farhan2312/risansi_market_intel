@@ -362,6 +362,7 @@ export async function updateClient(clientId: number, formData: FormData): Promis
        tier               = $18,
        since_year         = $19,
        tour_id            = $20,
+       is_end_client      = $23,
        updated_by         = $21,
        updated_at         = NOW()
      WHERE id = $22`,
@@ -388,6 +389,7 @@ export async function updateClient(clientId: number, formData: FormData): Promis
       formData.get('tour_id') ? parseInt(formData.get('tour_id') as string, 10) : null,
       email,
       clientId,
+      formData.get('is_end_client') === 'true',
     ],
   );
 
@@ -421,6 +423,20 @@ export async function updateClient(clientId: number, formData: FormData): Promis
 }
 
 // ── Client: plan visit ─────────────────────────────────────────
+
+// Tag/untag clients as "End Client" (supplied indirectly via OEM/trader). Takes
+// an array so it serves both the per-row toggle and any future bulk action.
+export async function setEndClient(clientIds: number[], value: boolean): Promise<void> {
+  const session = await getServerSession(authOptions);
+  if (!hasRole(session?.user?.role, 'admin')) throw new Error('Unauthorized');
+  const ids = (clientIds ?? []).filter(n => Number.isInteger(n));
+  if (!ids.length) return;
+  await risansiPool.query(
+    `UPDATE clients SET is_end_client = $1, updated_at = NOW() WHERE id = ANY($2::int[]) AND deleted_at IS NULL`,
+    [value, ids],
+  );
+  revalidatePath('/risansi/admin/clients');
+}
 
 export async function planVisit(clientId: string, formData: FormData) {
   const user = await requireSession();
@@ -1287,11 +1303,11 @@ export async function addClient(formData: FormData): Promise<void> {
        market_type, industry, is_sugar, client_type,
        is_tender, capacity_bracket, tcd, klpd,
        status, tier, since_year, tour_id,
-       created_by, created_at, updated_at
+       created_by, created_at, updated_at, is_end_client
      ) VALUES (
        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
        $11,$12,$13,$14,$15,$16,$17,$18,$19,
-       $20,$21,$22,NOW(),NOW()
+       $20,$21,$22,NOW(),NOW(),$23
      ) RETURNING id`,
     [
       code,
@@ -1316,6 +1332,7 @@ export async function addClient(formData: FormData): Promise<void> {
       (formData.get('since_year')        as string | null)?.trim() || null,
       formData.get('tour_id') ? parseInt(formData.get('tour_id') as string, 10) : null,
       email,
+      formData.get('is_end_client') === 'true',
     ],
   );
 

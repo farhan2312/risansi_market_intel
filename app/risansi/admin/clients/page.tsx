@@ -2,6 +2,7 @@ import type { CSSProperties } from 'react';
 import Link from 'next/link';
 import { Topbar, Tag, StatusDot, MultiSelectFilter, ActiveFilterBar, SortableTH } from '@/components/risansi';
 import { AddClientButton } from '@/components/risansi/ClientFormDrawer';
+import { EndClientToggle } from '@/components/risansi/EndClientToggle';
 import risansiPool from '@/lib/db-risansi';
 import { formatLastVisitShort } from '@/lib/risansi-utils';
 import { getCurrentUser, clientVisibilitySql } from '@/lib/risansi-auth';
@@ -116,6 +117,7 @@ export default async function ClientMasterPage({
     tour_name:       string | null;
     tour_zone:       string | null;
     rep_name:        string | null;
+    is_end_client:   boolean;
   }
 
   interface RepOption { rep_name: string; client_count: number; }
@@ -129,7 +131,7 @@ export default async function ClientMasterPage({
           `SELECT
              c.id, c.code, c.legal_name, c.trade_name,
              c.industry, c.is_sugar, c.state, c.city,
-             c.status, c.tier,
+             c.status, c.tier, c.is_end_client,
              c.last_visit_date,
              c.zone,
              tr.name AS tour_name,
@@ -342,6 +344,7 @@ export default async function ClientMasterPage({
                     <SortableTH col="last_visit" label="Last Visit"   currentSort={curSort} currentDir={curDir} />
                     <SortableTH col="status"     label="Status"       currentSort={curSort} currentDir={curDir} />
                     <SortableTH col="tier"       label="Tier"         currentSort={curSort} currentDir={curDir} />
+                    <th style={{ padding: '9px 12px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>End Client</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -409,6 +412,11 @@ export default async function ClientMasterPage({
                         {/* Tier */}
                         <td style={TD}>
                           {c.tier ? <Tag kind={tierKind(c.tier)}>{c.tier}</Tag> : null}
+                        </td>
+
+                        {/* End Client */}
+                        <td style={{ ...TD, textAlign: 'center' }}>
+                          <EndClientToggle clientId={c.id} value={c.is_end_client} />
                         </td>
 
                       </tr>
