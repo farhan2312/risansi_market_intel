@@ -55,6 +55,7 @@ const SALES_NAV: NavItem[] = [
 
 // GROUP 2 — Admin (admin / sysadmin only)
 const ADMIN_NAV: NavItem[] = [
+  { id: 'exec-review',   href: '/risansi/executive-review', label: 'Executive Review', Icon: IcDash },
   { id: 'clients-admin', href: '/risansi/admin/clients', label: 'Client Master',  Icon: IcList },
   { id: 'revenue-admin', href: '/risansi/admin/revenue', label: 'Revenue Upload', Icon: IcBag },
   { id: 'outstanding-admin', href: '/risansi/admin/outstanding', label: 'Outstanding Upload', Icon: IcBag },
@@ -80,6 +81,7 @@ const PATH_TO_ID: [string, string][] = [
   ['/risansi/admin/unassigned', 'unassigned-admin'],
   ['/risansi/admin/audit',      'audit-admin'],
   ['/risansi/admin/settings',   'settings-admin'],
+  ['/risansi/executive-review', 'exec-review'],
   ['/risansi/admin/clients',    'clients-admin'],
   ['/risansi/admin/revenue',    'revenue-admin'],
   ['/risansi/admin/outstanding', 'outstanding-admin'],

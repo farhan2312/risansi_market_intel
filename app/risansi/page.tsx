@@ -6,7 +6,7 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, Sparkline, MiniBars, Donut, Tag } from '@/components/risansi';
 import { ExportPdfButton } from '@/components/risansi/ExportPdfButton';
 import { RefreshButton } from '@/components/risansi/RefreshButton';
-import { ExecutiveViews } from '@/components/risansi/ExecutiveViews';
+import Link from 'next/link';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, clientVisibilitySql, clientScopeSql, hasRole } from '@/lib/risansi-auth';
 import {
@@ -1109,8 +1109,13 @@ export default async function ExecDashboardPage() {
 
         </div>
 
-        {/* ── Executive Views — monthly TSM review dashboards ── */}
-        <ExecutiveViews />
+        {/* ── Executive Review — link to the per-TSM review dashboards ── */}
+        <Link href="/risansi/executive-review" style={{ display: 'block', marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--line)', textDecoration: 'none' }}>
+          <div style={{ ...KPI_PANEL, padding: '16px 18px' }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--title)' }}>Executive Review →</div>
+            <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>Per-TSM monthly review — clients, turnover, quotations, offer status, leads &amp; attendance.</div>
+          </div>
+        </Link>
       </div>
     </div>
   );
