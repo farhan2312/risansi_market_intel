@@ -682,24 +682,58 @@ export async function saveQuotedDetails(oppId: number, formData: FormData) {
   const s = (k: string) => { const v = (formData.get(k) as string | null)?.trim(); return v ? v : null; };
   const n = (k: string) => { const v = formData.get(k) as string | null; const f = v ? parseFloat(v) : NaN; return Number.isFinite(f) ? f : null; };
   const i = (k: string) => { const v = formData.get(k) as string | null; const p = v ? parseInt(v, 10) : NaN; return Number.isFinite(p) ? p : null; };
+  // Item helpers (values arrive inside items_json).
+  const iStr = (v: unknown) => { const t = String(v ?? '').trim(); return t ? t : null; };
+  const iNum = (v: unknown) => { const f = parseFloat(String(v ?? '').replace(/[^0-9.\-]/g, '')); return Number.isFinite(f) ? f : null; };
+  const iInt = (v: unknown) => { const p = parseInt(String(v ?? '').replace(/[^0-9\-]/g, ''), 10); return Number.isFinite(p) ? p : null; };
 
-  const offerInr = n('offer_value_inr');
+  interface ItemInput { pump_model?: unknown; pump_qty?: unknown; pump_speed?: unknown; geared_motor_detail?: unknown; motor_price?: unknown; gearbox_vbelt_price?: unknown; offer_value_inr?: unknown; offer_value_usd?: unknown; detailed_specifications?: unknown; }
+  let items: ItemInput[] = [];
+  try { const parsed = JSON.parse((formData.get('items_json') as string) || '[]'); if (Array.isArray(parsed)) items = parsed; } catch { /* ignore */ }
+  items = items.filter(it => iStr(it.pump_model) || iNum(it.offer_value_inr) != null || iInt(it.pump_qty) != null || iStr(it.detailed_specifications));
+
+  const itemsSum = items.reduce((a, it) => a + (iNum(it.offer_value_inr) ?? 0), 0);
+  const offerInr = n('offer_value_inr') ?? (itemsSum || null);
   const valueCr  = offerInr != null ? offerInr / 10_000_000 : null;
+  const first    = items[0] ?? {};
 
   await risansiPool.query(
     `UPDATE opportunities SET
        stage = 'Quoted',
-       quote_ref = $1, quote_date = $2, enquiry_no = $3, quotation_link = $4,
-       offer_value_inr = $5, offer_value_usd = $6, pump_model = $7, pump_qty = $8,
-       product_type    = COALESCE($9, product_type),
-       value_cr        = COALESCE($10, value_cr),
-       notes           = COALESCE($11, notes),
+       quote_ref = $1, quote_date = $2, enquiry_no = $3, enquiry_date = $4,
+       revised_offer_date = $5, quotation_link = $6,
+       offer_value_inr = $7, offer_value_usd = $8,
+       revised_offer_value_inr = $9, revised_offer_value_usd = $10,
+       market = $11, ril_rep = $12, qtn_prepared_by = $13, client_status_at_quote = $14,
+       unit_project = $15, location = $16, qtr = $17, probability_code = $18,
+       product_type    = COALESCE($19, product_type),
+       value_cr        = COALESCE($20, value_cr),
+       notes           = COALESCE($21, notes),
+       pump_model = $22, pump_qty = $23,
        updated_at = NOW()
-     WHERE id = $12`,
-    [s('quote_ref'), s('quote_date'), s('enquiry_no'), s('quotation_link'),
-     offerInr, n('offer_value_usd'), s('pump_model'), i('pump_qty'),
-     s('product_type'), valueCr, s('notes'), oppId],
+     WHERE id = $24`,
+    [s('quote_ref'), s('quote_date'), s('enquiry_no'), s('enquiry_date'),
+     s('revised_offer_date'), s('quotation_link'),
+     offerInr, n('offer_value_usd'), n('revised_offer_value_inr'), n('revised_offer_value_usd'),
+     s('market'), s('ril_rep'), s('qtn_prepared_by'), s('client_status_at_quote'),
+     s('unit_project'), s('location'), s('qtr'), s('probability_code'),
+     s('product_type'), valueCr, s('notes'),
+     iStr(first.pump_model) ?? s('pump_model'), iInt(first.pump_qty) ?? i('pump_qty'), oppId],
   );
+
+  // Replace the opportunity's quoted items.
+  await risansiPool.query('DELETE FROM opportunity_items WHERE opportunity_id = $1', [oppId]);
+  let so = 0;
+  for (const it of items) {
+    await risansiPool.query(
+      `INSERT INTO opportunity_items (opportunity_id, sort_order, pump_model, pump_qty, pump_speed,
+         geared_motor_detail, motor_price, gearbox_vbelt_price, offer_value_inr, offer_value_usd, detailed_specifications)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [oppId, so++, iStr(it.pump_model), iInt(it.pump_qty), iStr(it.pump_speed),
+       iStr(it.geared_motor_detail), iNum(it.motor_price), iNum(it.gearbox_vbelt_price),
+       iNum(it.offer_value_inr), iNum(it.offer_value_usd), iStr(it.detailed_specifications)],
+    );
+  }
 
   try {
     await risansiPool.query(
