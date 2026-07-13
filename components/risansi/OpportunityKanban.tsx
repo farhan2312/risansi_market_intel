@@ -15,13 +15,14 @@ export interface KanbanOpp extends EditableOpp {
   can_edit?:  boolean;
 }
 
-const STAGES = ['Suspect', 'Prospect', 'Quoted', 'Negotiating', 'Won', 'Lost', 'Dropped'] as const;
+const STAGES = ['Suspect', 'Prospect', 'Quoted', 'Negotiating', 'On Hold', 'Won', 'Lost', 'Dropped'] as const;
 
 const STAGE_COLOR: Record<string, string> = {
   Suspect:     'var(--info)',
   Prospect:    '#5a86c2',
   Quoted:      '#c69347',
   Negotiating: 'var(--accent)',
+  'On Hold':   '#7C3AED',
   Won:         'var(--pos)',
   Lost:        'var(--neg)',
   Dropped:     '#64748B',
@@ -66,7 +67,7 @@ export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] })
 
     // Gate: Quoted is a mandatory gateway — a card can't skip to Negotiating / Won /
     // Lost without being Quoted first (so it can never jump straight to Won/Lost).
-    if (['Negotiating', 'Won', 'Lost'].includes(newStage) && !['Quoted', 'Negotiating'].includes(current.stage)) {
+    if (['Negotiating', 'On Hold', 'Won', 'Lost'].includes(newStage) && !['Quoted', 'Negotiating', 'On Hold'].includes(current.stage)) {
       setNotice('Move this card through Quoted first.');
       setTimeout(() => setNotice(''), 4000);
       return;
@@ -155,7 +156,7 @@ export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] })
         </span>
       </div>
 
-      <div className="r-kanban" style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 10 }}>
+      <div className="r-kanban" style={{ display: 'grid', gridTemplateColumns: 'repeat(8, minmax(0, 1fr))', gap: 10 }}>
         {STAGES.map(stage => {
           const items = byStage[stage] ?? [];
           const q = (colSearch[stage] ?? '').trim().toLowerCase();
