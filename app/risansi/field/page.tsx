@@ -8,6 +8,7 @@ import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, clientVisibilitySql, clientScopeSql } from '@/lib/risansi-auth';
 import { parseVisitFilters, getVisitFilterOptions, getScopedRepNames } from '@/lib/risansi-visit-filters';
 import { FieldFilterBar } from '@/components/risansi/FieldFilterBar';
+import { PlannedVisitsExport } from '@/components/risansi/PlannedVisitsExport';
 import { IndiaMapWrapper } from '@/components/risansi/IndiaMapWrapper';
 import { ClientCoverageList } from '@/components/risansi/ClientCoverageList';
 import { WeekNav } from '@/components/risansi/WeekNav';
@@ -573,13 +574,16 @@ export default async function FieldActivityPage({
       <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>
 
         {/* Page header */}
-        <div style={{ marginBottom: 18 }}>
-          <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
-            Field Activity
+        <div style={{ marginBottom: 18, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
+              Field Activity
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>
+              {isRep ? 'Your visits and clients' : 'All reps · visits and coverage'}
+            </div>
           </div>
-          <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>
-            {isRep ? 'Your visits and clients' : 'All reps · visits and coverage'}
-          </div>
+          <PlannedVisitsExport reps={calendarReps} />
         </div>
 
         {/* Stats strip */}
