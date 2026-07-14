@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type CSSProperties } from 'react';
+import { useRef, useState, type CSSProperties } from 'react';
 import { saveQuotedDetails } from '@/app/actions/risansi';
 
 // Shown when a card is dragged into the Quoted column — captures the full
@@ -29,6 +29,18 @@ const QUOTED = '#c69347';
 type ItemRow = { pump_model: string; pump_qty: string; pump_speed: string; geared_motor_detail: string; motor_price: string; gearbox_vbelt_price: string; offer_value_inr: string; offer_value_usd: string; detailed_specifications: string };
 const blankItem = (): ItemRow => ({ pump_model: '', pump_qty: '', pump_speed: '', geared_motor_detail: '', motor_price: '', gearbox_vbelt_price: '', offer_value_inr: '', offer_value_usd: '', detailed_specifications: '' });
 const str = (v: unknown) => (v == null ? '' : String(v));
+const mapItem = (it: Partial<QuotedItem>): ItemRow => ({
+  pump_model: str(it.pump_model), pump_qty: str(it.pump_qty), pump_speed: str(it.pump_speed),
+  geared_motor_detail: str(it.geared_motor_detail), motor_price: str(it.motor_price),
+  gearbox_vbelt_price: str(it.gearbox_vbelt_price), offer_value_inr: str(it.offer_value_inr),
+  offer_value_usd: str(it.offer_value_usd), detailed_specifications: str(it.detailed_specifications),
+});
+
+interface ParsedQuoteResponse {
+  ok?: boolean; error?: string; link?: string; fileName?: string;
+  meta?: Record<string, string | number | null>;
+  items?: Partial<QuotedItem>[];
+}
 
 export function QuotedDetailsModal({ opp, onSave, onCancel }: { opp: QuotedOpp; onSave: () => void; onCancel: () => void }) {
   const [loading, setLoading] = useState(false);
@@ -53,6 +65,64 @@ export function QuotedDetailsModal({ opp, onSave, onCancel }: { opp: QuotedOpp; 
 
   const offerInrDefault = opp.offer_value_inr != null ? String(opp.offer_value_inr) : (opp.value_cr != null ? String(Math.round(opp.value_cr * 10_000_000)) : '');
 
+  // ── Upload PDF + auto-fill (blanks only) ─────────────────────
+  const formRef = useRef<HTMLFormElement>(null);
+  const [link, setLink]           = useState(str(opp.quotation_link));
+  const [fileName, setFileName]   = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState('');
+  const [uploadErr, setUploadErr] = useState(false);
+
+  // The default values we rendered. A field still equal to its default (or empty)
+  // counts as "not typed by the user", so it is safe to auto-fill; anything the
+  // user has changed is left untouched.
+  const initial: Record<string, string> = {
+    quote_ref: str(opp.quote_ref), quote_date: str(opp.quote_date), enquiry_no: str(opp.enquiry_no),
+    enquiry_date: str(opp.enquiry_date), qtr: str(opp.qtr), product_type: opp.product_type ?? 'PCP',
+    market: str(opp.market), ril_rep: str(opp.ril_rep),
+    offer_value_inr: offerInrDefault, offer_value_usd: opp.offer_value_usd != null ? String(opp.offer_value_usd) : '',
+  };
+  const fillEmpty = (name: string, val: unknown): boolean => {
+    if (val == null || val === '') return false;
+    const el = formRef.current?.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null;
+    if (!el) return false;
+    if (el.value === '' || el.value === (initial[name] ?? '')) { el.value = String(val); return true; }
+    return false;
+  };
+  const itemsAllBlank = (rows: ItemRow[]) => rows.every(r =>
+    !r.pump_model && !r.pump_qty && !r.pump_speed && !r.geared_motor_detail &&
+    !r.motor_price && !r.gearbox_vbelt_price && !r.offer_value_inr && !r.offer_value_usd && !r.detailed_specifications);
+
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = ''; // let the user re-pick the same file
+    if (!f) return;
+    setUploading(true); setUploadMsg(''); setUploadErr(false);
+    try {
+      const fd = new FormData(); fd.append('file', f);
+      const res  = await fetch(`/api/risansi/opportunities/${opp.id}/quotation`, { method: 'POST', body: fd });
+      const data = (await res.json()) as ParsedQuoteResponse;
+      if (!res.ok) throw new Error(data?.error || 'Upload failed');
+      setLink(data.link || ''); setFileName(data.fileName || f.name);
+
+      const meta = data.meta || {};
+      const keys = ['quote_ref', 'quote_date', 'enquiry_no', 'enquiry_date', 'qtr', 'product_type', 'market', 'ril_rep', 'offer_value_inr', 'offer_value_usd'];
+      let filled = 0;
+      for (const k of keys) if (fillEmpty(k, meta[k])) filled++;
+
+      const pItems = Array.isArray(data.items) ? data.items : [];
+      let filledItems = 0;
+      setItems(cur => {
+        if (pItems.length && itemsAllBlank(cur)) { filledItems = pItems.length; return pItems.map(mapItem); }
+        return cur;
+      });
+      setUploadMsg(`Saved “${data.fileName || f.name}”. Auto-filled ${filled} blank field${filled === 1 ? '' : 's'}${filledItems ? ` + ${filledItems} item${filledItems === 1 ? '' : 's'}` : ''} — review before saving.`);
+    } catch (err) {
+      setUploadErr(true);
+      setUploadMsg(err instanceof Error ? err.message : 'Upload failed');
+    } finally { setUploading(false); }
+  };
+
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 400, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div className="risansi-modal" style={{ width: 720, maxHeight: '92vh', overflowY: 'auto', background: 'var(--bg-paper)', color: 'var(--fg)', borderRadius: 12, boxShadow: '0 24px 64px rgba(0,0,0,0.35)' }}>
@@ -67,7 +137,7 @@ export function QuotedDetailsModal({ opp, onSave, onCancel }: { opp: QuotedOpp; 
           <div style={{ marginTop: 8, fontSize: 11, opacity: 0.8, fontStyle: 'italic' }}>Press × to cancel and move the card back</div>
         </div>
 
-        <form onSubmit={submit}>
+        <form onSubmit={submit} ref={formRef}>
           <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
             {/* Quote-level attributes */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
@@ -85,7 +155,19 @@ export function QuotedDetailsModal({ opp, onSave, onCancel }: { opp: QuotedOpp; 
               <Field label="Probability Code"><input name="probability_code" defaultValue={opp.probability_code ?? ''} style={INP} /></Field>
               <Field label="Unit / Project"><input name="unit_project" defaultValue={opp.unit_project ?? ''} style={INP} /></Field>
               <Field label="Location"><input name="location" defaultValue={opp.location ?? ''} style={INP} /></Field>
-              <Field label="Quotation Link"><input name="quotation_link" type="url" defaultValue={opp.quotation_link ?? ''} placeholder="https://…" style={INP} /></Field>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={LABEL}>Quotation PDF</label>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <label style={{ ...UPLOAD_BTN, opacity: uploading ? 0.6 : 1, cursor: uploading ? 'wait' : 'pointer' }}>
+                    {uploading ? 'Reading…' : (link ? '⤒ Replace PDF' : '⤒ Upload PDF')}
+                    <input type="file" accept="application/pdf,.pdf" onChange={onFile} disabled={uploading} style={{ display: 'none' }} />
+                  </label>
+                  {link && <a href={link} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--title)', textDecoration: 'underline' }}>View{fileName ? ` · ${fileName}` : ''}</a>}
+                  {uploadMsg && <span style={{ fontSize: 11, color: uploadErr ? 'var(--neg-strong)' : 'var(--fg-3)' }}>{uploadMsg}</span>}
+                </div>
+                <input type="hidden" name="quotation_link" value={link} />
+                <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 5 }}>Upload the quote PDF to store it and auto-fill any blank fields below. It never overwrites what you&apos;ve already typed.</div>
+              </div>
               <Field label="Total Offer (₹)"><input name="offer_value_inr" type="number" step="0.01" min="0" defaultValue={offerInrDefault} placeholder="auto-sums items if blank" style={INP} /></Field>
               <Field label="Total Offer (USD)"><input name="offer_value_usd" type="number" step="0.01" min="0" defaultValue={opp.offer_value_usd != null ? String(opp.offer_value_usd) : ''} style={INP} /></Field>
               <Field label="Revised Offer (₹)"><input name="revised_offer_value_inr" type="number" step="0.01" min="0" defaultValue={opp.revised_offer_value_inr != null ? String(opp.revised_offer_value_inr) : ''} style={INP} /></Field>
@@ -112,6 +194,7 @@ export function QuotedDetailsModal({ opp, onSave, onCancel }: { opp: QuotedOpp; 
                       <ItemField label="Motor Price (₹)"><input value={it.motor_price} onChange={e => setItem(idx, 'motor_price', e.target.value)} style={INP} /></ItemField>
                       <ItemField label="Gearbox / V-Belt (₹)"><input value={it.gearbox_vbelt_price} onChange={e => setItem(idx, 'gearbox_vbelt_price', e.target.value)} style={INP} /></ItemField>
                       <ItemField label="Item Offer (₹)"><input value={it.offer_value_inr} onChange={e => setItem(idx, 'offer_value_inr', e.target.value)} style={INP} /></ItemField>
+                      <ItemField label="Item Offer ($)"><input value={it.offer_value_usd} onChange={e => setItem(idx, 'offer_value_usd', e.target.value)} style={INP} /></ItemField>
                     </div>
                     <div style={{ marginTop: 8 }}>
                       <ItemField label="Geared Motor Detail"><input value={it.geared_motor_detail} onChange={e => setItem(idx, 'geared_motor_detail', e.target.value)} style={INP} /></ItemField>
@@ -142,4 +225,5 @@ function ItemField({ label, children }: { label: string; children: React.ReactNo
 const LABEL: CSSProperties = { fontSize: 10.5, fontWeight: 600, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 4 };
 const INP: CSSProperties = { width: '100%', padding: '7px 9px', border: '1px solid var(--line-strong)', borderRadius: 6, fontSize: 12.5, background: 'var(--bg-sunk)', color: 'var(--fg)', boxSizing: 'border-box', fontFamily: 'inherit' };
 const ADD_BTN: CSSProperties = { padding: '5px 11px', fontSize: 12, fontWeight: 600, background: 'var(--accent-soft)', color: 'var(--title)', border: '1px solid var(--accent-line)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' };
+const UPLOAD_BTN: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: 12.5, fontWeight: 600, background: 'var(--accent-soft)', color: 'var(--title)', border: '1px dashed var(--accent-line)', borderRadius: 6, fontFamily: 'inherit' };
 const DEL_BTN: CSSProperties = { padding: '3px 9px', fontSize: 11, background: 'none', border: '1px solid var(--line-strong)', color: 'var(--neg)', borderRadius: 5, cursor: 'pointer', fontFamily: 'inherit' };
