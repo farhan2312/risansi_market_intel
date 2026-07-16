@@ -139,7 +139,8 @@ interface Opportunity {
 }
 
 interface ActivityEntry {
-  id: string; email: string | null; action: string; created_at: Date;
+  id: string; actor_email: string | null; actor_name: string | null;
+  action: string; summary: string; entity_type: string; created_at: Date;
 }
 
 // ── Page ───────────────────────────────────────────────────────
@@ -328,14 +329,23 @@ export default async function ClientProfilePage({
       return rows;
     }, []),
 
-    // 7. Activity log (last 20)
+    // 7. Activity log — the full audit trail for this client: its own edits +
+    //    contacts (entity_type 'client'), opportunities created via the pipeline
+    //    ('pipeline'), edits to its opportunities ('opportunity'), and its visits
+    //    ('visit'). All actions write to audit_log via recordAudit.
     q<ActivityEntry[]>(async () => {
       const { rows } = await risansiPool.query<ActivityEntry>(
-        `SELECT id, email, action, created_at
-         FROM risansi_activity_log
-         WHERE entity_type = 'client' AND entity_id::text = $1
-         ORDER BY created_at DESC
-         LIMIT 20`,
+        `SELECT a.id::text AS id, a.actor_email,
+                COALESCE(u.name, a.actor_email) AS actor_name,
+                a.action, COALESCE(a.summary, a.action) AS summary,
+                a.entity_type, a.created_at
+           FROM audit_log a
+           LEFT JOIN users u ON lower(u.email) = lower(a.actor_email)
+          WHERE (a.entity_type IN ('client','pipeline') AND a.entity_id = $1)
+             OR (a.entity_type = 'opportunity' AND a.entity_id IN (SELECT id::text FROM opportunities WHERE client_id = $1::bigint))
+             OR (a.entity_type = 'visit'       AND a.entity_id IN (SELECT id::text FROM visits        WHERE client_id = $1::bigint))
+          ORDER BY a.created_at DESC
+          LIMIT 40`,
         [String(client.id)],
       );
       return rows;
@@ -1162,10 +1172,10 @@ export default async function ClientProfilePage({
               )}
             </div>
 
-            {/* Activity log */}
-            <div data-tabgroup="contacts" style={PANEL}>
+            {/* Activity log — full audit trail for this client */}
+            <div data-tabgroup="activity" style={PANEL}>
               <div style={PANEL_H}>
-                <span style={PANEL_TITLE}>Activity Log</span>
+                <span style={PANEL_TITLE}>Activity Log{activityLog.length > 0 ? ` · ${activityLog.length}` : ''}</span>
               </div>
               {activityLog.length === 0 ? (
                 <div style={{ padding: '20px 0', textAlign: 'center', fontSize: 12, color: 'var(--fg-3)' }}>
@@ -1175,26 +1185,28 @@ export default async function ClientProfilePage({
                 <div>
                   {activityLog.map((entry, i) => {
                     const d = new Date(entry.created_at);
-                    const dateStr = d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
-                    const actor = entry.email
-                      ? entry.email.split('@')[0].split('.').map((p: string) => p[0]?.toUpperCase()).join('').slice(0, 2)
-                      : '—';
+                    const when = `${d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}, ${d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}`;
+                    const kind = activityKind(entry.entity_type, entry.summary);
                     return (
                       <div
                         key={entry.id}
                         style={{
-                          display: 'flex', alignItems: 'flex-start', gap: 8,
-                          padding: '8px 14px',
+                          display: 'flex', flexDirection: 'column', gap: 3,
+                          padding: '9px 14px',
                           borderBottom: i < activityLog.length - 1 ? '1px solid var(--line)' : 'none',
                         }}
                       >
-                        <span style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', width: 50, flexShrink: 0 }}>
-                          {dateStr}
-                        </span>
-                        <span style={{ fontSize: 11, color: 'var(--fg-3)', width: 28, flexShrink: 0, fontWeight: 500 }}>
-                          {actor}
-                        </span>
-                        <span style={{ fontSize: 11, flex: 1 }}>{entry.action}</span>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                          <span style={{
+                            flexShrink: 0, fontSize: 9.5, fontWeight: 700, letterSpacing: '0.03em',
+                            textTransform: 'uppercase', padding: '2px 7px', borderRadius: 10,
+                            background: 'var(--bg-elev)', color: kind.color, border: `1px solid ${kind.color}33`,
+                          }}>{kind.label}</span>
+                          <span style={{ fontSize: 12, flex: 1, color: 'var(--fg)', lineHeight: 1.35 }}>{entry.summary}</span>
+                        </div>
+                        <div style={{ fontSize: 10.5, color: 'var(--fg-3)', paddingLeft: 2 }}>
+                          {entry.actor_name ?? 'Unknown'} · {when}
+                        </div>
                       </div>
                     );
                   })}
@@ -1208,6 +1220,22 @@ export default async function ClientProfilePage({
       </div>
     </div>
   );
+}
+
+// Classify an audit_log entry into a display kind (label + accent colour).
+// entity_type='client' covers several things, so we look at the summary text to
+// tell a contact change / visit-plan change / opportunity / creation apart from
+// a plain client-detail edit.
+function activityKind(entityType: string, summary: string): { label: string; color: string } {
+  const s = (summary || '').toLowerCase();
+  if (entityType === 'visit') return { label: 'Visit', color: '#1A5CB8' };
+  if (entityType === 'opportunity' || entityType === 'pipeline') return { label: 'Opportunity', color: '#c69347' };
+  // entity_type === 'client'
+  if (s.includes('contact')) return { label: 'Contact', color: '#0E7C6B' };
+  if (s.includes('visit')) return { label: 'Visit', color: '#1A5CB8' };
+  if (s.includes('opportunity') || s.includes('quoted')) return { label: 'Opportunity', color: '#c69347' };
+  if (s.startsWith('created:') || s.startsWith('created ')) return { label: 'New', color: '#1B873F' };
+  return { label: 'Client', color: '#6B7280' };
 }
 
 // ── Sub-components ─────────────────────────────────────────────

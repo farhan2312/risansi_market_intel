@@ -329,13 +329,18 @@ export async function updateClient(clientId: number, formData: FormData): Promis
   }
   const email = session!.user.email ?? 'system';
 
-  // Fetch current status for change logging
+  // Fetch the current row for change logging (status + all editable fields).
   let currentStatus: string | null = null;
+  let oldRow: Record<string, unknown> | null = null;
   try {
-    const { rows } = await risansiPool.query<{ status: string }>(
-      `SELECT status FROM clients WHERE id = $1`, [clientId],
+    const { rows } = await risansiPool.query(
+      `SELECT status, legal_name, trade_name, group_name, country, state, city, address,
+              google_maps_url, market_type, industry, is_sugar, client_type, is_tender,
+              capacity_bracket, tcd, klpd, tier, since_year, tour_id, is_end_client
+         FROM clients WHERE id = $1`, [clientId],
     );
-    currentStatus = rows[0]?.status ?? null;
+    oldRow = rows[0] ?? null;
+    currentStatus = (rows[0]?.status as string | undefined) ?? null;
   } catch { /* ignore */ }
 
   const newStatus = (formData.get('status') as string | null)?.trim() || 'ACTIVE';
@@ -416,7 +421,40 @@ export async function updateClient(clientId: number, formData: FormData): Promis
     } catch { /* table may not exist */ }
   }
 
-  await logActivity('client', String(clientId), 'Client Updated', email);
+  // Describe what actually changed, so the activity feed is informative. This
+  // diff is purely for logging — it never affects the UPDATE above.
+  const gv = (k: string) => (formData.get(k) as string | null)?.trim() || null;
+  const gi = (k: string) => (formData.get(k) ? parseInt(formData.get(k) as string, 10) : null);
+  const specs: [string, string, unknown][] = [
+    ['legal_name', 'Name', gv('legal_name')],
+    ['trade_name', 'Trade name', gv('trade_name')],
+    ['group_name', 'Group', gv('group_name')],
+    ['country', 'Country', gv('country') || 'India'],
+    ['state', 'State', gv('state')],
+    ['city', 'City', gv('city')],
+    ['address', 'Address', gv('address')],
+    ['google_maps_url', 'Maps link', gv('google_maps_url')],
+    ['market_type', 'Market', gv('market_type') || 'Domestic'],
+    ['industry', 'Industry', gv('industry')],
+    ['is_sugar', 'Sugar flag', formData.get('is_sugar') === 'true'],
+    ['client_type', 'Client type', gv('client_type')],
+    ['is_tender', 'Tender flag', formData.get('is_tender') === 'true'],
+    ['capacity_bracket', 'Capacity', gv('capacity_bracket')],
+    ['tcd', 'TCD', gi('tcd')],
+    ['klpd', 'KLPD', gi('klpd')],
+    ['status', 'Status', newStatus],
+    ['tier', 'Tier', gv('tier') || 'Standard'],
+    ['since_year', 'Since year', gv('since_year')],
+    ['tour_id', 'Tour', gi('tour_id')],
+    ['is_end_client', 'End-client flag', formData.get('is_end_client') === 'true'],
+  ];
+  const norm = (v: unknown) => (v === null || v === undefined ? '' : typeof v === 'boolean' ? (v ? '1' : '0') : String(v).trim());
+  const changed = oldRow ? specs.filter(([col, , nv]) => norm(oldRow![col]) !== norm(nv)).map(([, label]) => label) : [];
+  const summary = changed.length
+    ? `Client details updated: ${changed.slice(0, 6).join(', ')}${changed.length > 6 ? ` +${changed.length - 6} more` : ''}`
+    : 'Client details updated';
+
+  await logActivity('client', String(clientId), summary, email);
   revalidatePath(`/risansi/clients/${clientId}`);
   revalidatePath('/risansi/clients');
   revalidatePath('/risansi/admin/clients');
