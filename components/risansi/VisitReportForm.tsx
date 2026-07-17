@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, type CSSProperties, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { saveVisitField, checkInVisit, addEquipment, updateEquipment, saveExpansionOpportunity } from '@/app/actions/risansi-visits';
+import { saveVisitField, checkInVisit, addEquipment, updateEquipment, deleteEquipment, saveExpansionOpportunity } from '@/app/actions/risansi-visits';
 import { ClientPumpEditor } from './ClientPumpEditor';
 import { LogComplaintButton } from './LogComplaintButton';
 import { addTask, updateTaskStatus, deleteTask } from '@/app/actions/risansi-tasks';
@@ -628,7 +628,8 @@ export function VisitReportForm({
                     {eqTab === 'ril' ? String(e.performance_feedback ?? '—') : String(e.reason_for_competitor ?? '—')}
                   </td>
                   {!disabled && (
-                    <td data-label="Edit" style={{ padding: '8px 10px', textAlign: 'right' }}>
+                    <td data-label="Actions" style={{ padding: '8px 10px', textAlign: 'right' }}>
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                       <button
                         type="button"
                         onClick={() => {
@@ -654,6 +655,19 @@ export function VisitReportForm({
                       >
                         Edit
                       </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (typeof window !== 'undefined' && !window.confirm('Delete this equipment entry? This cannot be undone.')) return;
+                          if (editingEqId === Number(e.id)) { setShowEqForm(false); setEditingEqId(null); }
+                          await deleteEquipment(Number(e.id), visit.id);
+                        }}
+                        className="r-tap"
+                        style={{ fontSize: 11, color: 'var(--neg)', background: 'none', border: '1px solid var(--neg)', borderRadius: 5, padding: '3px 12px', cursor: 'pointer', fontFamily: 'inherit' }}
+                      >
+                        Delete
+                      </button>
+                      </div>
                     </td>
                   )}
                 </tr>

@@ -1230,10 +1230,12 @@ function activityKind(entityType: string, summary: string): { label: string; col
   const s = (summary || '').toLowerCase();
   if (entityType === 'visit') return { label: 'Visit', color: '#1A5CB8' };
   if (entityType === 'opportunity' || entityType === 'pipeline') return { label: 'Opportunity', color: '#c69347' };
-  // entity_type === 'client'
+  // entity_type === 'client' — disambiguate by the summary text (opportunity
+  // check comes before pump so "opportunity … pump" still reads as Opportunity).
   if (s.includes('contact')) return { label: 'Contact', color: '#0E7C6B' };
-  if (s.includes('visit')) return { label: 'Visit', color: '#1A5CB8' };
   if (s.includes('opportunity') || s.includes('quoted')) return { label: 'Opportunity', color: '#c69347' };
+  if (s.includes('pump') || s.includes('equipment')) return { label: 'Equipment', color: '#B45309' };
+  if (s.includes('visit')) return { label: 'Visit', color: '#1A5CB8' };
   if (s.startsWith('created:') || s.startsWith('created ')) return { label: 'New', color: '#1B873F' };
   return { label: 'Client', color: '#6B7280' };
 }

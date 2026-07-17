@@ -80,7 +80,15 @@ export async function saveExpansionOpportunity(input: {
   // Toggled "No" → drop the draft expansion opp if one exists.
   if (!input.hasExpansion) {
     if (existingId) {
+      const prod = (await risansiPool.query<{ product: string }>(
+        'SELECT product FROM opportunities WHERE id = $1', [existingId],
+      )).rows[0]?.product ?? 'Expansion';
       await risansiPool.query('DELETE FROM opportunities WHERE id = $1', [existingId]);
+      await recordAudit({
+        action: 'delete', entityType: 'client', entityId: input.clientId,
+        summary: `opportunity removed (expansion): ${prod}`,
+        actorEmail: session.user.email,
+      });
       revalidatePath(`/risansi/visits/${input.visitId}`);
       revalidatePath('/risansi/pipeline');
     }
@@ -131,6 +139,12 @@ export async function saveExpansionOpportunity(input: {
       [input.clientId, repId, input.visitId, product, input.productType, input.stage,
        valueCr, input.probability, input.etaText, input.quoteRef, input.notes, session.user.email],
     );
+    // Log only the initial creation, not the debounced updates that follow.
+    await recordAudit({
+      action: 'create', entityType: 'client', entityId: input.clientId,
+      summary: `created opportunity (expansion): ${product} · ${input.stage}`,
+      actorEmail: session.user.email,
+    });
   }
 
   revalidatePath(`/risansi/visits/${input.visitId}`);
@@ -321,6 +335,13 @@ export async function addEquipment(
     ],
   );
 
+  const label = `${data.supplier ?? ''} ${data.model ?? ''}`.trim() || data.pump_type;
+  await recordAudit({
+    action: 'create', entityType: 'client', entityId: clientId,
+    summary: `${data.is_ril ? 'RIL' : 'Competitor'} pump added: ${label}`,
+    actorEmail: session.user.email,
+  });
+
   revalidatePath(`/risansi/visits/${visitId}`);
 }
 
@@ -368,6 +389,51 @@ export async function updateEquipment(
       isOpp, equipmentId, visitId,
     ],
   );
+
+  const cRow = await risansiPool.query<{ client_id: number }>(
+    'SELECT client_id FROM equipment WHERE id = $1', [equipmentId],
+  );
+  const clientId = cRow.rows[0]?.client_id;
+  if (clientId != null) {
+    const label = `${data.supplier ?? ''} ${data.model ?? ''}`.trim() || data.pump_type;
+    await recordAudit({
+      action: 'update', entityType: 'client', entityId: clientId,
+      summary: `${data.is_ril ? 'RIL' : 'Competitor'} pump updated: ${label}`,
+      actorEmail: session.user.email,
+    });
+  }
+
+  revalidatePath(`/risansi/visits/${visitId}`);
+}
+
+// ── Delete equipment (only while the visit is still open) ───────
+
+export async function deleteEquipment(equipmentId: string | number, visitId: string) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) throw new Error('Unauthorized');
+
+  // Match the edit rule — equipment is locked once the visit is submitted.
+  const vis = await risansiPool.query<{ submitted_at: string | null }>(
+    'SELECT submitted_at FROM visits WHERE id = $1', [visitId],
+  );
+  if (!vis.rows[0]) throw new Error('Visit not found');
+  if (vis.rows[0].submitted_at) throw new Error('Visit already submitted — equipment is locked.');
+
+  const eq = await risansiPool.query<{ client_id: number; supplier: string | null; model: string | null; pump_type: string | null; is_ril: boolean }>(
+    'SELECT client_id, supplier, model, pump_type, is_ril FROM equipment WHERE id = $1 AND visit_id = $2',
+    [equipmentId, visitId],
+  );
+  const row = eq.rows[0];
+  if (!row) throw new Error('Equipment not found');
+
+  await risansiPool.query('DELETE FROM equipment WHERE id = $1 AND visit_id = $2', [equipmentId, visitId]);
+
+  const label = `${row.supplier ?? ''} ${row.model ?? ''}`.trim() || row.pump_type || 'pump';
+  await recordAudit({
+    action: 'delete', entityType: 'client', entityId: row.client_id,
+    summary: `${row.is_ril ? 'RIL' : 'Competitor'} pump removed: ${label}`,
+    actorEmail: session.user.email,
+  });
 
   revalidatePath(`/risansi/visits/${visitId}`);
 }
