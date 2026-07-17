@@ -1,0 +1,87 @@
+import { clientVisibilitySql, type CurrentUser } from './risansi-auth';
+
+// Shared filter logic for the Client 360 list. The list page and the Excel
+// export both build their WHERE from buildClientFilter() so the export always
+// matches exactly what the filtered view shows.
+
+// Owners aggregated from the tour the client sits on (tour_assignments).
+export const OWNERS_SUBQUERY = `(SELECT string_agg(u.name, ', ' ORDER BY u.name)
+     FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
+                WHERE ta.tour_id = c.tour_id)`;
+
+// Lifetime revenue (INR) per client, joined as rev.lifetime_rev.
+export const REV_JOIN = `LEFT JOIN (
+  SELECT client_id, SUM(total_value) AS lifetime_rev
+  FROM client_revenue_monthly GROUP BY client_id
+) rev ON rev.client_id = c.id`;
+
+// Revenue buckets keyed on lifetime revenue (INR). The value doubles as the
+// human-readable label; `cond` builds the SQL range for the given column.
+export const REV_BUCKETS: { value: string; cond: (x: string) => string }[] = [
+  { value: 'No Revenue',     cond: x => `${x} = 0` },
+  { value: '< ₹10 L',        cond: x => `${x} > 0 AND ${x} < 1000000` },
+  { value: '₹10 L – ₹50 L',  cond: x => `${x} >= 1000000 AND ${x} < 5000000` },
+  { value: '₹50 L – ₹1 Cr',  cond: x => `${x} >= 5000000 AND ${x} < 10000000` },
+  { value: '₹1 Cr+',         cond: x => `${x} >= 10000000` },
+];
+
+type SP = { [key: string]: string | string[] | undefined };
+
+/**
+ * Build the parameterised WHERE (no leading `WHERE`) + params for a client-list
+ * query from URL search params and the current user's visibility. Callers own
+ * the FROM/JOINs (they must include `tour_routes tr` and {@link REV_JOIN} so
+ * `tr.zone` and `rev.lifetime_rev` resolve) and append their own limit/offset.
+ */
+export function buildClientFilter(
+  sp: SP,
+  user: CurrentUser,
+): { whereClause: string; params: (string | number | boolean | string[])[] } {
+  const str  = (k: string) => (typeof sp[k] === 'string' ? (sp[k] as string).trim() : '');
+  const list = (k: string) => (typeof sp[k] === 'string' && sp[k] ? (sp[k] as string).split(',').filter(Boolean) : []);
+
+  const q_str     = str('q');
+  const sugarFilt = str('sugar');
+  const indFilts  = list('industry');
+  const zoneFilts = list('zone');
+  const tierFilts = list('tier');
+  const statFilts = list('status').map(s => s.toUpperCase());
+  const repFilts  = list('rep');
+  const fyFilts   = list('fy');
+  const revFilts  = list('rev');
+
+  const whereConditions: string[] = ['c.deleted_at IS NULL'];
+  const params: (string | number | boolean | string[])[] = [];
+
+  if (q_str) {
+    const pIdx = params.push(`%${q_str}%`);
+    whereConditions.push(
+      `(c.legal_name ILIKE $${pIdx} OR c.trade_name ILIKE $${pIdx} OR c.code ILIKE $${pIdx} OR c.city ILIKE $${pIdx} OR c.state ILIKE $${pIdx})`,
+    );
+  }
+  if (indFilts.length)  whereConditions.push(`c.industry = ANY($${params.push(indFilts)}::text[])`);
+  if (zoneFilts.length) whereConditions.push(`tr.zone = ANY($${params.push(zoneFilts)}::text[])`);
+  if (tierFilts.length) whereConditions.push(`c.tier = ANY($${params.push(tierFilts)}::text[])`);
+  if (statFilts.length) whereConditions.push(`UPPER(c.status) = ANY($${params.push(statFilts)}::text[])`);
+  if (repFilts.length) {
+    const rIdx = params.push(repFilts);
+    whereConditions.push(
+      `EXISTS (SELECT 1 FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
+                WHERE ta.tour_id = c.tour_id AND u.name = ANY($${rIdx}::text[]))`,
+    );
+  }
+  if (fyFilts.length)   whereConditions.push(`c.since_year = ANY($${params.push(fyFilts)}::text[])`);
+  if (sugarFilt === 'true')  whereConditions.push('c.is_sugar = TRUE');
+  if (sugarFilt === 'false') whereConditions.push('(c.is_sugar = FALSE OR c.is_sugar IS NULL)');
+  if (revFilts.length) {
+    const rExpr = 'COALESCE(rev.lifetime_rev, 0)';
+    const conds = REV_BUCKETS.filter(b => revFilts.includes(b.value)).map(b => `(${b.cond(rExpr)})`);
+    if (conds.length) whereConditions.push(`(${conds.join(' OR ')})`);
+  }
+
+  // Per-user visibility — predicate inlines trusted integer ids, no params.
+  const visPred = clientVisibilitySql(user, 'c');
+  if (visPred) whereConditions.push(`(${visPred})`);
+
+  return { whereClause: whereConditions.join(' AND '), params };
+}

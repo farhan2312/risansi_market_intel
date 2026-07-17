@@ -5,6 +5,7 @@ import { MobileSort } from '@/components/risansi/MobileSort';
 import risansiPool from '@/lib/db-risansi';
 import { formatLastVisitShort } from '@/lib/risansi-utils';
 import { getCurrentUser, clientVisibilitySql } from '@/lib/risansi-auth';
+import { OWNERS_SUBQUERY, REV_JOIN, REV_BUCKETS, buildClientFilter } from '@/lib/risansi-client-filter';
 import { FilterBar } from './FilterBar';
 
 const PAGE_SIZE = 50;
@@ -20,28 +21,6 @@ const SORT_MAP: Record<string, string> = {
   tier:       'c.tier',
   rep:        'rep_name',
 };
-
-// Owners aggregated from the flat client_assignments many-to-many.
-const OWNERS_SUBQUERY = `(SELECT string_agg(u.name, ', ' ORDER BY u.name)
-     FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
-                WHERE ta.tour_id = c.tour_id)`;
-
-// Lifetime revenue (INR) per client, joined as rev.lifetime_rev.
-const REV_JOIN = `LEFT JOIN (
-  SELECT client_id, SUM(total_value) AS lifetime_rev
-  FROM client_revenue_monthly GROUP BY client_id
-) rev ON rev.client_id = c.id`;
-
-// Revenue buckets keyed on lifetime revenue (INR). The value doubles as the
-// human-readable label (no commas — the multi-select joins on commas). `cond`
-// builds the SQL range against the given numeric column/expression.
-const REV_BUCKETS: { value: string; cond: (x: string) => string }[] = [
-  { value: 'No Revenue',     cond: x => `${x} = 0` },
-  { value: '< ₹10 L',        cond: x => `${x} > 0 AND ${x} < 1000000` },
-  { value: '₹10 L – ₹50 L',  cond: x => `${x} >= 1000000 AND ${x} < 5000000` },
-  { value: '₹50 L – ₹1 Cr',  cond: x => `${x} >= 5000000 AND ${x} < 10000000` },
-  { value: '₹1 Cr+',         cond: x => `${x} >= 10000000` },
-];
 
 export default async function ClientListPage({
   searchParams,
@@ -72,54 +51,8 @@ export default async function ClientListPage({
   const hasActiveFilters = !!(q_str || sugarFilt || indFilts.length || zoneFilts.length || tierFilts.length || statFilts.length || repFilts.length || fyFilts.length || revFilts.length);
   const sortCol = SORT_MAP[sortKey] ?? 'c.last_visit_date';
 
-  // ── Build parameterised WHERE conditions ──────────────────────
-  const whereConditions: string[] = ['c.deleted_at IS NULL'];
-  const params: (string | number | boolean | string[])[] = [];
-
-  if (q_str) {
-    const pIdx = params.push(`%${q_str}%`);
-    whereConditions.push(
-      `(c.legal_name ILIKE $${pIdx} OR c.trade_name ILIKE $${pIdx} OR c.code ILIKE $${pIdx} OR c.city ILIKE $${pIdx} OR c.state ILIKE $${pIdx})`
-    );
-  }
-  if (indFilts.length > 0) {
-    whereConditions.push(`c.industry = ANY($${params.push(indFilts)}::text[])`);
-  }
-  if (zoneFilts.length > 0) {
-    // Zone lives on the tour (clients.zone is unused), so filter on tr.zone.
-    whereConditions.push(`tr.zone = ANY($${params.push(zoneFilts)}::text[])`);
-  }
-  if (tierFilts.length > 0) {
-    whereConditions.push(`c.tier = ANY($${params.push(tierFilts)}::text[])`);
-  }
-  if (statFilts.length > 0) {
-    whereConditions.push(`UPPER(c.status) = ANY($${params.push(statFilts)}::text[])`);
-  }
-  if (repFilts.length > 0) {
-    const rIdx = params.push(repFilts);
-    whereConditions.push(
-      `EXISTS (SELECT 1 FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
-                WHERE ta.tour_id = c.tour_id AND u.name = ANY($${rIdx}::text[]))`
-    );
-  }
-  if (fyFilts.length > 0) {
-    // Financial Year filter keys on the client's "since" year (clients.since_year).
-    whereConditions.push(`c.since_year = ANY($${params.push(fyFilts)}::text[])`);
-  }
-  if (sugarFilt === 'true')  whereConditions.push('c.is_sugar = TRUE');
-  if (sugarFilt === 'false') whereConditions.push('(c.is_sugar = FALSE OR c.is_sugar IS NULL)');
-  if (revFilts.length > 0) {
-    // Buckets are a fixed whitelist; conditions are constant SQL (no params).
-    const rExpr = 'COALESCE(rev.lifetime_rev, 0)';
-    const conds = REV_BUCKETS.filter(b => revFilts.includes(b.value)).map(b => `(${b.cond(rExpr)})`);
-    if (conds.length > 0) whereConditions.push(`(${conds.join(' OR ')})`);
-  }
-
-  // Per-user visibility — append as raw text (predicate inlines integers, no params).
-  const visPred = clientVisibilitySql(user, 'c');
-  if (visPred) whereConditions.push(`(${visPred})`);
-
-  const whereClause = whereConditions.join(' AND ');
+  // ── WHERE + params (shared with the Excel export so they always match) ──
+  const { whereClause, params } = buildClientFilter(sp, user);
   const countParams = [...params]; // snapshot before limit/offset are pushed
 
   const limIdx = params.length + 1;
@@ -326,6 +259,19 @@ export default async function ClientListPage({
   const curDir  = orderDir === 'DESC' ? 'desc' : 'asc';
   const STATUS_OPTIONS = ['ACTIVE', 'INACTIVE', 'PROSPECTIVE', 'BLACKLISTED'];
 
+  // Export link — carries the current filters so the .xlsx matches this view.
+  const exportQs = new URLSearchParams();
+  if (q_str)            exportQs.set('q', q_str);
+  if (indFilts.length)  exportQs.set('industry', indFilts.join(','));
+  if (zoneFilts.length) exportQs.set('zone', zoneFilts.join(','));
+  if (tierFilts.length) exportQs.set('tier', tierFilts.join(','));
+  if (statFilts.length) exportQs.set('status', statFilts.join(','));
+  if (repFilts.length)  exportQs.set('rep', repFilts.join(','));
+  if (fyFilts.length)   exportQs.set('fy', fyFilts.join(','));
+  if (revFilts.length)  exportQs.set('rev', revFilts.join(','));
+  if (sugarFilt)        exportQs.set('sugar', sugarFilt);
+  const exportHref = `/api/risansi/clients/export${exportQs.toString() ? `?${exportQs}` : ''}`;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Sticky topbar */}
@@ -336,13 +282,27 @@ export default async function ClientListPage({
       <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>
 
         {/* ── Page header ──────────────────────────────────────── */}
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
-            Clients
+        <div style={{ marginBottom: 14, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
+              Clients
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>
+              Client master · {total.toLocaleString('en-IN')} records
+            </div>
           </div>
-          <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>
-            Client master · {total.toLocaleString('en-IN')} records
-          </div>
+          <a
+            href={exportHref}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0,
+              padding: '8px 14px', borderRadius: 'var(--radius)', border: '1px solid var(--line-strong)',
+              background: 'var(--bg-paper)', color: 'var(--fg)', fontSize: 12.5, fontWeight: 600,
+              textDecoration: 'none', whiteSpace: 'nowrap',
+            }}
+            title={hasActiveFilters ? 'Export the filtered clients to Excel' : 'Export all visible clients to Excel'}
+          >
+            ⭳ Export{hasActiveFilters ? ' (filtered)' : ''} · {total.toLocaleString('en-IN')}
+          </a>
         </div>
 
         {/* ── Filter toolbar (search + filters, grouped) ────────── */}
