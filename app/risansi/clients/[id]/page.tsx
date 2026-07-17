@@ -16,6 +16,7 @@ import { ClientComplaints } from '@/components/risansi/ClientComplaints';
 import { type ComplaintRow } from '@/components/risansi/ComplaintDetail';
 import { type UserOpt } from '@/components/risansi/ComplaintFormModal';
 import { ClientPumps, type PumpRow } from '@/components/risansi/ClientPumps';
+import { ClientComments, type CommentRow } from '@/components/risansi/ClientComments';
 import type { DrawerRep } from '@/components/risansi/AssignVisitDrawer';
 
 // ── Safe query wrapper ─────────────────────────────────────────
@@ -202,7 +203,7 @@ export default async function ClientProfilePage({
 
   // ── Fetch supporting data in parallel ─────────────────────
 
-  const [contacts, revRows, clientRevByFY, comp, visits, openOpps, activityLog, reps, complaints, complaintUsers, clientPumps] = await Promise.all([
+  const [contacts, revRows, clientRevByFY, comp, visits, openOpps, activityLog, reps, complaints, complaintUsers, clientPumps, clientComments] = await Promise.all([
 
     // 2. Contacts — single source of truth
     q<Contact[]>(async () => {
@@ -393,6 +394,15 @@ export default async function ClientProfilePage({
         liquid, capacity, head
       FROM client_pumps WHERE client_id = $1
       ORDER BY id`, [client.id])).rows, []),
+
+    // 12. Client comments (newest first). ISO-UTC timestamps so new Date() in
+    // the browser parses reliably across engines (Safari/Firefox included).
+    q<CommentRow[]>(async () => (await risansiPool.query<CommentRow>(`
+      SELECT id, body, author_email, author_name,
+             to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
+             to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
+      FROM client_comments WHERE client_id = $1
+      ORDER BY created_at DESC, id DESC`, [client.id])).rows, []),
   ]);
 
   // ── Derived values ────────────────────────────────────────
@@ -778,6 +788,13 @@ export default async function ClientProfilePage({
               complaints={complaints} users={complaintUsers}
               me={{ id: currentUser.id, email: currentUser.email, role: currentUser.role }}
               clientId={Number(client.id)} clientName={String(client.legal_name)}
+            />
+
+            {/* Comments / notes */}
+            <ClientComments
+              comments={clientComments}
+              me={{ id: currentUser.id, email: currentUser.email, role: currentUser.role }}
+              clientId={Number(client.id)}
             />
 
             {/* Plan of Action */}
@@ -1232,6 +1249,7 @@ function activityKind(entityType: string, summary: string): { label: string; col
   if (entityType === 'opportunity' || entityType === 'pipeline') return { label: 'Opportunity', color: '#c69347' };
   // entity_type === 'client' — disambiguate by the summary text (opportunity
   // check comes before pump so "opportunity … pump" still reads as Opportunity).
+  if (s.includes('comment')) return { label: 'Comment', color: '#6366F1' };
   if (s.includes('contact')) return { label: 'Contact', color: '#0E7C6B' };
   if (s.includes('opportunity') || s.includes('quoted')) return { label: 'Opportunity', color: '#c69347' };
   if (s.includes('pump') || s.includes('equipment')) return { label: 'Equipment', color: '#B45309' };

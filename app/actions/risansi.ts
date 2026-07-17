@@ -4,7 +4,7 @@ import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { getManagerAssignableReps, hasRole } from '@/lib/risansi-auth';
+import { getManagerAssignableReps, hasRole, getCurrentUser, canViewClient } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 import { recordAudit } from '@/lib/audit';
 import { normalizeClientName, uniqueLeadCode } from '@/lib/risansi-lead-code';
@@ -458,6 +458,91 @@ export async function updateClient(clientId: number, formData: FormData): Promis
   revalidatePath(`/risansi/clients/${clientId}`);
   revalidatePath('/risansi/clients');
   revalidatePath('/risansi/admin/clients');
+}
+
+// ── Client comments (free-form notes on the Client 360) ────────
+// Anyone who can SEE the client may add a comment; only the original author may
+// edit or delete their own. All three events are logged to the activity feed.
+
+// Short single-line preview of a comment for the activity feed.
+function commentPreview(s: string): string {
+  const oneLine = s.replace(/\s+/g, ' ').trim();
+  return oneLine.length > 60 ? oneLine.slice(0, 60) + '…' : oneLine;
+}
+
+export async function addClientComment(clientId: number, body: string): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user.email) redirect('/api/auth/signin');
+  if (!Number.isInteger(clientId)) throw new Error('Invalid client.');
+  if (!(await canViewClient(user, clientId))) throw new Error('You do not have access to this client.');
+
+  const text = (body ?? '').trim();
+  if (!text) throw new Error('Comment cannot be empty.');
+  if (text.length > 5000) throw new Error('Comment is too long (max 5000 characters).');
+
+  const session = await getServerSession(authOptions);
+  const authorName = session?.user?.name ?? user.email;
+
+  await risansiPool.query(
+    `INSERT INTO client_comments (client_id, author_email, author_name, body)
+     VALUES ($1, $2, $3, $4)`,
+    [clientId, user.email, authorName, text],
+  );
+
+  await logActivity('client', String(clientId), `Comment added: "${commentPreview(text)}"`, user.email);
+  revalidatePath(`/risansi/clients/${clientId}`);
+}
+
+export async function updateClientComment(commentId: number, body: string): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user.email) redirect('/api/auth/signin');
+  if (!Number.isInteger(commentId)) throw new Error('Invalid comment.');
+
+  const text = (body ?? '').trim();
+  if (!text) throw new Error('Comment cannot be empty.');
+  if (text.length > 5000) throw new Error('Comment is too long (max 5000 characters).');
+
+  const { rows } = await risansiPool.query<{ client_id: number; author_email: string }>(
+    'SELECT client_id, author_email FROM client_comments WHERE id = $1', [commentId],
+  );
+  const row = rows[0];
+  if (!row) throw new Error('Comment not found.');
+  // Author-only — enforced here and in the WHERE clause below.
+  if (row.author_email.toLowerCase() !== user.email.toLowerCase()) {
+    throw new Error('You can only edit your own comment.');
+  }
+
+  const res = await risansiPool.query(
+    'UPDATE client_comments SET body = $1, updated_at = now() WHERE id = $2 AND lower(author_email) = lower($3)',
+    [text, commentId, user.email],
+  );
+  if (res.rowCount === 0) throw new Error('Comment not found.');
+
+  await logActivity('client', String(row.client_id), `Comment edited: "${commentPreview(text)}"`, user.email);
+  revalidatePath(`/risansi/clients/${row.client_id}`);
+}
+
+export async function deleteClientComment(commentId: number): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user.email) redirect('/api/auth/signin');
+  if (!Number.isInteger(commentId)) throw new Error('Invalid comment.');
+
+  const { rows } = await risansiPool.query<{ client_id: number; author_email: string }>(
+    'SELECT client_id, author_email FROM client_comments WHERE id = $1', [commentId],
+  );
+  const row = rows[0];
+  if (!row) return; // already gone — treat as success
+  if (row.author_email.toLowerCase() !== user.email.toLowerCase()) {
+    throw new Error('You can only delete your own comment.');
+  }
+
+  await risansiPool.query(
+    'DELETE FROM client_comments WHERE id = $1 AND lower(author_email) = lower($2)',
+    [commentId, user.email],
+  );
+
+  await logActivity('client', String(row.client_id), 'Comment deleted', user.email);
+  revalidatePath(`/risansi/clients/${row.client_id}`);
 }
 
 // ── Client: plan visit ─────────────────────────────────────────
