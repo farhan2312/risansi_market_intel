@@ -6,6 +6,7 @@ import { getCurrentUser, clientScopeSql, canViewClient } from '@/lib/risansi-aut
 import { AutoPrint } from '@/components/risansi/AutoPrint';
 import {
   PRINT_CSS, ROOT, C, Section, Facts, TextBlock, TH, TD, DocHeader, RowFacts,
+  SugarPumpTable, SUGAR_PUMP_KEYS,
 } from '@/components/risansi/print-shared';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
@@ -128,10 +129,15 @@ export default async function VisitPrintPage({ params }: { params: Promise<{ id:
             ]} />
           </Section>
 
-          {isSugar && sugar && (
-            <Section title="Sugar Industry Report"><RowFacts row={sugar} /></Section>
+          {/* Show whichever report actually has data — never gate on a flag that
+              can disagree with what the rep filled (was hiding non-sugar reports). */}
+          {sugar && (
+            <Section title="Sugar Industry Report">
+              <SugarPumpTable row={sugar} />
+              <RowFacts row={sugar} skip={SUGAR_PUMP_KEYS} />
+            </Section>
           )}
-          {!isSugar && nonsugar && (
+          {nonsugar && (
             <Section title="Industry Report"><RowFacts row={nonsugar} /></Section>
           )}
 

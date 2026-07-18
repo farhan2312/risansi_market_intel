@@ -98,6 +98,8 @@ export function DocHeader({ kind, title, subtitle, meta }: {
     <div style={{ borderBottom: `2px solid ${C.accent}`, paddingBottom: 12, marginBottom: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="Risansi Industries Ltd" style={{ height: 38, width: 'auto', display: 'block', marginBottom: 8 }} />
           <div style={{ fontSize: 10, color: C.accent, textTransform: 'uppercase', letterSpacing: '0.14em', fontWeight: 700 }}>
             Risansi Industries Ltd · {kind}
           </div>
@@ -120,12 +122,68 @@ function humanize(key: string): string {
   return key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
-/** Renders all non-null, non-system fields of an arbitrary report row as facts. */
-export function RowFacts({ row }: { row: Record<string, unknown> | null | undefined }) {
+/** Renders all non-null, non-system fields of an arbitrary report row as facts.
+ *  Pass `skip` to omit keys already shown elsewhere (e.g. the sugar pump table). */
+export function RowFacts({ row, skip }: { row: Record<string, unknown> | null | undefined; skip?: Set<string> }) {
   if (!row) return null;
   const rows: Array<[string, ReactNode]> = Object.entries(row)
-    .filter(([k, v]) => !SKIP_KEYS.has(k) && v != null && v !== '' && typeof v !== 'object')
+    .filter(([k, v]) => !SKIP_KEYS.has(k) && !skip?.has(k) && v != null && v !== '' && typeof v !== 'object')
     .map(([k, v]) => [humanize(k), typeof v === 'boolean' ? (v ? 'Yes' : 'No') : String(v)] as [string, ReactNode]);
   if (rows.length === 0) return null;
   return <Facts rows={rows} cols={2} />;
+}
+
+// Applications tracked per pump family in the sugar report.
+const SUGAR_APPS = ['molasses', 'magma', 'syrup', 'massecuite', 'melt', 'dosing', 'other'] as const;
+/** Every pump-count key the SugarPumpTable renders — pass to RowFacts `skip`. */
+export const SUGAR_PUMP_KEYS = new Set<string>(
+  SUGAR_APPS.flatMap(a => [`ril_screw_${a}`, `other_screw_${a}`, `ril_rota_${a}`, `other_rota_${a}`]),
+);
+
+/** Sugar pump counts as a matrix: application × (RIL / Competitor) × (Screw / Rota). */
+export function SugarPumpTable({ row }: { row: Record<string, unknown> }) {
+  const num = (k: string): number | null => {
+    const v = row[k];
+    if (v == null || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const cols = [
+    { key: 'ril_screw', label: 'RIL Screw' },
+    { key: 'other_screw', label: 'Competitor Screw' },
+    { key: 'ril_rota', label: 'RIL Rota' },
+    { key: 'other_rota', label: 'Competitor Rota' },
+  ];
+  const data = SUGAR_APPS.map(app => ({
+    app,
+    vals: cols.map(c => num(`${c.key}_${app}`)),
+  })).filter(r => r.vals.some(v => v != null));
+  if (!data.length) return null;
+  const totals = cols.map((_, ci) => data.reduce((a, r) => a + (r.vals[ci] ?? 0), 0));
+  const cell = (v: number | null): string => (v == null ? '—' : String(v));
+  const CEN: CSSProperties = { ...TD, textAlign: 'center', fontVariantNumeric: 'tabular-nums' };
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: C.fg2, marginBottom: 4 }}>Installed Pumps by Application</div>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead><tr>
+          <th style={TH}>Application</th>
+          {cols.map(c => <th key={c.key} style={{ ...TH, textAlign: 'center' }}>{c.label}</th>)}
+        </tr></thead>
+        <tbody>
+          {data.map(r => (
+            <tr key={r.app}>
+              <td style={{ ...TD, textTransform: 'capitalize' }}>{r.app}</td>
+              {r.vals.map((v, ci) => <td key={ci} style={CEN}>{cell(v)}</td>)}
+            </tr>
+          ))}
+          <tr>
+            <td style={{ ...TD, fontWeight: 700, background: C.bgElev }}>Total</td>
+            {totals.map((t, ci) => <td key={ci} style={{ ...CEN, fontWeight: 700, background: C.bgElev }}>{t}</td>)}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
 }
