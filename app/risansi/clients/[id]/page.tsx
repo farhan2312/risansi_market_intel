@@ -790,13 +790,6 @@ export default async function ClientProfilePage({
               clientId={Number(client.id)} clientName={String(client.legal_name)}
             />
 
-            {/* Comments / notes */}
-            <ClientComments
-              comments={clientComments}
-              me={{ id: currentUser.id, email: currentUser.email, role: currentUser.role }}
-              clientId={Number(client.id)}
-            />
-
             {/* Plan of Action */}
             {(client.action_points || client.expected_to_pump || client.expected_to_spare || client.mgmt_intervention) && (
               <div data-tabgroup="activity" style={PANEL}>
@@ -1188,6 +1181,13 @@ export default async function ClientProfilePage({
                 </div>
               )}
             </div>
+
+            {/* Comments / notes — sits just above the Activity Log */}
+            <ClientComments
+              comments={clientComments}
+              me={{ id: currentUser.id, email: currentUser.email, role: currentUser.role }}
+              clientId={Number(client.id)}
+            />
 
             {/* Activity log — full audit trail for this client */}
             <div data-tabgroup="activity" style={PANEL}>
