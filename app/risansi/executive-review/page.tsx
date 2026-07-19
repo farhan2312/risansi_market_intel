@@ -6,6 +6,8 @@ import { hasRole } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 import { ExecutiveViews, type ExecData, type Row } from '@/components/risansi/ExecutiveViews';
 import { ExecutiveSelector, type SelRep } from '@/components/risansi/ExecutiveSelector';
+import { AccountSelector, ViewSwitch, type NameOpt } from '@/components/risansi/AccountSelector';
+import { GroupReview, OemReview, type GroupReviewData, type GroupUnit, type OemReviewData } from '@/components/risansi/AccountReview';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,13 +32,157 @@ const CANON = `CASE
 const CATS = ['Direct Mill', 'Group Mills', 'Trader', 'OEM', 'Channel Partner'];
 const TURN_ORDER = ['15 Lac & above (Super Critical)', '5-15 Lacs p.a.', '3-5 Lacs p.a.', '1-3 Lacs p.a.', 'Less than 1 Lac p.a.', 'New Business', 'Business Regained', 'End Client', 'No Business'];
 
+// FY label in the app's key format: start year 2025 → '25-26'.
+const fyLabel = (startYear: number) => `${String(startYear % 100).padStart(2, '0')}-${String((startYear + 1) % 100).padStart(2, '0')}`;
+// Bucket a date column into that same FY label (April–March).
+const FY_EXPR = (col: string) => `CASE WHEN EXTRACT(MONTH FROM ${col}) >= 4
+  THEN LPAD((EXTRACT(YEAR FROM ${col})::int % 100)::text,2,'0')||'-'||LPAD(((EXTRACT(YEAR FROM ${col})::int + 1) % 100)::text,2,'0')
+  ELSE LPAD(((EXTRACT(YEAR FROM ${col})::int - 1) % 100)::text,2,'0')||'-'||LPAD((EXTRACT(YEAR FROM ${col})::int % 100)::text,2,'0') END`;
+
 export default async function ExecutiveReviewPage({ searchParams }: {
-  searchParams: Promise<{ tsm?: string; month?: string }>;
+  searchParams: Promise<{ tsm?: string; month?: string; view?: string; ctype?: string; name?: string }>;
 }) {
   const session = await getServerSession(authOptions);
   const role = session?.user?.role ?? '';
   if (!hasRole(role, 'admin')) redirect('/risansi');
   const sp = await searchParams;
+
+  // ── Account Review: a group of mills, or a single OEM ──────────
+  if (sp.view === 'account') {
+    const ctype: 'group' | 'oem' = sp.ctype === 'oem' ? 'oem' : 'group';
+    const nowD = new Date();
+    const curFy = (nowD.getMonth() + 1) >= 4 ? nowD.getFullYear() : nowD.getFullYear() - 1;
+    const FYS = Array.from({ length: 5 }, (_, i) => fyLabel(curFy - 4 + i));
+
+    const options = await q<NameOpt[]>(async () => (await risansiPool.query<NameOpt>(
+      ctype === 'group'
+        ? `SELECT group_name AS value, group_name || ' (' || count(*) || ' units)' AS label
+             FROM clients WHERE group_name IS NOT NULL AND btrim(group_name) <> '' AND deleted_at IS NULL
+            GROUP BY group_name ORDER BY group_name`
+        : `SELECT code AS value, legal_name AS label FROM clients
+            WHERE client_type = 'OEM' AND deleted_at IS NULL ORDER BY legal_name`)).rows, []);
+    const picked = options.some(o => o.value === sp.name) ? sp.name! : (options[0]?.value ?? '');
+
+    const shell = (body: React.ReactNode, title: string, sub: string) => (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <div style={{ position: 'sticky', top: 0, zIndex: 10 }}><Topbar crumbs={['Risansi', 'Executive Review']} /></div>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+            <div>
+              <h1 style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)', margin: 0 }}>{title}</h1>
+              <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>{sub}</div>
+            </div>
+            <AccountSelector ctype={ctype} name={picked} options={options} />
+          </div>
+          {body}
+        </div>
+      </div>
+    );
+
+    if (!picked) return shell(<div style={{ fontSize: 13, color: 'var(--fg-3)' }}>No {ctype === 'group' ? 'groups' : 'OEM clients'} on record.</div>, 'Account Review', '—');
+
+    // ── Group of mills ──
+    if (ctype === 'group') {
+      const units = await q<{ id: string; code: string; legal_name: string; tcd: number | null }[]>(async () => (await risansiPool.query(
+        `SELECT id::text, code, legal_name, tcd FROM clients
+          WHERE group_name = $1 AND deleted_at IS NULL ORDER BY legal_name`, [picked])).rows, []);
+      const ids = units.map(u => Number(u.id));
+
+      const [foot, rev, comps] = await Promise.all([
+        q<{ client_id: number; ril_pcp: number; roto_pcp: number; total_pcp: number; ril_mmp: number; total_mmp: number; total_pumps: number }[]>(async () => (await risansiPool.query(
+          `SELECT DISTINCT ON (client_id) client_id,
+                  COALESCE(ril_pcp,0) ril_pcp, COALESCE(roto_pcp,0) roto_pcp, COALESCE(total_pcp,0) total_pcp,
+                  COALESCE(ril_mmp,0) ril_mmp, COALESCE(total_mmp,0) total_mmp, COALESCE(total_pumps,0) total_pumps
+             FROM competitor_installed_base WHERE client_id = ANY($1::int[])
+            ORDER BY client_id, assessed_at DESC NULLS LAST, id DESC`, [ids])).rows, []),
+        q<{ client_id: number; fy: string; pump: string; spare: string }[]>(async () => (await risansiPool.query(
+          `SELECT client_id, ${FY_EXPR('month')} fy, SUM(pump_value)::text pump, SUM(spare_value)::text spare
+             FROM client_revenue_monthly WHERE client_id = ANY($1::int[]) GROUP BY 1,2`, [ids])).rows, []),
+        // NB: `year` is reserved in Postgres — alias as yr.
+        q<{ yr: number; nature: string; n: string }[]>(async () => (await risansiPool.query(
+          `SELECT EXTRACT(YEAR FROM complaint_date)::int AS yr,
+                  COALESCE(NULLIF(btrim(root_cause),''), 'Not classified') AS nature, count(*)::text AS n
+             FROM complaints WHERE client_id = ANY($1::int[]) AND complaint_date IS NOT NULL
+            GROUP BY 1,2 ORDER BY 1 DESC, count(*) DESC`, [ids])).rows, []),
+      ]);
+
+      const fMap = new Map(foot.map(f => [f.client_id, f]));
+      const rMap = new Map(rev.map(r => [`${r.client_id}|${r.fy}`, r]));
+      const gu: GroupUnit[] = units.map(u => {
+        const id = Number(u.id); const f = fMap.get(id);
+        const totalPcp = f?.total_pcp ?? 0, rilPcp = f?.ril_pcp ?? 0, rotoPcp = f?.roto_pcp ?? 0;
+        const totalMmp = f?.total_mmp ?? 0, rilMmp = f?.ril_mmp ?? 0;
+        const totalPumps = f?.total_pumps ?? (totalPcp + totalMmp);
+        const pumpByFy = FYS.map(fy => { const v = rMap.get(`${id}|${fy}`); return v ? Number(v.pump) || null : null; });
+        const spareByFy = FYS.map(fy => { const v = rMap.get(`${id}|${fy}`); return v ? Number(v.spare) || null : null; });
+        const spareTotal = spareByFy.reduce<number>((a, b) => a + (b ?? 0), 0);
+        const sparesPerPump = totalPumps > 0 && spareTotal > 0 ? (spareTotal / FYS.length) / totalPumps : null;
+        return {
+          code: u.code, name: u.legal_name, tcd: u.tcd,
+          rilPcp, rotoPcp, otherPcp: Math.max(0, totalPcp - rilPcp - rotoPcp), totalPcp,
+          rilMmp, otherMmp: Math.max(0, totalMmp - rilMmp), totalPumps,
+          sparesPerPump, pumpByFy, spareByFy, actions: [],
+        };
+      });
+
+      const F = gu.reduce((a, u) => ({
+        pcpRil: a.pcpRil + u.rilPcp, pcpRoto: a.pcpRoto + u.rotoPcp, pcpOther: a.pcpOther + u.otherPcp,
+        pcpTotal: a.pcpTotal + u.totalPcp, mmpRil: a.mmpRil + u.rilMmp, mmpOther: a.mmpOther + u.otherMmp,
+        mmpTotal: a.mmpTotal + u.rilMmp + u.otherMmp,
+      }), { pcpRil: 0, pcpRoto: 0, pcpOther: 0, pcpTotal: 0, mmpRil: 0, mmpOther: 0, mmpTotal: 0 });
+
+      const withSpares = gu.filter(u => u.sparesPerPump != null);
+      const avgPerPump = withSpares.length ? withSpares.reduce((a, u) => a + (u.sparesPerPump ?? 0), 0) / withSpares.length : null;
+      // Derived, from real numbers — never a hardcoded flag.
+      for (const u of gu) {
+        if (u.totalPumps === 0) u.actions.push('Pump footprint not recorded');
+        else if (u.sparesPerPump == null) u.actions.push('No spares recorded');
+        else if (avgPerPump != null && u.sparesPerPump < avgPerPump) u.actions.push('Spares below group avg');
+      }
+      const data: GroupReviewData = {
+        group: picked, fys: FYS, units: gu, footprint: F,
+        sparesPerPumpAvg: avgPerPump,
+        attention: gu.filter(u => u.actions.length).map(u => u.name.replace(/^BALRAMPUR CHINI MILLS.*?[.(]?\s*/i, '').trim() || u.code),
+        complaints: comps.map(c => ({ year: c.yr, nature: c.nature, count: Number(c.n) })),
+      };
+      return shell(<GroupReview d={data} />, picked, `${gu.length} units · FY ${FYS[0]} to ${FYS[FYS.length - 1]} · live data`);
+    }
+
+    // ── Single OEM ──
+    const cl = await q<{ id: string; code: string; legal_name: string }[]>(async () => (await risansiPool.query(
+      `SELECT id::text, code, legal_name FROM clients WHERE code = $1 AND deleted_at IS NULL LIMIT 1`, [picked])).rows, []);
+    const c0 = cl[0];
+    if (!c0) return shell(<div style={{ fontSize: 13, color: 'var(--fg-3)' }}>Client not found.</div>, 'Account Review', '—');
+    const cid = Number(c0.id);
+
+    const [rev, pumps, opps] = await Promise.all([
+      q<{ fy: string; total: string }[]>(async () => (await risansiPool.query(
+        `SELECT ${FY_EXPR('month')} fy, SUM(total_value)::text total
+           FROM client_revenue_monthly WHERE client_id = $1 GROUP BY 1`, [cid])).rows, []),
+      q<{ n: string }[]>(async () => (await risansiPool.query(
+        `SELECT COALESCE((SELECT total_pumps FROM competitor_installed_base WHERE client_id=$1
+                           ORDER BY assessed_at DESC NULLS LAST, id DESC LIMIT 1),
+                         (SELECT COALESCE(SUM(quantity),0) FROM client_pumps WHERE client_id=$1))::text n`, [cid])).rows, []),
+      q<{ fy: string; stage: string; v: string }[]>(async () => (await risansiPool.query(
+        `SELECT ${FY_EXPR('COALESCE(quote_date, created_at::date)')} fy, stage,
+                SUM(COALESCE(offer_value_inr, value_cr * 10000000, 0))::text v
+           FROM opportunities WHERE client_id = $1 GROUP BY 1,2`, [cid])).rows, []),
+    ]);
+
+    const revMap = new Map(rev.map(r => [r.fy, Number(r.total)]));
+    const revenueByFy = FYS.map(fy => revMap.get(fy) ?? null);
+    const totalRevenue = revenueByFy.reduce<number>((a, b) => a + (b ?? 0), 0);
+    const oppFys = [...new Set(opps.map(o => o.fy))].sort();
+    const stages = [...new Set(opps.map(o => o.stage))].sort();
+    const oMap = new Map(opps.map(o => [`${o.stage}|${o.fy}`, Number(o.v)]));
+    const data: OemReviewData = {
+      code: c0.code, name: c0.legal_name, fys: FYS, revenueByFy,
+      totalRevenue, avgPerYear: totalRevenue / FYS.length,
+      totalPumps: Number(pumps[0]?.n ?? 0),
+      stages, oppFys, oppMatrix: stages.map(s => oppFys.map(fy => oMap.get(`${s}|${fy}`) ?? null)),
+    };
+    return shell(<OemReview d={data} />, c0.legal_name, `${c0.code} · OEM · FY ${FYS[0]} to ${FYS[FYS.length - 1]} · live data`);
+  }
 
   // TSM roster = users with tours.
   const reps = await q<SelRep[]>(async () => (await risansiPool.query<SelRep>(
@@ -177,7 +323,10 @@ export default async function ExecutiveReviewPage({ searchParams }: {
           data={data}
           periodLabel={periodLabel}
           note={note}
-          selector={<ExecutiveSelector reps={reps} tsm={tsm} month={month} />}
+          selector={<div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <ViewSwitch />
+            <ExecutiveSelector reps={reps} tsm={tsm} month={month} />
+          </div>}
         />
       </div>
     </div>
