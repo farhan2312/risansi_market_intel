@@ -1,16 +1,14 @@
 'use client';
 
-import { useState, useEffect, useRef, type CSSProperties } from 'react';
+import { useState, useEffect, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { createPipelineOpportunity } from '@/app/actions/risansi';
-
-interface Rep { id: string; name: string; zone: string | null; route: string | null; }
 
 interface ClientResult {
   id: string; legal_name: string; code: string;
   city: string | null; industry: string | null;
-  primary_rep_id: number | null; secondary_rep_id: number | null;
-  primary_rep_name: string | null; secondary_rep_name: string | null;
+  /** The single resolved owner, or null when the tour cannot decide. */
+  owner_name: string | null;
 }
 
 export interface NewOpportunityModalProps {
@@ -22,14 +20,7 @@ export interface NewOpportunityModalProps {
   clientName?: string;
   clientCode?: string;
   clientIndustry?: string | null;
-  clientPrimaryRepId?: number | null;
-  clientPrimaryRepName?: string | null;
-  clientSecondaryRepId?: number | null;
-  clientSecondaryRepName?: string | null;
-  // Current user (always)
-  currentUserName: string;
-  currentUserRepId: string | number | null;
-  currentUserRole: string;
+  clientOwnerName?: string | null;
 }
 
 const PROB: Record<string, number> = { Suspect: 20, Prospect: 40, Quoted: 60, Negotiating: 75 };
@@ -44,10 +35,7 @@ export function NewOpportunityModal(props: NewOpportunityModalProps) {
         code: props.clientCode ?? '',
         city: null,
         industry: props.clientIndustry ?? null,
-        primary_rep_id: props.clientPrimaryRepId ?? null,
-        secondary_rep_id: props.clientSecondaryRepId ?? null,
-        primary_rep_name: props.clientPrimaryRepName ?? null,
-        secondary_rep_name: props.clientSecondaryRepName ?? null,
+        owner_name: props.clientOwnerName ?? null,
       }
     : null;
 
@@ -128,9 +116,6 @@ export function NewOpportunityModal(props: NewOpportunityModalProps) {
             <NewOppForm
               client={selected}
               lockClient={!!lockClient}
-              currentUserName={props.currentUserName}
-              currentUserRepId={props.currentUserRepId}
-              currentUserRole={props.currentUserRole}
               onBack={() => setSelected(null)}
               onSuccess={reset}
             />
@@ -141,12 +126,9 @@ export function NewOpportunityModal(props: NewOpportunityModalProps) {
   );
 }
 
-function NewOppForm({ client, lockClient, currentUserName, currentUserRepId, currentUserRole, onBack, onSuccess }: {
+function NewOppForm({ client, lockClient, onBack, onSuccess }: {
   client: ClientResult;
   lockClient: boolean;
-  currentUserName: string;
-  currentUserRepId: string | number | null;
-  currentUserRole: string;
   onBack: () => void;
   onSuccess: () => void;
 }) {
@@ -155,35 +137,13 @@ function NewOppForm({ client, lockClient, currentUserName, currentUserRepId, cur
   const [error, setError]     = useState('');
   const [stage, setStage]     = useState('Suspect');
   const [prob, setProb]       = useState(PROB.Suspect);
-  const [reps, setReps]       = useState<Rep[]>([]);
-  const [primaryRepId, setPrimaryRepId]     = useState<string>(client.primary_rep_id != null ? String(client.primary_rep_id) : '');
-  const [secondaryRepId, setSecondaryRepId] = useState<string>(client.secondary_rep_id != null ? String(client.secondary_rep_id) : '');
-  const repsLoaded = useRef(false);
-
-  const isRep = currentUserRole === 'rep';
-
-  useEffect(() => {
-    if (isRep || repsLoaded.current) return; // reps don't need the dropdown list
-    repsLoaded.current = true;
-    fetch('/api/risansi/reps')
-      .then(r => r.json())
-      .then(data => setReps(Array.isArray(data) ? data : []))
-      .catch(() => setReps([]));
-  }, [isRep]);
-
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true); setError('');
     try {
       const fd = new FormData(e.currentTarget);
       fd.set('client_id', String(client.id));
-      if (isRep) {
-        fd.set('rep_id', currentUserRepId != null ? String(currentUserRepId) : '');
-        fd.set('secondary_rep_id', '');
-      } else {
-        fd.set('rep_id', primaryRepId);
-        fd.set('secondary_rep_id', secondaryRepId);
-      }
+      // Ownership is derived server-side from the client's tour.
       await createPipelineOpportunity(fd);
       onSuccess();
       router.refresh();
@@ -214,57 +174,26 @@ function NewOppForm({ client, lockClient, currentUserName, currentUserRepId, cur
         )}
       </div>
 
-      {/* Rep assignment */}
-      {isRep ? (
-        <div style={{ marginBottom: 14 }}>
-          <label style={LBL}>Primary Rep</label>
-          <div style={{ padding: '9px 12px', background: 'var(--bg-sunk)', border: '1px solid var(--line)', borderRadius: 6, fontSize: 13, color: 'var(--fg-2)' }}>
-            {currentUserName || 'You'}
-            <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--fg-3)', fontStyle: 'italic' }}>(You)</span>
-          </div>
-          <input type="hidden" name="rep_id" value={currentUserRepId != null ? String(currentUserRepId) : ''} />
+      {/* No rep picker: the client is already on a tour, and the tour says who
+          owns it. Asking again only invited a second, contradictory answer.
+          `owner_name` is the resolved owner — the same ladder the server uses.
+          It is NOT client.primary_rep_name, which is a comma-joined roster of
+          everyone on the tour, managers included, and so would name people the
+          server is not going to assign. Null means the tour cannot decide, and
+          the server will refuse — so say that here rather than at submit. */}
+      {client.owner_name ? (
+        <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: -6, marginBottom: 14 }}>
+          Owner: <span style={{ color: 'var(--fg-2)', fontWeight: 500 }}>{client.owner_name}</span>
+          <span style={{ fontStyle: 'italic' }}> · from this client&apos;s tour</span>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
-          <div>
-            <label style={LBL}>Primary Rep *</label>
-            {reps.length === 0 ? (
-              <div style={{ ...INP, color: 'var(--fg-3)', fontStyle: 'italic' }}>Loading reps…</div>
-            ) : (
-              <select name="rep_id" value={primaryRepId} onChange={e => setPrimaryRepId(e.target.value)} style={{ ...INP, borderColor: !primaryRepId ? 'var(--warn)' : 'var(--line-strong)' }}>
-                <option value="">— Use client&apos;s primary rep —</option>
-                {reps.map(r => (
-                  <option key={r.id} value={String(r.id)}>{r.name}{r.zone ? ` · ${r.zone}` : ''}{r.route ? ` · ${r.route}` : ''}</option>
-                ))}
-              </select>
-            )}
-            {client.primary_rep_name && (
-              <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3 }}>
-                Default: {client.primary_rep_name}
-              </div>
-            )}
-          </div>
-          <div>
-            <label style={LBL}>
-              Secondary Rep
-              <span style={{ fontWeight: 400, marginLeft: 4, textTransform: 'none', letterSpacing: 0 }}>(optional)</span>
-            </label>
-            {reps.length === 0 ? (
-              <div style={{ ...INP, color: 'var(--fg-3)', fontStyle: 'italic' }}>Loading reps…</div>
-            ) : (
-              <select name="secondary_rep_id" value={secondaryRepId} onChange={e => setSecondaryRepId(e.target.value)} style={INP}>
-                <option value="">— None —</option>
-                {reps.map(r => (
-                  <option key={r.id} value={String(r.id)}>{r.name}{r.zone ? ` · ${r.zone}` : ''}</option>
-                ))}
-              </select>
-            )}
-            {client.secondary_rep_name && (
-              <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3 }}>
-                Default: {client.secondary_rep_name}
-              </div>
-            )}
-          </div>
+        <div style={{
+          fontSize: 11.5, lineHeight: 1.5, color: 'var(--warn-strong, #92400E)',
+          background: 'var(--warn-soft, #FEF3C7)', border: '1px solid var(--warn, #F59E0B)',
+          borderRadius: 6, padding: '8px 10px', marginTop: -6, marginBottom: 14,
+        }}>
+          This client isn&apos;t on a tour with an assigned rep, so a new opportunity would have
+          no owner. Put the client on a tour first, then come back.
         </div>
       )}
 

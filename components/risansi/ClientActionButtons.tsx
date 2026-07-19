@@ -35,7 +35,10 @@ interface Props {
   clientCode:  string;
   industry:    string;
   repId:       string | null;
+  /** Whole tour roster, for display. */
   repName:     string;
+  /** The single resolved owner for new work, null when the tour can't decide. */
+  ownerName?:  string | null;
   reps:        DrawerRep[];
   clientData:  any;
   contacts?:   any[];
@@ -48,7 +51,7 @@ interface Props {
 // ── Component ──────────────────────────────────────────────────
 
 export function ClientActionButtons({
-  clientId, clientName, clientCode, industry, repId, repName, reps, clientData, contacts, canEdit = false,
+  clientId, clientName, clientCode, industry, repId, repName, ownerName, reps, clientData, contacts, canEdit = false,
   currentUserName, currentUserRepId, currentUserRole,
 }: Props) {
   const [isVisitOpen, setIsVisitOpen] = useState(false);
@@ -122,11 +125,7 @@ export function ClientActionButtons({
         clientName={clientName}
         clientCode={clientCode}
         clientIndustry={industry}
-        clientPrimaryRepId={repId ? Number(repId) : null}
-        clientPrimaryRepName={repName || null}
-        currentUserName={currentUserName ?? ''}
-        currentUserRepId={currentUserRepId ?? null}
-        currentUserRole={currentUserRole ?? 'rep'}
+        clientOwnerName={ownerName ?? null}
       />
 
       {/* Edit client drawer — unified ClientFormDrawer in edit mode */}

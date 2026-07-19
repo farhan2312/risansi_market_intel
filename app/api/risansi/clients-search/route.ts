@@ -14,14 +14,17 @@ export async function GET(request: Request) {
 
     const res = await risansiPool.query(
       `SELECT c.id, c.code, c.legal_name, c.city, c.state, c.industry,
-              -- first rep on the client's tour stands in for the primary rep
-              (SELECT ta.rep_id FROM tour_assignments ta
-                WHERE ta.tour_id = c.tour_id AND ta.role = 'rep' ORDER BY ta.assigned_at, ta.rep_id LIMIT 1) AS primary_rep_id,
-              NULL::int                                                     AS secondary_rep_id,
-              (SELECT string_agg(u.name, ', ' ORDER BY u.name)
-                 FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
-                WHERE ta.tour_id = c.tour_id)                                  AS primary_rep_name,
-              NULL::text                                                    AS secondary_rep_name
+              -- The ONE resolved owner, matching resolveClientPrimaryRep: the
+              -- tour's designated owner, else its sole rep, else null. This
+              -- replaced a string_agg of the whole tour roster (managers
+              -- included), which named people the server would never assign.
+              (SELECT u.name FROM users u WHERE u.id = COALESCE(
+                 (SELECT tr.primary_rep_id FROM tour_routes tr
+                   WHERE tr.id = c.tour_id AND tr.primary_rep_id IS NOT NULL),
+                 (SELECT max(ta.rep_id) FROM tour_assignments ta
+                   WHERE ta.tour_id = c.tour_id AND ta.role = 'rep'
+                   HAVING count(*) = 1)
+               ) AND u.is_active)                                             AS owner_name
        FROM clients c
        WHERE c.deleted_at IS NULL
          AND c.status = 'ACTIVE'

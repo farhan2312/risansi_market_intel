@@ -111,10 +111,14 @@ export default async function PipelinePage({
   const vals: (string | number | string[])[] = [];
   let idx = 1;
 
-  // Rep scoping — limit to own opportunities unless showing all
-  if (!showAll && currentRepId != null) {
+  // Rep scoping — limit to own opportunities unless showing all. An explicit
+  // rep selection overrides this default rather than ANDing with it: a rep who
+  // picks a colleague means "show me theirs", and ANDing the two gave an
+  // unexplained empty board. Visibility is still bounded by ownerVis below.
+  const scopedRepId = !showAll && repFilts.length === 0 ? currentRepId : null;
+  if (scopedRepId != null) {
     conds.push(`o.rep_id = $${idx}`);
-    vals.push(currentRepId); idx++;
+    vals.push(scopedRepId); idx++;
   }
 
   if (stageFilts.length > 0) {
@@ -155,9 +159,9 @@ export default async function PipelinePage({
   const revConds: string[] = [];
   const revVals: (string | number | string[])[] = [];
   let rIdx = 1;
-  if (!showAll && currentRepId != null) {
+  if (scopedRepId != null) {
     revConds.push(`c.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = $${rIdx})`);
-    revVals.push(currentRepId); rIdx++;
+    revVals.push(scopedRepId); rIdx++;
   }
   if (repFilts.length > 0) {
     revConds.push(`EXISTS (SELECT 1 FROM tour_assignments ta JOIN users u2 ON u2.id = ta.rep_id
@@ -169,6 +173,28 @@ export default async function PipelinePage({
     revVals.push(indFilts); rIdx++;
   }
   const revFilterClause = (revConds.length ? ` AND ${revConds.join(' AND ')}` : '') + ownerVisCIdAnd;
+
+  // Win Rate and Lost-To used to interpolate only the visibility scope, never
+  // the filters — so they sat inert while every other tile responded. Only the
+  // Win/Loss query joins clients (for industry); Lost-To joins nothing. Writing
+  // these as subqueries against the opportunity row keeps one builder valid for
+  // both call sites regardless of what each has in scope.
+  //
+  // Two deliberate omissions. Stage: both panels are defined over Won/Lost, so
+  // a stage selection would empty them rather than narrow them. Self-scope:
+  // these are analytics over everything the user can SEE, not over what they
+  // personally own — applying it cut one rep's win-rate sample from 165 to 27,
+  // because most historic Won rows still sit on the house account.
+  const analyticsFilter = (a: string) => {
+    const c: string[] = [];
+    const v: (string | number | string[])[] = [];
+    if (prodTypeFilts.length)   { c.push(`${a}.product_type = ANY($${v.length + 1}::text[])`);                                 v.push(prodTypeFilts); }
+    if (repFilts.length)        { c.push(`${a}.rep_id IN (SELECT id FROM users WHERE name = ANY($${v.length + 1}::text[]))`);  v.push(repFilts); }
+    if (indFilts.length)        { c.push(`${a}.client_id IN (SELECT id FROM clients WHERE industry = ANY($${v.length + 1}::text[]))`); v.push(indFilts); }
+    return { clause: c.length ? ` AND ${c.join(' AND ')}` : '', vals: v as (string | number)[] };
+  };
+  const wlFilter   = analyticsFilter('po');
+  const lostFilter = analyticsFilter('o');
   // Dropped is terminal (client-cancelled) — excluded from open pipeline, shown
   // in the kanban alongside Won/Lost via the closed query.
   const openWhere   = `WHERE o.stage NOT IN ('Won', 'Lost', 'Dropped')${filterClause}`;
@@ -270,28 +296,28 @@ export default async function PipelinePage({
         FROM opportunities po
         JOIN clients c ON c.id = po.client_id
         WHERE po.stage IN ('Won', 'Lost')
-          AND po.updated_at >= NOW() - INTERVAL '12 months'${ownerVisPoAnd}
+          AND po.updated_at >= NOW() - INTERVAL '12 months'${ownerVisPoAnd}${wlFilter.clause}
         GROUP BY c.industry
         ORDER BY (COUNT(*) FILTER (WHERE po.stage = 'Won') +
                   COUNT(*) FILTER (WHERE po.stage = 'Lost')) DESC
         LIMIT 6
-      `);
+      `, wlFilter.vals);
       return rows;
     }, []),
 
     // 5. Lost-to competitors
     q<LostToRow[]>(async () => {
       const { rows } = await risansiPool.query<{ competitor: string; opp_count: string; value: string }>(`
-        SELECT COALESCE(lost_to_competitor, 'Others') AS competitor,
+        SELECT COALESCE(o.lost_to_competitor, 'Others') AS competitor,
                COUNT(*)::text AS opp_count,
-               COALESCE(SUM(value_cr), 0)::text AS value
-        FROM opportunities
-        WHERE stage = 'Lost'
-          AND updated_at >= NOW() - INTERVAL '12 months'${ownerVisBareAnd}
-        GROUP BY COALESCE(lost_to_competitor, 'Others')
-        ORDER BY SUM(value_cr) DESC NULLS LAST
+               COALESCE(SUM(o.value_cr), 0)::text AS value
+        FROM opportunities o
+        WHERE o.stage = 'Lost'
+          AND o.updated_at >= NOW() - INTERVAL '12 months'${ownerVisAnd}${lostFilter.clause}
+        GROUP BY COALESCE(o.lost_to_competitor, 'Others')
+        ORDER BY SUM(o.value_cr) DESC NULLS LAST
         LIMIT 5
-      `);
+      `, lostFilter.vals);
       return rows.map(r => ({ ...r, value: Number(r.value) }));
     }, []),
 
@@ -363,20 +389,19 @@ export default async function PipelinePage({
               {winRatePct > 0 && ` · win rate FY ${winRatePct}%`}
             </div>
           </div>
-          <NewOpportunityButton
-            currentUserName={session?.user?.name ?? ''}
-            currentUserRepId={currentRepId}
-            currentUserRole={role}
-          />
+          <NewOpportunityButton />
         </div>
 
         {/* Rep scope toggle (rep role only) */}
         {role === 'rep' && (
           <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+            {/* Lit from scopedRepId, not showAll: picking a colleague in the
+                Rep filter suspends the self-scope, so keying off showAll left
+                "My Opportunities" highlighted over somebody else's board. */}
             <a href="/risansi/pipeline" style={{
               padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 500,
-              background: !showAll ? '#0A3D8F' : 'var(--bg-elev)',
-              color: !showAll ? 'white' : 'var(--fg-3)',
+              background: scopedRepId != null ? '#0A3D8F' : 'var(--bg-elev)',
+              color: scopedRepId != null ? 'white' : 'var(--fg-3)',
               textDecoration: 'none', border: '1px solid var(--line)',
             }}>
               My Opportunities

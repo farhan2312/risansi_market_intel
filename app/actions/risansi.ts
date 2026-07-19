@@ -8,6 +8,7 @@ import { getManagerAssignableReps, hasRole, getCurrentUser, canViewClient } from
 import risansiPool from '@/lib/db-risansi';
 import { recordAudit } from '@/lib/audit';
 import { normalizeClientName, uniqueLeadCode } from '@/lib/risansi-lead-code';
+import { resolveClientPrimaryRep } from '@/lib/risansi-client-rep';
 
 // ── Helper ─────────────────────────────────────────────────────
 
@@ -703,17 +704,34 @@ export async function createPipelineOpportunity(formData: FormData) {
 
   if (!clientId) throw new Error('Client is required.');
 
-  // Rep assignment rule (enforced server-side, mirrors Plan Visit):
-  //   rep role          → ALWAYS themselves; resolved fresh by login email,
-  //                       never the submitted rep_id; no secondary rep.
-  //   admin/manager/...  → the submitted dropdown selections, falling back to
-  //                       the client's primary/secondary rep when left blank.
-  // Single explicit owner (flat model). resolveAssignableRepId enforces:
-  //   rep → self; manager → required & within tours; admin → required.
-  const primaryRepId = await resolveAssignableRepId(
-    user,
-    (formData.get('rep_id') as string | null)?.trim() ?? null,
-  );
+  // Ownership is derived, not asked for. The client is already on a tour and
+  // the tour names its owner, so a rep picker on this form could only ever
+  // disagree with that. A rep filing their own opportunity still gets it;
+  // otherwise the tour decides.
+  // A rep always owns what they file. Their session may carry no numeric repId,
+  // so fall back to a lookup by login email exactly as resolveAssignableRepId
+  // did — without it a rep would silently have their own work handed to a
+  // colleague off the tour roster.
+  let creatorRepId = typeof user.repId === 'number' ? user.repId : null;
+  if (creatorRepId == null && user.email) {
+    const { rows } = await risansiPool.query<{ id: number }>(
+      'SELECT id FROM users WHERE lower(email) = lower($1) AND is_active = TRUE LIMIT 1',
+      [user.email],
+    );
+    creatorRepId = rows[0]?.id ?? null;
+  }
+  if (user.role === 'rep' && creatorRepId == null) {
+    throw new Error('Your account is not linked to a user record. Please contact the system administrator.');
+  }
+
+  const derived = await resolveClientPrimaryRep(clientId, creatorRepId);
+  const primaryRepId = user.role === 'rep' ? creatorRepId : derived.repId;
+
+  if (!primaryRepId) {
+    throw new Error(
+      'This client is not on a tour with an assigned rep, so the opportunity would have no owner. Put the client on a tour first, then create the opportunity.',
+    );
+  }
   const secondaryRepId: number | null = null;
 
   const hasSecondary = await opportunitiesHasSecondaryRep();
@@ -748,7 +766,13 @@ export async function createPipelineOpportunity(formData: FormData) {
     } catch { /* table may not exist */ }
   }
 
-  await logActivity('pipeline', clientId, `created opportunity: ${product} · ${stage} · ₹${value} Cr`, user.email!);
+  // Flag a guessed owner in the log. When the tour has several reps and none is
+  // designated, the pick is roster order — recording that is the difference
+  // between a decision and an artefact nobody can later tell apart.
+  const ownerNote = user.role !== 'rep' && derived.ambiguous && derived.basis === 'roster-order'
+    ? ' · owner inferred from tour roster order (tour has no designated rep)'
+    : '';
+  await logActivity('pipeline', clientId, `created opportunity: ${product} · ${stage} · ₹${value} Cr${ownerNote}`, user.email!);
   revalidatePath('/risansi/pipeline');
   revalidatePath('/risansi');
 }

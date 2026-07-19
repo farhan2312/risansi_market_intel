@@ -42,6 +42,7 @@ interface Client {
   tcd: number | null; klpd: number | null;
   // Reps (DB columns + joined)
   primary_rep_id: string | null; primary_rep_name: string | null;
+  owner_name: string | null;
   rep_name: string | null; manager_name: string | null;
   rep_zone: string | null; rep_route: string | null; rep_email: string | null;
   secondary_rep_joined: string | null; secondary_rep_zone: string | null; secondary_rep_route: string | null;
@@ -164,6 +165,16 @@ export default async function ClientProfilePage({
   const client = await q<Client | null>(async () => {
     const { rows } = await risansiPool.query<Client>(
       `SELECT c.*,
+              -- The ONE rep who owns new work here (tour's designated owner,
+              -- else its sole rep, else null). Distinct from rep_name below,
+              -- which lists the whole roster for display.
+              (SELECT u.name FROM users u WHERE u.id = COALESCE(
+                 (SELECT tr.primary_rep_id FROM tour_routes tr
+                   WHERE tr.id = c.tour_id AND tr.primary_rep_id IS NOT NULL),
+                 (SELECT max(ta.rep_id) FROM tour_assignments ta
+                   WHERE ta.tour_id = c.tour_id AND ta.role = 'rep'
+                   HAVING count(*) = 1)
+               ) AND u.is_active) AS owner_name,
               COALESCE(
                 (SELECT string_agg(u.name, ', ' ORDER BY u.name)
                    FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
@@ -593,6 +604,7 @@ export default async function ClientProfilePage({
             industry={client.industry ?? ''}
             repId={client.primary_rep_id ?? null}
             repName={client.rep_name ?? client.primary_rep_name ?? ''}
+            ownerName={client.owner_name ?? null}
             reps={reps}
             clientData={client}
             contacts={contacts.filter(c => c.added_by !== 'excel_import')}

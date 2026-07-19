@@ -3,24 +3,16 @@
 import { useState, type CSSProperties } from 'react';
 import { NewOpportunityModal } from './NewOpportunityModal';
 
-export function NewOpportunityButton({ currentUserName, currentUserRepId, currentUserRole }: {
-  currentUserName: string;
-  currentUserRepId: string | number | null;
-  currentUserRole: string;
-}) {
+// Takes no session props: ownership is resolved server-side from the client's
+// tour, so the modal no longer varies by who is looking at it.
+export function NewOpportunityButton() {
   const [open, setOpen] = useState(false);
   return (
     <>
       <button onClick={() => setOpen(true)} style={TRIGGER_BTN}>
         New Opportunity
       </button>
-      <NewOpportunityModal
-        open={open}
-        onClose={() => setOpen(false)}
-        currentUserName={currentUserName}
-        currentUserRepId={currentUserRepId}
-        currentUserRole={currentUserRole}
-      />
+      <NewOpportunityModal open={open} onClose={() => setOpen(false)} />
     </>
   );
 }
