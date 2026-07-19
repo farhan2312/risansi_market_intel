@@ -147,6 +147,28 @@ export default async function PipelinePage({
   const ownerVisCIdAnd = ownerVisCId ? ` AND (${ownerVisCId})` : '';
 
   const filterClause = (conds.length ? ` AND ${conds.join(' AND ')}` : '') + ownerVisAnd;
+
+  // Booked comes from actual revenue, which is client-scoped — so it needs its
+  // own predicate. Only the client-level filters carry over; stage and product
+  // type don't exist on a revenue row. Without this the Booked tile ignored
+  // every filter while the other tiles responded.
+  const revConds: string[] = [];
+  const revVals: (string | number | string[])[] = [];
+  let rIdx = 1;
+  if (!showAll && currentRepId != null) {
+    revConds.push(`c.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = $${rIdx})`);
+    revVals.push(currentRepId); rIdx++;
+  }
+  if (repFilts.length > 0) {
+    revConds.push(`EXISTS (SELECT 1 FROM tour_assignments ta JOIN users u2 ON u2.id = ta.rep_id
+                            WHERE ta.tour_id = c.tour_id AND u2.name = ANY($${rIdx}::text[]))`);
+    revVals.push(repFilts); rIdx++;
+  }
+  if (indFilts.length > 0) {
+    revConds.push(`c.industry = ANY($${rIdx}::text[])`);
+    revVals.push(indFilts); rIdx++;
+  }
+  const revFilterClause = (revConds.length ? ` AND ${revConds.join(' AND ')}` : '') + ownerVisCIdAnd;
   // Dropped is terminal (client-cancelled) — excluded from open pipeline, shown
   // in the kanban alongside Won/Lost via the closed query.
   const openWhere   = `WHERE o.stage NOT IN ('Won', 'Lost', 'Dropped')${filterClause}`;
@@ -220,9 +242,11 @@ export default async function PipelinePage({
     // 2. Booked YTD — current FY, returned in Cr
     q<number>(async () => {
       const { rows } = await risansiPool.query<{ booked_inr: string }>(
-        `SELECT COALESCE(SUM(total_value), 0)::text AS booked_inr
-         FROM client_revenue_monthly
-         WHERE month >= '${cyStart}' AND month < '${cyEnd}'${ownerVisBareAnd}`,
+        `SELECT COALESCE(SUM(m.total_value), 0)::text AS booked_inr
+         FROM client_revenue_monthly m
+         JOIN clients c ON c.id = m.client_id
+         WHERE m.month >= '${cyStart}' AND m.month < '${cyEnd}'${revFilterClause}`,
+        revVals as (string | number)[],
       );
       return Number(rows[0]?.booked_inr ?? 0) / 10_000_000;
     }, 0),

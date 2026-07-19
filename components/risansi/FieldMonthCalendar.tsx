@@ -87,7 +87,7 @@ export function FieldMonthCalendar({
         background: 'var(--bg-paper)', border: '1px solid var(--line)',
         borderRadius: 'var(--radius)', overflow: 'hidden',
       }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: '1px solid var(--line)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', borderBottom: '1px solid var(--line)' }}>
           {WD_FULL.map(d => (
             <div key={d} style={{
               padding: compact ? '5px 4px' : '7px 6px', textAlign: 'center',
@@ -98,13 +98,17 @@ export function FieldMonthCalendar({
             </div>
           ))}
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))' }}>
           {monthWeeks(mo.year, mo.month).flat().map(day => {
             const dv      = byDate.get(day.date) ?? [];
             const isToday = day.date === todayISO;
             return (
               <div key={day.date} style={{
                 minHeight: compact ? 46 : 98,
+                // Grid items default to min-width:auto, so a long non-wrapping
+                // client name would widen its column past 1fr and push the day
+                // cells out of line with the weekday header. Pin it to 0.
+                minWidth: 0, overflow: 'hidden',
                 borderRight: '1px solid var(--line)', borderBottom: '1px solid var(--line)',
                 padding: compact ? '3px 4px' : '4px 5px',
                 background: day.om ? 'var(--bg-elev)' : 'var(--bg-paper)',
