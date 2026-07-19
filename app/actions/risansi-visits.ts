@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 import { recordAudit } from '@/lib/audit';
+import { withinVisitEditWindow, VISIT_EDIT_WINDOW_DAYS } from '@/lib/risansi-visit-edit-window';
 
 // Resolve the signed-in user's rep id: prefer the session's linked rep_id,
 // fall back to a reps-by-email lookup for accounts linked after token issue.
@@ -234,12 +235,16 @@ export async function saveVisitField(
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) throw new Error('Unauthorized');
 
-  const { rows } = await risansiPool.query<{ rep_id: number | null; submitted_at: string | null }>(
-    'SELECT rep_id, submitted_at FROM visits WHERE id = $1',
+  const { rows } = await risansiPool.query<{ rep_id: number | null; submitted_at: string | null; client_id: number | null }>(
+    'SELECT rep_id, submitted_at, client_id FROM visits WHERE id = $1',
     [visitId],
   );
   const visit = rows[0];
-  if (visit?.submitted_at) throw new Error('Visit is already closed');
+  // Submitted reports stay correctable for the edit window, then lock for good.
+  if (visit?.submitted_at && !withinVisitEditWindow(visit.submitted_at)) {
+    throw new Error(`This report was submitted more than ${VISIT_EDIT_WINDOW_DAYS} days ago and can no longer be edited.`);
+  }
+  const isCorrection = !!visit?.submitted_at;
 
   // Ownership: only the assigned rep may save fields.
   const myRepId = await callerRepId(session);
@@ -291,6 +296,20 @@ export async function saveVisitField(
       [visitId, ...vals],
     );
   }
+
+  // Corrections to an already-submitted report are auditable against the client;
+  // ordinary pre-submission drafting is not logged (it would drown the feed).
+  if (isCorrection && visit?.client_id) {
+    const changed = [...Object.keys(visitFields), ...Object.keys(sugarFields), ...Object.keys(nonsugFields)];
+    if (changed.length) {
+      const shown = changed.slice(0, 6).map(c => c.replace(/_/g, ' ')).join(', ');
+      await recordAudit({
+        action: 'update', entityType: 'client', entityId: visit.client_id,
+        summary: `Visit report corrected after submission: ${shown}${changed.length > 6 ? ` +${changed.length - 6} more` : ''}`,
+        actorEmail: session.user.email,
+      });
+    }
+  }
 }
 
 // ── Add equipment ──────────────────────────────────────────────
@@ -310,6 +329,16 @@ export async function addEquipment(
 ) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) throw new Error('Unauthorized');
+
+  // Same window as edit/delete — this previously had no lock at all.
+  const addVis = await risansiPool.query<{ submitted_at: string | null }>(
+    'SELECT submitted_at FROM visits WHERE id = $1', [visitId],
+  );
+  if (!addVis.rows[0]) throw new Error('Visit not found');
+  if (!withinVisitEditWindow(addVis.rows[0].submitted_at)) {
+    throw new Error(`This report was submitted more than ${VISIT_EDIT_WINDOW_DAYS} days ago and can no longer be edited.`);
+  }
+  const addIsCorrection = !!addVis.rows[0].submitted_at;
 
   const isOpp = !data.is_ril && data.condition === 'EOL';
 
@@ -338,7 +367,7 @@ export async function addEquipment(
   const label = `${data.supplier ?? ''} ${data.model ?? ''}`.trim() || data.pump_type;
   await recordAudit({
     action: 'create', entityType: 'client', entityId: clientId,
-    summary: `${data.is_ril ? 'RIL' : 'Competitor'} pump added: ${label}`,
+    summary: `${data.is_ril ? 'RIL' : 'Competitor'} pump added: ${label}${addIsCorrection ? ' (after submission)' : ''}`,
     actorEmail: session.user.email,
   });
 
@@ -363,12 +392,15 @@ export async function updateEquipment(
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) throw new Error('Unauthorized');
 
-  // Equipment is only editable until the visit is submitted (closed).
+  // Editable until submission, then for the correction window only.
   const vis = await risansiPool.query<{ submitted_at: string | null }>(
     'SELECT submitted_at FROM visits WHERE id = $1', [visitId],
   );
   if (!vis.rows[0]) throw new Error('Visit not found');
-  if (vis.rows[0].submitted_at) throw new Error('Visit already submitted — equipment is locked.');
+  if (!withinVisitEditWindow(vis.rows[0].submitted_at)) {
+    throw new Error(`This report was submitted more than ${VISIT_EDIT_WINDOW_DAYS} days ago and can no longer be edited.`);
+  }
+  const isCorrection = !!vis.rows[0].submitted_at;
 
   const isOpp = !data.is_ril && data.condition === 'EOL';
 
@@ -398,7 +430,7 @@ export async function updateEquipment(
     const label = `${data.supplier ?? ''} ${data.model ?? ''}`.trim() || data.pump_type;
     await recordAudit({
       action: 'update', entityType: 'client', entityId: clientId,
-      summary: `${data.is_ril ? 'RIL' : 'Competitor'} pump updated: ${label}`,
+      summary: `${data.is_ril ? 'RIL' : 'Competitor'} pump updated: ${label}${isCorrection ? ' (after submission)' : ''}`,
       actorEmail: session.user.email,
     });
   }
@@ -412,12 +444,15 @@ export async function deleteEquipment(equipmentId: string | number, visitId: str
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) throw new Error('Unauthorized');
 
-  // Match the edit rule — equipment is locked once the visit is submitted.
+  // Match the edit rule — correctable until the window closes.
   const vis = await risansiPool.query<{ submitted_at: string | null }>(
     'SELECT submitted_at FROM visits WHERE id = $1', [visitId],
   );
   if (!vis.rows[0]) throw new Error('Visit not found');
-  if (vis.rows[0].submitted_at) throw new Error('Visit already submitted — equipment is locked.');
+  if (!withinVisitEditWindow(vis.rows[0].submitted_at)) {
+    throw new Error(`This report was submitted more than ${VISIT_EDIT_WINDOW_DAYS} days ago and can no longer be edited.`);
+  }
+  const isCorrection = !!vis.rows[0].submitted_at;
 
   const eq = await risansiPool.query<{ client_id: number; supplier: string | null; model: string | null; pump_type: string | null; is_ril: boolean }>(
     'SELECT client_id, supplier, model, pump_type, is_ril FROM equipment WHERE id = $1 AND visit_id = $2',
@@ -431,7 +466,7 @@ export async function deleteEquipment(equipmentId: string | number, visitId: str
   const label = `${row.supplier ?? ''} ${row.model ?? ''}`.trim() || row.pump_type || 'pump';
   await recordAudit({
     action: 'delete', entityType: 'client', entityId: row.client_id,
-    summary: `${row.is_ril ? 'RIL' : 'Competitor'} pump removed: ${label}`,
+    summary: `${row.is_ril ? 'RIL' : 'Competitor'} pump removed: ${label}${isCorrection ? ' (after submission)' : ''}`,
     actorEmail: session.user.email,
   });
 

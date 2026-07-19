@@ -6,6 +6,7 @@ import { getCurrentUser, clientScopeSql, canViewClient } from '@/lib/risansi-aut
 import { Topbar } from '@/components/risansi';
 import Link from 'next/link';
 import { VisitReportForm } from '@/components/risansi/VisitReportForm';
+import { withinVisitEditWindow, visitEditDaysLeft, VISIT_EDIT_WINDOW_DAYS } from '@/lib/risansi-visit-edit-window';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
@@ -89,7 +90,8 @@ export default async function VisitReportPage({
     myRepId = repRes.rows[0]?.id ?? null;
   }
   const isAssignedRep = myRepId != null && visit.rep_id != null && String(visit.rep_id) === String(myRepId);
-  const canEdit = !isSubmitted && isAssignedRep;
+  // A submitted report stays correctable by its rep for the edit window.
+  const canEdit = isAssignedRep && withinVisitEditWindow(visit.submitted_at);
 
   const [contacts, equipment, sugarRes, nonsugarRes, oppsRes, tasksRes, reps, expansionOppRow] = await Promise.all([
     q(async () => {
@@ -173,10 +175,13 @@ export default async function VisitReportPage({
     }, null),
   ]);
 
-  // Drives the whole form's read-only state: locked when submitted OR when the
-  // viewer isn't the assigned rep. VisitReportForm already disables every field,
-  // the auto-save triggers, and inline add-buttons off this single flag.
-  const isClosed = isSubmitted || !canEdit;
+  // Drives the whole form's read-only state. A submitted report stays
+  // correctable for VISIT_EDIT_WINDOW_DAYS so a rep can fix a mistake; after
+  // that it locks for good. VisitReportForm disables every field, the auto-save
+  // triggers, and the inline add-buttons off this single flag.
+  const inEditWindow = withinVisitEditWindow(visit.submitted_at);
+  const daysLeft     = visitEditDaysLeft(visit.submitted_at);
+  const isClosed     = (isSubmitted && !inEditWindow) || !canEdit;
   const isSugar  = visit.industry_format === 'sugar' || (!visit.industry_format && visit.is_sugar);
 
   const visitDate = new Date(visit.visit_date).toLocaleDateString('en-IN', {
@@ -243,6 +248,32 @@ export default async function VisitReportPage({
               {/* Submit moved into the wizard's final step (VisitReportForm) */}
             </div>
           </div>
+
+          {/* Correction window — submitted, but still editable by its rep */}
+          {isSubmitted && isAssignedRep && inEditWindow && (
+            <div style={{
+              padding: '10px 16px', marginBottom: 16,
+              background: 'var(--accent-soft, #EBF1FB)',
+              border: '1px solid var(--accent-line, #C7D9F5)',
+              borderRadius: 8, fontSize: 12, color: 'var(--title, #0A3D8F)',
+            }}>
+              <b>Submitted — corrections still open.</b> You can fix mistakes in this report for{' '}
+              <b>{daysLeft} more day{daysLeft === 1 ? '' : 's'}</b> (the window is {VISIT_EDIT_WINDOW_DAYS} days from
+              submission). Every change you make now is recorded in the client&apos;s activity log.
+            </div>
+          )}
+
+          {/* Window closed — submitted too long ago to correct */}
+          {isSubmitted && isAssignedRep && !inEditWindow && (
+            <div style={{
+              padding: '10px 16px', marginBottom: 16,
+              background: 'var(--bg-elev)', border: '1px solid var(--line-strong)',
+              borderRadius: 8, fontSize: 12, color: 'var(--fg-3)',
+            }}>
+              This report was submitted more than {VISIT_EDIT_WINDOW_DAYS} days ago, so it&apos;s now locked.
+              Ask an admin if something still needs correcting.
+            </div>
+          )}
 
           {/* View-only notice — not submitted, just not the assigned rep */}
           {!isSubmitted && !isAssignedRep && (
