@@ -2,6 +2,7 @@
 
 import { useRef, useState, type CSSProperties } from 'react';
 import { saveQuotedDetails } from '@/app/actions/risansi';
+import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
 
 // Shown when a card is dragged into the Quoted column — captures the full
 // quotation (all attributes + a dynamic list of quoted items). Cancel reverts.
@@ -152,7 +153,18 @@ export function QuotedDetailsModal({ opp, onSave, onCancel }: { opp: QuotedOpp; 
               <Field label="Client Status"><select name="client_status_at_quote" defaultValue={opp.client_status_at_quote ?? ''} style={INP}><option value="">—</option>{['NEW', 'EXISTING'].map(m => <option key={m} value={m}>{m}</option>)}</select></Field>
               <Field label="RIL Rep"><input name="ril_rep" defaultValue={opp.ril_rep ?? ''} placeholder="e.g. NI" style={INP} /></Field>
               <Field label="Qtn. Prepared By"><input name="qtn_prepared_by" defaultValue={opp.qtn_prepared_by ?? ''} style={INP} /></Field>
-              <Field label="Probability Code"><input name="probability_code" defaultValue={opp.probability_code ?? ''} style={INP} /></Field>
+              <Field label="Probability Code">
+                <select name="probability_code" defaultValue={opp.probability_code ?? ''} style={INP}>
+                  <option value="">—</option>
+                  {PROBABILITY_CODES.map(c => (
+                    <option key={c.code} value={c.code}>{probabilityCodeLabel(c)}</option>
+                  ))}
+                  {/* Preserve any legacy value that isn't one of the standard codes. */}
+                  {opp.probability_code && !PROBABILITY_CODES.some(c => c.code === opp.probability_code) && (
+                    <option value={opp.probability_code}>{opp.probability_code}</option>
+                  )}
+                </select>
+              </Field>
               <Field label="Unit / Project"><input name="unit_project" defaultValue={opp.unit_project ?? ''} style={INP} /></Field>
               <Field label="Location"><input name="location" defaultValue={opp.location ?? ''} style={INP} /></Field>
               <div style={{ gridColumn: '1 / -1' }}>

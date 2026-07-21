@@ -5,6 +5,7 @@ import { Topbar, MultiSelectFilter, ActiveFilterBar } from '@/components/risansi
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, clientScopeSql } from '@/lib/risansi-auth';
 import { getCurrentFY, fmtCr } from '@/lib/risansi-utils';
+import { PROBABILITY_CODE_OPTIONS } from '@/lib/risansi-probability-codes';
 import { NewOpportunityButton } from '@/components/risansi/NewOpportunityButton';
 import { OpportunityKanban } from '@/components/risansi/OpportunityKanban';
 import { ActiveOppsTable } from '@/components/risansi/ActiveOppsTable';
@@ -99,6 +100,7 @@ export default async function PipelinePage({
   // literally named "all" (which returned zero results for "All Opportunities").
   const repFilts      = typeof sp.rep          === 'string' && sp.rep && sp.rep !== 'all' ? sp.rep.split(',').filter(Boolean)          : [];
   const indFilts      = typeof sp.industry     === 'string' && sp.industry     ? sp.industry.split(',').filter(Boolean)     : [];
+  const probFilts     = typeof sp.prob         === 'string' && sp.prob         ? sp.prob.split(',').filter(Boolean)         : [];
 
   // Sort
   const sortKey  = typeof sp.sort  === 'string' ? sp.sort            : 'value';
@@ -136,6 +138,10 @@ export default async function PipelinePage({
   if (indFilts.length > 0) {
     conds.push(`c.industry = ANY($${idx}::text[])`);
     vals.push(indFilts); idx++;
+  }
+  if (probFilts.length > 0) {
+    conds.push(`o.probability_code = ANY($${idx}::text[])`);
+    vals.push(probFilts); idx++;
   }
 
   // Per-user owner visibility — null for admin/sysadmin (no restriction).
@@ -191,6 +197,7 @@ export default async function PipelinePage({
     if (prodTypeFilts.length)   { c.push(`${a}.product_type = ANY($${v.length + 1}::text[])`);                                 v.push(prodTypeFilts); }
     if (repFilts.length)        { c.push(`${a}.rep_id IN (SELECT id FROM users WHERE name = ANY($${v.length + 1}::text[]))`);  v.push(repFilts); }
     if (indFilts.length)        { c.push(`${a}.client_id IN (SELECT id FROM clients WHERE industry = ANY($${v.length + 1}::text[]))`); v.push(indFilts); }
+    if (probFilts.length)       { c.push(`${a}.probability_code = ANY($${v.length + 1}::text[])`);                             v.push(probFilts); }
     return { clause: c.length ? ` AND ${c.join(' AND ')}` : '', vals: v as (string | number)[] };
   };
   const wlFilter   = analyticsFilter('po');
@@ -366,7 +373,7 @@ export default async function PipelinePage({
     ? Math.round((totalWon / (totalWon + totalLost)) * 100)
     : 0;
 
-  const anyFilter = stageFilts.length > 0 || prodTypeFilts.length > 0 || repFilts.length > 0 || indFilts.length > 0;
+  const anyFilter = stageFilts.length > 0 || prodTypeFilts.length > 0 || repFilts.length > 0 || indFilts.length > 0 || probFilts.length > 0;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -455,6 +462,7 @@ export default async function PipelinePage({
           <MultiSelectFilter param="product_type" label="Product Type" options={productTypeOptions}  selected={prodTypeFilts} />
           <MultiSelectFilter param="rep"          label="Rep"          options={repOptions}          selected={repFilts}      />
           <MultiSelectFilter param="industry"     label="Industry"     options={industryOptions}     selected={indFilts}      />
+          <MultiSelectFilter param="prob"         label="Probability"  options={PROBABILITY_CODE_OPTIONS} selected={probFilts} />
         </div>
         {anyFilter && (
           <div style={{ marginBottom: 12 }}>
@@ -463,6 +471,7 @@ export default async function PipelinePage({
               { param: 'product_type', label: 'Type',     values: prodTypeFilts },
               { param: 'rep',          label: 'Rep',      values: repFilts      },
               { param: 'industry',     label: 'Industry', values: indFilts      },
+              { param: 'prob',         label: 'Prob',     values: probFilts     },
             ]} />
           </div>
         )}
