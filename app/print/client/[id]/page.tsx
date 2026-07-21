@@ -67,7 +67,7 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
   const currentUser = await getCurrentUser();
   if (!(await canViewClient(currentUser, Number(client.id)))) notFound();
 
-  const [contacts, clientRevByFY, compRow, visits, openOpps, clientPumps] = await Promise.all([
+  const [contacts, clientRevByFY, compRow, visits, allOpps, clientPumps] = await Promise.all([
     q(async () => (await risansiPool.query<Record<string, unknown>>(
       `SELECT name, designation, is_primary, phone, email, whatsapp, notes
          FROM contacts WHERE client_id = $1 ORDER BY is_primary DESC, created_at ASC`, [client.id],
@@ -91,8 +91,12 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
          WHERE v.client_id = $1 ORDER BY v.visit_date DESC LIMIT 30`, [client.id],
     )).rows, [] as Record<string, unknown>[]),
     q(async () => (await risansiPool.query<Record<string, unknown>>(
+      // Every stage — Won opportunities are the client's order in hand and must
+      // appear in the report. Order-in-hand first, then live pipeline, then closed.
       `SELECT product, stage, value_cr::text AS value_cr, probability, expected_close_date
-         FROM opportunities WHERE client_id = $1 AND stage NOT IN ('Won','Lost') ORDER BY value_cr DESC`, [client.id],
+         FROM opportunities WHERE client_id = $1
+         ORDER BY CASE WHEN stage='Won' THEN 0 WHEN stage IN ('Lost','Dropped') THEN 2 ELSE 1 END,
+                  value_cr DESC NULLS LAST`, [client.id],
     )).rows, [] as Record<string, unknown>[]),
     q(async () => (await risansiPool.query<Record<string, unknown>>(
       `SELECT pump_model_plate, quantity, customer_name AS supplier, ec_number, so_number, pump_sl_no, liquid, capacity, head
@@ -139,7 +143,10 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
     totalMmp   > 0 ? { key: 'MMP', ril: rilMmp,   total: totalMmp,   makers: mmpMakers, sharePct: rilMmpSharePct } : null,
   ].filter(Boolean) as { key: string; ril: number; total: number; makers: { name: string; units: number }[]; sharePct: number }[];
 
+  const openOpps      = allOpps.filter(o => !['Won', 'Lost', 'Dropped'].includes(String(o.stage)));
+  const wonOpps       = allOpps.filter(o => String(o.stage) === 'Won');
   const pipelineTotal = openOpps.reduce((s, o) => s + Number(o.value_cr), 0);
+  const wonTotal      = wonOpps.reduce((s, o) => s + Number(o.value_cr), 0);
   const lastVisit = formatLastVisit(client.last_visit_date as string | null);
   const c = client as Record<string, unknown>;
   const str = (k: string) => (c[k] == null || c[k] === '' ? null : String(c[k]));
@@ -172,6 +179,7 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
               ['Lifetime Revenue', formatRev(lifeTotal * 100_000)],
               ['Last Visit', lastVisit.label],
               ['Risansi Pumps', rilPumpsTotal > 0 ? `${rilUnits} PCP · ${rilMmp} MMP` : '—'],
+              ['Order in Hand', wonOpps.length > 0 ? `${fmtCr(wonTotal)} · ${wonOpps.length}` : '—'],
               ['Open Pipeline', openOpps.length > 0 ? `${fmtCr(pipelineTotal)} · ${openOpps.length}` : '—'],
             ].map(([l, v]) => (
               <div key={l} style={{ border: `1px solid ${C.line}`, borderRadius: 8, padding: 10 }}>
@@ -334,20 +342,29 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
             )}
           </Section>
 
-          {openOpps.length > 0 && (
-            <Section title="Open Pipeline" right={`${fmtCr(pipelineTotal)} total`}>
+          {allOpps.length > 0 && (
+            <Section
+              title="Opportunities"
+              right={[
+                wonTotal > 0 ? `${fmtCr(wonTotal)} order in hand` : null,
+                pipelineTotal > 0 ? `${fmtCr(pipelineTotal)} open` : null,
+              ].filter(Boolean).join(' · ') || undefined}
+            >
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead><tr>{['Product', 'Stage', 'Probability', 'Expected Close', 'Value'].map(h => <th key={h} style={TH}>{h}</th>)}</tr></thead>
                 <tbody>
-                  {openOpps.map((o, i) => (
+                  {allOpps.map((o, i) => {
+                    const won = String(o.stage) === 'Won';
+                    return (
                     <tr key={i}>
                       <td style={TD}>{String(o.product ?? '—')}</td>
-                      <td style={TD}>{String(o.stage ?? '—')}</td>
-                      <td style={TD}>{o.probability != null ? `${o.probability}%` : '—'}</td>
+                      <td style={{ ...TD, fontWeight: won ? 600 : undefined }}>{won ? 'Won · order in hand' : String(o.stage ?? '—')}</td>
+                      <td style={TD}>{!won && o.probability != null ? `${o.probability}%` : '—'}</td>
                       <td style={TD}>{o.expected_close_date ? String(o.expected_close_date) : '—'}</td>
                       <td style={{ ...TD, fontFamily: 'monospace' }}>{fmtCr(Number(o.value_cr))}</td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </Section>

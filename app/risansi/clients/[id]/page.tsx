@@ -214,7 +214,7 @@ export default async function ClientProfilePage({
 
   // ── Fetch supporting data in parallel ─────────────────────
 
-  const [contacts, revRows, clientRevByFY, comp, visits, openOpps, activityLog, reps, complaints, complaintUsers, clientPumps, clientComments] = await Promise.all([
+  const [contacts, revRows, clientRevByFY, comp, visits, allOpps, activityLog, reps, complaints, complaintUsers, clientPumps, clientComments] = await Promise.all([
 
     // 2. Contacts — single source of truth
     q<Contact[]>(async () => {
@@ -325,7 +325,10 @@ export default async function ClientProfilePage({
       return rows.map(r => ({ ...r, synced: false }));
     }, []),
 
-    // 6. Open pipeline opportunities
+    // 6. Every opportunity for this client, at any stage. Won opportunities are
+    //    the client's order-in-hand and must show here, so nothing is filtered
+    //    out by stage. Ordered order-in-hand first, then live pipeline, then
+    //    closed-lost/dropped — each band by value.
     q<Opportunity[]>(async () => {
       const { rows } = await risansiPool.query<{
         id: string; product: string; stage: string;
@@ -334,8 +337,13 @@ export default async function ClientProfilePage({
       }>(
         `SELECT id, product, stage, value_cr::text, probability, expected_close_date
          FROM opportunities
-         WHERE client_id = $1 AND stage NOT IN ('Won','Lost')
-         ORDER BY value_cr DESC`,
+         WHERE client_id = $1
+         ORDER BY CASE
+                    WHEN stage = 'Won'                 THEN 0
+                    WHEN stage IN ('Lost', 'Dropped')  THEN 2
+                    ELSE 1
+                  END,
+                  value_cr DESC NULLS LAST`,
         [client.id],
       );
       return rows;
@@ -486,8 +494,13 @@ export default async function ClientProfilePage({
   // planned future visits never count). formatLastVisit treats future dates as "never".
   const lastVisitInfo = formatLastVisit(client.last_visit_date);
 
-  // Pipeline total (value_cr already in Crores)
-  const pipelineTotal = openOpps.reduce((s, o) => s + Number(o.value_cr), 0);
+  // The opportunity panel shows every stage; these split it for the summary.
+  // "Open" = live pipeline (drives the KPI tile); "Won" = order in hand.
+  const CLOSED_STAGES = ['Won', 'Lost', 'Dropped'];
+  const openOpps = allOpps.filter(o => !CLOSED_STAGES.includes(o.stage));
+  const wonOpps  = allOpps.filter(o => o.stage === 'Won');
+  const pipelineTotal = openOpps.reduce((s, o) => s + Number(o.value_cr), 0); // value_cr already in Cr
+  const wonTotal      = wonOpps.reduce((s, o) => s + Number(o.value_cr), 0);
 
   // ── Outcome color ─────────────────────────────────────────
 
@@ -1142,32 +1155,43 @@ export default async function ClientProfilePage({
               )}
             </div>
 
-            {/* Open pipeline */}
+            {/* Opportunities — every stage. Won opportunities are the client's
+                order in hand and lead the list; open pipeline follows. */}
             <div data-tabgroup="activity" style={PANEL}>
               <div style={PANEL_H}>
-                <span style={PANEL_TITLE}>Open Pipeline</span>
-                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={PANEL_TITLE}>Opportunities{allOpps.length > 0 ? ` · ${allOpps.length}` : ''}</span>
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+                  {wonTotal > 0 && (
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--pos)' }}>
+                      {fmtCr(wonTotal)} order in hand
+                    </span>
+                  )}
                   {pipelineTotal > 0 && (
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)' }}>
-                      {fmtCr(pipelineTotal)} total
+                      {fmtCr(pipelineTotal)} open
                     </span>
                   )}
                   <PipelineOppBtn />
                 </div>
               </div>
-              {openOpps.length === 0 ? (
+              {allOpps.length === 0 ? (
                 <div style={{ padding: '20px 0', textAlign: 'center', fontSize: 12, color: 'var(--fg-3)' }}>
-                  No open opportunities
+                  No opportunities yet
                 </div>
               ) : (
                 <div>
-                  {openOpps.map((o, i) => (
+                  {allOpps.map((o, i) => {
+                    const isWon    = o.stage === 'Won';
+                    const isClosed = o.stage === 'Lost' || o.stage === 'Dropped';
+                    const tagKind  = isWon ? 'pos' : isClosed ? 'neg' : undefined;
+                    return (
                     <div
                       key={o.id}
                       style={{
                         display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
                         padding: '10px 14px',
-                        borderBottom: i < openOpps.length - 1 ? '1px solid var(--line)' : 'none',
+                        borderBottom: i < allOpps.length - 1 ? '1px solid var(--line)' : 'none',
+                        opacity: isClosed ? 0.6 : 1,
                       }}
                     >
                       <div style={{ flex: 1, minWidth: 0 }}>
@@ -1176,8 +1200,11 @@ export default async function ClientProfilePage({
                         </div>
                         <div style={{ fontWeight: 500, fontSize: 12, marginBottom: 4 }}>{o.product}</div>
                         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                          <Tag dot>{o.stage}</Tag>
-                          {o.probability != null && (
+                          <Tag kind={tagKind} dot>{o.stage}</Tag>
+                          {isWon && (
+                            <span style={{ fontSize: 11, color: 'var(--pos)', fontWeight: 500 }}>Order in hand</span>
+                          )}
+                          {!isWon && o.probability != null && (
                             <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>{o.probability}%</span>
                           )}
                           {o.expected_close_date && (
@@ -1185,11 +1212,15 @@ export default async function ClientProfilePage({
                           )}
                         </div>
                       </div>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 500, flexShrink: 0, marginLeft: 8 }}>
+                      <div style={{
+                        fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 500, flexShrink: 0, marginLeft: 8,
+                        color: isWon ? 'var(--pos)' : undefined,
+                      }}>
                         {fmtCr(Number(o.value_cr))}
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
