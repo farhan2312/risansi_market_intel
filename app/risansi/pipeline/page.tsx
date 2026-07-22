@@ -207,6 +207,23 @@ export default async function PipelinePage({
   const openWhere   = `WHERE o.stage NOT IN ('Won', 'Lost', 'Dropped')${filterClause}`;
   const closedWhere = `WHERE o.stage IN ('Won', 'Lost', 'Dropped') AND o.updated_at >= NOW() - INTERVAL '12 months'${filterClause}`;
 
+  // Snapshot of just the filter params, taken before the CAN_EDIT params are
+  // pushed below — reused by the stage-totals query, which has no CAN_EDIT clause.
+  const filterVals = [...vals];
+
+  // Won KPI predicate. The Won tile is the true total of Won opportunities in
+  // scope, and its own predicate rather than filterClause: a Stage filter must
+  // not zero it, and it must be uncapped — the kanban's closed-card query is
+  // limited to 200 rows, which is why that column reads far below the truth.
+  const wonC: string[] = ["o.stage = 'Won'"];
+  const wonV: (string | number | string[])[] = [];
+  if (scopedRepId != null)  { wonC.push(`o.rep_id = $${wonV.length + 1}`);                                                   wonV.push(scopedRepId); }
+  if (prodTypeFilts.length) { wonC.push(`o.product_type = ANY($${wonV.length + 1}::text[])`);                                wonV.push(prodTypeFilts); }
+  if (repFilts.length)      { wonC.push(`o.rep_id IN (SELECT id FROM users WHERE name = ANY($${wonV.length + 1}::text[]))`); wonV.push(repFilts); }
+  if (indFilts.length)      { wonC.push(`o.client_id IN (SELECT id FROM clients WHERE industry = ANY($${wonV.length + 1}::text[]))`); wonV.push(indFilts); }
+  if (probFilts.length)     { wonC.push(`o.probability_code = ANY($${wonV.length + 1}::text[])`);                            wonV.push(probFilts); }
+  const wonWhere = `WHERE ${wonC.join(' AND ')}${ownerVisAnd}`;
+
   // Per-opportunity edit permission, evaluated in SQL:
   //   admin/sysadmin → all · assigned rep → own · manager → reps sharing a tour.
   // Params are appended AFTER the filter args so the filter $-indices are unchanged.
@@ -225,7 +242,7 @@ export default async function PipelinePage({
           ELSE FALSE
         END AS can_edit`;
 
-  const [openOpps, closedOpps, bookedYTD, annualTarget, winLossRows, lostToRows, stageOptions, productTypeOptions, repOptions, industryOptions] = await Promise.all([
+  const [openOpps, closedOpps, bookedYTD, annualTarget, winLossRows, lostToRows, stageOptions, productTypeOptions, repOptions, industryOptions, wonTotal, stageTotals] = await Promise.all([
 
     // 1. Open opportunities with filters + sort. Feeds the KPIs, the kanban (every
     //    open card must show), and the Active Opportunities table — so NO row cap
@@ -356,16 +373,48 @@ export default async function PipelinePage({
       );
       return rows.map(r => r.industry);
     }, []),
+
+    // 7. Won total (Cr) — the real sum of Won opportunities in scope. value_cr is
+    //    already in Crores, so SUM needs no conversion. Replaces sales-Booked as
+    //    the realised base for every forecast figure below.
+    q<number>(async () => {
+      const { rows } = await risansiPool.query<{ won_cr: string }>(
+        `SELECT COALESCE(SUM(o.value_cr), 0)::text AS won_cr FROM opportunities o ${wonWhere}`,
+        wonV as (string | number)[],
+      );
+      return Number(rows[0]?.won_cr ?? 0);
+    }, 0),
+
+    // 8. True per-stage totals + counts for the kanban headers, uncapped. The
+    //    board caps closed cards at 200, so its columns undercount; these give
+    //    the honest figure while the cards themselves stay capped for rendering.
+    q<Record<string, { count: number; valueCr: number }>>(async () => {
+      const { rows } = await risansiPool.query<{ stage: string; n: string; v: string }>(
+        `SELECT o.stage, count(*)::text AS n, COALESCE(SUM(o.value_cr), 0)::text AS v
+           FROM opportunities o
+           JOIN clients c ON c.id = o.client_id
+           LEFT JOIN users r ON r.id = o.rep_id
+          WHERE (o.stage NOT IN ('Won','Lost','Dropped') OR o.updated_at >= NOW() - INTERVAL '12 months')${filterClause}
+          GROUP BY o.stage`,
+        filterVals as (string | number)[],
+      );
+      const m: Record<string, { count: number; valueCr: number }> = {};
+      for (const r of rows) m[r.stage] = { count: Number(r.n), valueCr: Number(r.v) };
+      return m;
+    }, {}),
   ]);
 
   // ── Derived values ─────────────────────────────────────────
 
   const openTotal    = openOpps.reduce((s, o) => s + o.value_cr, 0);
   const weightedOpen = openOpps.reduce((s, o) => s + o.value_cr * ((o.probability ?? 50) / 100), 0);
-  const bestCase     = bookedYTD + openTotal;
-  const probabilityWeighted = bookedYTD + weightedOpen;
+  // Won opportunities are the realised base for every forecast figure — the
+  // sales-Booked tile stays for reference but no longer drives the maths.
+  const wonCount     = stageTotals.Won?.count ?? 0;
+  const bestCase     = wonTotal + openTotal;
+  const probabilityWeighted = wonTotal + weightedOpen;
   const target       = annualTarget > 0 ? annualTarget : 32;
-  const toGo         = Math.max(0, target - bookedYTD);
+  const toGo         = Math.max(0, target - wonTotal);
 
   const totalWon   = winLossRows.reduce((s, r) => s + Number(r.won), 0);
   const totalLost  = winLossRows.reduce((s, r) => s + Number(r.lost), 0);
@@ -427,12 +476,14 @@ export default async function PipelinePage({
         {/* Forecast strip */}
         <div style={{ ...PANEL, marginBottom: 14 }}>
           <div style={{ padding: 16 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 2fr', gap: 24, alignItems: 'center' }}>
-              <ForecastBlock label="Booked (Won YTD)" value={bookedYTD} sub={fy.label} color="var(--pos)" />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 2fr', gap: 18, alignItems: 'center' }}>
+              <ForecastBlock label="Booked (Invoiced)" value={bookedYTD} sub={`sales · ${fy.label}`} color="var(--fg-2)" />
+              <ForecastBlock label="Won" value={wonTotal}
+                sub={wonCount > 0 ? `${wonCount} won opportunit${wonCount === 1 ? 'y' : 'ies'}` : 'no wins yet'} color="var(--pos)" />
               <ForecastBlock label="Best-case (100% pipe)" value={bestCase}
-                sub={`${fmtCr(bookedYTD)} + ${fmtCr(openTotal)} open`} color="var(--fg)" />
+                sub={`${fmtCr(wonTotal)} won + ${fmtCr(openTotal)} open`} color="var(--fg)" />
               <ForecastBlock label="Probability-weighted" value={probabilityWeighted}
-                sub={`${fmtCr(weightedOpen)} weighted pipe + booked`} color="var(--accent)" highlight />
+                sub={`${fmtCr(weightedOpen)} weighted pipe + won`} color="var(--accent)" highlight />
               <ForecastBlock label="Annual Target" value={target}
                 sub={`${fmtCr(toGo)} to go`} color="var(--fg-2)" />
               <div>
@@ -444,9 +495,9 @@ export default async function PipelinePage({
                     </span>
                   )}
                 </div>
-                <ForecastBar booked={bookedYTD} weightedOpen={weightedOpen} target={target} />
+                <ForecastBar booked={wonTotal} weightedOpen={weightedOpen} target={target} />
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--fg-3)', marginTop: 6, fontFamily: 'var(--font-mono)' }}>
-                  <span>● booked</span>
+                  <span>● won</span>
                   <span style={{ color: 'var(--accent)' }}>● weighted pipe</span>
                   <span>target line</span>
                 </div>
@@ -478,7 +529,7 @@ export default async function PipelinePage({
 
         {/* Kanban — open + recently-closed opps. Drag to change stage, or click to edit. */}
         <div style={{ marginBottom: 14 }}>
-          <OpportunityKanban initialOpps={[...openOpps, ...closedOpps]} />
+          <OpportunityKanban initialOpps={[...openOpps, ...closedOpps]} stageTotals={stageTotals} />
         </div>
 
         {/* Bottom: opps table + win/loss panels */}

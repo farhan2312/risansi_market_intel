@@ -36,7 +36,12 @@ const STAGE_LABEL: Record<string, string> = {
   Dropped:  'Dropped (cancelled by client)',
 };
 
-export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] }) {
+export function OpportunityKanban({ initialOpps, stageTotals }: {
+  initialOpps: KanbanOpp[];
+  /** True per-stage count + value (uncapped), for honest column headers. The
+   *  closed columns load at most 200 cards, so their own card sums undercount. */
+  stageTotals?: Record<string, { count: number; valueCr: number }>;
+}) {
   const router = useRouter();
   const [opps, setOpps]           = useState(initialOpps);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -169,9 +174,12 @@ export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] })
                 (o.client_code ?? '').toLowerCase().includes(q) ||
                 (o.client_name ?? '').toLowerCase().includes(q))
             : items;
-          // Stage ₹ total stays the full-column figure — a search filter shouldn't
-          // make the pipeline value appear to drop.
-          const stageTotal = items.reduce((s, o) => s + o.value_cr, 0);
+          // Prefer the true (uncapped) stage total from the server; fall back to
+          // the loaded cards. The closed columns load ≤200 cards, so their own
+          // card sum undercounts — this is what made WON read ₹5.2 Cr of ₹15 Cr.
+          const trueTotal = stageTotals?.[stage]?.valueCr ?? items.reduce((s, o) => s + o.value_cr, 0);
+          const trueCount = stageTotals?.[stage]?.count ?? items.length;
+          const truncated = trueCount > items.length;
           const color = STAGE_COLOR[stage];
           const isOver = overStage === stage;
           return (
@@ -198,11 +206,11 @@ export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] })
                     {STAGE_LABEL[stage] ?? stage}
                   </span>
                   <span style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
-                    {q ? `${filtered.length}/${items.length}` : items.length}
+                    {q ? `${filtered.length}/${items.length}` : (truncated ? `${items.length} of ${trueCount}` : trueCount)}
                   </span>
                 </div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--fg)', marginTop: 4 }}>
-                  {stageTotal > 0 ? fmtCr(stageTotal) : '—'}
+                  {trueTotal > 0 ? fmtCr(trueTotal) : '—'}
                 </div>
                 {items.length > 0 && (
                   <input
