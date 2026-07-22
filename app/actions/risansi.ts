@@ -832,6 +832,9 @@ export async function createPipelineOpportunity(formData: FormData) {
   await logActivity('pipeline', clientId, `created opportunity: ${product} · ${stage} · ₹${value ?? 0} Cr${ownerNote}`, user.email!);
   revalidatePath('/risansi/pipeline');
   revalidatePath('/risansi');
+  // The new id lets the caller attach a quotation PDF to the record it just
+  // created — the whole reason the create form has a second step.
+  return { id: newOppId };
 }
 
 // ── Pipeline: update stage ─────────────────────────────────────
@@ -1019,6 +1022,7 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
     eta_text:           (formData.get('eta_text') as string | null) || null,
     quote_ref:          (formData.get('quote_ref') as string | null) || null,
     quote_date:         (formData.get('quote_date') as string | null) || null,
+    unit_project:       (formData.get('unit_project') as string | null) || null,
     negotiation_notes:  (formData.get('negotiation_notes') as string | null) || null,
     notes:              (formData.get('notes') as string | null) || null,
     rep_id:             repId,

@@ -140,19 +140,24 @@ export function QuotedDetailsModal({ opp, onSave, onCancel }: { opp: QuotedOpp; 
 
         <form onSubmit={submit} ref={formRef}>
           <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {/* Quote-level attributes */}
+            {/* Quote-level attributes, ordered: the project it's for, then the
+                quote identity, then commercials, then the PDF. Project Name /
+                Unit leads as a full-width box, matching the create form. */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <Field label="Project Name / Unit"><input name="unit_project" defaultValue={opp.unit_project ?? ''} placeholder="e.g. Balrampur Chini — Unit 2, Spent Wash" style={INP} /></Field>
+              </div>
               <Field label="Quote No."><input name="quote_ref" defaultValue={opp.quote_ref ?? ''} placeholder="RIL/QT/…" style={INP} /></Field>
               <Field label="Quote Date"><input name="quote_date" type="date" defaultValue={opp.quote_date ?? ''} style={INP} /></Field>
-              <Field label="Revised Offer Date"><input name="revised_offer_date" type="date" defaultValue={opp.revised_offer_date ?? ''} style={INP} /></Field>
               <Field label="Enquiry No."><input name="enquiry_no" defaultValue={opp.enquiry_no ?? ''} placeholder="RIL/EN/…" style={INP} /></Field>
               <Field label="Enquiry Date"><input name="enquiry_date" type="date" defaultValue={opp.enquiry_date ?? ''} style={INP} /></Field>
-              <Field label="Quarter"><select name="qtr" defaultValue={opp.qtr ?? ''} style={INP}><option value="">—</option>{['Q1', 'Q2', 'Q3', 'Q4'].map(q => <option key={q} value={q}>{q}</option>)}</select></Field>
-              <Field label="Product Category"><select name="product_type" defaultValue={opp.product_type ?? 'PCP'} style={INP}>{PRODUCT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></Field>
               <Field label="Market"><select name="market" defaultValue={opp.market ?? ''} style={INP}><option value="">—</option>{['DOMESTIC', 'EXPORT'].map(m => <option key={m} value={m}>{m}</option>)}</select></Field>
               <Field label="Client Status"><select name="client_status_at_quote" defaultValue={opp.client_status_at_quote ?? ''} style={INP}><option value="">—</option>{['NEW', 'EXISTING'].map(m => <option key={m} value={m}>{m}</option>)}</select></Field>
+              <Field label="Product Category"><select name="product_type" defaultValue={opp.product_type ?? 'PCP'} style={INP}>{PRODUCT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></Field>
               <Field label="RIL Rep"><input name="ril_rep" defaultValue={opp.ril_rep ?? ''} placeholder="e.g. NI" style={INP} /></Field>
               <Field label="Qtn. Prepared By"><input name="qtn_prepared_by" defaultValue={opp.qtn_prepared_by ?? ''} style={INP} /></Field>
+              <Field label="Quarter"><select name="qtr" defaultValue={opp.qtr ?? ''} style={INP}><option value="">—</option>{['Q1', 'Q2', 'Q3', 'Q4'].map(q => <option key={q} value={q}>{q}</option>)}</select></Field>
+              <Field label="Location"><input name="location" defaultValue={opp.location ?? ''} style={INP} /></Field>
               <Field label="Probability Code">
                 <select name="probability_code" defaultValue={opp.probability_code ?? ''} style={INP}>
                   <option value="">—</option>
@@ -165,8 +170,11 @@ export function QuotedDetailsModal({ opp, onSave, onCancel }: { opp: QuotedOpp; 
                   )}
                 </select>
               </Field>
-              <Field label="Project Name / Unit"><input name="unit_project" defaultValue={opp.unit_project ?? ''} style={INP} /></Field>
-              <Field label="Location"><input name="location" defaultValue={opp.location ?? ''} style={INP} /></Field>
+              <Field label="Total Offer (₹)"><input name="offer_value_inr" type="number" step="0.01" min="0" defaultValue={offerInrDefault} placeholder="auto-sums items if blank" style={INP} /></Field>
+              <Field label="Total Offer (USD)"><input name="offer_value_usd" type="number" step="0.01" min="0" defaultValue={opp.offer_value_usd != null ? String(opp.offer_value_usd) : ''} style={INP} /></Field>
+              <Field label="Revised Offer (₹)"><input name="revised_offer_value_inr" type="number" step="0.01" min="0" defaultValue={opp.revised_offer_value_inr != null ? String(opp.revised_offer_value_inr) : ''} style={INP} /></Field>
+              <Field label="Revised Offer (USD)"><input name="revised_offer_value_usd" type="number" step="0.01" min="0" defaultValue={opp.revised_offer_value_usd != null ? String(opp.revised_offer_value_usd) : ''} style={INP} /></Field>
+              <Field label="Revised Offer Date"><input name="revised_offer_date" type="date" defaultValue={opp.revised_offer_date ?? ''} style={INP} /></Field>
               <div style={{ gridColumn: '1 / -1' }}>
                 <label style={LABEL}>Quotation PDF</label>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -180,10 +188,6 @@ export function QuotedDetailsModal({ opp, onSave, onCancel }: { opp: QuotedOpp; 
                 <input type="hidden" name="quotation_link" value={link} />
                 <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 5 }}>Upload the quote PDF to store it and auto-fill any blank fields below. It never overwrites what you&apos;ve already typed.</div>
               </div>
-              <Field label="Total Offer (₹)"><input name="offer_value_inr" type="number" step="0.01" min="0" defaultValue={offerInrDefault} placeholder="auto-sums items if blank" style={INP} /></Field>
-              <Field label="Total Offer (USD)"><input name="offer_value_usd" type="number" step="0.01" min="0" defaultValue={opp.offer_value_usd != null ? String(opp.offer_value_usd) : ''} style={INP} /></Field>
-              <Field label="Revised Offer (₹)"><input name="revised_offer_value_inr" type="number" step="0.01" min="0" defaultValue={opp.revised_offer_value_inr != null ? String(opp.revised_offer_value_inr) : ''} style={INP} /></Field>
-              <Field label="Revised Offer (USD)"><input name="revised_offer_value_usd" type="number" step="0.01" min="0" defaultValue={opp.revised_offer_value_usd != null ? String(opp.revised_offer_value_usd) : ''} style={INP} /></Field>
             </div>
 
             {/* Dynamic quoted items */}

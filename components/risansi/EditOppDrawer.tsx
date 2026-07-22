@@ -14,6 +14,7 @@ export interface EditableOpp {
   rep_name?: string | null;
   product: string;
   product_type?: string | null;
+  unit_project?: string | null;
   stage: string;
   value_cr: number;
   probability?: number | null;
@@ -56,6 +57,10 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
   const [secondaryRepId, setSecondaryRepId] = useState<string>(opp.secondary_rep_id != null ? String(opp.secondary_rep_id) : '');
   const [quoteItems, setQuoteItems] = useState<QItem[]>([]);
   const [quoteMeta, setQuoteMeta]   = useState<QMeta | null>(null);
+  // Seeded SYNCHRONOUSLY from the opp row (it carries unit_project via SELECT
+  // o.*). Seeding from the async quote-meta fetch instead would let an early
+  // save write a blank over the stored value before the fetch resolved.
+  const [unitProject, setUnitProject] = useState(opp.unit_project ?? '');
   const repsLoaded = useRef(false);
 
   useEffect(() => {
@@ -245,10 +250,16 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
               )}
             </div>
 
-            {/* Product */}
+            {/* Product + Project — the two full-width identifiers, up top. */}
             <div>
               <label style={LABEL_STYLE}>Product / Description *</label>
               <input name="product" required defaultValue={opp.product ?? ''} style={INPUT_STYLE} />
+            </div>
+
+            <div>
+              <label style={LABEL_STYLE}>Project Name / Unit</label>
+              <input name="unit_project" value={unitProject} onChange={e => setUnitProject(e.target.value)}
+                placeholder="e.g. Balrampur Chini — Unit 2, Spent Wash" style={INPUT_STYLE} />
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -402,7 +413,7 @@ function QuotedItemsSection({ items, meta }: { items: QItem[]; meta: QMeta | nul
     add('Market', meta.market); add('Quarter', meta.qtr); add('RIL Rep', meta.ril_rep);
     add('Prepared By', meta.qtn_prepared_by); add('Client Status', meta.client_status_at_quote);
     add('Enquiry No', meta.enquiry_no); add('Enquiry Date', meta.enquiry_date);
-    add('Project Name / Unit', meta.unit_project); add('Location', meta.location);
+    add('Location', meta.location);
     add('Probability', meta.probability_code); add('Revised Offer Date', meta.revised_offer_date);
     const rev = inr(meta.revised_offer_value_inr); if (rev) add('Revised Offer', rev);
   }
