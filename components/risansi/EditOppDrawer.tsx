@@ -131,7 +131,6 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
               {opp.client_id && (
                 <a
                   href={`/risansi/clients/${opp.client_id}`}
-                  target="_blank" rel="noopener noreferrer"
                   style={{
                     fontSize: 11, color: '#1A5CB8', textDecoration: 'none',
                     padding: '2px 7px', border: '1px solid rgba(26,92,184,0.3)',
@@ -139,7 +138,7 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
                     display: 'inline-flex', alignItems: 'center', gap: 4,
                   }}
                 >
-                  View Client ↗
+                  View Client →
                 </a>
               )}
             </div>
