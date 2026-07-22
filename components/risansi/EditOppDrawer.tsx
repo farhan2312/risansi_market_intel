@@ -109,11 +109,16 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
 
   return (
     <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(10,22,40,0.35)', zIndex: 300 }} />
-      <div className="risansi-drawer" style={{
-        position: 'fixed', top: 0, right: 0, width: 480, height: '100vh',
-        background: 'white', zIndex: 301, display: 'flex', flexDirection: 'column',
-        boxShadow: '-4px 0 24px rgba(10,61,143,0.15)',
+      <div onClick={onClose} style={{
+        position: 'fixed', inset: 0, background: 'rgba(10,22,40,0.35)',
+        backdropFilter: 'blur(3px)', WebkitBackdropFilter: 'blur(3px)', zIndex: 300,
+      }} />
+      <div className="risansi-modal" style={{
+        position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+        width: 520, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh',
+        background: 'var(--bg-paper)', borderRadius: 12,
+        zIndex: 301, display: 'flex', flexDirection: 'column',
+        boxShadow: '0 20px 60px rgba(10,61,143,0.2)', overflow: 'hidden',
       }}>
         {/* Header */}
         <div style={{
@@ -397,7 +402,7 @@ function QuotedItemsSection({ items, meta }: { items: QItem[]; meta: QMeta | nul
     add('Market', meta.market); add('Quarter', meta.qtr); add('RIL Rep', meta.ril_rep);
     add('Prepared By', meta.qtn_prepared_by); add('Client Status', meta.client_status_at_quote);
     add('Enquiry No', meta.enquiry_no); add('Enquiry Date', meta.enquiry_date);
-    add('Unit / Project', meta.unit_project); add('Location', meta.location);
+    add('Project Name / Unit', meta.unit_project); add('Location', meta.location);
     add('Probability', meta.probability_code); add('Revised Offer Date', meta.revised_offer_date);
     const rev = inr(meta.revised_offer_value_inr); if (rev) add('Revised Offer', rev);
   }

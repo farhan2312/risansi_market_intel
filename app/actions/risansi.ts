@@ -9,6 +9,7 @@ import risansiPool from '@/lib/db-risansi';
 import { recordAudit } from '@/lib/audit';
 import { normalizeClientName, uniqueLeadCode } from '@/lib/risansi-lead-code';
 import { resolveClientPrimaryRep } from '@/lib/risansi-client-rep';
+import { requiredFieldNames, labelsFor, CREATE_STAGES, STAGE_PROB, type CreateStage } from '@/lib/risansi-opportunity-fields';
 
 // ── Helper ─────────────────────────────────────────────────────
 
@@ -687,42 +688,61 @@ export async function updateClientTier(clientId: string, formData: FormData) {
 export async function createPipelineOpportunity(formData: FormData) {
   const user = await requireSession();
 
-  const clientId = (formData.get('client_id')       as string | null)?.trim() ?? '';
-  const product  = (formData.get('product')          as string | null)?.trim() ?? 'New Opportunity';
-  const prodType = (formData.get('product_type')      as string | null)?.trim() || 'PCP';
-  const stage    = (formData.get('stage')            as string | null)?.trim() ?? 'Suspect';
-  // Accept the full rupee amount (₹12,50,000 → 0.125 Cr); fall back to legacy estimated_value (Cr)
-  const valueInr = parseFloat((formData.get('value_inr') as string | null) ?? '');
-  const value     = Number.isFinite(valueInr)
-    ? valueInr / 10_000_000
-    : (parseFloat((formData.get('estimated_value') as string | null) ?? '0') || 0);
-  const prob     = parseInt((formData.get('probability')       as string | null) ?? '25', 10) || 25;
-  const eta      = (formData.get('eta_text')         as string | null)?.trim()
-                   || (formData.get('expected_close') as string | null)?.trim() || null;
-  const quoteRef = (formData.get('quote_ref')        as string | null)?.trim() || null;
-  // Stage-specific fields — the create form only sends these for the stages
-  // that need them (quote date + RIL probability code once a quote exists).
-  const quoteDate = (formData.get('quote_date')       as string | null)?.trim() || null;
-  const probCode  = (formData.get('probability_code') as string | null)?.trim() || null;
-  const notes    = (formData.get('notes')            as string | null)?.trim() || null;
+  const clientId = (formData.get('client_id') as string | null)?.trim() ?? '';
+  const rawStage = (formData.get('stage')     as string | null)?.trim() ?? 'Suspect';
+  const stage: CreateStage = (CREATE_STAGES as readonly string[]).includes(rawStage)
+    ? rawStage as CreateStage : 'Suspect';
+  const product  = (formData.get('product')      as string | null)?.trim() || 'New Opportunity';
+  const prodType = (formData.get('product_type') as string | null)?.trim() || 'PCP';
 
   if (!clientId) throw new Error('Client is required.');
 
-  // A quotation must carry its reference — the same requirement the drag-to-
-  // Quoted flow enforces, applied here so an opportunity can't be born "Quoted"
-  // with no quote to point at.
-  if ((stage === 'Quoted' || stage === 'Negotiating') && !quoteRef) {
-    throw new Error('A quote reference is required for a Quoted or Negotiating opportunity.');
+  // Field readers. `s` → trimmed string or null; `nRaw` → any finite number;
+  // `nInr`/`crOf` turn a rupee input into Crores (₹1,00,00,000 = 1 Cr).
+  const s    = (k: string) => { const v = (formData.get(k) as string | null)?.trim(); return v ? v : null; };
+  const nRaw = (k: string) => { const f = parseFloat((formData.get(k) as string | null) ?? ''); return Number.isFinite(f) ? f : null; };
+  const crOf = (k: string) => { const f = parseFloat((formData.get(k) as string | null) ?? ''); return Number.isFinite(f) && f > 0 ? f / 10_000_000 : null; };
+  // Item helpers (values arrive inside items_json, mirroring saveQuotedDetails).
+  const iStr = (v: unknown) => { const t = String(v ?? '').trim(); return t ? t : null; };
+  const iNum = (v: unknown) => { const f = parseFloat(String(v ?? '').replace(/[^0-9.\-]/g, '')); return Number.isFinite(f) ? f : null; };
+  const iInt = (v: unknown) => { const p = parseInt(String(v ?? '').replace(/[^0-9\-]/g, ''), 10); return Number.isFinite(p) ? p : null; };
+
+  interface ItemInput { pump_model?: unknown; pump_qty?: unknown; pump_speed?: unknown; geared_motor_detail?: unknown; motor_price?: unknown; gearbox_vbelt_price?: unknown; offer_value_inr?: unknown; offer_value_usd?: unknown; detailed_specifications?: unknown; }
+  let items: ItemInput[] = [];
+  try { const parsed = JSON.parse((formData.get('items_json') as string) || '[]'); if (Array.isArray(parsed)) items = parsed; } catch { /* ignore */ }
+  items = items.filter(it => iStr(it.pump_model) || iNum(it.offer_value_inr) != null || iInt(it.pump_qty) != null || iStr(it.detailed_specifications));
+  const itemsSum = items.reduce((a, it) => a + (iNum(it.offer_value_inr) ?? 0), 0);
+  // A blank OR zero Total Offer falls back to the line-item sum. (`?? ` alone
+  // would keep a literal 0, since 0 isn't nullish, and silently ignore items.)
+  const offerDirect = nRaw('offer_value_inr');
+  const offerInr = offerDirect != null && offerDirect > 0 ? offerDirect : (itemsSum || null);
+
+  // Cumulative required-field gate — the exact rule the form renders, enforced
+  // here so a hand-built request can't skip a stage's requirements. The offer
+  // counts as filled when line items sum to a value, matching the form.
+  const filled = (name: string): boolean => {
+    if (name === 'offer_value_inr') return offerInr != null && offerInr > 0;
+    const v = formData.get(name);
+    if (v == null || String(v).trim() === '') return false;
+    if (name === 'value_inr' || name === 'final_value_inr') return parseFloat(String(v)) > 0;
+    return true;
+  };
+  const missing = requiredFieldNames(stage).filter(n => !filled(n));
+  if (missing.length) {
+    throw new Error(`Fill the required field${missing.length > 1 ? 's' : ''} for the ${stage} stage: ${labelsFor(missing).join(', ')}.`);
   }
+
+  const value = crOf('value_inr') ?? (offerInr ? offerInr / 10_000_000 : null);
+  const prob  = Number.isFinite(parseInt((formData.get('probability') as string | null) ?? '', 10))
+    ? parseInt(formData.get('probability') as string, 10) : STAGE_PROB[stage];
+  const first = items[0] ?? {};
 
   // Ownership is derived, not asked for. The client is already on a tour and
   // the tour names its owner, so a rep picker on this form could only ever
   // disagree with that. A rep filing their own opportunity still gets it;
-  // otherwise the tour decides.
-  // A rep always owns what they file. Their session may carry no numeric repId,
-  // so fall back to a lookup by login email exactly as resolveAssignableRepId
-  // did — without it a rep would silently have their own work handed to a
-  // colleague off the tour roster.
+  // otherwise the tour decides. A rep's session may carry no numeric repId, so
+  // fall back to a lookup by login email — without it a rep would silently have
+  // their own work handed to a colleague off the tour roster.
   let creatorRepId = typeof user.repId === 'number' ? user.repId : null;
   if (creatorRepId == null && user.email) {
     const { rows } = await risansiPool.query<{ id: number }>(
@@ -743,30 +763,56 @@ export async function createPipelineOpportunity(formData: FormData) {
       'This client is not on a tour with an assigned rep, so the opportunity would have no owner. Put the client on a tour first, then create the opportunity.',
     );
   }
-  const secondaryRepId: number | null = null;
 
-  const hasSecondary = await opportunitiesHasSecondaryRep();
-  let oppRows: { id: string }[];
-  if (hasSecondary) {
-    ({ rows: oppRows } = await risansiPool.query<{ id: string }>(
-      `INSERT INTO opportunities
-         (client_id, rep_id, secondary_rep_id, product, product_type, stage, value_cr, probability, eta_text, quote_ref, quote_date, probability_code, notes, auto_created, created_by, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, FALSE, $14, NOW(), NOW())
-       RETURNING id`,
-      [clientId, primaryRepId, secondaryRepId, product, prodType, stage, value, prob, eta, quoteRef, quoteDate, probCode, notes, user.email],
-    ));
-  } else {
-    ({ rows: oppRows } = await risansiPool.query<{ id: string }>(
-      `INSERT INTO opportunities
-         (client_id, rep_id, product, product_type, stage, value_cr, probability, eta_text, quote_ref, quote_date, probability_code, notes, auto_created, created_by, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, FALSE, $13, NOW(), NOW())
-       RETURNING id`,
-      [clientId, primaryRepId, product, prodType, stage, value, prob, eta, quoteRef, quoteDate, probCode, notes, user.email],
-    ));
+  // Column → value. Only columns that actually exist on the table are written
+  // (mirrors updateOpportunity), so an environment missing an optional column
+  // still inserts cleanly.
+  const candidates: Record<string, unknown> = {
+    client_id: clientId, rep_id: primaryRepId, secondary_rep_id: null,
+    product, product_type: prodType, stage, value_cr: value, probability: prob,
+    eta_text: s('eta_text'),
+    quote_ref: s('quote_ref'), quote_date: s('quote_date'),
+    enquiry_no: s('enquiry_no'), enquiry_date: s('enquiry_date'),
+    market: s('market'), offer_value_inr: offerInr, offer_value_usd: nRaw('offer_value_usd'),
+    probability_code: s('probability_code'), ril_rep: s('ril_rep'),
+    qtn_prepared_by: s('qtn_prepared_by'), client_status_at_quote: s('client_status_at_quote'),
+    qtr: s('qtr'), unit_project: s('unit_project'), location: s('location'),
+    revised_offer_value_inr: nRaw('revised_offer_value_inr'),
+    revised_offer_value_usd: nRaw('revised_offer_value_usd'),
+    revised_offer_date: s('revised_offer_date'),
+    negotiation_notes: s('negotiation_notes'),
+    po_number: s('po_number'), final_value_cr: crOf('final_value_inr'),
+    lost_to_competitor: s('lost_to_competitor'), lost_reason: s('lost_reason'),
+    quotation_link: s('quotation_link'),
+    pump_model: iStr(first.pump_model) ?? s('pump_model'), pump_qty: iInt(first.pump_qty),
+    notes: s('notes'), auto_created: false, created_by: user.email,
+  };
+
+  const existing = await opportunityColumns();
+  const cols = Object.keys(candidates).filter(c => existing.size === 0 || existing.has(c));
+  const { rows: oppRows } = await risansiPool.query<{ id: string }>(
+    `INSERT INTO opportunities (${cols.join(', ')}, created_at, updated_at)
+       VALUES (${cols.map((_, i) => `$${i + 1}`).join(', ')}, NOW(), NOW())
+     RETURNING id`,
+    cols.map(c => candidates[c]),
+  );
+  const newOppId = oppRows[0]?.id ?? null;
+
+  // Quoted line items, if any were entered.
+  if (newOppId && items.length) {
+    let so = 0;
+    for (const it of items) {
+      await risansiPool.query(
+        `INSERT INTO opportunity_items (opportunity_id, sort_order, pump_model, pump_qty, pump_speed,
+           geared_motor_detail, motor_price, gearbox_vbelt_price, offer_value_inr, offer_value_usd, detailed_specifications)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        [newOppId, so++, iStr(it.pump_model), iInt(it.pump_qty), iStr(it.pump_speed),
+         iStr(it.geared_motor_detail), iNum(it.motor_price), iNum(it.gearbox_vbelt_price),
+         iNum(it.offer_value_inr), iNum(it.offer_value_usd), iStr(it.detailed_specifications)],
+      );
+    }
   }
 
-  // Log stage creation
-  const newOppId = oppRows[0]?.id ?? null;
   if (newOppId) {
     try {
       await risansiPool.query(
@@ -783,7 +829,7 @@ export async function createPipelineOpportunity(formData: FormData) {
   const ownerNote = user.role !== 'rep' && derived.ambiguous && derived.basis === 'roster-order'
     ? ' · owner inferred from tour roster order (tour has no designated rep)'
     : '';
-  await logActivity('pipeline', clientId, `created opportunity: ${product} · ${stage} · ₹${value} Cr${ownerNote}`, user.email!);
+  await logActivity('pipeline', clientId, `created opportunity: ${product} · ${stage} · ₹${value ?? 0} Cr${ownerNote}`, user.email!);
   revalidatePath('/risansi/pipeline');
   revalidatePath('/risansi');
 }

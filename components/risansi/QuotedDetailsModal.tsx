@@ -165,7 +165,7 @@ export function QuotedDetailsModal({ opp, onSave, onCancel }: { opp: QuotedOpp; 
                   )}
                 </select>
               </Field>
-              <Field label="Unit / Project"><input name="unit_project" defaultValue={opp.unit_project ?? ''} style={INP} /></Field>
+              <Field label="Project Name / Unit"><input name="unit_project" defaultValue={opp.unit_project ?? ''} style={INP} /></Field>
               <Field label="Location"><input name="location" defaultValue={opp.location ?? ''} style={INP} /></Field>
               <div style={{ gridColumn: '1 / -1' }}>
                 <label style={LABEL}>Quotation PDF</label>
