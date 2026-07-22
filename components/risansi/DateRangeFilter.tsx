@@ -14,8 +14,8 @@ const DATE_INP: CSSProperties = {
   outline: 'none', boxSizing: 'border-box',
 };
 
-export function DateRangeFilter({ fromParam, toParam, from, to }: {
-  fromParam: string; toParam: string; from: string; to: string;
+export function DateRangeFilter({ fromParam, toParam, from, to, label = 'Date' }: {
+  fromParam: string; toParam: string; from: string; to: string; label?: string;
 }) {
   const router       = useRouter();
   const pathname     = usePathname();
@@ -34,7 +34,7 @@ export function DateRangeFilter({ fromParam, toParam, from, to }: {
 
   return (
     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-      <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--fg-3)' }}>Date</span>
+      <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--fg-3)' }}>{label}</span>
       <input type="date" value={from} max={to || undefined} aria-label="From date"
         onChange={e => set(fromParam, e.target.value)} style={DATE_INP} />
       <span style={{ fontSize: 12, color: 'var(--fg-3)' }}>→</span>

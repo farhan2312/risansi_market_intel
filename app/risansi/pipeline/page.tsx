@@ -9,6 +9,8 @@ import { PROBABILITY_CODE_OPTIONS } from '@/lib/risansi-probability-codes';
 import { NewOpportunityButton } from '@/components/risansi/NewOpportunityButton';
 import { OpportunityKanban } from '@/components/risansi/OpportunityKanban';
 import { ActiveOppsTable } from '@/components/risansi/ActiveOppsTable';
+import { TextSearchFilter } from '@/components/risansi/TextSearchFilter';
+import { DateRangeFilter } from '@/components/risansi/DateRangeFilter';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
@@ -101,6 +103,10 @@ export default async function PipelinePage({
   const repFilts      = typeof sp.rep          === 'string' && sp.rep && sp.rep !== 'all' ? sp.rep.split(',').filter(Boolean)          : [];
   const indFilts      = typeof sp.industry     === 'string' && sp.industry     ? sp.industry.split(',').filter(Boolean)     : [];
   const probFilts     = typeof sp.prob         === 'string' && sp.prob         ? sp.prob.split(',').filter(Boolean)         : [];
+  // Quote tracking: free-text (quote no. / client / product) + quote-date range.
+  const qname = typeof sp.qname === 'string' ? sp.qname.trim() : '';
+  const qfrom = typeof sp.qfrom === 'string' ? sp.qfrom : '';
+  const qto   = typeof sp.qto   === 'string' ? sp.qto   : '';
 
   // Sort
   const sortKey  = typeof sp.sort  === 'string' ? sp.sort            : 'value';
@@ -143,6 +149,14 @@ export default async function PipelinePage({
     conds.push(`o.probability_code = ANY($${idx}::text[])`);
     vals.push(probFilts); idx++;
   }
+  // Track a quote by its number/name (also matches client & product), and by
+  // when it was quoted.
+  if (qname) {
+    conds.push(`(o.quote_ref ILIKE $${idx} OR c.legal_name ILIKE $${idx} OR o.product ILIKE $${idx})`);
+    vals.push(`%${qname}%`); idx++;
+  }
+  if (qfrom) { conds.push(`o.quote_date >= $${idx}`); vals.push(qfrom); idx++; }
+  if (qto)   { conds.push(`o.quote_date <= $${idx}`); vals.push(qto);   idx++; }
 
   // Per-user owner visibility — null for admin/sysadmin (no restriction).
   // Appended as raw text (integers inlined, no params) so $-indices are unchanged.
@@ -345,13 +359,10 @@ export default async function PipelinePage({
       return rows.map(r => ({ ...r, value: Number(r.value) }));
     }, []),
 
-    // 6. Filter options
-    q<string[]>(async () => {
-      const { rows } = await risansiPool.query<{ stage: string }>(
-        `SELECT DISTINCT stage FROM opportunities WHERE stage NOT IN ('Won','Lost','Dropped')${ownerVisBareAnd} ORDER BY stage`,
-      );
-      return rows.map(r => r.stage);
-    }, ['Suspect', 'Prospect', 'Quoted', 'Negotiating']),
+    // 6. Filter options. Stage is the full pipeline, every column on the board —
+    //    not just the open stages that happen to have data — so a rep can filter
+    //    to Won / Lost / Dropped too.
+    Promise.resolve(['Suspect', 'Prospect', 'Quoted', 'Negotiating', 'On Hold', 'Won', 'Lost', 'Dropped']),
 
     q<string[]>(async () => {
       const { rows } = await risansiPool.query<{ product_type: string }>(
@@ -422,7 +433,7 @@ export default async function PipelinePage({
     ? Math.round((totalWon / (totalWon + totalLost)) * 100)
     : 0;
 
-  const anyFilter = stageFilts.length > 0 || prodTypeFilts.length > 0 || repFilts.length > 0 || indFilts.length > 0 || probFilts.length > 0;
+  const anyFilter = stageFilts.length > 0 || prodTypeFilts.length > 0 || repFilts.length > 0 || indFilts.length > 0 || probFilts.length > 0 || !!qname || !!qfrom || !!qto;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -514,6 +525,8 @@ export default async function PipelinePage({
           <MultiSelectFilter param="rep"          label="Rep"          options={repOptions}          selected={repFilts}      />
           <MultiSelectFilter param="industry"     label="Industry"     options={industryOptions}     selected={indFilts}      />
           <MultiSelectFilter param="prob"         label="Probability"  options={PROBABILITY_CODE_OPTIONS} selected={probFilts} />
+          <TextSearchFilter param="qname" placeholder="Quote no. / name…" />
+          <DateRangeFilter fromParam="qfrom" toParam="qto" from={qfrom} to={qto} label="Quote Date" />
         </div>
         {anyFilter && (
           <div style={{ marginBottom: 12 }}>

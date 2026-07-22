@@ -1124,9 +1124,29 @@ export async function deleteVisitPlan(visitId: string) {
     throw new Error('You do not have permission to delete this visit.');
   }
 
-  // Guard again in SQL so a concurrent submit can't be deleted out from under.
-  const res = await risansiPool.query('DELETE FROM visits WHERE id = $1 AND submitted_at IS NULL', [visitId]);
-  if (res.rowCount === 0) throw new Error('Visit could not be deleted (it may have been submitted).');
+  // The visit's own reports and photos cascade automatically, but equipment,
+  // competitor sightings and tasks are FK-restricted — a bare DELETE throws once
+  // any of them exist (which surfaces as the generic "Server Components render"
+  // error). Clear those visit-scoped rows first, and DETACH opportunities rather
+  // than delete them, so pipeline records raised off the visit survive. All in
+  // one transaction so a failure leaves nothing half-removed.
+  const client = await risansiPool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM equipment            WHERE visit_id = $1', [visitId]);
+    await client.query('DELETE FROM competitor_sightings WHERE visit_id = $1', [visitId]);
+    await client.query('DELETE FROM tasks                WHERE visit_id = $1', [visitId]);
+    await client.query('UPDATE opportunities SET visit_id = NULL WHERE visit_id = $1', [visitId]);
+    // Guard again in SQL so a concurrent submit can't be deleted out from under.
+    const res = await client.query('DELETE FROM visits WHERE id = $1 AND submitted_at IS NULL', [visitId]);
+    if (res.rowCount === 0) throw new Error('Visit could not be deleted (it may have been submitted).');
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
 
   await logActivity('client', String(visit.client_id), 'visit plan deleted', user.email!);
   revalidatePath('/risansi/field');
