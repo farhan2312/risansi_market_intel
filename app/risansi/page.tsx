@@ -46,7 +46,12 @@ const FUNNEL_COLORS: Record<string, string> = {
   Prospect:    '#3B82F6',
   Quoted:      '#1D4ED8',
   Negotiating: '#D97706',
+  'On Hold':   '#7C3AED',
 };
+
+// Open pipeline stages, in flow order. Won is tracked separately (it's the
+// landed outcome, shown alongside Order in Hand rather than as a funnel bar).
+const OPEN_STAGES = ['Suspect', 'Prospect', 'Quoted', 'Negotiating', 'On Hold'] as const;
 
 // ── Data shapes ────────────────────────────────────────────────
 
@@ -354,6 +359,7 @@ export default async function ExecDashboardPage() {
     segments,
     domExp,
     funnel,
+    orderInHand,
     cibTotals,
     atRisk,
     topAccounts,
@@ -452,19 +458,35 @@ export default async function ExecDashboardPage() {
       };
     }, { domestic: 0, export: 0 }),
 
-    // 7. Pipeline funnel
+    // 7. Opportunity stages — open pipeline + Won (all open stages, not just a subset).
+    //    No FY filter: open opportunities are live/current, not tied to a fiscal year.
     q<FunnelRow[]>(async () => {
+      const stages = [...OPEN_STAGES, 'Won'];
       const { rows } = await risansiPool.query<{ stage: string; cnt: string; val: string }>(
         `SELECT o.stage AS stage, COUNT(*)::text AS cnt, COALESCE(SUM(o.value_cr),0)::text AS val
          FROM opportunities o
-         WHERE o.stage IN ('Suspect','Prospect','Quoted','Negotiating')${oppOwnerAnd}
+         WHERE o.stage = ANY($1::text[])${oppOwnerAnd}
          GROUP BY o.stage`,
+        [stages],
       );
-      return ['Suspect','Prospect','Quoted','Negotiating'].map(stage => {
+      return stages.map(stage => {
         const row = rows.find(r => r.stage === stage);
         return { stage, count: Number(row?.cnt ?? 0), value: Number(row?.val ?? 0) };
       });
-    }, ['Suspect','Prospect','Quoted','Negotiating'].map(stage => ({ stage, count: 0, value: 0 }))),
+    }, [...OPEN_STAGES, 'Won'].map(stage => ({ stage, count: 0, value: 0 }))),
+
+    // 7b. Order in Hand — confirmed purchase orders booked in the current FY
+    //     (the orders table; distinct from Won opportunities). Client-scoped for reps.
+    q<{ count: number; value: number }>(async () => {
+      const { rows } = await risansiPool.query<{ n: string; val: string }>(
+        `SELECT COUNT(*)::text AS n, COALESCE(SUM(o.order_value_cr),0)::text AS val
+         FROM orders o
+         JOIN clients c ON c.id = o.client_id
+         WHERE o.financial_year = $1 AND c.deleted_at IS NULL${cVisAnd}`,
+        [fy.code],
+      );
+      return { count: Number(rows[0]?.n ?? 0), value: Number(rows[0]?.val ?? 0) };
+    }, { count: 0, value: 0 }),
 
     // 8. Market share from competitor_installed_base
     q<CIBTotals>(async () => {
@@ -643,8 +665,12 @@ export default async function ExecDashboardPage() {
 
   // historical is returned directly from query 4 (zeros filtered, all FYs)
 
-  const pipelineTotal    = funnel.reduce((s, r) => s + r.value, 0);
-  const negotiatingCount = funnel.find(r => r.stage === 'Negotiating')?.count ?? 0;
+  // Split the opportunity stages into the open funnel and the landed Won outcome.
+  const funnelOpen       = funnel.filter(r => (OPEN_STAGES as readonly string[]).includes(r.stage));
+  const wonRow           = funnel.find(r => r.stage === 'Won') ?? { stage: 'Won', count: 0, value: 0 };
+  const pipelineTotal    = funnelOpen.reduce((s, r) => s + r.value, 0);   // open pipeline ₹, excludes Won
+  const openCount        = funnelOpen.reduce((s, r) => s + r.count, 0);
+  const negotiatingCount = funnelOpen.find(r => r.stage === 'Negotiating')?.count ?? 0;
 
   const shareTotal = Math.max(cibTotals.total, 1);
   const rilUnits   = cibTotals.ril;
@@ -675,7 +701,9 @@ export default async function ExecDashboardPage() {
   const isOnTrack   = totalBooked >= (annTargetL * ytdPct / 100 * 0.9);
   const histValues  = historical.map(h => h.total);
   const histLabels  = historical.map(h => h.label);
-  const funnelMax   = Math.max(...funnel.map(f => f.value), 1);
+  // Funnel bars are sized by opportunity COUNT (not ₹), so early stages full of
+  // no-value leads stay visible instead of collapsing to a zero-width bar.
+  const funnelMax   = Math.max(...funnelOpen.map(f => f.count), 1);
 
   // ── Render ───────────────────────────────────────────────────
   return (
@@ -777,17 +805,27 @@ export default async function ExecDashboardPage() {
           </div>
         </div>
 
-        {/* ── Hero metrics row 2: Pipeline · Market · At-Risk ─── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
+        {/* ── Hero metrics row 2: Pipeline · Order in Hand · Market · At-Risk ─── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
 
-          {/* Pipeline small metric */}
+          {/* Open pipeline small metric */}
           <SmallMetric
-            label="Pipeline"
+            label="Open Pipeline"
             value={pipelineTotal > 0 ? fmtCr(pipelineTotal) : '—'}
-            delta={pipelineTotal > 0 ? `${negotiatingCount} in negotiation` : 'No open opportunities'}
+            delta={pipelineTotal > 0 ? `${openCount} opps · ${negotiatingCount} in negotiation` : 'No open opportunities'}
             deltaPos={pipelineTotal > 0}
-            sub={pipelineTotal > 0 ? 'Open opportunities' : 'Add via Pipeline →'}
+            sub={pipelineTotal > 0 ? 'Open opportunities' : 'Add via Opportunities →'}
             subHref={pipelineTotal === 0 ? '/risansi/pipeline' : undefined}
+            spark={[]}
+          />
+
+          {/* Order in Hand small metric — confirmed orders this FY */}
+          <SmallMetric
+            label="Order in Hand"
+            value={orderInHand.value > 0 ? fmtCr(orderInHand.value) : '—'}
+            delta={orderInHand.count > 0 ? `${orderInHand.count} orders` : `No orders in ${fyLabel}`}
+            deltaPos={orderInHand.value > 0}
+            sub={`Confirmed · ${fyLabel}`}
             spark={[]}
           />
 
@@ -970,18 +1008,30 @@ export default async function ExecDashboardPage() {
             </div>
           </div>
 
-          {/* Pipeline funnel */}
+          {/* Opportunity — open pipeline funnel + order-in-hand / won summary */}
           <div style={PANEL}>
             <div style={PANEL_H}>
-              <span style={PANEL_TITLE}>Pipeline Funnel · {fyLabel}</span>
-              <div style={{ marginLeft: 'auto' }}>
-                <Tag>{fmtCr(pipelineTotal)} open</Tag>
-              </div>
+              <span style={PANEL_TITLE}>Opportunity</span>
+              <a href="/risansi/pipeline" style={{ marginLeft: 'auto', fontSize: 11, color: '#1A5CB8', textDecoration: 'none', fontWeight: 500 }}>
+                View all →
+              </a>
             </div>
+
+            {/* Summary strip: open pipeline, order in hand (this FY), won — side by side */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', borderBottom: '1px solid var(--line)' }}>
+              <OppStat label="Open Pipeline" value={pipelineTotal > 0 ? fmtCr(pipelineTotal) : '—'}
+                sub={`${openCount} open opp${openCount === 1 ? '' : 's'}`} color="var(--fg)" />
+              <OppStat label={`Order in Hand · ${fyLabel}`} value={orderInHand.value > 0 ? fmtCr(orderInHand.value) : '—'}
+                sub={`${orderInHand.count} order${orderInHand.count === 1 ? '' : 's'}`} color="var(--accent)" divider />
+              <OppStat label="Won" value={wonRow.value > 0 ? fmtCr(wonRow.value) : '—'}
+                sub={`${wonRow.count} won`} color="var(--pos)" divider />
+            </div>
+
+            {/* Open-stage funnel — bars sized by opportunity count, ₹ shown alongside */}
             <div style={{ padding: '8px 14px' }}>
-              {funnel.every(f => f.count === 0) ? (
-                <div style={{ textAlign: 'center', padding: '36px 16px' }}>
-                  <div style={{ fontSize: 13, color: 'var(--fg-3)', marginBottom: 12 }}>No pipeline data yet</div>
+              {openCount === 0 ? (
+                <div style={{ textAlign: 'center', padding: '28px 16px' }}>
+                  <div style={{ fontSize: 13, color: 'var(--fg-3)', marginBottom: 12 }}>No open opportunities</div>
                   <a
                     href="/risansi/pipeline"
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', fontSize: 12, fontWeight: 600, background: '#0A3D8F', color: '#fff', borderRadius: 6, textDecoration: 'none' }}
@@ -990,7 +1040,7 @@ export default async function ExecDashboardPage() {
                   </a>
                 </div>
               ) : (
-                funnel.map(row => (
+                funnelOpen.map(row => (
                   <FunnelBarRow
                     key={row.stage}
                     stage={row.stage}
@@ -1265,25 +1315,41 @@ function StatBlock({ label, value }: { label: string; value: string }) {
   );
 }
 
+// One open-stage row. The bar is sized by opportunity COUNT (so a stage full of
+// no-value leads still shows), with a minimum width so any non-zero stage is
+// visible. Count and ₹ are rendered as legible dark text beside the bar — not as
+// low-contrast white text painted on top of it.
 function FunnelBarRow({ stage, count, value, max, color }: {
   stage: string; count: number; value: number; max: number; color: string;
 }) {
-  const pct = max > 0 ? (value / max) * 100 : 0;
+  const pct = count > 0 && max > 0 ? Math.max((count / max) * 100, 5) : 0;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px dashed var(--line)' }}>
-      <div style={{ width: 110, fontSize: 11, color: 'var(--fg-2)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 500, flexShrink: 0 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px dashed var(--line)' }}>
+      <div style={{ width: 96, fontSize: 11, color: 'var(--fg-2)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 500, flexShrink: 0 }}>
         {stage}
       </div>
-      <div style={{ flex: 1 }}>
-        <div style={{ height: 18, background: '#DDE6F5', borderRadius: 2, overflow: 'hidden' }}>
-          <div style={{ width: `${pct}%`, height: '100%', background: color, opacity: 0.85, display: 'flex', alignItems: 'center', paddingLeft: 8, color: '#fff', fontSize: 10, fontFamily: 'var(--font-mono)' }}>
-            {count > 0 ? `${count} opps` : ''}
-          </div>
-        </div>
+      <div style={{ flex: 1, height: 14, background: 'var(--bg-sunk)', borderRadius: 2, overflow: 'hidden' }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: color, opacity: 0.9, borderRadius: 2 }} />
       </div>
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, minWidth: 90, textAlign: 'right', color: 'var(--fg)' }}>
-        {fmtCr(value)}
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, minWidth: 62, textAlign: 'right', color: 'var(--fg)', flexShrink: 0 }}>
+        {count}<span style={{ fontWeight: 400, color: 'var(--fg-3)' }}> opp{count === 1 ? '' : 's'}</span>
       </div>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, minWidth: 74, textAlign: 'right', color: value > 0 ? 'var(--fg)' : 'var(--fg-3)', flexShrink: 0 }}>
+        {value > 0 ? fmtCr(value) : '—'}
+      </div>
+    </div>
+  );
+}
+
+// One figure in the Opportunity summary strip (open pipeline / order in hand / won).
+function OppStat({ label, value, sub, color, divider = false }: {
+  label: string; value: string; sub: string; color: string; divider?: boolean;
+}) {
+  return (
+    <div style={{ padding: '10px 14px', borderLeft: divider ? '1px solid var(--line)' : 'none' }}>
+      <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 19, marginTop: 3, color, lineHeight: 1.1 }}>{value}</div>
+      <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 2 }}>{sub}</div>
     </div>
   );
 }
