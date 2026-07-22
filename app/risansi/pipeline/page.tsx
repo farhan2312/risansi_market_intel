@@ -9,6 +9,7 @@ import { PROBABILITY_CODE_OPTIONS } from '@/lib/risansi-probability-codes';
 import { NewOpportunityButton } from '@/components/risansi/NewOpportunityButton';
 import { OpportunityKanban } from '@/components/risansi/OpportunityKanban';
 import { ActiveOppsTable } from '@/components/risansi/ActiveOppsTable';
+import { OpportunitiesTabs } from '@/components/risansi/OpportunitiesTabs';
 import { TextSearchFilter } from '@/components/risansi/TextSearchFilter';
 import { DateRangeFilter } from '@/components/risansi/DateRangeFilter';
 
@@ -540,30 +541,26 @@ export default async function PipelinePage({
           </div>
         )}
 
-        {/* Kanban — open + recently-closed opps. Drag to change stage, or click to edit. */}
-        <div style={{ marginBottom: 14 }}>
-          <OpportunityKanban initialOpps={[...openOpps, ...closedOpps]} stageTotals={stageTotals} />
-        </div>
-
-        {/* Bottom: opps table + win/loss panels */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 14 }}>
-
-          {/* Active opportunities table */}
-          <div style={PANEL}>
-            <div style={PANEL_H}>
-              <span style={PANEL_TITLE}>Active Opportunities</span>
-              <span style={{ fontSize: 11, color: 'var(--fg-3)', marginLeft: 'auto' }}>
-                {Math.min(openOpps.length, 50)} of {openOpps.length}
-              </span>
+        {/* Table + Kanban as tabs. The filters above scope both views (server-side);
+            the Win Rate + Lost To panels ride under the Kanban tab, side by side.
+            The four slots need `key`s: they're element props handed from this Server
+            Component to a Client Component, and React validates them as a sibling set —
+            without keys it warns "unique key prop" even though they aren't a list. */}
+        <OpportunitiesTabs
+          table={
+            <div key="table" style={PANEL}>
+              <div style={PANEL_H}>
+                <span style={PANEL_TITLE}>Active Opportunities</span>
+                <span style={{ fontSize: 11, color: 'var(--fg-3)', marginLeft: 'auto' }}>
+                  {Math.min(openOpps.length, 50)} of {openOpps.length}
+                </span>
+              </div>
+              <ActiveOppsTable opps={openOpps.slice(0, 50)} />
             </div>
-
-            <ActiveOppsTable opps={openOpps.slice(0, 50)} />
-          </div>
-
-          {/* Win Rate + Lost To */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-
-            <div style={PANEL}>
+          }
+          kanban={<OpportunityKanban key="kanban" initialOpps={[...openOpps, ...closedOpps]} stageTotals={stageTotals} />}
+          winRate={
+            <div key="winRate" style={PANEL}>
               <div style={PANEL_H}>
                 <span style={PANEL_TITLE}>Win Rate · last 12 months</span>
               </div>
@@ -580,15 +577,15 @@ export default async function PipelinePage({
                 </div>
                 {winLossRows.length > 0 ? (
                   <div>
-                    {winLossRows.map(row => {
+                    {winLossRows.map((row, i) => {
                       const won   = Number(row.won);
                       const lost  = Number(row.lost);
                       const total = won + lost;
                       const rate  = total > 0 ? Math.round((won / total) * 100) : 0;
                       return (
-                        <div key={row.industry} style={{ marginBottom: 10 }}>
+                        <div key={row.industry ?? `row-${i}`} style={{ marginBottom: 10 }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
-                            <span>{row.industry}</span>
+                            <span>{row.industry ?? 'Unclassified'}</span>
                             <span style={{ fontFamily: 'var(--font-mono)' }}>{rate}%</span>
                           </div>
                           <div style={{ height: 4, background: 'var(--bg-sunk)', borderRadius: 2 }}>
@@ -603,8 +600,9 @@ export default async function PipelinePage({
                 )}
               </div>
             </div>
-
-            <div style={PANEL}>
+          }
+          lostTo={
+            <div key="lostTo" style={PANEL}>
               <div style={PANEL_H}>
                 <span style={PANEL_TITLE}>Lost To · top competitors</span>
               </div>
@@ -615,7 +613,7 @@ export default async function PipelinePage({
               ) : (
                 <div>
                   {lostToRows.map((row, i) => (
-                    <div key={row.competitor} style={{
+                    <div key={row.competitor ?? `row-${i}`} style={{
                       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                       padding: '10px 14px',
                       borderBottom: i < lostToRows.length - 1 ? '1px solid var(--line)' : 'none',
@@ -629,9 +627,8 @@ export default async function PipelinePage({
                 </div>
               )}
             </div>
-
-          </div>
-        </div>
+          }
+        />
 
       </div>
     </div>

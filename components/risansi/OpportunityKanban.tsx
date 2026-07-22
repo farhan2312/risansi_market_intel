@@ -36,6 +36,10 @@ const STAGE_LABEL: Record<string, string> = {
   Dropped:  'Dropped (cancelled by client)',
 };
 
+// Remembers which stage columns the user chose to show, so the choice survives
+// the server navigations that remount this board (e.g. changing a filter).
+const COLS_KEY = 'risansi.kanban.cols';
+
 export function OpportunityKanban({ initialOpps, stageTotals }: {
   initialOpps: KanbanOpp[];
   /** True per-stage count + value (uncapped), for honest column headers. The
@@ -56,6 +60,41 @@ export function OpportunityKanban({ initialOpps, stageTotals }: {
   // Per-column card filter (client id / name). Keyed by stage so each column's
   // search box filters only its own cards, not the rest of the board.
   const [colSearch, setColSearch] = useState<Record<string, string>>({});
+  // Which stage columns to render (all by default). The picker top-right hides /
+  // shows columns; the choice is persisted to localStorage.
+  const [visibleStages, setVisibleStages] = useState<string[]>([...STAGES]);
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(COLS_KEY);
+      if (!saved) return;
+      const arr = JSON.parse(saved);
+      if (!Array.isArray(arr)) return;
+      const valid = STAGES.filter(s => arr.includes(s));
+      if (valid.length > 0) setVisibleStages(valid);   // never end up with zero columns
+    } catch { /* ignore malformed / unavailable storage */ }
+  }, []);
+
+  const toggleStage = (stage: string) => {
+    setVisibleStages(prev => {
+      // Rebuild from canonical STAGES order so re-shown columns land back in place.
+      const next = prev.includes(stage)
+        ? prev.filter(s => s !== stage)
+        : STAGES.filter(s => s === stage || prev.includes(s));
+      if (next.length === 0) return prev;              // keep at least one column
+      try { localStorage.setItem(COLS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
+  const showAllStages = () => {
+    setVisibleStages([...STAGES]);
+    try { localStorage.removeItem(COLS_KEY); } catch { /* ignore */ }
+  };
+
+  const shownStages = STAGES.filter(s => visibleStages.includes(s));
+  const allShown = shownStages.length === STAGES.length;
 
   // Sync from server when the underlying data actually changes (e.g. after create/edit).
   // Signature keyed on id+stage so optimistic drag state isn't clobbered by unrelated renders.
@@ -153,8 +192,8 @@ export function OpportunityKanban({ initialOpps, stageTotals }: {
 
   return (
     <div>
-      {/* Save indicator */}
-      <div style={{ height: 16, textAlign: 'right', marginBottom: 4 }}>
+      {/* Top bar: save state (left) + column picker (right) */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, minHeight: 26, marginBottom: 4 }}>
         <span style={{
           fontSize: 11, fontStyle: 'italic',
           color: saveState === 'saved' ? 'var(--pos)' : saveState === 'error' ? 'var(--neg)' : 'var(--fg-3)',
@@ -163,10 +202,77 @@ export function OpportunityKanban({ initialOpps, stageTotals }: {
           {saveState === 'saved'  && '✓ Saved'}
           {saveState === 'error'  && '⚠ Failed — try again'}
         </span>
+
+        <div style={{ position: 'relative' }}>
+          <button
+            type="button"
+            onClick={() => setPickerOpen(o => !o)}
+            aria-haspopup="true" aria-expanded={pickerOpen}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              height: 26, padding: '0 10px', fontSize: 11, fontFamily: 'inherit',
+              background: 'var(--bg-paper)', color: 'var(--fg-2)',
+              border: '1px solid var(--line-strong)', borderRadius: 5, cursor: 'pointer',
+            }}
+          >
+            <span aria-hidden>▤</span> Columns
+            {!allShown && (
+              <span style={{
+                fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--accent)',
+                background: 'var(--accent-soft)', borderRadius: 3, padding: '1px 4px',
+              }}>{shownStages.length}/{STAGES.length}</span>
+            )}
+          </button>
+
+          {pickerOpen && (
+            <>
+              {/* click-away backdrop */}
+              <div onClick={() => setPickerOpen(false)}
+                style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
+              <div style={{
+                position: 'absolute', top: 'calc(100% + 4px)', right: 0, zIndex: 41,
+                minWidth: 210, padding: 6, background: 'var(--bg-paper)',
+                border: '1px solid var(--line-strong)', borderRadius: 8,
+                boxShadow: '0 10px 30px rgba(0,0,0,0.18)',
+              }}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--fg-3)', padding: '4px 8px 6px' }}>
+                  Show columns
+                </div>
+                {STAGES.map(stage => {
+                  const on   = visibleStages.includes(stage);
+                  const only = on && shownStages.length === 1;   // can't hide the last one
+                  return (
+                    <label key={stage} style={{
+                      display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px',
+                      fontSize: 12, borderRadius: 5, color: 'var(--fg)',
+                      cursor: only ? 'not-allowed' : 'pointer', opacity: only ? 0.55 : 1,
+                    }}>
+                      <input type="checkbox" checked={on} disabled={only}
+                        onChange={() => toggleStage(stage)}
+                        style={{ cursor: only ? 'not-allowed' : 'pointer' }} />
+                      <span aria-hidden style={{ width: 8, height: 8, borderRadius: 2, background: STAGE_COLOR[stage], flexShrink: 0 }} />
+                      <span>{STAGE_LABEL[stage] ?? stage}</span>
+                    </label>
+                  );
+                })}
+                {!allShown && (
+                  <button type="button" onClick={showAllStages}
+                    style={{
+                      width: '100%', marginTop: 4, padding: '6px 8px', fontSize: 11, fontFamily: 'inherit',
+                      background: 'none', color: 'var(--accent)', border: 'none',
+                      borderTop: '1px solid var(--line)', cursor: 'pointer', textAlign: 'left',
+                    }}>
+                    Show all columns
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
-      <div className="r-kanban" style={{ display: 'grid', gridTemplateColumns: 'repeat(8, minmax(0, 1fr))', gap: 10 }}>
-        {STAGES.map(stage => {
+      <div className="r-kanban" style={{ display: 'grid', gridTemplateColumns: `repeat(${shownStages.length}, minmax(0, 1fr))`, gap: 10 }}>
+        {shownStages.map(stage => {
           const items = byStage[stage] ?? [];
           const q = (colSearch[stage] ?? '').trim().toLowerCase();
           const filtered = q
