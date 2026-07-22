@@ -10,6 +10,7 @@ import { recordAudit } from '@/lib/audit';
 import { normalizeClientName, uniqueLeadCode } from '@/lib/risansi-lead-code';
 import { resolveClientPrimaryRep } from '@/lib/risansi-client-rep';
 import { requiredFieldNames, labelsFor, CREATE_STAGES, STAGE_PROB, type CreateStage } from '@/lib/risansi-opportunity-fields';
+import { normaliseIndustry } from '@/lib/risansi-utils';
 
 // ── Helper ─────────────────────────────────────────────────────
 
@@ -383,7 +384,7 @@ export async function updateClient(clientId: number, formData: FormData): Promis
       (formData.get('address')           as string | null)?.trim() || null,
       (formData.get('google_maps_url')   as string | null)?.trim() || null,
       (formData.get('market_type')       as string | null)?.trim() || 'Domestic',
-      (formData.get('industry')          as string | null)?.trim() || null,
+      normaliseIndustry((formData.get('industry') as string | null)?.trim() || null),
       formData.get('is_sugar') === 'true',
       (formData.get('client_type')       as string | null)?.trim() || null,
       formData.get('is_tender') === 'true',
@@ -1582,7 +1583,7 @@ export async function addClient(formData: FormData): Promise<void> {
       (formData.get('address')           as string | null)?.trim() || null,
       (formData.get('google_maps_url')   as string | null)?.trim() || null,
       (formData.get('market_type')       as string | null)?.trim() || 'Domestic',
-      (formData.get('industry')          as string | null)?.trim() || null,
+      normaliseIndustry((formData.get('industry') as string | null)?.trim() || null),
       formData.get('is_sugar') === 'true',
       (formData.get('client_type')       as string | null)?.trim() || null,
       formData.get('is_tender') === 'true',

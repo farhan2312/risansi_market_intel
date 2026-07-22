@@ -264,49 +264,62 @@ export function getGreeting(): string {
 
 // ── Industry normalisation ─────────────────────────────────────
 
+// Canonical industry vocabulary. Keyed on the lower-cased, trimmed raw value →
+// the one clean display name. Covers every historical spelling/case variant seen
+// in the data, plus each canonical form itself so re-normalising is idempotent.
+// Acronyms (CBG, EPC, FMCG, ETP/STP/WTP) live here explicitly so the Title-Case
+// fallback below never mangles them.
 const INDUSTRY_ALIASES: Record<string, string> = {
-  'oil and gas':         'Oil & Gas',
-  'oil & gas':           'Oil & Gas',
-  'o&g':                 'Oil & Gas',
-  'oil/gas':             'Oil & Gas',
-  'water treatment':     'Water',
-  'water & wastewater':  'Water',
-  'water':               'Water',
-  'chemical':            'Chemicals',
-  'chemicals':           'Chemicals',
-  'food and beverage':   'Food & Beverage',
-  'food & beverage':     'Food & Beverage',
-  'f&b':                 'Food & Beverage',
-  'food':                'Food & Beverage',
-  'power':               'Power Generation',
-  'power generation':    'Power Generation',
-  'power & energy':      'Power Generation',
-  'mining':              'Mining',
-  'mining & minerals':   'Mining',
-  'pharmaceuticals':     'Pharma',
-  'pharmaceutical':      'Pharma',
-  'pharma':              'Pharma',
-  'paper':               'Pulp & Paper',
-  'pulp and paper':      'Pulp & Paper',
-  'pulp & paper':        'Pulp & Paper',
-  'cement':              'Cement',
-  'steel':               'Steel & Metals',
-  'metals':              'Steel & Metals',
-  'steel & metals':      'Steel & Metals',
+  'adhesive': 'Adhesive',
+  'agriculture': 'Agriculture',
+  'automation': 'Automation',
+  'bio-fuel': 'Bio-Fuel', 'biofuel': 'Bio-Fuel',
+  'bio gas': 'Biogas', 'biogas': 'Biogas',
+  'cattle feed': 'Cattle Feed',
+  'cbg': 'CBG',
+  'chemical': 'Chemicals', 'chemicals': 'Chemicals',
+  'construction': 'Construction', 'constructions': 'Construction',
+  'dairy': 'Dairy',
+  'distillery': 'Distillery',
+  'edible oil': 'Edible Oil',
+  'engineering': 'Engineering',
+  'epc': 'EPC',
+  'ethanol': 'Ethanol',
+  'etp/stp/wtp': 'ETP/STP/WTP', 'etp/wtp/stp': 'ETP/STP/WTP', 'wastewater treatment plant': 'ETP/STP/WTP',
+  'explosive': 'Explosives', 'explosives': 'Explosives',
+  'fertilizers': 'Fertilizers', 'fertilisers': 'Fertilizers', 'manufacture of fertilizers and nitrogen': 'Fertilizers',
+  'fmcg': 'FMCG',
+  'food': 'Food & Beverages', 'food & bvgs.': 'Food & Beverages', 'food & beverage': 'Food & Beverages',
+  'food & beverages': 'Food & Beverages', 'food and beverage': 'Food & Beverages', 'f&b': 'Food & Beverages',
+  'khandsari and jaggery': 'Khandsari & Jaggery', 'khandsari & jaggery': 'Khandsari & Jaggery',
+  'manifacturer': 'Manufacturing', 'manufacturer': 'Manufacturing', 'manufacturing': 'Manufacturing',
+  'marine': 'Marine',
+  'metals & minerals': 'Metals & Minerals', 'metals and minerals': 'Metals & Minerals',
+  'mining': 'Mining',
+  'oil & gas': 'Oil & Gas', 'oil and gas': 'Oil & Gas', 'o&g': 'Oil & Gas', 'oil/gas': 'Oil & Gas',
+  'oil / gas refiner': 'Oil & Gas', 'refinery': 'Oil & Gas',
+  'other': 'Other', 'others': 'Other',
+  'paint': 'Paint',
+  'paper': 'Paper', 'paper & pulp': 'Paper', 'pulp & paper': 'Paper', 'pulp and paper': 'Paper',
+  'petrochemical': 'Petrochemical',
+  'pharma': 'Pharma', 'pharma & cosmetics': 'Pharma', 'pharmaceutical': 'Pharma', 'pharmaceuticals': 'Pharma',
+  'plastic': 'Plastics', 'plastics': 'Plastics',
+  'sugar': 'Sugar',
+  'textile': 'Textile',
+  'thermal power production': 'Thermal Power', 'thermal power': 'Thermal Power',
 };
 
 /**
- * Normalise a raw industry string from DB or user input
- * to a canonical display name. Falls back to Title Case.
+ * Normalise a raw industry string from the DB or user input to its one canonical
+ * display name. Known aliases map straight through; anything unknown falls back
+ * to Title Case so a brand-new value still comes out tidy.
  */
-export function normaliseIndustry(name: string): string {
-  if (!name) return 'Other';
+export function normaliseIndustry(name: string | null | undefined): string {
+  if (!name || !name.trim()) return 'Other';
   const key = name.toLowerCase().trim();
   return (
     INDUSTRY_ALIASES[key] ??
-    name
-      .trim()
-      .replace(/\b\w/g, (c) => c.toUpperCase())
+    name.trim().replace(/\s+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
   );
 }
 
