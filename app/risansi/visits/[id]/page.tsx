@@ -2,11 +2,11 @@ import { notFound, redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, clientScopeSql, canViewClient } from '@/lib/risansi-auth';
+import { getCurrentUser, clientScopeSql, canViewClient, canEditVisitReport } from '@/lib/risansi-auth';
 import { Topbar } from '@/components/risansi';
 import Link from 'next/link';
 import { VisitReportForm } from '@/components/risansi/VisitReportForm';
-import { withinVisitEditWindow, visitEditDaysLeft, VISIT_EDIT_WINDOW_DAYS } from '@/lib/risansi-visit-edit-window';
+import { withinVisitEditWindow, visitEditDaysLeft } from '@/lib/risansi-visit-edit-window';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
@@ -89,9 +89,11 @@ export default async function VisitReportPage({
     );
     myRepId = repRes.rows[0]?.id ?? null;
   }
-  const isAssignedRep = myRepId != null && visit.rep_id != null && String(visit.rep_id) === String(myRepId);
-  // A submitted report stays correctable by its rep for the edit window.
-  const canEdit = isAssignedRep && withinVisitEditWindow(visit.submitted_at);
+  // A submitted report is "Closed" but re-openable for the window by anyone
+  // authorised to edit it — the assigned rep, a manager on their tour, or an
+  // admin/sysadmin — not the rep alone.
+  const visitRepId  = visit.rep_id != null ? Number(visit.rep_id) : null;
+  const canEditVisit = await canEditVisitReport({ role: session.user.role ?? null, repId: myRepId }, visitRepId);
 
   const [contacts, equipment, sugarRes, nonsugarRes, oppsRes, tasksRes, reps, expansionOppRow] = await Promise.all([
     q(async () => {
@@ -181,7 +183,12 @@ export default async function VisitReportPage({
   // triggers, and the inline add-buttons off this single flag.
   const inEditWindow = withinVisitEditWindow(visit.submitted_at);
   const daysLeft     = visitEditDaysLeft(visit.submitted_at);
-  const isClosed     = (isSubmitted && !inEditWindow) || !canEdit;
+  // A closed report can be re-opened only by an authorised person, and only
+  // while still inside the window (measured from the first closed date).
+  const canReopen    = isSubmitted && canEditVisit && inEditWindow;
+  const closedDate   = visit.submitted_at
+    ? new Date(visit.submitted_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+    : null;
   const isSugar  = visit.industry_format === 'sugar' || (!visit.industry_format && visit.is_sugar);
 
   const visitDate = new Date(visit.visit_date).toLocaleDateString('en-IN', {
@@ -249,34 +256,9 @@ export default async function VisitReportPage({
             </div>
           </div>
 
-          {/* Correction window — submitted, but still editable by its rep */}
-          {isSubmitted && isAssignedRep && inEditWindow && (
-            <div style={{
-              padding: '10px 16px', marginBottom: 16,
-              background: 'var(--accent-soft, #EBF1FB)',
-              border: '1px solid var(--accent-line, #C7D9F5)',
-              borderRadius: 8, fontSize: 12, color: 'var(--title, #0A3D8F)',
-            }}>
-              <b>Submitted — corrections still open.</b> You can fix mistakes in this report for{' '}
-              <b>{daysLeft} more day{daysLeft === 1 ? '' : 's'}</b> (the window is {VISIT_EDIT_WINDOW_DAYS} days from
-              submission). Every change you make now is recorded in the client&apos;s activity log.
-            </div>
-          )}
-
-          {/* Window closed — submitted too long ago to correct */}
-          {isSubmitted && isAssignedRep && !inEditWindow && (
-            <div style={{
-              padding: '10px 16px', marginBottom: 16,
-              background: 'var(--bg-elev)', border: '1px solid var(--line-strong)',
-              borderRadius: 8, fontSize: 12, color: 'var(--fg-3)',
-            }}>
-              This report was submitted more than {VISIT_EDIT_WINDOW_DAYS} days ago, so it&apos;s now locked.
-              Ask an admin if something still needs correcting.
-            </div>
-          )}
-
-          {/* View-only notice — not submitted, just not the assigned rep */}
-          {!isSubmitted && !isAssignedRep && (
+          {/* View-only notice — a draft you're not allowed to fill. The
+              closed / re-open banner lives inside the form (it owns re-open state). */}
+          {!isSubmitted && !canEditVisit && (
             <div style={{
               padding: '10px 16px', marginBottom: 16,
               background: 'var(--warn-soft, #FEF3C7)',
@@ -287,7 +269,6 @@ export default async function VisitReportPage({
               <span aria-hidden>👁</span>
               <span>
                 View only — this visit is assigned to <strong>{visit.rep_name}</strong>.
-                Only they can fill in this form.
               </span>
             </div>
           )}
@@ -303,7 +284,11 @@ export default async function VisitReportPage({
             tasks={tasksRes}
             reps={reps}
             expansionOpp={expansionOppRow}
-            isClosed={isClosed}
+            isSubmitted={isSubmitted}
+            canEditVisit={canEditVisit}
+            canReopen={canReopen}
+            closedDate={closedDate}
+            daysLeft={daysLeft}
             isSugar={isSugar}
           />
 

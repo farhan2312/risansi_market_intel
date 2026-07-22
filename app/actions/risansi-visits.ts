@@ -6,6 +6,12 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 import { recordAudit } from '@/lib/audit';
 import { withinVisitEditWindow, VISIT_EDIT_WINDOW_DAYS } from '@/lib/risansi-visit-edit-window';
+import { canEditVisitReport } from '@/lib/risansi-auth';
+
+// A session's role, for the visit edit gate.
+function callerRole(session: { user?: { role?: string | null } }): string | null {
+  return session.user?.role ?? null;
+}
 
 // Resolve the signed-in user's rep id: prefer the session's linked rep_id,
 // fall back to a reps-by-email lookup for accounts linked after token issue.
@@ -69,6 +75,20 @@ export async function saveExpansionOpportunity(input: {
 }) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) throw new Error('Unauthorized');
+
+  // Same gate as the rest of the report: an authorised person, within the
+  // window. This is a report-edit path too, so it can't stay open when the
+  // equipment paths are closed.
+  const expVis = await risansiPool.query<{ rep_id: number | null; submitted_at: string | null }>(
+    'SELECT rep_id, submitted_at FROM visits WHERE id = $1', [input.visitId],
+  );
+  if (!expVis.rows[0]) throw new Error('Visit not found');
+  if (!(await canEditVisitReport({ role: callerRole(session), repId: await callerRepId(session) }, expVis.rows[0].rep_id))) {
+    throw new Error('You do not have permission to edit this visit report.');
+  }
+  if (!withinVisitEditWindow(expVis.rows[0].submitted_at)) {
+    throw new Error(`This report was closed more than ${VISIT_EDIT_WINDOW_DAYS} days ago and can no longer be edited.`);
+  }
 
   const existing = await risansiPool.query<{ id: number }>(
     `SELECT id FROM opportunities
@@ -168,6 +188,16 @@ export async function checkInVisit({
     const session = await getServerSession(authOptions);
     if (!session?.user?.email) throw new Error('Not authenticated');
 
+    // Only someone allowed to edit this visit may check it in (the UPDATE is
+    // already scoped to unsubmitted visits; this adds the missing who-check).
+    const civ = await risansiPool.query<{ rep_id: number | null }>(
+      'SELECT rep_id FROM visits WHERE id = $1', [visitId],
+    );
+    if (!civ.rows[0]) throw new Error('Visit not found');
+    if (!(await canEditVisitReport({ role: callerRole(session), repId: await callerRepId(session) }, civ.rows[0].rep_id))) {
+      throw new Error('You do not have permission to edit this visit report.');
+    }
+
     await risansiPool.query(
       `UPDATE visits SET
          check_in_time       = NOW(),
@@ -240,16 +270,17 @@ export async function saveVisitField(
     [visitId],
   );
   const visit = rows[0];
+  if (!visit) throw new Error('Visit not found');   // guard the who-check below and avoid orphan report rows
   // Submitted reports stay correctable for the edit window, then lock for good.
-  if (visit?.submitted_at && !withinVisitEditWindow(visit.submitted_at)) {
-    throw new Error(`This report was submitted more than ${VISIT_EDIT_WINDOW_DAYS} days ago and can no longer be edited.`);
+  if (visit.submitted_at && !withinVisitEditWindow(visit.submitted_at)) {
+    throw new Error(`This report was closed more than ${VISIT_EDIT_WINDOW_DAYS} days ago and can no longer be edited.`);
   }
   const isCorrection = !!visit?.submitted_at;
 
-  // Ownership: only the assigned rep may save fields.
+  // Who may edit: the assigned rep, a manager on their tour, or admin/sysadmin.
   const myRepId = await callerRepId(session);
-  if (visit && (myRepId == null || visit.rep_id == null || Number(visit.rep_id) !== Number(myRepId))) {
-    throw new Error('You are not the assigned rep for this visit.');
+  if (!(await canEditVisitReport({ role: callerRole(session), repId: myRepId }, visit.rep_id))) {
+    throw new Error('You do not have permission to edit this visit report.');
   }
 
   const visitFields:   Record<string, unknown> = {};
@@ -330,13 +361,16 @@ export async function addEquipment(
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) throw new Error('Unauthorized');
 
-  // Same window as edit/delete — this previously had no lock at all.
-  const addVis = await risansiPool.query<{ submitted_at: string | null }>(
-    'SELECT submitted_at FROM visits WHERE id = $1', [visitId],
+  // Same gate as the report itself: an authorised person, within the window.
+  const addVis = await risansiPool.query<{ submitted_at: string | null; rep_id: number | null }>(
+    'SELECT submitted_at, rep_id FROM visits WHERE id = $1', [visitId],
   );
   if (!addVis.rows[0]) throw new Error('Visit not found');
+  if (!(await canEditVisitReport({ role: callerRole(session), repId: await callerRepId(session) }, addVis.rows[0].rep_id))) {
+    throw new Error('You do not have permission to edit this visit report.');
+  }
   if (!withinVisitEditWindow(addVis.rows[0].submitted_at)) {
-    throw new Error(`This report was submitted more than ${VISIT_EDIT_WINDOW_DAYS} days ago and can no longer be edited.`);
+    throw new Error(`This report was closed more than ${VISIT_EDIT_WINDOW_DAYS} days ago and can no longer be edited.`);
   }
   const addIsCorrection = !!addVis.rows[0].submitted_at;
 
@@ -392,13 +426,17 @@ export async function updateEquipment(
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) throw new Error('Unauthorized');
 
-  // Editable until submission, then for the correction window only.
-  const vis = await risansiPool.query<{ submitted_at: string | null }>(
-    'SELECT submitted_at FROM visits WHERE id = $1', [visitId],
+  // Editable until submission, then for the correction window only — by an
+  // authorised person (rep / tour manager / admin / sysadmin).
+  const vis = await risansiPool.query<{ submitted_at: string | null; rep_id: number | null }>(
+    'SELECT submitted_at, rep_id FROM visits WHERE id = $1', [visitId],
   );
   if (!vis.rows[0]) throw new Error('Visit not found');
+  if (!(await canEditVisitReport({ role: callerRole(session), repId: await callerRepId(session) }, vis.rows[0].rep_id))) {
+    throw new Error('You do not have permission to edit this visit report.');
+  }
   if (!withinVisitEditWindow(vis.rows[0].submitted_at)) {
-    throw new Error(`This report was submitted more than ${VISIT_EDIT_WINDOW_DAYS} days ago and can no longer be edited.`);
+    throw new Error(`This report was closed more than ${VISIT_EDIT_WINDOW_DAYS} days ago and can no longer be edited.`);
   }
   const isCorrection = !!vis.rows[0].submitted_at;
 
@@ -444,13 +482,16 @@ export async function deleteEquipment(equipmentId: string | number, visitId: str
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) throw new Error('Unauthorized');
 
-  // Match the edit rule — correctable until the window closes.
-  const vis = await risansiPool.query<{ submitted_at: string | null }>(
-    'SELECT submitted_at FROM visits WHERE id = $1', [visitId],
+  // Match the edit rule — an authorised person, correctable until the window closes.
+  const vis = await risansiPool.query<{ submitted_at: string | null; rep_id: number | null }>(
+    'SELECT submitted_at, rep_id FROM visits WHERE id = $1', [visitId],
   );
   if (!vis.rows[0]) throw new Error('Visit not found');
+  if (!(await canEditVisitReport({ role: callerRole(session), repId: await callerRepId(session) }, vis.rows[0].rep_id))) {
+    throw new Error('You do not have permission to edit this visit report.');
+  }
   if (!withinVisitEditWindow(vis.rows[0].submitted_at)) {
-    throw new Error(`This report was submitted more than ${VISIT_EDIT_WINDOW_DAYS} days ago and can no longer be edited.`);
+    throw new Error(`This report was closed more than ${VISIT_EDIT_WINDOW_DAYS} days ago and can no longer be edited.`);
   }
   const isCorrection = !!vis.rows[0].submitted_at;
 

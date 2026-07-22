@@ -1,10 +1,13 @@
-// A submitted field report stays correctable for a short window so a rep can
-// fix a genuine mistake without an admin round-trip. After the window it locks
-// for good. Every edit made inside the window is written to the client's
-// activity log, so a corrected report is always auditable against its original
-// submission.
+// A submitted field report shows as "Closed" but stays re-openable for a
+// window, so an authorised person (the rep, a manager on their tour, an admin
+// or system admin) can fix a genuine mistake without a fresh visit. After the
+// window it locks for good, for everyone. The window is measured from the FIRST
+// closed date (visits.submitted_at), which never moves on a re-save — so a
+// re-opened, re-saved report keeps counting from its original submission. Every
+// edit made inside the window is written to the client's activity log, so a
+// corrected report is always auditable against that first submission.
 
-export const VISIT_EDIT_WINDOW_DAYS = 14;
+export const VISIT_EDIT_WINDOW_DAYS = 30;
 const DAY_MS = 86_400_000;
 
 const toMs = (v: string | Date | null | undefined): number | null => {

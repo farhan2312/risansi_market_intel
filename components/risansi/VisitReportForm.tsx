@@ -14,6 +14,7 @@ import { AddContactButton } from './AddContactButton';
 import { EditContactButton } from './EditContactButton';
 import { SubmitVisitButton } from './SubmitVisitButton';
 import { VisitPhotos } from './VisitPhotos';
+import { VISIT_EDIT_WINDOW_DAYS } from '@/lib/risansi-visit-edit-window';
 
 // Major competitor makes for the Competitor Equipment dropdown. Mirrors the
 // per-maker columns tracked in competitor_installed_base. Pick "Other" to type
@@ -94,7 +95,11 @@ interface Props {
   tasks:          TaskItem[];
   reps:           TaskRep[];
   expansionOpp:   ExpansionOpp | null;
-  isClosed:       boolean;
+  isSubmitted:    boolean;          // the report has been closed (submitted_at set)
+  canEditVisit:   boolean;          // this viewer is allowed to edit at all (role)
+  canReopen:      boolean;          // …and it's still inside the 30-day window
+  closedDate:     string | null;    // formatted first-closed date
+  daysLeft:       number;           // whole days left in the re-open window
   isSugar:        boolean;
 }
 
@@ -162,7 +167,8 @@ function useAutoSave(visitId: string) {
 
 export function VisitReportForm({
   visit, contacts, equipment, sugarReport, nonsugarReport,
-  opportunities, tasks, reps, expansionOpp, isClosed, isSugar: initialIsSugar,
+  opportunities, tasks, reps, expansionOpp,
+  isSubmitted, canEditVisit, canReopen, closedDate, daysLeft, isSugar: initialIsSugar,
 }: Props) {
   const { saveState, queueSave, hasDraft, syncDraft } = useAutoSave(visit.id);
   const router = useRouter();
@@ -206,7 +212,12 @@ export function VisitReportForm({
     performance_feedback: '',
   });
 
-  const disabled = isClosed;
+  // A submitted report shows as Closed and is read-only until the viewer
+  // re-opens it (allowed only when canReopen). A draft is editable straight away
+  // by anyone authorised. `reopened` is intentionally session-only: reload and
+  // it's Closed again, so an edit is always a deliberate act.
+  const [reopened, setReopened] = useState(false);
+  const disabled = isSubmitted ? !reopened : !canEditVisit;
 
   // ── Wizard step state ───────────────────────────────────────
   // Each step shows a slice of the (always-mounted) sections via display
@@ -245,6 +256,52 @@ export function VisitReportForm({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+      {/* ── Closed / re-open banner (submitted reports only) ───────── */}
+      {isSubmitted && !reopened && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
+          padding: '11px 16px', borderRadius: 12,
+          background: 'var(--bg-elev)', border: '1px solid var(--line-strong)',
+        }}>
+          <div style={{ fontSize: 12.5, color: 'var(--fg-2)', minWidth: 0 }}>
+            <b style={{ color: 'var(--fg)' }}>Closed{closedDate ? ` on ${closedDate}` : ''}.</b>{' '}
+            {canReopen
+              ? `Corrections are still possible — ${daysLeft} day${daysLeft === 1 ? '' : 's'} left in the ${VISIT_EDIT_WINDOW_DAYS}-day window. Re-open to edit; changes are logged to the client's activity.`
+              : canEditVisit
+                ? `The ${VISIT_EDIT_WINDOW_DAYS}-day correction window has passed — this report is now locked.`
+                : 'View only.'}
+          </div>
+          {canReopen && (
+            <button type="button" onClick={() => setReopened(true)} style={{
+              flexShrink: 0, padding: '7px 16px', borderRadius: 8, fontSize: 12.5, fontWeight: 600,
+              background: '#0A3D8F', color: '#fff', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+            }}>
+              Re-open to edit
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Re-opened: editing an otherwise-closed report. */}
+      {isSubmitted && reopened && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
+          padding: '11px 16px', borderRadius: 12,
+          background: 'var(--accent-soft, #EBF1FB)', border: '1px solid var(--accent-line, #C7D9F5)',
+        }}>
+          <div style={{ fontSize: 12.5, color: 'var(--title, #0A3D8F)', minWidth: 0 }}>
+            <b>Re-opened for editing.</b> Changes save automatically and are logged to the client&apos;s activity.
+            This report stays Closed{closedDate ? ` (${closedDate})` : ''}.
+          </div>
+          <button type="button" onClick={() => setReopened(false)} style={{
+            flexShrink: 0, padding: '7px 16px', borderRadius: 8, fontSize: 12.5, fontWeight: 600,
+            background: 'var(--bg-paper)', color: 'var(--title, #0A3D8F)', border: '1px solid var(--title, #0A3D8F)', cursor: 'pointer', fontFamily: 'inherit',
+          }}>
+            Done
+          </button>
+        </div>
+      )}
 
       {/* ── Progress header: slim stepper + current step title ─────── */}
       <div style={{ background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 14, padding: '16px 16px 14px' }}>
@@ -289,7 +346,7 @@ export function VisitReportForm({
       </div>
 
       {/* Draft recovery — unsynced changes survived a closed tab / dropped signal. */}
-      {hasDraft && !isClosed && (
+      {hasDraft && !disabled && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
           background: 'var(--warn-soft)', border: '1px solid #FCD34D', borderRadius: 12,
@@ -789,7 +846,7 @@ export function VisitReportForm({
           clientId={Number(visit.client_id)}
           clientName={visit.legal_name}
           repId={visit.rep_id ? Number(visit.rep_id) : null}
-          isClosed={isClosed}
+          isClosed={disabled}
           existingOpp={expansionOpp}
         />
       </FormSection>
@@ -913,20 +970,20 @@ export function VisitReportForm({
       <FormSection title="Action Register" icon="📋">
         {tasks.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '24px', color: 'var(--fg-3)', fontSize: 13 }}>
-            No action points yet.{!isClosed && ' Click "+ Add Action Point" to create one.'}
+            No action points yet.{!disabled && ' Click "+ Add Action Point" to create one.'}
           </div>
         ) : (
           tasks.map(task => (
             <TaskRow
               key={task.id}
               task={task}
-              isClosed={isClosed}
+              isClosed={disabled}
               onComplete={handleCompleteTask}
               onDelete={handleDeleteTask}
             />
           ))
         )}
-        {!isClosed && (
+        {!disabled && (
           <AddTaskForm
             visitId={Number(visit.id)}
             clientId={Number(visit.client_id)}
@@ -936,8 +993,8 @@ export function VisitReportForm({
         )}
       </FormSection>
 
-      {/* ── SECTION 7: Preview (before submit) ────────────── */}
-      {!isClosed && willPreview && (
+      {/* ── SECTION 7: Preview (before submit) — drafts only ─────── */}
+      {!isSubmitted && !disabled && willPreview && (
         <div style={{
           border: '1px solid var(--brand-blue)', borderRadius: 8, padding: 16,
           background: 'var(--accent-soft)',
@@ -1009,10 +1066,21 @@ export function VisitReportForm({
             >
               Next
             </button>
-          ) : !isClosed ? (
-            <SubmitVisitButton visitId={visit.id} />
+          ) : !isSubmitted ? (
+            // A draft: submit to close it (if the viewer may edit).
+            !disabled
+              ? <SubmitVisitButton visitId={visit.id} />
+              : <span style={{ fontSize: 12, color: 'var(--fg-3)' }}>🔒 View only</span>
+          ) : reopened ? (
+            // Already closed, re-opened for correction: no re-submit — just finish.
+            <button
+              type="button" onClick={() => setReopened(false)}
+              style={{ padding: '11px 22px', borderRadius: 9, border: '1px solid var(--title, #0A3D8F)', background: 'var(--bg-paper)', color: 'var(--title, #0A3D8F)', cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: 'inherit' }}
+            >
+              Done editing
+            </button>
           ) : (
-            <span style={{ fontSize: 12, color: 'var(--fg-3)' }}>🔒 Submitted — read only</span>
+            <span style={{ fontSize: 12, color: 'var(--fg-3)' }}>🔒 Closed{closedDate ? ` on ${closedDate}` : ''} — read only</span>
           )}
         </div>
       </div>

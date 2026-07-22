@@ -162,3 +162,25 @@ export async function getManagerAssignableReps(managerRepId: number): Promise<nu
   if (!repIds.includes(managerRepId)) repIds.push(managerRepId);
   return repIds;
 }
+
+/**
+ * Who may fill or correct a visit report: the assigned rep, a manager who
+ * shares one of that rep's tours, or admin/sysadmin. Same shape as the
+ * opportunity edit gate (userCanEditOpp) so record editing stays consistent
+ * across the app. The 30-day re-open window is applied on top of this, not
+ * inside it — this answers "is this person allowed at all?", the window answers
+ * "is it still soon enough?".
+ */
+export async function canEditVisitReport(
+  user: { role?: string | null; repId?: number | null },
+  visitRepId: number | null,
+): Promise<boolean> {
+  const role = user.role ?? 'rep';
+  if (hasRole(role, 'admin')) return true;                       // admin + sysadmin
+  if (user.repId != null && visitRepId != null && Number(visitRepId) === Number(user.repId)) return true;
+  if (role === 'manager' && user.repId != null && visitRepId != null) {
+    const assignable = await getManagerAssignableReps(user.repId);
+    return assignable.includes(Number(visitRepId));
+  }
+  return false;
+}
