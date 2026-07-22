@@ -13,6 +13,7 @@ export interface KanbanOpp extends EditableOpp {
   eta_text:   string | null;
   rep_name:   string | null;
   can_edit?:  boolean;
+  created_at?: string | null;   // ISO; cards sort newest-first within a column
 }
 
 const STAGES = ['Suspect', 'Prospect', 'Quoted', 'Negotiating', 'On Hold', 'Won', 'Lost', 'Dropped'] as const;
@@ -139,8 +140,11 @@ export function OpportunityKanban({ initialOpps }: { initialOpps: KanbanOpp[] })
     router.refresh();
   };
 
+  // Cards within a column are ordered by creation date, newest first, so the
+  // most recently raised opportunity sits at the top of its stage.
+  const createdMs = (o: KanbanOpp) => (o.created_at ? new Date(o.created_at).getTime() : 0);
   const byStage: Record<string, KanbanOpp[]> = {};
-  for (const s of STAGES) byStage[s] = opps.filter(o => o.stage === s);
+  for (const s of STAGES) byStage[s] = opps.filter(o => o.stage === s).sort((a, b) => createdMs(b) - createdMs(a));
 
   return (
     <div>

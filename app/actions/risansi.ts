@@ -700,9 +700,20 @@ export async function createPipelineOpportunity(formData: FormData) {
   const eta      = (formData.get('eta_text')         as string | null)?.trim()
                    || (formData.get('expected_close') as string | null)?.trim() || null;
   const quoteRef = (formData.get('quote_ref')        as string | null)?.trim() || null;
+  // Stage-specific fields — the create form only sends these for the stages
+  // that need them (quote date + RIL probability code once a quote exists).
+  const quoteDate = (formData.get('quote_date')       as string | null)?.trim() || null;
+  const probCode  = (formData.get('probability_code') as string | null)?.trim() || null;
   const notes    = (formData.get('notes')            as string | null)?.trim() || null;
 
   if (!clientId) throw new Error('Client is required.');
+
+  // A quotation must carry its reference — the same requirement the drag-to-
+  // Quoted flow enforces, applied here so an opportunity can't be born "Quoted"
+  // with no quote to point at.
+  if ((stage === 'Quoted' || stage === 'Negotiating') && !quoteRef) {
+    throw new Error('A quote reference is required for a Quoted or Negotiating opportunity.');
+  }
 
   // Ownership is derived, not asked for. The client is already on a tour and
   // the tour names its owner, so a rep picker on this form could only ever
@@ -739,18 +750,18 @@ export async function createPipelineOpportunity(formData: FormData) {
   if (hasSecondary) {
     ({ rows: oppRows } = await risansiPool.query<{ id: string }>(
       `INSERT INTO opportunities
-         (client_id, rep_id, secondary_rep_id, product, product_type, stage, value_cr, probability, eta_text, quote_ref, notes, auto_created, created_by, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, FALSE, $12, NOW(), NOW())
+         (client_id, rep_id, secondary_rep_id, product, product_type, stage, value_cr, probability, eta_text, quote_ref, quote_date, probability_code, notes, auto_created, created_by, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, FALSE, $14, NOW(), NOW())
        RETURNING id`,
-      [clientId, primaryRepId, secondaryRepId, product, prodType, stage, value, prob, eta, quoteRef, notes, user.email],
+      [clientId, primaryRepId, secondaryRepId, product, prodType, stage, value, prob, eta, quoteRef, quoteDate, probCode, notes, user.email],
     ));
   } else {
     ({ rows: oppRows } = await risansiPool.query<{ id: string }>(
       `INSERT INTO opportunities
-         (client_id, rep_id, product, product_type, stage, value_cr, probability, eta_text, quote_ref, notes, auto_created, created_by, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, FALSE, $11, NOW(), NOW())
+         (client_id, rep_id, product, product_type, stage, value_cr, probability, eta_text, quote_ref, quote_date, probability_code, notes, auto_created, created_by, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, FALSE, $13, NOW(), NOW())
        RETURNING id`,
-      [clientId, primaryRepId, product, prodType, stage, value, prob, eta, quoteRef, notes, user.email],
+      [clientId, primaryRepId, product, prodType, stage, value, prob, eta, quoteRef, quoteDate, probCode, notes, user.email],
     ));
   }
 

@@ -3,6 +3,7 @@
 import { useState, useEffect, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { createPipelineOpportunity } from '@/app/actions/risansi';
+import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
 
 interface ClientResult {
   id: string; legal_name: string; code: string;
@@ -24,6 +25,24 @@ export interface NewOpportunityModalProps {
 }
 
 const PROB: Record<string, number> = { Suspect: 20, Prospect: 40, Quoted: 60, Negotiating: 75 };
+
+// What each stage asks of a new opportunity. A Suspect is a distant lead and
+// needs only the basics; a Prospect is close enough to estimate a date; a
+// Quoted opportunity must carry the quotation it is named for. The form shows
+// exactly these fields per stage so it never asks for a quote on a suspect, nor
+// hides the quote reference once one exists.
+interface StageMeta {
+  hint: string;
+  expectedClose?: boolean;  // show the expected-close field
+  quote?: boolean;          // show quote reference + date + probability code
+  quoteRequired?: boolean;  // and make the reference mandatory
+}
+const STAGE_META: Record<string, StageMeta> = {
+  Suspect:     { hint: 'Early-stage lead, roughly 1–2 years out. Just the basics for now.' },
+  Prospect:    { hint: 'Active interest, roughly 6 months out. Add a rough close estimate.', expectedClose: true },
+  Quoted:      { hint: 'A quotation has been issued — capture its reference and date.', expectedClose: true, quote: true, quoteRequired: true },
+  Negotiating: { hint: 'In active negotiation — close date and the quote reference both matter.', expectedClose: true, quote: true, quoteRequired: true },
+};
 
 export function NewOpportunityModal(props: NewOpportunityModalProps) {
   const { open, onClose, lockClient } = props;
@@ -137,6 +156,7 @@ function NewOppForm({ client, lockClient, onBack, onSuccess }: {
   const [error, setError]     = useState('');
   const [stage, setStage]     = useState('Suspect');
   const [prob, setProb]       = useState(PROB.Suspect);
+  const meta = STAGE_META[stage] ?? STAGE_META.Suspect;
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true); setError('');
@@ -218,6 +238,16 @@ function NewOppForm({ client, lockClient, onBack, onSuccess }: {
           </div>
         </div>
 
+        {/* Stage hint — tells the rep what this stage means and why the fields
+            below changed when they picked it. */}
+        <div style={{
+          fontSize: 11, lineHeight: 1.5, color: 'var(--fg-2)', marginTop: -4,
+          padding: '7px 10px', background: 'var(--bg-sunk)', borderRadius: 6,
+          borderLeft: '3px solid var(--brand-blue)',
+        }}>
+          {meta.hint}
+        </div>
+
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div>
             <label style={LBL}>Value (₹)</label>
@@ -230,16 +260,43 @@ function NewOppForm({ client, lockClient, onBack, onSuccess }: {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        {/* Expected close — omitted for a Suspect, which is too far out to date. */}
+        {meta.expectedClose && (
           <div>
             <label style={LBL}>Expected Close</label>
             <input name="eta_text" placeholder="e.g. Jun 2026 or Q3 FY27" style={INP} />
           </div>
-          <div>
-            <label style={LBL}>Quote Reference</label>
-            <input name="quote_ref" placeholder="e.g. Q-2024-018" style={INP} />
+        )}
+
+        {/* Quote block — only once a quotation exists (Quoted / Negotiating).
+            The reference is required for Quoted; the fuller quote detail is still
+            captured later in the Quoted drawer on the board. */}
+        {meta.quote && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={LBL}>Quote Reference{meta.quoteRequired ? ' *' : ''}</label>
+              <input
+                name="quote_ref"
+                required={meta.quoteRequired}
+                placeholder="e.g. RIL/QT/…"
+                style={{ ...INP, ...(meta.quoteRequired ? { borderColor: 'var(--warn)' } : {}) }}
+              />
+            </div>
+            <div>
+              <label style={LBL}>Quote Date</label>
+              <input name="quote_date" type="date" style={INP} />
+            </div>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <label style={LBL}>Probability Code</label>
+              <select name="probability_code" defaultValue="" style={INP}>
+                <option value="">—</option>
+                {PROBABILITY_CODES.map(c => (
+                  <option key={c.code} value={c.code}>{probabilityCodeLabel(c)}</option>
+                ))}
+              </select>
+            </div>
           </div>
-        </div>
+        )}
 
         <div>
           <label style={LBL}>Notes</label>
