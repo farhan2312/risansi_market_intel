@@ -360,7 +360,12 @@ export async function updateClient(clientId: number, formData: FormData): Promis
     if (dup.rows.length > 0) throw new Error(`Client code "${newCode}" is already in use.`);
   }
 
-  await risansiPool.query(
+  // Update the client, and when the code changes cascade it to the denormalised
+  // client_code snapshots — atomically, so the code and its copies never diverge.
+  const clientTx = await risansiPool.connect();
+  try {
+    await clientTx.query('BEGIN');
+    await clientTx.query(
     `UPDATE clients SET
        code               = $24,
        legal_name         = $1,
@@ -413,7 +418,26 @@ export async function updateClient(clientId: number, formData: FormData): Promis
       formData.get('is_end_client') === 'true',
       newCode,
     ],
-  );
+    );
+
+    if (newCode && currentCode && newCode !== currentCode) {
+      // client_code is a plain text copy (no FK) in these tables. Update every row
+      // for this client, plus orphaned rows still carrying the old code with no id.
+      for (const tbl of ['client_pumps', 'competitor_installed_base', 'complaints']) {
+        await clientTx.query(
+          `UPDATE ${tbl} SET client_code = $1 WHERE client_id = $2 OR (client_code = $3 AND client_id IS NULL)`,
+          [newCode, clientId, currentCode],
+        );
+      }
+    }
+
+    await clientTx.query('COMMIT');
+  } catch (e) {
+    await clientTx.query('ROLLBACK');
+    throw e;
+  } finally {
+    clientTx.release();
+  }
 
   // Owners (flat multi-owner model) + legacy shim + audit.
   // Owners derive from the client's tour (set via tour_id above); no direct sync.
