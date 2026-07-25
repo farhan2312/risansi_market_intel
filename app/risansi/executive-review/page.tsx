@@ -258,10 +258,12 @@ export default async function ExecutiveReviewPage({ searchParams }: {
         GROUP BY 1 ORDER BY 1`)).rows, []),
 
     // 6. KPIs
-    q(async () => (await risansiPool.query<{ total_business: string; leads: string; visited: string; active_clients: string }>(
+    q(async () => (await risansiPool.query<{ total_business: string; revenue: string; leads: string; visited: string; active_clients: string }>(
       `SELECT
          (SELECT COALESCE(round(sum(o.offer_value_inr)),0) FROM opportunities o JOIN clients c ON c.id=o.client_id
            WHERE ${tourF} AND o.stage='Won')::text AS total_business,
+         (SELECT COALESCE(round(sum(r.total_value)),0) FROM client_revenue_monthly r JOIN clients c ON c.id = r.client_id
+           WHERE ${tourF} AND r.month >= '${d(fy)}' AND r.month < '${curTo}')::text AS revenue,
          (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status='PROSPECTIVE' AND c.deleted_at IS NULL)::text AS leads,
          (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status='PROSPECTIVE' AND c.deleted_at IS NULL AND c.last_visit_date IS NOT NULL)::text AS visited,
          (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status='ACTIVE' AND c.deleted_at IS NULL)::text AS active_clients`)).rows[0], null),
@@ -305,7 +307,8 @@ export default async function ExecutiveReviewPage({ searchParams }: {
     offerStatus:     { headers: ['Offer status', 'Total Offer Value (INR)'], rows: offerRows, moneyFrom: 0 },
     attendance:      { headers: ['Month', 'Visit days', 'Clients'], rows: attRows, moneyFrom: 99 },
     kpis: [
-      { label: 'Total Business', value: fmtMoney(n(kpiRow?.total_business)), sub: `orders won · FY ${yy(fy)}`, accent: true },
+      { label: 'Order in Hand', value: fmtMoney(n(kpiRow?.total_business)), sub: 'won opportunities · not yet invoiced', accent: true },
+      { label: 'Revenue', value: fmtMoney(n(kpiRow?.revenue)), sub: `invoiced · FY ${yy(fy)} to date` },
       { label: 'Active Clients', value: (kpiRow ? Number(kpiRow.active_clients) : 0).toLocaleString('en-IN') },
       { label: 'Total Leads', value: (kpiRow ? Number(kpiRow.leads) : 0).toLocaleString('en-IN'), sub: 'prospective on tour' },
       { label: 'Leads Visited', value: (kpiRow ? Number(kpiRow.visited) : 0).toLocaleString('en-IN') },
@@ -313,7 +316,7 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   };
 
   const periodLabel = `${tsmName} · FY ${yy(fy)} to ${new Date(month + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}`;
-  const note = 'Live data. Order Received / Total Business come from Won opportunities (₹0 until deals are marked Won); leads attribute by tour; "Hold-Active" and lead conversions (Converted to Enquiry/Client) are pending — the former needs a stage, the latter the lead-management build.';
+  const note = 'Live data. "Order in Hand" and "Order Received" are the value of Won opportunities (₹0 until deals are marked Won) — order booked, not billed. "Revenue" is invoiced revenue for the FY to date (from the revenue records) — the two differ because a won order is not invoiced immediately. Leads attribute by tour; "Hold-Active" and lead conversions (Converted to Enquiry/Client) are pending — the former needs a stage, the latter the lead-management build.';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
