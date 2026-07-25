@@ -150,6 +150,12 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
   const lastVisit = formatLastVisit(client.last_visit_date as string | null);
   const c = client as Record<string, unknown>;
   const str = (k: string) => (c[k] == null || c[k] === '' ? null : String(c[k]));
+  // TCD (tonnes crushed / day) is the headline capacity metric for a sugar
+  // mill — surface it prominently, but only for the sugar mill categories
+  // (End User / Group Mills / Direct Mill), never for traders / OEMs.
+  const isSugarMill = !!client.is_sugar && /end user|group|direct mill/i.test(String(client.client_type ?? ''));
+  const tcdNum = Number(client.tcd ?? 0);
+  const tcdLabel = isSugarMill && tcdNum > 0 ? `${tcdNum.toLocaleString('en-IN')} TCD` : null;
 
   return (
     <>
@@ -176,6 +182,7 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
           {/* KPI strip */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 14 }} className="avoid-break">
             {[
+              ...(tcdLabel ? [['Crushing', tcdLabel]] : []),
               ['Lifetime Revenue', formatRev(lifeTotal * 100_000)],
               ['Last Visit', lastVisit.label],
               ['Risansi Pumps', rilPumpsTotal > 0 ? `${rilUnits} PCP · ${rilMmp} MMP` : '—'],
@@ -199,7 +206,10 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
               ['Business Category', str('business_category')],
               ['Market Type', str('market_type')],
               ['Client Type', str('client_type')],
-              ['Capacity', [str('tcd') ? `${str('tcd')} TCD` : null, str('klpd') ? `${str('klpd')} KLPD` : null].filter(Boolean).join(' · ') || str('capacity_bracket')],
+              ['TCD', tcdLabel],
+              ['Capacity', isSugarMill
+                ? (str('klpd') ? `${str('klpd')} KLPD` : str('capacity_bracket'))
+                : [str('tcd') ? `${str('tcd')} TCD` : null, str('klpd') ? `${str('klpd')} KLPD` : null].filter(Boolean).join(' · ') || str('capacity_bracket')],
               ['Owners', str('rep_name')],
               ['Tour', str('tour_name') ? `${str('tour_name')}${str('tour_zone') ? ` · ${str('tour_zone')}` : ''}` : null],
               ['Zone', str('zone')],

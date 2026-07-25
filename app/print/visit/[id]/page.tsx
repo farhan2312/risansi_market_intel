@@ -32,7 +32,7 @@ export default async function VisitPrintPage({ params }: { params: Promise<{ id:
 
   const visitRes = await risansiPool.query<Record<string, unknown>>(
     `SELECT v.*,
-       c.legal_name, c.code, c.industry, c.is_sugar, c.city, c.state, c.tier,
+       c.legal_name, c.code, c.industry, c.is_sugar, c.tcd, c.client_type, c.city, c.state, c.tier,
        COALESCE(r.name, '—') AS rep_name, r.email AS rep_email
      FROM visits v
      JOIN clients c ON v.client_id = c.id
@@ -99,6 +99,10 @@ export default async function VisitPrintPage({ params }: { params: Promise<{ id:
   const compEq = equipment.filter(e => !e.is_ril);
   const s = visit as Record<string, unknown>;
   const str = (k: string) => (s[k] == null ? null : String(s[k]));
+  // Show crushing capacity (TCD) on the visit report for sugar mills only.
+  const isSugarMill = !!visit.is_sugar && /end user|group|direct mill/i.test(String(visit.client_type ?? ''));
+  const tcdNum = Number(visit.tcd ?? 0);
+  const tcdLabel = isSugarMill && tcdNum > 0 ? `${tcdNum.toLocaleString('en-IN')} TCD` : null;
 
   return (
     <>
@@ -124,6 +128,7 @@ export default async function VisitPrintPage({ params }: { params: Promise<{ id:
             <Facts rows={[
               ['Client Code', String(visit.code)],
               ['Industry', `${str('industry') ?? '—'}${isSugar ? ' · Sugar' : ''}`],
+              ['TCD', tcdLabel],
               ['Location', [str('city'), str('state')].filter(Boolean).join(', ') || null],
               ['Tier', str('tier')],
               ['Representative', `${str('rep_name')}${str('rep_email') ? ` (${str('rep_email')})` : ''}`],
