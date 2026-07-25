@@ -126,7 +126,9 @@ export default async function PipelinePage({
   // unexplained empty board. Visibility is still bounded by ownerVis below.
   const scopedRepId = !showAll && repFilts.length === 0 ? currentRepId : null;
   if (scopedRepId != null) {
-    conds.push(`o.rep_id = $${idx}`);
+    // Tour-based attribution: a rep owns the opportunities of the clients on
+    // their tour(s), not a per-opportunity rep_id. (Matches the revenue scope.)
+    conds.push(`c.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = $${idx})`);
     vals.push(scopedRepId); idx++;
   }
 
@@ -139,7 +141,10 @@ export default async function PipelinePage({
     vals.push(prodTypeFilts); idx++;
   }
   if (repFilts.length > 0) {
-    conds.push(`r.name = ANY($${idx}::text[])`);
+    // Picking a rep shows the opportunities of clients on that rep's tour(s),
+    // not opps stored against that rep — a tour can have several reps.
+    conds.push(`EXISTS (SELECT 1 FROM tour_assignments ta JOIN users u2 ON u2.id = ta.rep_id
+                          WHERE ta.tour_id = c.tour_id AND u2.name = ANY($${idx}::text[]))`);
     vals.push(repFilts); idx++;
   }
   if (indFilts.length > 0) {
@@ -210,7 +215,7 @@ export default async function PipelinePage({
     const c: string[] = [];
     const v: (string | number | string[])[] = [];
     if (prodTypeFilts.length)   { c.push(`${a}.product_type = ANY($${v.length + 1}::text[])`);                                 v.push(prodTypeFilts); }
-    if (repFilts.length)        { c.push(`${a}.rep_id IN (SELECT id FROM users WHERE name = ANY($${v.length + 1}::text[]))`);  v.push(repFilts); }
+    if (repFilts.length)        { c.push(`${a}.client_id IN (SELECT c2.id FROM clients c2 JOIN tour_assignments ta ON ta.tour_id = c2.tour_id JOIN users u2 ON u2.id = ta.rep_id WHERE u2.name = ANY($${v.length + 1}::text[]))`);  v.push(repFilts); }
     if (indFilts.length)        { c.push(`${a}.client_id IN (SELECT id FROM clients WHERE industry = ANY($${v.length + 1}::text[]))`); v.push(indFilts); }
     if (probFilts.length)       { c.push(`${a}.probability_code = ANY($${v.length + 1}::text[])`);                             v.push(probFilts); }
     return { clause: c.length ? ` AND ${c.join(' AND ')}` : '', vals: v as (string | number)[] };
@@ -232,9 +237,9 @@ export default async function PipelinePage({
   // limited to 200 rows, which is why that column reads far below the truth.
   const wonC: string[] = ["o.stage = 'Won'"];
   const wonV: (string | number | string[])[] = [];
-  if (scopedRepId != null)  { wonC.push(`o.rep_id = $${wonV.length + 1}`);                                                   wonV.push(scopedRepId); }
+  if (scopedRepId != null)  { wonC.push(`o.client_id IN (SELECT c2.id FROM clients c2 JOIN tour_assignments ta ON ta.tour_id = c2.tour_id WHERE ta.rep_id = $${wonV.length + 1})`); wonV.push(scopedRepId); }
   if (prodTypeFilts.length) { wonC.push(`o.product_type = ANY($${wonV.length + 1}::text[])`);                                wonV.push(prodTypeFilts); }
-  if (repFilts.length)      { wonC.push(`o.rep_id IN (SELECT id FROM users WHERE name = ANY($${wonV.length + 1}::text[]))`); wonV.push(repFilts); }
+  if (repFilts.length)      { wonC.push(`o.client_id IN (SELECT c2.id FROM clients c2 JOIN tour_assignments ta ON ta.tour_id = c2.tour_id JOIN users u2 ON u2.id = ta.rep_id WHERE u2.name = ANY($${wonV.length + 1}::text[]))`); wonV.push(repFilts); }
   if (indFilts.length)      { wonC.push(`o.client_id IN (SELECT id FROM clients WHERE industry = ANY($${wonV.length + 1}::text[]))`); wonV.push(indFilts); }
   if (probFilts.length)     { wonC.push(`o.probability_code = ANY($${wonV.length + 1}::text[])`);                            wonV.push(probFilts); }
   const wonWhere = `WHERE ${wonC.join(' AND ')}${ownerVisAnd}`;
@@ -373,8 +378,12 @@ export default async function PipelinePage({
     }, []),
 
     q<string[]>(async () => {
+      // Reps that belong to at least one tour — the rep filter is tour-based, so
+      // a rep with no tour would match no clients and never surface anything.
       const { rows } = await risansiPool.query<{ name: string }>(
-        `SELECT DISTINCT r.name FROM users r WHERE r.is_active = TRUE ORDER BY r.name`,
+        `SELECT DISTINCT u.name FROM users u
+           JOIN tour_assignments ta ON ta.rep_id = u.id
+          WHERE u.is_active = TRUE ORDER BY u.name`,
       );
       return rows.map(r => r.name);
     }, []),
