@@ -12,6 +12,7 @@ export interface KanbanOpp extends EditableOpp {
   probability: number | null;
   eta_text:   string | null;
   rep_name:   string | null;
+  tour_name:  string | null;
   can_edit?:  boolean;
   created_at?: string | null;   // ISO; cards sort newest-first within a column
 }
@@ -367,7 +368,7 @@ export function OpportunityKanban({ initialOpps, stageTotals }: {
                     )}
                     <div style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', display: 'flex', justifyContent: 'space-between', gap: 6, marginBottom: 4 }}>
                       <span style={{ flexShrink: 0 }}>{opp.client_code}</span>
-                      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right' }}>{opp.rep_name || '—'}</span>
+                      <span title={opp.tour_name ? `Tour: ${opp.tour_name}` : 'No tour assigned'} style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right' }}>{opp.tour_name || '—'}</span>
                     </div>
                     <div style={{ fontSize: 12, fontWeight: 500, lineHeight: 1.3, marginBottom: 4, color: 'var(--fg)', overflowWrap: 'anywhere' }}>{opp.client_name}</div>
                     <div style={{ fontSize: 11, color: 'var(--fg-2)', marginBottom: 6, lineHeight: 1.35, overflowWrap: 'anywhere' }}>{opp.product}</div>

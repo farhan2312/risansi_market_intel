@@ -35,6 +35,7 @@ interface OppRow {
   industry:            string;
   rep_id:              number | null;
   rep_name:            string | null;
+  tour_name:           string | null;
   can_edit:            boolean;
   // Optional edit fields — may not exist on the table
   secondary_rep_id?:   number | null;
@@ -274,6 +275,7 @@ export default async function PipelinePage({
         SELECT o.*,
                c.legal_name AS client_name, c.code AS client_code, c.industry,
                COALESCE(r.name, '—') AS rep_name,
+               (SELECT tr.name FROM tour_routes tr WHERE tr.id = c.tour_id) AS tour_name,
                ${CAN_EDIT_CASE}
         FROM opportunities o
         JOIN clients c ON c.id = o.client_id
@@ -294,6 +296,7 @@ export default async function PipelinePage({
         SELECT o.*,
                c.legal_name AS client_name, c.code AS client_code, c.industry,
                COALESCE(r.name, '—') AS rep_name,
+               (SELECT tr.name FROM tour_routes tr WHERE tr.id = c.tour_id) AS tour_name,
                ${CAN_EDIT_CASE}
         FROM opportunities o
         JOIN clients c ON c.id = o.client_id
