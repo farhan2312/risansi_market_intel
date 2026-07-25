@@ -1,10 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef, type CSSProperties } from 'react';
+import { useState, useEffect, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { updateOpportunity, deleteOpportunity } from '@/app/actions/risansi';
-
-interface Rep { id: string; name: string; zone?: string | null; }
 
 export interface EditableOpp {
   id: string;
@@ -52,26 +50,12 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
   const [stage, setStage]     = useState(opp.stage);
-  const [reps, setReps]       = useState<Rep[]>([]);
-  const [primaryRepId, setPrimaryRepId]     = useState<string>(opp.rep_id != null ? String(opp.rep_id) : '');
-  const [secondaryRepId, setSecondaryRepId] = useState<string>(opp.secondary_rep_id != null ? String(opp.secondary_rep_id) : '');
   const [quoteItems, setQuoteItems] = useState<QItem[]>([]);
   const [quoteMeta, setQuoteMeta]   = useState<QMeta | null>(null);
   // Seeded SYNCHRONOUSLY from the opp row (it carries unit_project via SELECT
   // o.*). Seeding from the async quote-meta fetch instead would let an early
   // save write a blank over the stored value before the fetch resolved.
   const [unitProject, setUnitProject] = useState(opp.unit_project ?? '');
-  const repsLoaded = useRef(false);
-
-  useEffect(() => {
-    if (repsLoaded.current) return;
-    repsLoaded.current = true;
-    fetch('/api/risansi/reps')
-      .then(r => r.json())
-      .then(d => setReps(Array.isArray(d) ? d : []))
-      .catch(() => setReps([]));
-    // Don't touch primaryRepId/secondaryRepId — they're already seeded from opp.
-  }, []);
 
   // Load the quoted items + quote-level attributes for the read view.
   useEffect(() => {
@@ -88,9 +72,8 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
     setLoading(true); setError('');
     try {
       const fd = new FormData(e.currentTarget);
-      // Controlled rep selects — sync from state to be safe
-      fd.set('rep_id', primaryRepId);
-      fd.set('secondary_rep_id', secondaryRepId);
+      // Ownership is derived from the client's tour, not set here — the form
+      // sends no rep_id, and updateOpportunity leaves the existing owner intact.
       await updateOpportunity(Number(opp.id), fd);
       router.refresh();
       onClose();
@@ -212,7 +195,7 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
             <ReadOnlyRow label="Probability %" value={opp.probability != null ? String(opp.probability) : '—'} />
             <ReadOnlyRow label="Expected Close" value={opp.eta_text ?? '—'} />
             <ReadOnlyRow label="Quote Ref" value={opp.quote_ref ?? '—'} />
-            <ReadOnlyRow label="Rep" value={opp.rep_name ?? '—'} />
+            <ReadOnlyRow label="Owner" value={opp.rep_name ?? '—'} />
             <ReadOnlyRow label="Notes" value={opp.notes ?? '—'} />
             <QuotedItemsSection items={quoteItems} meta={quoteMeta} />
           </div>
@@ -327,29 +310,16 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
               </div>
             )}
 
-            {/* Reps — controlled so the value survives the async reps fetch */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div>
-                <label style={LABEL_STYLE}>Primary Rep *</label>
-                {reps.length === 0 ? (
-                  <div style={{ ...INPUT_STYLE, color: 'var(--fg-3)', fontStyle: 'italic' }}>Loading reps…</div>
-                ) : (
-                  <select name="rep_id" required value={primaryRepId} onChange={e => setPrimaryRepId(e.target.value)} style={INPUT_STYLE}>
-                    <option value="">— Select Primary Rep —</option>
-                    {reps.map(r => <option key={r.id} value={String(r.id)}>{r.name}{r.zone ? ` · ${r.zone}` : ''}</option>)}
-                  </select>
-                )}
+            {/* Owner — derived from the client's tour, not editable. An
+                opportunity inherits its rep from the client's tour assignment,
+                so there is no separate rep picker here. */}
+            <div>
+              <label style={LABEL_STYLE}>Owner</label>
+              <div style={{ ...INPUT_STYLE, color: 'var(--fg-2)', display: 'flex', alignItems: 'center', minHeight: 36 }}>
+                {opp.rep_name ?? '— from client tour —'}
               </div>
-              <div>
-                <label style={LABEL_STYLE}>Secondary Rep</label>
-                {reps.length === 0 ? (
-                  <div style={{ ...INPUT_STYLE, color: 'var(--fg-3)', fontStyle: 'italic' }}>Loading reps…</div>
-                ) : (
-                  <select name="secondary_rep_id" value={secondaryRepId} onChange={e => setSecondaryRepId(e.target.value)} style={INPUT_STYLE}>
-                    <option value="">— None —</option>
-                    {reps.map(r => <option key={r.id} value={String(r.id)}>{r.name}{r.zone ? ` · ${r.zone}` : ''}</option>)}
-                  </select>
-                )}
+              <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3 }}>
+                Set by the client&apos;s tour assignment.
               </div>
             </div>
 

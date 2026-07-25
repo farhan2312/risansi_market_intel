@@ -1073,6 +1073,14 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
     lost_reason:        (formData.get('lost_reason') as string | null) || null,
   };
 
+  // Ownership is no longer set from the Edit drawer — it's derived from the
+  // client's tour and shown read-only. When the form doesn't submit these
+  // fields at all, leave the stored values untouched (don't wipe the secondary
+  // owner or re-derive the primary). OppCompletionModal still sends rep_id
+  // explicitly, so its Won transition keeps carrying the owner through.
+  if (formData.get('rep_id') === null)           delete candidates.rep_id;
+  if (formData.get('secondary_rep_id') === null) delete candidates.secondary_rep_id;
+
   const existing = await opportunityColumns();
   const cols = Object.keys(candidates).filter(c => existing.size === 0 || existing.has(c));
   if (cols.length === 0) return;
