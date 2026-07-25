@@ -6,7 +6,6 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, Sparkline, MiniBars, Donut, Tag } from '@/components/risansi';
 import { ExportPdfButton } from '@/components/risansi/ExportPdfButton';
 import { RefreshButton } from '@/components/risansi/RefreshButton';
-import { ReportBugButton } from '@/components/risansi/ReportBugButton';
 import Link from 'next/link';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, clientVisibilitySql, clientScopeSql, hasRole } from '@/lib/risansi-auth';
@@ -243,17 +242,14 @@ export default async function ExecDashboardPage() {
         <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>
 
           {/* Greeting */}
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 20 }}>
-            <div>
-              <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
-                {getGreeting()}, {displayName}.
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>
-                {formatIndianDate(today)}
-                {!repId && ' · Rep profile not linked — contact admin to sync your account'}
-              </div>
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
+              {getGreeting()}, {displayName}.
             </div>
-            <ReportBugButton />
+            <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>
+              {formatIndianDate(today)}
+              {!repId && ' · Rep profile not linked — contact admin to sync your account'}
+            </div>
           </div>
 
           {/* Account-not-linked warning */}
@@ -735,7 +731,6 @@ export default async function ExecDashboardPage() {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <ReportBugButton />
             <ExportPdfButton />
             <RefreshButton />
           </div>
