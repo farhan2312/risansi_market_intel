@@ -22,6 +22,7 @@ interface Props {
   mode: 'create' | 'edit';
   client?: any;                 // pre-filled data (edit mode only)
   existingContacts?: any[];     // live (non-imported) contacts for edit mode
+  allowCodeEdit?: boolean;      // edit mode: allow changing the client code (Client Master only)
   onClose: () => void;
 }
 
@@ -43,7 +44,7 @@ function withCurrent(opts: string[], current: unknown): string[] {
 
 // ── Component ──────────────────────────────────────────────────
 
-export function ClientFormDrawer({ mode, client, existingContacts, onClose }: Props) {
+export function ClientFormDrawer({ mode, client, existingContacts, allowCodeEdit, onClose }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [visible, setVisible] = useState(false);
@@ -274,6 +275,17 @@ export function ClientFormDrawer({ mode, client, existingContacts, onClose }: Pr
                     <div style={HINT}>Finalised on save — a number is appended if it collides.</div>
                   </>
                 )
+              ) : allowCodeEdit ? (
+                <>
+                  <input
+                    type="text" name="code" required maxLength={20}
+                    defaultValue={client?.code ?? ''} style={{ ...INP, fontFamily: 'var(--font-mono)' }}
+                    onChange={e => (e.currentTarget.value = e.currentTarget.value.toUpperCase())}
+                  />
+                  <div style={{ ...HINT, color: 'var(--warn, var(--fg-3))' }}>
+                    Changing the code changes this client’s identifier and its URL. Must stay unique.
+                  </div>
+                </>
               ) : (
                 <>
                   <div style={{

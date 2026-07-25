@@ -334,22 +334,35 @@ export async function updateClient(clientId: number, formData: FormData): Promis
 
   // Fetch the current row for change logging (status + all editable fields).
   let currentStatus: string | null = null;
+  let currentCode:   string | null = null;
   let oldRow: Record<string, unknown> | null = null;
   try {
     const { rows } = await risansiPool.query(
-      `SELECT status, legal_name, trade_name, group_name, country, state, city, address,
+      `SELECT code, status, legal_name, trade_name, group_name, country, state, city, address,
               google_maps_url, market_type, industry, is_sugar, client_type, is_tender,
               capacity_bracket, tcd, klpd, tier, since_year, tour_id, is_end_client
          FROM clients WHERE id = $1`, [clientId],
     );
     oldRow = rows[0] ?? null;
     currentStatus = (rows[0]?.status as string | undefined) ?? null;
+    currentCode   = (rows[0]?.code   as string | undefined) ?? null;
   } catch { /* ignore */ }
 
   const newStatus = (formData.get('status') as string | null)?.trim() || 'ACTIVE';
 
+  // Client code — editable only from the Client Master page (the form there sends a
+  // changed value; elsewhere it re-sends the current code, so nothing changes here).
+  // Keep the current code if none submitted; never null it. Enforce the UNIQUE.
+  const submittedCode = (formData.get('code') as string | null)?.trim().toUpperCase() || null;
+  const newCode = submittedCode || currentCode;
+  if (newCode && currentCode && newCode !== currentCode) {
+    const dup = await risansiPool.query('SELECT 1 FROM clients WHERE UPPER(code) = $1 AND id <> $2', [newCode, clientId]);
+    if (dup.rows.length > 0) throw new Error(`Client code "${newCode}" is already in use.`);
+  }
+
   await risansiPool.query(
     `UPDATE clients SET
+       code               = $24,
        legal_name         = $1,
        trade_name         = $2,
        group_name         = $3,
@@ -398,6 +411,7 @@ export async function updateClient(clientId: number, formData: FormData): Promis
       email,
       clientId,
       formData.get('is_end_client') === 'true',
+      newCode,
     ],
   );
 
@@ -429,6 +443,7 @@ export async function updateClient(clientId: number, formData: FormData): Promis
   const gv = (k: string) => (formData.get(k) as string | null)?.trim() || null;
   const gi = (k: string) => (formData.get(k) ? parseInt(formData.get(k) as string, 10) : null);
   const specs: [string, string, unknown][] = [
+    ['code', 'Client code', newCode],
     ['legal_name', 'Name', gv('legal_name')],
     ['trade_name', 'Trade name', gv('trade_name')],
     ['group_name', 'Group', gv('group_name')],

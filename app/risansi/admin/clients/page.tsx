@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react';
-import Link from 'next/link';
 import { Topbar, Tag, StatusDot, MultiSelectFilter, ActiveFilterBar, SortableTH } from '@/components/risansi';
 import { AddClientButton } from '@/components/risansi/ClientFormDrawer';
+import { EditClientLink } from '@/components/risansi/EditClientLink';
 import { EndClientToggle } from '@/components/risansi/EndClientToggle';
 import risansiPool from '@/lib/db-risansi';
 import { formatLastVisitShort } from '@/lib/risansi-utils';
@@ -361,14 +361,9 @@ export default async function ClientMasterPage({
                           {c.code}
                         </td>
 
-                        {/* Client name */}
+                        {/* Client name — opens the edit drawer (Client Master lets you edit the code) */}
                         <td style={{ ...TD, minWidth: 180 }}>
-                          <Link
-                            href={`/risansi/clients/${c.code}`}
-                            style={{ fontWeight: 500, fontSize: 12, color: 'var(--fg)', textDecoration: 'none' }}
-                          >
-                            {c.legal_name}
-                          </Link>
+                          <EditClientLink clientId={Number(c.id)} name={c.legal_name} />
                           {c.trade_name && c.trade_name !== c.legal_name && (
                             <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 1 }}>{c.trade_name}</div>
                           )}
