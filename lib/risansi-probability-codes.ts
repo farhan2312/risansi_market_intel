@@ -30,3 +30,13 @@ export const PROBABILITY_CODE_OPTIONS = PROBABILITY_CODES.map(c => ({
   value: c.code,
   label: probabilityCodeLabel(c),
 }));
+
+/**
+ * Numeric % odds a stored code stands for, or null for an unknown/blank code.
+ * The opportunity forms now capture the code; the numeric `probability` column
+ * (weighted forecast + % displays) is derived from this so both stay in sync.
+ */
+export function pctForProbabilityCode(code: string | null | undefined): number | null {
+  const c = PROBABILITY_CODES.find(x => x.code === code);
+  return c ? c.pct : null;
+}

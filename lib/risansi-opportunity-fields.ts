@@ -71,7 +71,7 @@ export const OPP_FIELDS: OppFieldDef[] = [
   { name: 'unit_project', label: 'Project Name / Unit',   kind: 'text',   step: 1, visibleFrom: 0, placeholder: 'e.g. Balrampur Chini — Unit 2, Spent Wash', full: true },
   { name: 'product_type', label: 'Product Type',          kind: 'select', step: 1, visibleFrom: 0, requiredAt: ALL_LINEAR, options: ['PCP', 'MMP', 'Spares', 'Service', 'Other'] },
   { name: 'value_inr',    label: 'Value (₹)',             kind: 'inr',    step: 1, visibleFrom: 0, requiredAt: FROM_PROSPECT, placeholder: 'e.g. 2500000', help: 'Full amount in rupees' },
-  { name: 'probability',  label: 'Probability %',         kind: 'number', step: 1, visibleFrom: 0 },
+  { name: 'probability_code', label: 'Probability',       kind: 'prob_code', step: 1, visibleFrom: 0, help: 'RIL likelihood code' },
   { name: 'eta_text',     label: 'Expected Close',        kind: 'text',   step: 1, visibleFrom: 1, placeholder: 'e.g. Jun 2026 or Q3 FY27' },
 
   // Outcome fields — deal-level, not quote-level, so they stay on step 1.
@@ -98,7 +98,6 @@ export const OPP_FIELDS: OppFieldDef[] = [
   { name: 'qtn_prepared_by', label: 'Qtn. Prepared By',   kind: 'text',   step: 2, visibleFrom: 2 },
   { name: 'qtr',          label: 'Quarter',               kind: 'select', step: 2, visibleFrom: 2, options: ['Q1', 'Q2', 'Q3', 'Q4'] },
   { name: 'location',     label: 'Location',              kind: 'text',   step: 2, visibleFrom: 2 },
-  { name: 'probability_code', label: 'Probability Code',  kind: 'prob_code', step: 2, visibleFrom: 2 },
   { name: 'offer_value_inr', label: 'Total Offer (₹)',    kind: 'number', step: 2, visibleFrom: 2, requiredAt: QUOTE_REQ, help: 'Auto-sums line items if left blank' },
   { name: 'offer_value_usd', label: 'Total Offer (USD)',  kind: 'number', step: 2, visibleFrom: 2 },
   { name: 'revised_offer_value_inr', label: 'Revised Offer (₹)',  kind: 'number', step: 2, visibleFrom: 2 },

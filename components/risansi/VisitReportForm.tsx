@@ -7,6 +7,7 @@ import { ClientPumpEditor } from './ClientPumpEditor';
 import { LogComplaintButton } from './LogComplaintButton';
 import { updateTaskStatus, deleteTask } from '@/app/actions/risansi-tasks';
 import { AddActionForm } from './AddActionForm';
+import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { FormErrorBoundary } from './FormErrorBoundary';
@@ -78,6 +79,7 @@ interface ExpansionOpp {
   stage: string | null;
   value_cr: string | number | null;
   probability: number | null;
+  probability_code: string | null;
   eta_text: string | null;
   quote_ref: string | null;
   notes: string | null;
@@ -1455,7 +1457,7 @@ function ExpansionOpportunityForm({ visitId, clientId, clientName, repId, isClos
   const [valueInr, setValueInr]         = useState(
     existingOpp?.value_cr ? String(Math.round(parseFloat(String(existingOpp.value_cr)) * 10_000_000)) : '',
   );
-  const [probability, setProbability]   = useState(existingOpp?.probability != null ? String(existingOpp.probability) : '20');
+  const [probabilityCode, setProbabilityCode] = useState(existingOpp?.probability_code ?? '');
   const [etaText, setEtaText]           = useState(existingOpp?.eta_text ?? '');
   const [quoteRef, setQuoteRef]         = useState(existingOpp?.quote_ref ?? '');
   const [notes, setNotes]               = useState(existingOpp?.notes ?? '');
@@ -1475,7 +1477,7 @@ function ExpansionOpportunityForm({ visitId, clientId, clientName, repId, isClos
       product: product.trim() || `Expansion — ${clientName}`,
       productType, stage,
       valueInr: valueInr ? parseFloat(valueInr) : null,
-      probability: probability ? parseInt(probability, 10) : 20,
+      probabilityCode: probabilityCode || null,
       etaText: etaText || null,
       quoteRef: quoteRef || null,
       notes: notes || null,
@@ -1483,7 +1485,7 @@ function ExpansionOpportunityForm({ visitId, clientId, clientName, repId, isClos
     saveTimer.current = setTimeout(() => { saveExpansionOpportunity(snapshot).catch(() => {}); }, 900);
     return () => clearTimeout(saveTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasExpansion, product, productType, stage, valueInr, probability, etaText, quoteRef, notes]);
+  }, [hasExpansion, product, productType, stage, valueInr, probabilityCode, etaText, quoteRef, notes]);
 
   const toggleStyle = (active: boolean): CSSProperties => ({
     padding: '6px 16px', borderRadius: 6,
@@ -1550,8 +1552,11 @@ function ExpansionOpportunityForm({ visitId, clientId, clientName, repId, isClos
               <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3 }}>Full amount in rupees</div>
             </div>
             <div>
-              <label style={LBL}>Probability %</label>
-              <Input type="number" inputMode="numeric" min="0" max="100" value={probability} onChange={e => setProbability(e.target.value)} disabled={isClosed} />
+              <label style={LBL}>Probability</label>
+              <select value={probabilityCode} onChange={e => setProbabilityCode(e.target.value)} disabled={isClosed} style={INP}>
+                <option value="">—</option>
+                {PROBABILITY_CODES.map(c => <option key={c.code} value={c.code}>{probabilityCodeLabel(c)}</option>)}
+              </select>
             </div>
           </div>
 

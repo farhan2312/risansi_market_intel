@@ -167,7 +167,7 @@ export default async function VisitReportPage({
 
     q(async () => {
       const { rows } = await risansiPool.query(
-        `SELECT id, product, product_type, stage, value_cr, probability, eta_text, quote_ref, notes
+        `SELECT id, product, product_type, stage, value_cr, probability, probability_code, eta_text, quote_ref, notes
          FROM opportunities
          WHERE visit_id = $1 AND auto_source = 'expansion_plan'
          ORDER BY created_at DESC LIMIT 1`,

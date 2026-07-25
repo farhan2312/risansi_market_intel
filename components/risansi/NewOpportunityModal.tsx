@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createPipelineOpportunity } from '@/app/actions/risansi';
 import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
 import {
-  CREATE_STAGES, STAGE_RANK, STAGE_PROB, STAGE_HINT,
+  CREATE_STAGES, STAGE_HINT,
   LOST_COMPETITOR_TAIL, isFieldRequired, fieldsForStep, stageHasQuoteStep,
   requiredFieldNames, requiredFieldNamesForStep, labelsFor,
   type CreateStage, type OppFieldDef,
@@ -170,7 +170,6 @@ function NewOppForm({ client, lockClient, onBack, onSuccess }: {
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
   const [stage, setStage]     = useState<CreateStage>('Suspect');
-  const [prob, setProb]       = useState<number>(STAGE_PROB.Suspect);
   const [step, setStep]       = useState<1 | 2>(1);
   const [items, setItems]     = useState<ItemRow[]>([]);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
@@ -192,7 +191,7 @@ function NewOppForm({ client, lockClient, onBack, onSuccess }: {
 
   // Switching stage always returns to step 1 — the stage decides whether a
   // step 2 even exists, so staying on a now-missing step 2 makes no sense.
-  const onStage = (next: CreateStage) => { setStage(next); setProb(STAGE_PROB[next]); setStep(1); };
+  const onStage = (next: CreateStage) => { setStage(next); setStep(1); };
   const setItem = (i: number, k: keyof ItemRow, v: string) =>
     setItems(prev => prev.map((it, idx) => (idx === i ? { ...it, [k]: v } : it)));
 
@@ -222,7 +221,6 @@ function NewOppForm({ client, lockClient, onBack, onSuccess }: {
       const fd = new FormData(e.currentTarget);
       fd.set('client_id', String(client.id));
       fd.set('stage', stage);
-      fd.set('probability', String(prob));
       const activeItems = items.filter(itemHasData);
       if (hasStep2) fd.set('items_json', JSON.stringify(activeItems));
 
@@ -288,10 +286,7 @@ function NewOppForm({ client, lockClient, onBack, onSuccess }: {
     const reqStyle: CSSProperties = required ? { border: '1px solid var(--warn)' } : {};
     let control: React.ReactNode;
 
-    if (f.name === 'probability') {
-      control = <input name="probability" type="number" min="0" max="100" value={prob}
-        onChange={e => setProb(parseInt(e.target.value) || 0)} style={INP} />;
-    } else if (f.kind === 'select') {
+    if (f.kind === 'select') {
       const opts = f.name === 'lost_to_competitor' ? [...competitors, ...LOST_COMPETITOR_TAIL] : (f.options ?? []);
       control = (
         <select name={f.name} required={htmlRequired} defaultValue="" style={{ ...INP, ...reqStyle }}>

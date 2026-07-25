@@ -7,6 +7,7 @@ import risansiPool from '@/lib/db-risansi';
 import { recordAudit } from '@/lib/audit';
 import { withinVisitEditWindow, VISIT_EDIT_WINDOW_DAYS } from '@/lib/risansi-visit-edit-window';
 import { canEditVisitReport } from '@/lib/risansi-auth';
+import { pctForProbabilityCode } from '@/lib/risansi-probability-codes';
 
 // A session's role, for the visit edit gate.
 function callerRole(session: { user?: { role?: string | null } }): string | null {
@@ -68,7 +69,7 @@ export async function saveExpansionOpportunity(input: {
   productType: string;
   stage: string;
   valueInr: number | null;
-  probability: number;
+  probabilityCode: string | null;
   etaText: string | null;
   quoteRef: string | null;
   notes: string | null;
@@ -138,27 +139,29 @@ export async function saveExpansionOpportunity(input: {
 
   const product = input.product.trim() || 'Expansion';
   const valueCr = input.valueInr && input.valueInr > 0 ? input.valueInr / 10_000_000 : null;
+  // The form captures the RIL probability code; derive the numeric % from it.
+  const probability = pctForProbabilityCode(input.probabilityCode) ?? 20;
 
   if (existingId) {
     await risansiPool.query(
       `UPDATE opportunities SET
          rep_id = COALESCE($2, rep_id),
          product = $3, product_type = $4, stage = $5,
-         value_cr = $6, probability = $7, eta_text = $8,
-         quote_ref = $9, notes = $10, updated_at = NOW()
+         value_cr = $6, probability = $7, probability_code = $8, eta_text = $9,
+         quote_ref = $10, notes = $11, updated_at = NOW()
        WHERE id = $1`,
       [existingId, repId, product, input.productType, input.stage,
-       valueCr, input.probability, input.etaText, input.quoteRef, input.notes],
+       valueCr, probability, input.probabilityCode, input.etaText, input.quoteRef, input.notes],
     );
   } else {
     await risansiPool.query(
       `INSERT INTO opportunities (
          client_id, rep_id, visit_id, product, product_type, stage,
-         value_cr, probability, eta_text, quote_ref, notes,
+         value_cr, probability, probability_code, eta_text, quote_ref, notes,
          auto_created, auto_source, created_by, created_at, updated_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,TRUE,'expansion_plan',$12,NOW(),NOW())`,
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,TRUE,'expansion_plan',$13,NOW(),NOW())`,
       [input.clientId, repId, input.visitId, product, input.productType, input.stage,
-       valueCr, input.probability, input.etaText, input.quoteRef, input.notes, session.user.email],
+       valueCr, probability, input.probabilityCode, input.etaText, input.quoteRef, input.notes, session.user.email],
     );
     // Log only the initial creation, not the debounced updates that follow.
     await recordAudit({

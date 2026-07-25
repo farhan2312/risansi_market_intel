@@ -3,6 +3,7 @@
 import { useState, useEffect, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { updateOpportunity, deleteOpportunity } from '@/app/actions/risansi';
+import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
 
 export interface EditableOpp {
   id: string;
@@ -16,6 +17,7 @@ export interface EditableOpp {
   stage: string;
   value_cr: number;
   probability?: number | null;
+  probability_code?: string | null;
   eta_text?: string | null;
   quote_ref?: string | null;
   quote_date?: string | null;
@@ -192,7 +194,10 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
                 <ReadOnlyRow label="Lost Reason" value={opp.lost_reason ?? '—'} />
               </>
             )}
-            <ReadOnlyRow label="Probability %" value={opp.probability != null ? String(opp.probability) : '—'} />
+            <ReadOnlyRow label="Probability" value={(() => {
+              const c = PROBABILITY_CODES.find(x => x.code === opp.probability_code);
+              return c ? probabilityCodeLabel(c) : (opp.probability_code ?? '—');
+            })()} />
             <ReadOnlyRow label="Expected Close" value={opp.eta_text ?? '—'} />
             <ReadOnlyRow label="Quote Ref" value={opp.quote_ref ?? '—'} />
             <ReadOnlyRow label="Owner" value={opp.rep_name ?? '—'} />
@@ -253,8 +258,14 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
                 </select>
               </div>
               <div>
-                <label style={LABEL_STYLE}>Probability %</label>
-                <input name="probability" type="number" min="0" max="100" defaultValue={opp.probability ?? ''} style={INPUT_STYLE} />
+                <label style={LABEL_STYLE}>Probability</label>
+                <select name="probability_code" defaultValue={opp.probability_code ?? ''} style={INPUT_STYLE}>
+                  <option value="">—</option>
+                  {PROBABILITY_CODES.map(c => <option key={c.code} value={c.code}>{probabilityCodeLabel(c)}</option>)}
+                  {opp.probability_code && !PROBABILITY_CODES.some(c => c.code === opp.probability_code) && (
+                    <option value={opp.probability_code}>{opp.probability_code}</option>
+                  )}
+                </select>
               </div>
             </div>
 

@@ -10,6 +10,7 @@ import { recordAudit } from '@/lib/audit';
 import { normalizeClientName, uniqueLeadCode } from '@/lib/risansi-lead-code';
 import { resolveClientPrimaryRep } from '@/lib/risansi-client-rep';
 import { requiredFieldNames, labelsFor, CREATE_STAGES, STAGE_PROB, type CreateStage } from '@/lib/risansi-opportunity-fields';
+import { pctForProbabilityCode } from '@/lib/risansi-probability-codes';
 import { normaliseIndustry } from '@/lib/risansi-utils';
 
 // ── Helper ─────────────────────────────────────────────────────
@@ -773,8 +774,9 @@ export async function createPipelineOpportunity(formData: FormData) {
   }
 
   const value = crOf('value_inr') ?? (offerInr ? offerInr / 10_000_000 : null);
-  const prob  = Number.isFinite(parseInt((formData.get('probability') as string | null) ?? '', 10))
-    ? parseInt(formData.get('probability') as string, 10) : STAGE_PROB[stage];
+  // Probability is entered as the RIL code (1–4); the stored numeric % is
+  // derived from the code so the weighted forecast + % displays keep working.
+  const prob  = pctForProbabilityCode(s('probability_code')) ?? STAGE_PROB[stage];
   const first = items[0] ?? {};
 
   // Ownership is derived, not asked for. The client is already on a tour and
@@ -943,6 +945,9 @@ export async function saveQuotedDetails(oppId: number, formData: FormData) {
   const offerInr = n('offer_value_inr') ?? (itemsSum || null);
   const valueCr  = offerInr != null ? offerInr / 10_000_000 : null;
   const first    = items[0] ?? {};
+  // Keep the numeric probability derived from the code (COALESCE so a blank code
+  // leaves the existing % intact — same rule as create/update).
+  const probPct  = pctForProbabilityCode(s('probability_code'));
 
   await risansiPool.query(
     `UPDATE opportunities SET
@@ -957,15 +962,16 @@ export async function saveQuotedDetails(oppId: number, formData: FormData) {
        value_cr        = COALESCE($20, value_cr),
        notes           = COALESCE($21, notes),
        pump_model = $22, pump_qty = $23,
+       probability = COALESCE($24, probability),
        updated_at = NOW()
-     WHERE id = $24`,
+     WHERE id = $25`,
     [s('quote_ref'), s('quote_date'), s('enquiry_no'), s('enquiry_date'),
      s('revised_offer_date'), s('quotation_link'),
      offerInr, n('offer_value_usd'), n('revised_offer_value_inr'), n('revised_offer_value_usd'),
      s('market'), s('ril_rep'), s('qtn_prepared_by'), s('client_status_at_quote'),
      s('unit_project'), s('location'), s('qtr'), s('probability_code'),
      s('product_type'), valueCr, s('notes'),
-     iStr(first.pump_model) ?? s('pump_model'), iInt(first.pump_qty) ?? i('pump_qty'), oppId],
+     iStr(first.pump_model) ?? s('pump_model'), iInt(first.pump_qty) ?? i('pump_qty'), probPct, oppId],
   );
 
   // Replace the opportunity's quoted items.
@@ -1024,7 +1030,11 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
 
   const valueInr = parseFloat((formData.get('value_inr')       as string | null) ?? '0');
   const finalInr = parseFloat((formData.get('final_value_inr') as string | null) ?? '0');
-  const num = (k: string) => (formData.get(k) ? parseInt(formData.get(k) as string, 10) : null);
+  // Probability is entered as the RIL code (1–4); the numeric % is derived from
+  // it. When the form omits the field entirely (e.g. OppCompletionModal marking
+  // Won), both are left untouched — see the preserve guard below.
+  const probCodeRaw = formData.get('probability_code');
+  const probCode = typeof probCodeRaw === 'string' ? (probCodeRaw.trim() || null) : null;
 
   // For rep_id: if the form omits it, preserve the opportunity's EXISTING
   // rep_id before falling back to the client's primary rep. (Marking Won via
@@ -1058,7 +1068,8 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
     product_type:       (formData.get('product_type') as string | null) || 'PCP',
     stage:              (formData.get('stage') as string | null) || 'Suspect',
     value_cr:           valueInr > 0 ? valueInr / 10_000_000 : null,
-    probability:        num('probability'),
+    probability:        pctForProbabilityCode(probCode),
+    probability_code:   probCode,
     eta_text:           (formData.get('eta_text') as string | null) || null,
     quote_ref:          (formData.get('quote_ref') as string | null) || null,
     quote_date:         (formData.get('quote_date') as string | null) || null,
@@ -1080,6 +1091,12 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
   // explicitly, so its Won transition keeps carrying the owner through.
   if (formData.get('rep_id') === null)           delete candidates.rep_id;
   if (formData.get('secondary_rep_id') === null) delete candidates.secondary_rep_id;
+  // Probability: only write when a code is actually chosen. A blank/absent code
+  // leaves the stored code AND the numeric % untouched — so editing one of the
+  // many legacy opps (which have a numeric probability but no code yet) for an
+  // unrelated reason never silently wipes its probability, and marking Won via
+  // OppCompletionModal (which sends no code) preserves it too.
+  if (!probCode) { delete candidates.probability; delete candidates.probability_code; }
 
   const existing = await opportunityColumns();
   const cols = Object.keys(candidates).filter(c => existing.size === 0 || existing.has(c));
