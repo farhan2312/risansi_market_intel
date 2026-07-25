@@ -81,7 +81,7 @@ export function ExecutiveViews({ data, selector, periodLabel, note }: {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
         <MiniTable title="Clients Summary" note="active clients by type" table={data.clientsSummary} />
         <MiniTable title="Quotation Summary" note="₹ by channel" table={data.quotationSummary} />
-        <MiniTable title="Turnover Summary" note="band by 5-yr avg" table={data.turnoverSummary} full />
+        <MiniTable title="Turnover Summary" note="rows: 5-yr band · cols: selected month(s)" table={data.turnoverSummary} full />
         <MiniTable title="Offer Status" note="₹ by opportunity status" table={data.offerStatus} />
         <MiniTable title="Attendance" note="field visits" table={data.attendance} />
       </div>

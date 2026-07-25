@@ -40,7 +40,7 @@ const FY_EXPR = (col: string) => `CASE WHEN EXTRACT(MONTH FROM ${col}) >= 4
   ELSE LPAD(((EXTRACT(YEAR FROM ${col})::int - 1) % 100)::text,2,'0')||'-'||LPAD((EXTRACT(YEAR FROM ${col})::int % 100)::text,2,'0') END`;
 
 export default async function ExecutiveReviewPage({ searchParams }: {
-  searchParams: Promise<{ tsm?: string; month?: string; view?: string; ctype?: string; name?: string }>;
+  searchParams: Promise<{ tsm?: string; month?: string; months?: string; view?: string; ctype?: string; name?: string }>;
 }) {
   const session = await getServerSession(authOptions);
   const role = session?.user?.role ?? '';
@@ -193,20 +193,33 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   const tsm = (sp.tsm && reps.some(r => r.id === sp.tsm)) ? sp.tsm : (reps[0]?.id ?? '');
   const tsmName = reps.find(r => r.id === tsm)?.name ?? '—';
 
-  // Month → fiscal year (Apr–Mar).
+  // Month selection → the report scopes to exactly the month(s) chosen (not a
+  // cumulative FY-to-date). Accept a multi-value `months` param (comma-joined
+  // YYYY-MM); fall back to the legacy single `month`, then the current month.
+  // Every value is validated against YYYY-MM so it is safe to inline in SQL.
   const now = new Date();
-  const mMatch = /^(\d{4})-(\d{2})$/.exec(sp.month ?? '');
-  const selY = mMatch ? Number(mMatch[1]) : now.getFullYear();
-  const selM = mMatch ? Number(mMatch[2]) : now.getMonth() + 1;
-  const month = `${selY}-${String(selM).padStart(2, '0')}`;
-  const fy = selM >= 4 ? selY : selY - 1;            // FY start year
+  const curMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const rawMonths = (sp.months ?? sp.month ?? '').split(',').map(s => s.trim()).filter(Boolean);
+  let selMonths = [...new Set(rawMonths.filter(m => /^\d{4}-(0[1-9]|1[0-2])$/.test(m)))].sort();
+  if (selMonths.length === 0) selMonths = [curMonth];
+
+  // FY-comparison tables anchor on the latest selected month's fiscal year.
+  const latest = selMonths[selMonths.length - 1];
+  const selY = Number(latest.slice(0, 4));
+  const selM = Number(latest.slice(5, 7));
+  const fy = selM >= 4 ? selY : selY - 1;            // FY start year (anchor)
   const d = (y: number, m = 4) => `${y}-${String(m).padStart(2, '0')}-01`;
-  const curTo = selM === 12 ? d(selY + 1, 1) : d(selY, selM + 1);   // end of selected month (exclusive)
-  const w5from = d(fy - 5), w5to = d(fy);                            // 5 completed FYs before current
+  const w5from = d(fy - 5), w5to = d(fy);            // 5 completed FYs before the anchor FY
+  const monLabel = (m: string) => new Date(m + '-01').toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+
+  // Safe SQL fragments built only from the validated month list.
+  const qMonths     = selMonths.map(m => `'${m}'`).join(',');                              // '2026-07','2026-06'
+  const monthNumSql = [...new Set(selMonths.map(m => Number(m.slice(5, 7))))].join(',');   // 6,7
+  const inMonths    = (col: string) => `to_char(${col},'YYYY-MM') IN (${qMonths})`;
 
   const tourF = tsm ? `c.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = ${Number(tsm)})` : 'FALSE';
 
-  const [clients, turnover, quotation, offers, attendance, kpiRow] = await Promise.all([
+  const [clients, turnover, quotation, offers, attendance, kpiRow, monthRows] = await Promise.all([
     // 1. Clients Summary
     q(async () => (await risansiPool.query<{ cat: string; nn: string }>(
       `SELECT ${CANON} cat, count(*)::text nn FROM clients c
@@ -220,10 +233,10 @@ export default async function ExecutiveReviewPage({ searchParams }: {
            COALESCE(sum(r.total_value) FILTER (WHERE r.month >= '${w5to}'),0) rev_cur,
            COALESCE(sum(r.total_value) FILTER (WHERE r.month <  '${w5from}'),0) rev_before,
            min(r.month) FILTER (WHERE r.total_value > 0) first_rev,
-           COALESCE(sum(r.total_value) FILTER (WHERE r.month >= '${d(fy)}'    AND r.month < '${curTo}'),0)      fyc,
-           COALESCE(sum(r.total_value) FILTER (WHERE r.month >= '${d(fy - 1)}' AND r.month < '${d(fy)}'),0)     f1,
-           COALESCE(sum(r.total_value) FILTER (WHERE r.month >= '${d(fy - 2)}' AND r.month < '${d(fy - 1)}'),0) f2,
-           COALESCE(sum(r.total_value) FILTER (WHERE r.month >= '${d(fy - 3)}' AND r.month < '${d(fy - 2)}'),0) f3
+           COALESCE(sum(r.total_value) FILTER (WHERE EXTRACT(MONTH FROM r.month) IN (${monthNumSql}) AND r.month >= '${d(fy)}'     AND r.month < '${d(fy + 1)}'),0) fyc,
+           COALESCE(sum(r.total_value) FILTER (WHERE EXTRACT(MONTH FROM r.month) IN (${monthNumSql}) AND r.month >= '${d(fy - 1)}' AND r.month < '${d(fy)}'),0)     f1,
+           COALESCE(sum(r.total_value) FILTER (WHERE EXTRACT(MONTH FROM r.month) IN (${monthNumSql}) AND r.month >= '${d(fy - 2)}' AND r.month < '${d(fy - 1)}'),0) f2,
+           COALESCE(sum(r.total_value) FILTER (WHERE EXTRACT(MONTH FROM r.month) IN (${monthNumSql}) AND r.month >= '${d(fy - 3)}' AND r.month < '${d(fy - 2)}'),0) f3
          FROM clients c LEFT JOIN client_revenue_monthly r ON r.client_id = c.id
         WHERE ${tourF} AND c.status='ACTIVE' AND c.deleted_at IS NULL GROUP BY c.id, c.is_end_client),
        band AS (SELECT *, CASE
@@ -244,29 +257,43 @@ export default async function ExecutiveReviewPage({ searchParams }: {
       `SELECT ${CANON} channel,
               round(sum(o.offer_value_inr) FILTER (WHERE o.stage IN ('Quoted','Negotiating')))::text active,
               round(sum(o.offer_value_inr) FILTER (WHERE o.stage='Won'))::text won
-         FROM opportunities o JOIN clients c ON c.id=o.client_id WHERE ${tourF} GROUP BY 1`)).rows, []),
+         FROM opportunities o JOIN clients c ON c.id=o.client_id
+        WHERE ${tourF} AND ${inMonths('COALESCE(o.quote_date, o.created_at::date)')} GROUP BY 1`)).rows, []),
 
     // 4. Offer Status — mapped from stage
     q(async () => (await risansiPool.query<{ stage: string; val: string }>(
       `SELECT o.stage, round(sum(o.offer_value_inr))::text val
-         FROM opportunities o JOIN clients c ON c.id=o.client_id WHERE ${tourF} GROUP BY 1`)).rows, []),
+         FROM opportunities o JOIN clients c ON c.id=o.client_id
+        WHERE ${tourF} AND ${inMonths('COALESCE(o.quote_date, o.created_at::date)')} GROUP BY 1`)).rows, []),
 
-    // 5. Attendance — the rep's field visits by month within the current FY, up to the selected month
+    // 5. Attendance — the rep's field visits, per selected month
     q(async () => (await risansiPool.query<{ mon: string; days: string; clients: string }>(
       `SELECT to_char(visit_date,'YYYY-MM') mon, count(distinct visit_date)::text days, count(distinct client_id)::text clients
-         FROM visits WHERE rep_id = ${Number(tsm) || 0} AND visit_date >= '${d(fy)}' AND visit_date < '${curTo}'
+         FROM visits WHERE rep_id = ${Number(tsm) || 0} AND ${inMonths('visit_date')}
         GROUP BY 1 ORDER BY 1`)).rows, []),
 
-    // 6. KPIs
+    // 6. KPIs — value metrics scope to the selected month(s); Total Leads and
+    //    Active Clients are current-portfolio snapshots (they don't move with
+    //    the month). Leads Visited counts leads visited within the period.
     q(async () => (await risansiPool.query<{ total_business: string; revenue: string; leads: string; visited: string; active_clients: string }>(
       `SELECT
          (SELECT COALESCE(round(sum(o.offer_value_inr)),0) FROM opportunities o JOIN clients c ON c.id=o.client_id
-           WHERE ${tourF} AND o.stage='Won')::text AS total_business,
+           WHERE ${tourF} AND o.stage='Won' AND ${inMonths('COALESCE(o.quote_date, o.created_at::date)')})::text AS total_business,
          (SELECT COALESCE(round(sum(r.total_value)),0) FROM client_revenue_monthly r JOIN clients c ON c.id = r.client_id
-           WHERE ${tourF} AND r.month >= '${d(fy)}' AND r.month < '${curTo}')::text AS revenue,
+           WHERE ${tourF} AND ${inMonths('r.month')})::text AS revenue,
          (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status='PROSPECTIVE' AND c.deleted_at IS NULL)::text AS leads,
-         (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status='PROSPECTIVE' AND c.deleted_at IS NULL AND c.last_visit_date IS NOT NULL)::text AS visited,
+         (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status='PROSPECTIVE' AND c.deleted_at IS NULL
+            AND EXISTS (SELECT 1 FROM visits v WHERE v.client_id = c.id AND ${inMonths('v.visit_date')}))::text AS visited,
          (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status='ACTIVE' AND c.deleted_at IS NULL)::text AS active_clients`)).rows[0], null),
+
+    // 7. Month options for the picker — every month that has any data, newest
+    //    first; the current + selected months are ensured client-side.
+    q(async () => (await risansiPool.query<{ ym: string }>(
+      `SELECT to_char(m, 'YYYY-MM') AS ym FROM (
+         SELECT month::date AS m FROM client_revenue_monthly
+         UNION SELECT visit_date FROM visits
+         UNION SELECT COALESCE(quote_date, created_at::date) FROM opportunities
+       ) t WHERE m IS NOT NULL GROUP BY 1 ORDER BY 1 DESC LIMIT 120`)).rows, []),
   ]);
 
   // ── shape into ExecData ──
@@ -308,15 +335,26 @@ export default async function ExecutiveReviewPage({ searchParams }: {
     attendance:      { headers: ['Month', 'Visit days', 'Clients'], rows: attRows, moneyFrom: 99 },
     kpis: [
       { label: 'Order in Hand', value: fmtMoney(n(kpiRow?.total_business)), sub: 'won opportunities · not yet invoiced', accent: true },
-      { label: 'Revenue', value: fmtMoney(n(kpiRow?.revenue)), sub: `invoiced · FY ${yy(fy)} to date` },
+      { label: 'Revenue', value: fmtMoney(n(kpiRow?.revenue)), sub: 'invoiced · selected month(s)' },
       { label: 'Active Clients', value: (kpiRow ? Number(kpiRow.active_clients) : 0).toLocaleString('en-IN') },
       { label: 'Total Leads', value: (kpiRow ? Number(kpiRow.leads) : 0).toLocaleString('en-IN'), sub: 'prospective on tour' },
       { label: 'Leads Visited', value: (kpiRow ? Number(kpiRow.visited) : 0).toLocaleString('en-IN') },
     ],
   };
 
-  const periodLabel = `${tsmName} · FY ${yy(fy)} to ${new Date(month + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}`;
-  const note = 'Live data. "Order in Hand" and "Order Received" are the value of Won opportunities (₹0 until deals are marked Won) — order booked, not billed. "Revenue" is invoiced revenue for the FY to date (from the revenue records) — the two differ because a won order is not invoiced immediately. Leads attribute by tour; "Hold-Active" and lead conversions (Converted to Enquiry/Client) are pending — the former needs a stage, the latter the lead-management build.';
+  // Picker options: every month with data, plus the current and selected
+  // months, newest first — so a chosen month always appears even with no data.
+  const monthOptions = [...new Set([curMonth, ...selMonths, ...monthRows.map(r => r.ym)])]
+    .sort().reverse()
+    .map(ym => ({ value: ym, label: monLabel(ym) }));
+
+  const periodText = selMonths.length === 1
+    ? monLabel(selMonths[0])
+    : selMonths.length <= 3
+      ? selMonths.map(monLabel).join(', ')
+      : `${selMonths.length} months (${monLabel(selMonths[0])} – ${monLabel(latest)})`;
+  const periodLabel = `${tsmName} · ${periodText}`;
+  const note = 'Live data, scoped to the selected month(s). "Order in Hand" / "Order Received" are the value of Won opportunities dated in the period — order booked, not billed (₹0 until deals are marked Won). "Revenue" is invoiced revenue for the period. Turnover columns compare the same month(s) across fiscal years. Clients, Total Leads and Active Clients are current-portfolio counts and don\'t move with the month. "Hold-Active" and lead conversions are pending.';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -328,7 +366,7 @@ export default async function ExecutiveReviewPage({ searchParams }: {
           note={note}
           selector={<div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
             <ViewSwitch />
-            <ExecutiveSelector reps={reps} tsm={tsm} month={month} />
+            <ExecutiveSelector reps={reps} tsm={tsm} monthOptions={monthOptions} selectedMonths={selMonths} />
           </div>}
         />
       </div>
