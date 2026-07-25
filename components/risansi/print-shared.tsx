@@ -154,13 +154,18 @@ export function SugarPumpTable({ row }: { row: Record<string, unknown> }) {
     { key: 'ril_rota', label: 'RIL Rota' },
     { key: 'other_rota', label: 'Competitor Rota' },
   ];
+  // Only applications with at least one pump — an all-zero/blank row is noise
+  // that wastes vertical space in the PDF.
   const data = SUGAR_APPS.map(app => ({
     app,
     vals: cols.map(c => num(`${c.key}_${app}`)),
-  })).filter(r => r.vals.some(v => v != null));
+  })).filter(r => r.vals.some(v => (v ?? 0) > 0));
   if (!data.length) return null;
   const totals = cols.map((_, ci) => data.reduce((a, r) => a + (r.vals[ci] ?? 0), 0));
-  const cell = (v: number | null): string => (v == null ? '—' : String(v));
+  // Drop pump-type columns that are entirely zero across the shown rows.
+  const keepCols = cols.map((_, ci) => ci).filter(ci => totals[ci] > 0);
+  if (!keepCols.length) return null;
+  const cell = (v: number | null): string => ((v ?? 0) > 0 ? String(v) : '—');
   const CEN: CSSProperties = { ...TD, textAlign: 'center', fontVariantNumeric: 'tabular-nums' };
 
   return (
@@ -169,18 +174,18 @@ export function SugarPumpTable({ row }: { row: Record<string, unknown> }) {
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead><tr>
           <th style={TH}>Application</th>
-          {cols.map(c => <th key={c.key} style={{ ...TH, textAlign: 'center' }}>{c.label}</th>)}
+          {keepCols.map(ci => <th key={cols[ci].key} style={{ ...TH, textAlign: 'center' }}>{cols[ci].label}</th>)}
         </tr></thead>
         <tbody>
           {data.map(r => (
             <tr key={r.app}>
               <td style={{ ...TD, textTransform: 'capitalize' }}>{r.app}</td>
-              {r.vals.map((v, ci) => <td key={ci} style={CEN}>{cell(v)}</td>)}
+              {keepCols.map(ci => <td key={ci} style={CEN}>{cell(r.vals[ci])}</td>)}
             </tr>
           ))}
           <tr>
             <td style={{ ...TD, fontWeight: 700, background: C.bgElev }}>Total</td>
-            {totals.map((t, ci) => <td key={ci} style={{ ...CEN, fontWeight: 700, background: C.bgElev }}>{t}</td>)}
+            {keepCols.map(ci => <td key={ci} style={{ ...CEN, fontWeight: 700, background: C.bgElev }}>{totals[ci]}</td>)}
           </tr>
         </tbody>
       </table>
