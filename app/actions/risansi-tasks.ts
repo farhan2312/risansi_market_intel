@@ -4,6 +4,7 @@ import { getServerSession } from 'next-auth/next';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
+import { getCurrentUser, canViewClient } from '@/lib/risansi-auth';
 import { notifyActionAssigned } from '@/lib/risansi-email';
 
 async function requireEmail(): Promise<string> {
@@ -12,20 +13,31 @@ async function requireEmail(): Promise<string> {
   return session.user.email;
 }
 
-// Email the assignee when a new action is recorded for them — but only if they
-// are a user in the system (assigned_to_rep) with an email, and not the person
-// who created it. Best-effort: any failure is logged and swallowed so it can
-// never break task creation.
-async function notifyAssignee(opts: {
-  assignedToRep: number; creatorEmail: string; clientId: number;
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+// Email whoever a new action was assigned to — the in-system rep (looked up by
+// id) or an external person at the address captured with them. Best-effort: any
+// failure is logged and swallowed so it can never break task creation.
+async function notifyActionRecipient(opts: {
+  creatorEmail: string; clientId: number;
+  assignedToRep?: number | null; assignedToExternal?: string | null; assignedToExternalEmail?: string | null;
   title: string; description?: string | null; dueDate?: string | null; priority?: string | null;
 }) {
   try {
-    const assignee = (await risansiPool.query<{ id: number; name: string | null; email: string | null }>(
-      'SELECT id, name, email FROM users WHERE id = $1', [opts.assignedToRep],
-    )).rows[0];
-    if (!assignee?.email) return;
-    if (assignee.email.toLowerCase() === opts.creatorEmail.toLowerCase()) return;  // don't self-notify
+    let to: string | null = null;
+    let toName: string | null = null;
+
+    if (opts.assignedToRep) {
+      const rep = (await risansiPool.query<{ name: string | null; email: string | null }>(
+        'SELECT name, email FROM users WHERE id = $1', [opts.assignedToRep],
+      )).rows[0];
+      if (!rep?.email) return;
+      if (rep.email.toLowerCase() === opts.creatorEmail.toLowerCase()) return;  // don't self-notify
+      to = rep.email; toName = rep.name;
+    } else if (opts.assignedToExternal && opts.assignedToExternalEmail) {
+      to = opts.assignedToExternalEmail; toName = opts.assignedToExternal;
+    }
+    if (!to) return;
 
     const [creatorRes, clientRes] = await Promise.all([
       risansiPool.query<{ name: string | null }>('SELECT name FROM users WHERE email = $1', [opts.creatorEmail]),
@@ -33,8 +45,7 @@ async function notifyAssignee(opts: {
     ]);
 
     await notifyActionAssigned({
-      to: assignee.email,
-      toName: assignee.name,
+      to, toName,
       assignedBy: creatorRes.rows[0]?.name || opts.creatorEmail,
       title: opts.title,
       description: opts.description,
@@ -56,8 +67,9 @@ export async function addTask({
   priority,
   assignedToRep,
   assignedToExternal,
+  assignedToExternalEmail,
 }: {
-  visitId: number;
+  visitId?: number | null;   // null when recorded standalone (e.g. from the Client 360 page)
   clientId: number;
   title: string;
   description?: string;
@@ -65,22 +77,40 @@ export async function addTask({
   priority?: string;
   assignedToRep?: number | null;
   assignedToExternal?: string | null;
+  assignedToExternalEmail?: string | null;
 }) {
-  const email = await requireEmail();
+  // Authorise: the caller must be able to see this client (admins/sysadmins always
+  // can; reps only for clients on their tours). This also gates the outbound
+  // external-assignee email so it can't be used to send from an arbitrary client.
+  const user = await getCurrentUser();
+  if (!user.email) throw new Error('Unauthorized');
+  if (!(await canViewClient(user, clientId))) {
+    throw new Error('You do not have access to this client.');
+  }
+  const email = user.email;
 
   if (!title.trim()) throw new Error('Title is required');
 
+  const external      = assignedToExternal?.trim() || null;
+  const externalEmail = assignedToExternalEmail?.trim() || null;
+  // An external assignee (not in the system) must come with a valid email.
+  if (external && !assignedToRep) {
+    if (!externalEmail) throw new Error('An email is required for a person outside the system.');
+    if (!EMAIL_RE.test(externalEmail)) throw new Error('Please enter a valid email for the external person.');
+  }
+
   await risansiPool.query(
     `INSERT INTO tasks (
-       visit_id, client_id, assigned_to_rep, assigned_to_external,
+       visit_id, client_id, assigned_to_rep, assigned_to_external, assigned_to_external_email,
        title, description, due_date, priority, status,
        created_by, created_at, updated_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'open', $9, NOW(), NOW())`,
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'open', $10, NOW(), NOW())`,
     [
-      visitId,
+      visitId ?? null,
       clientId,
       assignedToRep ?? null,
-      assignedToExternal?.trim() || null,
+      external,
+      external ? externalEmail : null,
       title.trim(),
       description?.trim() || null,
       dueDate || null,
@@ -89,22 +119,23 @@ export async function addTask({
     ],
   );
 
-  revalidatePath(`/risansi/visits/${visitId}`);
+  if (visitId) revalidatePath(`/risansi/visits/${visitId}`);
   revalidatePath('/risansi');
   revalidatePath('/risansi/field');
+  revalidatePath(`/risansi/clients/${clientId}`);
 
-  // Notify the assignee by email (only for in-system reps; best-effort).
-  if (assignedToRep) {
-    await notifyAssignee({
-      assignedToRep,
-      creatorEmail: email,
-      clientId,
-      title: title.trim(),
-      description: description?.trim() || null,
-      dueDate: dueDate || null,
-      priority: priority ?? 'Medium',
-    });
-  }
+  // Notify the assignee by email — in-system rep or external person (best-effort).
+  await notifyActionRecipient({
+    creatorEmail: email,
+    clientId,
+    assignedToRep: assignedToRep ?? null,
+    assignedToExternal: external,
+    assignedToExternalEmail: external ? externalEmail : null,
+    title: title.trim(),
+    description: description?.trim() || null,
+    dueDate: dueDate || null,
+    priority: priority ?? 'Medium',
+  });
 }
 
 export async function updateTaskStatus(taskId: number, status: 'open' | 'completed') {

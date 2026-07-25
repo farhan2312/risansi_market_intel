@@ -1,14 +1,14 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback, type CSSProperties, type FormEvent } from 'react';
+import { useState, useRef, useEffect, useCallback, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { saveVisitField, checkInVisit, addEquipment, updateEquipment, deleteEquipment, saveExpansionOpportunity } from '@/app/actions/risansi-visits';
 import { ClientPumpEditor } from './ClientPumpEditor';
 import { LogComplaintButton } from './LogComplaintButton';
-import { addTask, updateTaskStatus, deleteTask } from '@/app/actions/risansi-tasks';
+import { updateTaskStatus, deleteTask } from '@/app/actions/risansi-tasks';
+import { AddActionForm } from './AddActionForm';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Button } from '@/components/ui/button';
 import { FormErrorBoundary } from './FormErrorBoundary';
 import { AddContactButton } from './AddContactButton';
 import { EditContactButton } from './EditContactButton';
@@ -984,7 +984,7 @@ export function VisitReportForm({
           ))
         )}
         {!disabled && (
-          <AddTaskForm
+          <AddActionForm
             visitId={Number(visit.id)}
             clientId={Number(visit.client_id)}
             reps={reps}
@@ -1652,114 +1652,6 @@ function TaskRow({ task, isClosed, onComplete, onDelete }: {
           ×
         </button>
       )}
-    </div>
-  );
-}
-
-function AddTaskForm({ visitId, clientId, reps, onAdded }: {
-  visitId: number;
-  clientId: number;
-  reps: TaskRep[];
-  onAdded: () => void;
-}) {
-  const [open, setOpen]         = useState(false);
-  const [loading, setLoading]   = useState(false);
-  const [title, setTitle]       = useState('');
-  const [description, setDesc]  = useState('');
-  const [dueDate, setDueDate]   = useState('');
-  const [priority, setPriority] = useState('Medium');
-  const [repId, setRepId]       = useState('');
-  const [external, setExternal] = useState('');
-
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!title.trim()) return;
-    setLoading(true);
-    try {
-      await addTask({
-        visitId, clientId, title, description,
-        dueDate: dueDate || null,
-        priority,
-        assignedToRep: repId ? parseInt(repId, 10) : null,
-        assignedToExternal: external || null,
-      });
-      setTitle(''); setDesc(''); setDueDate('');
-      setPriority('Medium'); setRepId(''); setExternal('');
-      setOpen(false);
-      onAdded();
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        style={{
-          marginTop: 8, fontSize: 12, color: 'var(--brand-blue)', background: 'none',
-          border: '1px dashed var(--accent-line)', borderRadius: 6, padding: '6px 14px',
-          cursor: 'pointer', width: '100%',
-        }}
-      >
-        + Add Action Point
-      </button>
-    );
-  }
-
-  return (
-    <div style={{ marginTop: 8, padding: '14px', background: 'var(--bg-elev)', borderRadius: 8, border: '1px solid var(--line)' }}>
-      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg)', marginBottom: 12, display: 'flex', justifyContent: 'space-between' }}>
-        New Action Point
-        <button type="button" onClick={() => setOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fg-3)', fontSize: 16 }}>×</button>
-      </div>
-
-      <form onSubmit={handleSubmit}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <Input placeholder="Action title *" value={title} onChange={e => setTitle(e.target.value)} required />
-          <Textarea placeholder="Description (optional)" value={description} onChange={e => setDesc(e.target.value)} rows={2} />
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <div>
-              <label style={LBL}>Due Date</label>
-              <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
-            </div>
-            <div>
-              <label style={LBL}>Priority</label>
-              <select value={priority} onChange={e => setPriority(e.target.value)} style={INP}>
-                <option>High</option>
-                <option>Medium</option>
-                <option>Low</option>
-              </select>
-            </div>
-          </div>
-
-          <div>
-            <label style={LBL}>Assign To (Rep in system)</label>
-            <select value={repId} onChange={e => setRepId(e.target.value)} style={INP}>
-              <option value="">— Unassigned —</option>
-              {reps.map(r => (
-                <option key={r.id} value={r.id}>
-                  {r.name}{r.zone ? ` · ${r.zone}` : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label style={LBL}>Or Assign To (External / Not in system)</label>
-            <Input placeholder="e.g. Rajesh from Finance" value={external} onChange={e => setExternal(e.target.value)} />
-          </div>
-
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <Button type="button" variant="outline" size="sm" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button type="submit" size="sm" disabled={loading || !title.trim()}>
-              {loading ? 'Adding…' : 'Add Action'}
-            </Button>
-          </div>
-        </div>
-      </form>
     </div>
   );
 }

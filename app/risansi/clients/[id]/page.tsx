@@ -5,7 +5,7 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, Tag, StatusDot } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
-import { fyShortLabel, fmtCr, formatRev, formatLastVisit } from '@/lib/risansi-utils';
+import { fyShortLabel, formatRev, formatLastVisit } from '@/lib/risansi-utils';
 import { hasRole, getCurrentUser, canViewClient } from '@/lib/risansi-auth';
 import { ClientActionButtons, PipelineOppBtn, EditDrawerTrigger } from '@/components/risansi/ClientActionButtons';
 import { AddContactButton } from '@/components/risansi/AddContactButton';
@@ -17,6 +17,7 @@ import { type ComplaintRow } from '@/components/risansi/ComplaintDetail';
 import { type UserOpt } from '@/components/risansi/ComplaintFormModal';
 import { ClientPumps, type PumpRow } from '@/components/risansi/ClientPumps';
 import { ClientComments, type CommentRow } from '@/components/risansi/ClientComments';
+import { ClientActivityRegister, type ActionItem } from '@/components/risansi/ClientActivityRegister';
 import type { DrawerRep } from '@/components/risansi/AssignVisitDrawer';
 
 // ── Safe query wrapper ─────────────────────────────────────────
@@ -214,7 +215,7 @@ export default async function ClientProfilePage({
 
   // ── Fetch supporting data in parallel ─────────────────────
 
-  const [contacts, revRows, clientRevByFY, comp, visits, allOpps, activityLog, reps, complaints, complaintUsers, clientPumps, clientComments] = await Promise.all([
+  const [contacts, revRows, clientRevByFY, comp, visits, allOpps, activityLog, reps, complaints, complaintUsers, clientPumps, clientComments, clientActions] = await Promise.all([
 
     // 2. Contacts — single source of truth
     q<Contact[]>(async () => {
@@ -422,6 +423,20 @@ export default async function ClientProfilePage({
              to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
       FROM client_comments WHERE client_id = $1
       ORDER BY created_at DESC, id DESC`, [client.id])).rows, []),
+
+    // 13. Action items — the Activity Register for this client.
+    q<ActionItem[]>(async () => (await risansiPool.query<ActionItem>(`
+      SELECT t.id, t.title, t.description,
+             u.name AS assigned_rep_name,
+             t.assigned_to_external, t.assigned_to_external_email,
+             t.due_date::text AS due_date, t.priority, t.status,
+             t.created_by, t.created_at::text AS created_at,
+             (t.visit_id IS NOT NULL) AS from_visit
+      FROM tasks t
+      LEFT JOIN users u ON u.id = t.assigned_to_rep
+      WHERE t.client_id = $1
+      ORDER BY (t.status = 'completed'), COALESCE(t.due_date, t.created_at::date) DESC, t.id DESC`,
+      [client.id])).rows, []),
   ]);
 
   // ── Derived values ────────────────────────────────────────
@@ -649,7 +664,7 @@ export default async function ClientProfilePage({
             value={rilPumpsTotal > 0 ? String(rilPumpsTotal) : '—'}
             sub={rilPumpsTotal > 0 ? `${rilUnits} PCP · ${rilMmp} MMP` : 'No installed-base data'} />
           <MiniKpi label="Open Pipeline"
-            value={fmtCr(pipelineTotal)}
+            value={formatRev(pipelineTotal * 1e7)}
             sub={openOpps.length > 0 ? `${openOpps.length} opportunit${openOpps.length === 1 ? 'y' : 'ies'}` : 'No open opportunities'} />
           <MiniKpi label="Outstanding"
             value={client.total_outstanding != null ? formatRev(Number(client.total_outstanding)) : '—'}
@@ -908,6 +923,13 @@ export default async function ClientProfilePage({
               </div>
             )}
 
+            {/* Activity Register — action items logged for this client, + record a new one */}
+            <ClientActivityRegister
+              clientId={Number(client.id)}
+              actions={clientActions}
+              reps={reps.map(r => ({ id: Number(r.id), name: r.name, zone: r.route }))}
+            />
+
             {/* Visit Timeline */}
             <div data-tabgroup="activity" style={PANEL}>
               <div style={PANEL_H}>
@@ -1163,12 +1185,12 @@ export default async function ClientProfilePage({
                 <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
                   {wonTotal > 0 && (
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--pos)' }}>
-                      {fmtCr(wonTotal)} order in hand
+                      {formatRev(wonTotal * 1e7)} order in hand
                     </span>
                   )}
                   {pipelineTotal > 0 && (
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)' }}>
-                      {fmtCr(pipelineTotal)} open
+                      {formatRev(pipelineTotal * 1e7)} open
                     </span>
                   )}
                   <PipelineOppBtn />
@@ -1216,7 +1238,7 @@ export default async function ClientProfilePage({
                         fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 500, flexShrink: 0, marginLeft: 8,
                         color: isWon ? 'var(--pos)' : undefined,
                       }}>
-                        {fmtCr(Number(o.value_cr))}
+                        {formatRev(Number(o.value_cr) * 1e7)}
                       </div>
                     </div>
                     );
