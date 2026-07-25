@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, type CSSProperties } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 
 // ── Types ──────────────────────────────────────────────────────
@@ -24,16 +24,26 @@ export function MultiSelectFilter({ param, label, options, selected }: Props) {
   const router   = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
   const ref = useRef<HTMLDivElement>(null);
+
+  const close = () => { setOpen(false); setQuery(''); };
 
   // Close on outside click
   useEffect(() => {
     function handler(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (ref.current && !ref.current.contains(e.target as Node)) close();
     }
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
+
+  // Longer option lists get a search box to filter down to a match.
+  const searchable = options.length > 5;
+  const q = query.trim().toLowerCase();
+  const shown = searchable && q
+    ? options.filter(o => optLabel(o).toLowerCase().includes(q) || optValue(o).toLowerCase().includes(q))
+    : options;
 
   function toggle(value: string) {
     const next = selected.includes(value)
@@ -57,7 +67,7 @@ export function MultiSelectFilter({ param, label, options, selected }: Props) {
       <button
         type="button"
         className="r-tap"
-        onClick={() => setOpen(o => !o)}
+        onClick={() => (open ? close() : setOpen(true))}
         style={{
           display:     'inline-flex',
           alignItems:  'center',
@@ -106,10 +116,28 @@ export function MultiSelectFilter({ param, label, options, selected }: Props) {
           borderRadius: 6,
           boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
           minWidth:  180,
-          maxHeight: 260,
+          maxHeight: 280,
           overflowY: 'auto',
         }}>
-          {options.map(opt => {
+          {searchable && (
+            <div style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--bg-paper)', padding: 8, borderBottom: '1px solid var(--line-strong)' }}>
+              <input
+                autoFocus
+                type="search"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder={`Search ${label.toLowerCase()}…`}
+                style={{
+                  width: '100%', padding: '5px 8px', fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box',
+                  background: 'var(--bg-sunk)', color: 'var(--fg)', border: '1px solid var(--line-strong)',
+                  borderRadius: 4, outline: 'none',
+                }}
+              />
+            </div>
+          )}
+          {shown.length === 0 ? (
+            <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--fg-3)', textAlign: 'center' }}>No matches</div>
+          ) : shown.map(opt => {
             const val     = optValue(opt);
             const lbl     = optLabel(opt);
             const cnt     = optCount(opt);
