@@ -4,11 +4,47 @@ import { getServerSession } from 'next-auth/next';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
+import { notifyActionAssigned } from '@/lib/risansi-email';
 
 async function requireEmail(): Promise<string> {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) throw new Error('Unauthorized');
   return session.user.email;
+}
+
+// Email the assignee when a new action is recorded for them — but only if they
+// are a user in the system (assigned_to_rep) with an email, and not the person
+// who created it. Best-effort: any failure is logged and swallowed so it can
+// never break task creation.
+async function notifyAssignee(opts: {
+  assignedToRep: number; creatorEmail: string; clientId: number;
+  title: string; description?: string | null; dueDate?: string | null; priority?: string | null;
+}) {
+  try {
+    const assignee = (await risansiPool.query<{ id: number; name: string | null; email: string | null }>(
+      'SELECT id, name, email FROM users WHERE id = $1', [opts.assignedToRep],
+    )).rows[0];
+    if (!assignee?.email) return;
+    if (assignee.email.toLowerCase() === opts.creatorEmail.toLowerCase()) return;  // don't self-notify
+
+    const [creatorRes, clientRes] = await Promise.all([
+      risansiPool.query<{ name: string | null }>('SELECT name FROM users WHERE email = $1', [opts.creatorEmail]),
+      risansiPool.query<{ legal_name: string | null }>('SELECT legal_name FROM clients WHERE id = $1', [opts.clientId]),
+    ]);
+
+    await notifyActionAssigned({
+      to: assignee.email,
+      toName: assignee.name,
+      assignedBy: creatorRes.rows[0]?.name || opts.creatorEmail,
+      title: opts.title,
+      description: opts.description,
+      clientName: clientRes.rows[0]?.legal_name,
+      dueDate: opts.dueDate,
+      priority: opts.priority,
+    });
+  } catch (e) {
+    console.error('[addTask] assignee notification failed', e);
+  }
 }
 
 export async function addTask({
@@ -56,6 +92,19 @@ export async function addTask({
   revalidatePath(`/risansi/visits/${visitId}`);
   revalidatePath('/risansi');
   revalidatePath('/risansi/field');
+
+  // Notify the assignee by email (only for in-system reps; best-effort).
+  if (assignedToRep) {
+    await notifyAssignee({
+      assignedToRep,
+      creatorEmail: email,
+      clientId,
+      title: title.trim(),
+      description: description?.trim() || null,
+      dueDate: dueDate || null,
+      priority: priority ?? 'Medium',
+    });
+  }
 }
 
 export async function updateTaskStatus(taskId: number, status: 'open' | 'completed') {
