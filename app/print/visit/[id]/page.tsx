@@ -58,7 +58,7 @@ export default async function VisitPrintPage({ params }: { params: Promise<{ id:
   if (!visit.submitted_at) redirect(`/risansi/visits/${id}`);
 
   const cid = String(visit.client_id);
-  const [contacts, equipment, sugar, nonsugar, opps, tasks, photos] = await Promise.all([
+  const [contacts, equipment, sugar, nonsugar, opps, tasks, photos, rilInstalled] = await Promise.all([
     q(async () => (await risansiPool.query<Record<string, unknown>>(
       `SELECT name, designation, phone, email, is_primary FROM contacts WHERE client_id = $1 ORDER BY is_primary DESC, name ASC`, [cid],
     )).rows, [] as Record<string, unknown>[]),
@@ -82,6 +82,15 @@ export default async function VisitPrintPage({ params }: { params: Promise<{ id:
     )).rows, [] as Record<string, unknown>[]),
     q(async () => (await risansiPool.query<Record<string, unknown>>(
       `SELECT id, COALESCE(caption,'') AS caption, uploaded_at FROM visit_photos WHERE visit_id = $1 ORDER BY uploaded_at, id`, [id],
+    )).rows, [] as Record<string, unknown>[]),
+    // Risansi installed base at this client (client-level, not visit-scoped) —
+    // shown alongside the per-visit assessment so the Risansi side is never
+    // blank. Grouped so near-duplicate pump rows collapse to one line.
+    q(async () => (await risansiPool.query<Record<string, unknown>>(
+      `SELECT pump_model_plate, liquid, capacity, head, COALESCE(SUM(quantity),0)::int AS qty
+         FROM client_pumps WHERE client_id = $1
+        GROUP BY pump_model_plate, liquid, capacity, head
+        ORDER BY pump_model_plate NULLS LAST`, [cid],
     )).rows, [] as Record<string, unknown>[]),
   ]);
 
@@ -141,35 +150,90 @@ export default async function VisitPrintPage({ params }: { params: Promise<{ id:
             <Section title="Industry Report"><RowFacts row={nonsugar} /></Section>
           )}
 
-          {equipment.length > 0 && (
-            <Section title="Equipment Assessment" right={`${equipment.length} item${equipment.length !== 1 ? 's' : ''}`}>
-              {[['RIL Equipment', rilEq], ['Competitor Equipment', compEq]].map(([label, list]) => {
-                const items = list as Record<string, unknown>[];
-                if (items.length === 0) return null;
-                const isComp = label === 'Competitor Equipment';
-                return (
-                  <div key={label as string} style={{ marginBottom: 10 }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: C.fg2, marginBottom: 4 }}>{label as string}</div>
+          {(equipment.length > 0 || rilInstalled.length > 0) && (
+            <Section
+              title="Equipment Assessment"
+              right={`${rilEq.length + rilInstalled.length} Risansi · ${compEq.length} competitor`}
+            >
+              {/* ── RISANSI — clearly segregated. Both what was assessed on this
+                   visit AND the client's Risansi installed base, so the Risansi
+                   side is never blank just because a visit only logged rivals. */}
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: C.accent, marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Risansi Equipment
+                </div>
+
+                {rilEq.length > 0 && (
+                  <div style={{ marginBottom: rilInstalled.length ? 10 : 0 }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: C.fg3, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>Assessed this visit</div>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                      <thead><tr>
-                        {['Type', isComp ? 'Make / Model' : 'Model', 'Application', 'Qty', 'Condition', isComp ? 'Reason' : 'Feedback'].map(h => <th key={h} style={TH}>{h}</th>)}
-                      </tr></thead>
+                      <thead><tr>{['Type', 'Model', 'Application', 'Qty', 'Condition', 'Feedback'].map(h => <th key={h} style={TH}>{h}</th>)}</tr></thead>
                       <tbody>
-                        {items.map((e, i) => (
+                        {rilEq.map((e, i) => (
                           <tr key={i}>
                             <td style={TD}>{String(e.pump_type ?? '—')}</td>
                             <td style={TD}>{`${String(e.supplier ?? '')} ${String(e.model ?? '')}`.trim() || '—'}</td>
                             <td style={TD}>{String(e.application ?? '—')}</td>
                             <td style={{ ...TD, textAlign: 'center' }}>{String(e.qty ?? 1)}</td>
                             <td style={TD}>{String(e.condition ?? '—')}{e.is_opportunity ? ' ⚡' : ''}</td>
-                            <td style={TD}>{String((isComp ? e.reason_for_competitor : e.performance_feedback) ?? '—')}</td>
+                            <td style={TD}>{String(e.performance_feedback ?? '—')}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
-                );
-              })}
+                )}
+
+                {rilInstalled.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: C.fg3, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>Installed base</div>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead><tr>{['Model', 'Liquid', 'Capacity', 'Head', 'Qty'].map(h => <th key={h} style={TH}>{h}</th>)}</tr></thead>
+                      <tbody>
+                        {rilInstalled.map((p, i) => (
+                          <tr key={i}>
+                            <td style={TD}>{String(p.pump_model_plate ?? '—')}</td>
+                            <td style={TD}>{String(p.liquid ?? '—')}</td>
+                            <td style={TD}>{String(p.capacity ?? '—')}</td>
+                            <td style={TD}>{String(p.head ?? '—')}</td>
+                            <td style={{ ...TD, textAlign: 'center' }}>{String(p.qty ?? 1)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {rilEq.length === 0 && rilInstalled.length === 0 && (
+                  <div style={{ fontSize: 10, color: C.fg3, fontStyle: 'italic' }}>None recorded.</div>
+                )}
+              </div>
+
+              {/* ── COMPETITOR ── */}
+              <div>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: C.fg2, marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Competitor Equipment
+                </div>
+                {compEq.length > 0 ? (
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead><tr>{['Type', 'Make / Model', 'Application', 'Qty', 'Condition', 'Reason'].map(h => <th key={h} style={TH}>{h}</th>)}</tr></thead>
+                    <tbody>
+                      {compEq.map((e, i) => (
+                        <tr key={i}>
+                          <td style={TD}>{String(e.pump_type ?? '—')}</td>
+                          <td style={TD}>{`${String(e.supplier ?? '')} ${String(e.model ?? '')}`.trim() || '—'}</td>
+                          <td style={TD}>{String(e.application ?? '—')}</td>
+                          <td style={{ ...TD, textAlign: 'center' }}>{String(e.qty ?? 1)}</td>
+                          <td style={TD}>{String(e.condition ?? '—')}{e.is_opportunity ? ' ⚡' : ''}</td>
+                          <td style={TD}>{String(e.reason_for_competitor ?? '—')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div style={{ fontSize: 10, color: C.fg3, fontStyle: 'italic' }}>None recorded.</div>
+                )}
+              </div>
             </Section>
           )}
 
