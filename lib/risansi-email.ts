@@ -5,7 +5,7 @@ import { Resend } from 'resend';
 //
 // Setup: set RESEND_API_KEY (from resend.com) and verify the sending domain.
 // The From domain must be a VERIFIED Resend domain. We verified the subdomain
-// digital.risansi.com, so the address lives on it (noreply@digital.risansi.com)
+// digital.risansi.com, so the address lives on it (sales-portal@digital.risansi.com)
 // — NOT digital@risansi.com, whose domain (risansi.com) is a different,
 // unverified domain and gets a 403. Override with RESEND_FROM if needed.
 
@@ -18,7 +18,7 @@ function client(): Resend | null {
   return _client;
 }
 
-const FROM     = process.env.RESEND_FROM || 'Risansi <noreply@digital.risansi.com>';
+const FROM     = process.env.RESEND_FROM || 'Risansi <sales-portal@digital.risansi.com>';
 const APP_URL  = (process.env.NEXTAUTH_URL || '').replace(/\/+$/, '');
 const REPLY_TO = process.env.RESEND_REPLY_TO || undefined;
 
