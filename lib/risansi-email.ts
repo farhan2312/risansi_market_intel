@@ -19,7 +19,9 @@ function client(): Resend | null {
 }
 
 const FROM     = process.env.RESEND_FROM || 'Risansi <sales-portal@digital.risansi.com>';
-const APP_URL  = (process.env.NEXTAUTH_URL || '').replace(/\/+$/, '');
+// Public site URL used for links in emails — the hosted domain, deliberately
+// NOT NEXTAUTH_URL (which is the internal Vercel URL). Override with APP_URL.
+const APP_URL  = (process.env.APP_URL || 'https://sales.risansi.com').replace(/\/+$/, '');
 const REPLY_TO = process.env.RESEND_REPLY_TO || undefined;
 
 export interface SendArgs {
