@@ -15,6 +15,7 @@ import { MobileTabs } from '@/components/risansi/MobileTabs';
 import { ClientComplaints } from '@/components/risansi/ClientComplaints';
 import { type ComplaintRow } from '@/components/risansi/ComplaintDetail';
 import { type UserOpt } from '@/components/risansi/ComplaintFormModal';
+import { isEpcOem } from '@/lib/risansi-client-types';
 import { ClientPumps, type PumpRow } from '@/components/risansi/ClientPumps';
 import { ClientComments, type CommentRow } from '@/components/risansi/ClientComments';
 import { ClientActivityRegister, type ActionItem } from '@/components/risansi/ClientActivityRegister';
@@ -36,6 +37,10 @@ interface Client {
   status: string; tier: string | null;
   market_type: string | null; client_type: string | null;
   is_sugar: boolean; is_tender: boolean;
+  // EPC/OEM account intelligence (captured on the visit Client Type page)
+  focus_industries: string[] | null; avg_annual_pump_req: number | null;
+  ongoing_tenders: number | null; upcoming_tenders: boolean | null;
+  upcoming_tenders_details: string | null; pcp_suppliers: string | null;
   // Location
   since_year: string | number | null; address: string | null; city: string | null;
   state: string | null; country: string | null;
@@ -842,6 +847,64 @@ export default async function ClientProfilePage({
               clientId={Number(client.id)} clientName={String(client.legal_name)}
             />
 
+            {/* EPC / OEM account profile — captured on the visit Client Type page */}
+            {isEpcOem(client.client_type) && (
+              <div data-tabgroup="overview" style={PANEL}>
+                <div style={PANEL_H}>
+                  <span style={PANEL_TITLE}>{client.client_type} Profile</span>
+                  <div style={{ marginLeft: 'auto' }}><Tag kind="accent">{client.client_type}</Tag></div>
+                </div>
+                <div style={{ padding: '14px' }}>
+                  {client.focus_industries && client.focus_industries.length > 0 && (
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={MICRO_LBL}>Focus Industries</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                        {client.focus_industries.map(i => <Tag key={i}>{i}</Tag>)}
+                      </div>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+                    {client.avg_annual_pump_req != null && (
+                      <div>
+                        <div style={MICRO_LBL}>Avg Annual Pump Req.</div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 16, marginTop: 3, color: 'var(--fg)' }}>{client.avg_annual_pump_req}</div>
+                      </div>
+                    )}
+                    {client.ongoing_tenders != null && (
+                      <div>
+                        <div style={MICRO_LBL}>Ongoing Tenders</div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 16, marginTop: 3, color: 'var(--fg)' }}>{client.ongoing_tenders}</div>
+                      </div>
+                    )}
+                    {client.upcoming_tenders != null && (
+                      <div>
+                        <div style={MICRO_LBL}>Upcoming Tenders / Projects</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, marginTop: 3, color: client.upcoming_tenders ? 'var(--pos)' : 'var(--fg-2)' }}>{client.upcoming_tenders ? 'YES' : 'No'}</div>
+                      </div>
+                    )}
+                  </div>
+                  {client.upcoming_tenders && client.upcoming_tenders_details && (
+                    <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+                      <div style={MICRO_LBL}>Upcoming Tenders — Details</div>
+                      <div style={{ fontSize: 12, color: 'var(--fg-2)', lineHeight: 1.6, marginTop: 6, whiteSpace: 'pre-wrap' }}>{client.upcoming_tenders_details}</div>
+                    </div>
+                  )}
+                  {client.pcp_suppliers && (
+                    <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+                      <div style={MICRO_LBL}>PC Pump Suppliers · Competitor Footprint</div>
+                      <div style={{ fontSize: 12, color: 'var(--fg-2)', lineHeight: 1.6, marginTop: 6, whiteSpace: 'pre-wrap' }}>{client.pcp_suppliers}</div>
+                    </div>
+                  )}
+                  {!(client.focus_industries && client.focus_industries.length) && client.avg_annual_pump_req == null
+                    && client.ongoing_tenders == null && client.upcoming_tenders == null && !client.pcp_suppliers && (
+                    <div style={{ fontSize: 12, color: 'var(--fg-3)' }}>
+                      No {client.client_type} details captured yet — add them from a visit’s Client Type page.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Plan of Action */}
             {(client.action_points || client.expected_to_pump || client.expected_to_spare || client.mgmt_intervention) && (
               <div data-tabgroup="activity" style={PANEL}>
@@ -1427,6 +1490,8 @@ const PANEL_H: CSSProperties = {
 };
 
 const PANEL_TITLE: CSSProperties = { fontSize: 12, fontWeight: 500, letterSpacing: '-0.005em' };
+
+const MICRO_LBL: CSSProperties = { fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.10em', fontWeight: 500 };
 
 const TH: CSSProperties = {
   padding: '9px 12px', textAlign: 'left', fontSize: 10,

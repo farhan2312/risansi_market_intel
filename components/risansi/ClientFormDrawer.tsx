@@ -4,6 +4,7 @@ import { useState, useEffect, useTransition, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { addClient, updateClient } from '@/app/actions/risansi';
 import { leadCodeBase } from '@/lib/risansi-lead-code';
+import { CLIENT_TYPES } from '@/lib/risansi-client-types';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -28,7 +29,6 @@ interface Props {
 
 // ── Option lists ───────────────────────────────────────────────
 
-const CLIENT_TYPES      = ['End User', 'OEM', 'Trader', 'Group (Mills)', 'Merchant Exporter'];
 const MARKET_TYPES      = ['Domestic', 'Export'];
 const CAPACITY_BRACKETS = ['0-5000', '5001-9000', '9001 & above'];
 const STATUS_OPTIONS    = ['ACTIVE', 'INACTIVE', 'PROSPECTIVE', 'CLOSED', 'DUPLICATE'];

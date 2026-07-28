@@ -8,6 +8,7 @@ import { recordAudit } from '@/lib/audit';
 import { withinVisitEditWindow, VISIT_EDIT_WINDOW_DAYS } from '@/lib/risansi-visit-edit-window';
 import { canEditVisitReport } from '@/lib/risansi-auth';
 import { pctForProbabilityCode } from '@/lib/risansi-probability-codes';
+import { isEpcOem } from '@/lib/risansi-client-types';
 
 // A session's role, for the visit edit gate.
 function callerRole(session: { user?: { role?: string | null } }): string | null {
@@ -344,6 +345,84 @@ export async function saveVisitField(
       });
     }
   }
+}
+
+// ── Client profile from the visit's Client Type page ───────────
+// The Client Type page persists to the CLIENT (not the visit): the client_type
+// itself, plus the EPC/OEM account-intelligence fields. Latest-wins, prefilled
+// on the next visit. Same edit permission as the rest of the report.
+const SAFE_CLIENT_PROFILE_COLS = new Set([
+  'client_type', 'focus_industries', 'avg_annual_pump_req',
+  'ongoing_tenders', 'upcoming_tenders', 'upcoming_tenders_details', 'pcp_suppliers',
+]);
+
+export async function saveClientProfileFromVisit(
+  visitId: string,
+  patch: Record<string, unknown>,
+) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) throw new Error('Unauthorized');
+
+  const { rows } = await risansiPool.query<{ rep_id: number | null; submitted_at: string | null; client_id: number | null; client_type: string | null }>(
+    `SELECT v.rep_id, v.submitted_at, v.client_id, c.client_type
+       FROM visits v JOIN clients c ON c.id = v.client_id
+      WHERE v.id = $1`,
+    [visitId],
+  );
+  const visit = rows[0];
+  if (!visit || visit.client_id == null) throw new Error('Visit not found');
+  if (visit.submitted_at && !withinVisitEditWindow(visit.submitted_at)) {
+    throw new Error(`This report was closed more than ${VISIT_EDIT_WINDOW_DAYS} days ago and can no longer be edited.`);
+  }
+  const myRepId = await callerRepId(session);
+  if (!(await canEditVisitReport({ role: callerRole(session), repId: myRepId }, visit.rep_id))) {
+    throw new Error('You do not have permission to edit this visit report.');
+  }
+
+  const INT4_MAX = 2147483647;
+  const cols: string[] = [];
+  const vals: unknown[] = [];
+  for (const [k, v] of Object.entries(patch)) {
+    if (!SAFE_CLIENT_PROFILE_COLS.has(k)) continue;
+    let val = v;
+    // Defend the integer columns against overflow / negatives regardless of what
+    // the client sent, so a mis-keyed value can't throw 22003 and lose the save.
+    if (k === 'avg_annual_pump_req' || k === 'ongoing_tenders') {
+      const n = v == null ? null : Number(v);
+      val = (n != null && Number.isFinite(n)) ? Math.min(INT4_MAX, Math.max(0, Math.round(n))) : null;
+    }
+    cols.push(k); vals.push(val);
+  }
+  if (cols.length === 0) return;
+
+  // Re-typing a client away from EPC/OEM retires the channel-only intelligence,
+  // so a later re-classification starts clean instead of resurfacing stale data.
+  const clearingEpc =
+    Object.prototype.hasOwnProperty.call(patch, 'client_type') && !isEpcOem(patch.client_type as string);
+  const extraNulls = clearingEpc
+    ? ['focus_industries', 'avg_annual_pump_req', 'ongoing_tenders', 'upcoming_tenders', 'upcoming_tenders_details', 'pcp_suppliers']
+        .filter(col => !cols.includes(col))
+    : [];
+
+  const sets = [
+    ...cols.map((c, i) => `${c} = $${i + 2}`),
+    ...extraNulls.map(c => `${c} = NULL`),
+  ];
+  await risansiPool.query(
+    `UPDATE clients SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $1`,
+    [visit.client_id, ...vals],
+  );
+
+  // A client_type change is a real profile edit — audit it against the client.
+  if (cols.includes('client_type') && patch.client_type !== visit.client_type) {
+    await recordAudit({
+      action: 'update', entityType: 'client', entityId: visit.client_id,
+      summary: `Client type set to ${(patch.client_type as string) || '—'} (from visit report)`,
+      actorEmail: session.user.email,
+    });
+  }
+
+  revalidatePath(`/risansi/clients/${visit.client_id}`);
 }
 
 // ── Add equipment ──────────────────────────────────────────────

@@ -2,7 +2,8 @@
 
 import { useState, useRef, useEffect, useCallback, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
-import { saveVisitField, checkInVisit, addEquipment, updateEquipment, deleteEquipment, saveExpansionOpportunity } from '@/app/actions/risansi-visits';
+import { saveVisitField, checkInVisit, addEquipment, updateEquipment, deleteEquipment, saveExpansionOpportunity, saveClientProfileFromVisit } from '@/app/actions/risansi-visits';
+import { CLIENT_TYPES, isEpcOem } from '@/lib/risansi-client-types';
 import { ClientPumpEditor } from './ClientPumpEditor';
 import { LogComplaintButton } from './LogComplaintButton';
 import { updateTaskStatus, deleteTask } from '@/app/actions/risansi-tasks';
@@ -50,6 +51,11 @@ interface VisitData {
   open_remarks: string | null; status: string; submitted_at: string | null;
   legal_name: string; code: string; industry: string | null;
   is_sugar: boolean; city: string | null;
+  // Client profile fields edited on the Client Type page (persist to the client)
+  client_type: string | null; focus_industries: string[] | null;
+  avg_annual_pump_req: number | null; ongoing_tenders: number | null;
+  upcoming_tenders: boolean | null; upcoming_tenders_details: string | null;
+  pcp_suppliers: string | null;
 }
 
 interface Contact {
@@ -104,6 +110,7 @@ interface Props {
   closedDate:     string | null;    // formatted first-closed date
   daysLeft:       number;           // whole days left in the re-open window
   isSugar:        boolean;
+  industries:     string[];         // taxonomy for the EPC/OEM focus-industries picker
 }
 
 // ── Auto-save hook ─────────────────────────────────────────────
@@ -172,6 +179,7 @@ export function VisitReportForm({
   visit, contacts, equipment, sugarReport, nonsugarReport,
   opportunities, tasks, reps, expansionOpp,
   isSubmitted, canEditVisit, canReopen, closedDate, daysLeft, isSugar: initialIsSugar,
+  industries,
 }: Props) {
   const { saveState, queueSave, hasDraft, syncDraft } = useAutoSave(visit.id);
   const router = useRouter();
@@ -194,6 +202,67 @@ export function VisitReportForm({
   const [sampleGiven, setSampleGiven] = useState(!!visit.sample_or_gift_given);
   const [followUp, setFollowUp]       = useState(!!visit.follow_up_required);
   const [compActivity, setCompActivity] = useState(!!visit.competitor_activity_observed);
+
+  // ── Client Type page (persists to the CLIENT, not the visit) ──
+  const [clientType, setClientType]           = useState(visit.client_type ?? '');
+  const [focusInd, setFocusInd]               = useState<string[]>(visit.focus_industries ?? []);
+  const [avgPumpReq, setAvgPumpReq]           = useState(visit.avg_annual_pump_req?.toString() ?? '');
+  const [ongoingTenders, setOngoingTenders]   = useState(visit.ongoing_tenders?.toString() ?? '');
+  const [upcomingTenders, setUpcomingTenders] = useState<boolean>(!!visit.upcoming_tenders);
+  const [upcomingDetails, setUpcomingDetails] = useState(visit.upcoming_tenders_details ?? '');
+  const [pcpSuppliers, setPcpSuppliers]       = useState(visit.pcp_suppliers ?? '');
+  const [ctSaved, setCtSaved]                 = useState(false);
+  const [ctError, setCtError]                 = useState(false);
+  const showEpcOem = isEpcOem(clientType);
+  // Chips to render: the taxonomy PLUS any already-saved value not in it, so a
+  // stored focus industry never becomes invisible/unselectable.
+  const focusChips = Array.from(new Set([...industries, ...focusInd]));
+
+  // Snapshot of what's persisted, so an onChange/onBlur that didn't actually
+  // change a value doesn't fire a redundant UPDATE (and updated_at bump).
+  const savedRef = useRef<Record<string, string>>({
+    client_type:              JSON.stringify(visit.client_type ?? null),
+    focus_industries:         JSON.stringify(visit.focus_industries ?? []),
+    avg_annual_pump_req:      JSON.stringify(visit.avg_annual_pump_req ?? null),
+    ongoing_tenders:          JSON.stringify(visit.ongoing_tenders ?? null),
+    upcoming_tenders:         JSON.stringify(visit.upcoming_tenders ?? false),
+    upcoming_tenders_details: JSON.stringify(visit.upcoming_tenders_details ?? null),
+    pcp_suppliers:            JSON.stringify(visit.pcp_suppliers ?? null),
+  });
+
+  // Persist a client-profile patch. Drops keys whose value is unchanged, and
+  // surfaces success (✓) or failure (⚠) so a lost save never looks like it saved.
+  const saveClientProfile = async (patch: Record<string, unknown>) => {
+    const changed: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(patch)) {
+      const ser = JSON.stringify(v ?? null);
+      if (savedRef.current[k] !== ser) { changed[k] = v; savedRef.current[k] = ser; }
+    }
+    if (Object.keys(changed).length === 0) return;
+    try {
+      await saveClientProfileFromVisit(visit.id, changed);
+      setCtError(false); setCtSaved(true);
+      window.setTimeout(() => setCtSaved(false), 1500);
+    } catch (e) {
+      for (const k of Object.keys(changed)) delete savedRef.current[k];   // let a retry re-send
+      setCtSaved(false); setCtError(true);
+      console.error('saveClientProfileFromVisit failed', e);
+    }
+  };
+  // Blank → null; negatives / non-numbers → null (an integer column never gets '').
+  const numOrNull = (s: string) => { const n = parseInt(s, 10); return Number.isFinite(n) && n >= 0 ? n : null; };
+  // Mirror the server's EPC-field retirement in the form + snapshot when the
+  // type moves away from EPC/OEM, so the same session doesn't show stale values.
+  const clearEpcState = () => {
+    setFocusInd([]); setAvgPumpReq(''); setOngoingTenders('');
+    setUpcomingTenders(false); setUpcomingDetails(''); setPcpSuppliers('');
+    savedRef.current.focus_industries         = JSON.stringify([]);
+    savedRef.current.avg_annual_pump_req      = JSON.stringify(null);
+    savedRef.current.ongoing_tenders          = JSON.stringify(null);
+    savedRef.current.upcoming_tenders         = JSON.stringify(false);
+    savedRef.current.upcoming_tenders_details = JSON.stringify(null);
+    savedRef.current.pcp_suppliers            = JSON.stringify(null);
+  };
 
   // Sugar-specific state
   const [hasComplaints, setHasComplaints] = useState(!!(sugarReport?.has_complaints));
@@ -238,6 +307,7 @@ export function VisitReportForm({
     { key: 'nonsugar',  label: 'Industry',  title: 'Industry report',       desc: 'Products dealt and equipment observed.',     show: !isSugar },
     { key: 'equipment', label: 'Equipment', title: 'Equipment & competition', desc: 'RIL and competitor pumps seen.',           show: true },
     { key: 'opps',      label: 'Opportunities', title: 'Opportunities',     desc: 'Expansion plans and new business.',          show: true },
+    { key: 'clienttype',label: 'Client Type', title: 'Client type',         desc: 'Confirm the client type — EPC/OEM adds a few questions.', show: true },
     { key: 'summary',   label: 'Summary',   title: 'Visit summary',         desc: 'Performance, feedback and remarks.',         show: true },
     { key: 'photos',    label: 'Photos',    title: 'Site photos',           desc: 'Capture site / equipment photos — camera or gallery.', show: true },
     { key: 'actions',   label: 'Actions',   title: 'Action register',       desc: 'Add action points, then submit the report.', show: true },
@@ -863,6 +933,134 @@ export function VisitReportForm({
       </FormSection>
 
       </div>{/* end opps */}
+
+      {/* ══ STEP: Client Type ══ */}
+      <div style={{ display: curKey === 'clienttype' ? 'flex' : 'none', flexDirection: 'column', gap: 12 }}>
+      <FormSection title="Client Type" icon="🏷️">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+              <label style={LBL}>What is the client type?</label>
+              <span style={{ fontSize: 11, fontWeight: 600, minHeight: 14 }}>
+                {ctSaved && <span style={{ color: '#0A7D34' }}>✓ Saved</span>}
+                {ctError && <span style={{ color: '#B91C1C' }}>⚠ Save failed — try again</span>}
+              </span>
+            </div>
+            <select
+              value={clientType}
+              disabled={disabled}
+              onChange={e => {
+                const v = e.target.value;
+                setClientType(v);
+                saveClientProfile({ client_type: v || null });
+                if (!isEpcOem(v)) clearEpcState();   // server retires EPC fields; mirror it here
+              }}
+              style={{ ...INP, appearance: 'none', maxWidth: 320 }}
+            >
+              <option value="">— Select —</option>
+              {CLIENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 6 }}>
+              This updates the client record. Selecting <strong>EPC</strong> or <strong>OEM</strong> adds a few account questions below.
+            </div>
+          </div>
+
+          {showEpcOem && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16, borderTop: '1px solid var(--line)', paddingTop: 16 }}>
+              <div style={{ fontSize: 12, color: 'var(--fg-2)', lineHeight: 1.5 }}>
+                For every {clientType}, please secure the following (all optional):
+              </div>
+
+              {/* Focus industries — multiselect chips */}
+              <div>
+                <label style={LBL}>Focus across which industries?</label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                  {focusChips.length === 0 && <span style={{ fontSize: 12, color: 'var(--fg-3)' }}>No industries available.</span>}
+                  {focusChips.map(ind => {
+                    const on = focusInd.includes(ind);
+                    return (
+                      <button
+                        key={ind} type="button" disabled={disabled}
+                        onClick={() => {
+                          const next = on ? focusInd.filter(x => x !== ind) : [...focusInd, ind];
+                          setFocusInd(next); saveClientProfile({ focus_industries: next });
+                        }}
+                        style={{
+                          padding: '5px 11px', borderRadius: 14, fontSize: 12, lineHeight: 1,
+                          cursor: disabled ? 'default' : 'pointer', fontFamily: 'inherit',
+                          border: `1px solid ${on ? 'var(--accent)' : 'var(--line-strong)'}`,
+                          background: on ? 'var(--accent)' : 'var(--bg-paper)',
+                          color: on ? '#fff' : 'var(--fg-2)',
+                        }}
+                      >
+                        {ind}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={LBL}>Avg annual pump requirement</label>
+                  <input
+                    type="number" inputMode="numeric" min={0} value={avgPumpReq} disabled={disabled}
+                    onChange={e => setAvgPumpReq(e.target.value)}
+                    onBlur={e => saveClientProfile({ avg_annual_pump_req: numOrNull(e.target.value) })}
+                    style={INP} placeholder="e.g. 40 pumps / yr"
+                  />
+                </div>
+                <div>
+                  <label style={LBL}>Ongoing tenders</label>
+                  <input
+                    type="number" inputMode="numeric" min={0} value={ongoingTenders} disabled={disabled}
+                    onChange={e => setOngoingTenders(e.target.value)}
+                    onBlur={e => saveClientProfile({ ongoing_tenders: numOrNull(e.target.value) })}
+                    style={INP} placeholder="e.g. 3"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <CheckboxField
+                  label="Upcoming tenders / projects?"
+                  checked={upcomingTenders}
+                  disabled={disabled}
+                  onChange={v => {
+                    setUpcomingTenders(v);
+                    if (!v) { setUpcomingDetails(''); saveClientProfile({ upcoming_tenders: false, upcoming_tenders_details: null }); }
+                    else saveClientProfile({ upcoming_tenders: true });
+                  }}
+                />
+                {upcomingTenders && (
+                  <div style={{ marginTop: 8, paddingLeft: 22 }}>
+                    <label style={LBL}>Details — which projects / tenders</label>
+                    <textarea
+                      value={upcomingDetails} disabled={disabled}
+                      onChange={e => setUpcomingDetails(e.target.value)}
+                      onBlur={e => saveClientProfile({ upcoming_tenders_details: e.target.value.trim() || null })}
+                      rows={3} style={{ ...INP, height: 'auto', resize: 'vertical', lineHeight: 1.5 }}
+                      placeholder="Projects / tenders, timelines, scope, expected pump demand…"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label style={LBL}>PC pump suppliers (competitor footprint)</label>
+                <textarea
+                  value={pcpSuppliers} disabled={disabled}
+                  onChange={e => setPcpSuppliers(e.target.value)}
+                  onBlur={e => saveClientProfile({ pcp_suppliers: e.target.value.trim() || null })}
+                  rows={3} style={{ ...INP, height: 'auto', resize: 'vertical', lineHeight: 1.5 }}
+                  placeholder="Which PC pump makes they currently buy / prefer, and roughly what share…"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      </FormSection>
+      </div>{/* end clienttype */}
 
       {/* ══ STEP: Visit Summary ══ */}
       <div style={{ display: curKey === 'summary' ? 'flex' : 'none', flexDirection: 'column', gap: 12 }}>

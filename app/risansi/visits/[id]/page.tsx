@@ -48,10 +48,17 @@ export default async function VisitReportPage({
     legal_name: string; code: string; industry: string | null;
     is_sugar: boolean; city: string | null; state: string | null;
     tier: string | null; rep_name: string; rep_email: string | null;
+    // Client profile edited on the Client Type page (persists to the client)
+    client_type: string | null; focus_industries: string[] | null;
+    avg_annual_pump_req: number | null; ongoing_tenders: number | null;
+    upcoming_tenders: boolean | null; upcoming_tenders_details: string | null;
+    pcp_suppliers: string | null;
   }>(
     `SELECT v.*,
        c.legal_name, c.code, c.industry, c.is_sugar,
        c.city, c.state, c.tier,
+       c.client_type, c.focus_industries, c.avg_annual_pump_req,
+       c.ongoing_tenders, c.upcoming_tenders, c.upcoming_tenders_details, c.pcp_suppliers,
        COALESCE(r.name, '—') AS rep_name,
        r.email AS rep_email
      FROM visits v
@@ -177,6 +184,15 @@ export default async function VisitReportPage({
     }, null),
   ]);
 
+  // Industry taxonomy for the Client Type page's "focus industries" multiselect
+  // (reuses the same values as the client Industry field).
+  const industryOptions = await q(async () => {
+    const { rows } = await risansiPool.query<{ industry: string }>(
+      `SELECT DISTINCT industry FROM clients WHERE industry IS NOT NULL AND industry <> '' AND deleted_at IS NULL ORDER BY industry`,
+    );
+    return rows.map(r => r.industry);
+  }, []);
+
   // Drives the whole form's read-only state. A submitted report stays
   // correctable for VISIT_EDIT_WINDOW_DAYS so a rep can fix a mistake; after
   // that it locks for good. VisitReportForm disables every field, the auto-save
@@ -290,6 +306,7 @@ export default async function VisitReportPage({
             closedDate={closedDate}
             daysLeft={daysLeft}
             isSugar={isSugar}
+            industries={industryOptions}
           />
 
         </div>
