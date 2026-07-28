@@ -17,7 +17,7 @@ export async function GET(request: Request) {
               -- The ONE resolved owner, matching resolveClientPrimaryRep exactly:
               -- the tour's designated (active) owner, else its FIRST active rep by
               -- (assigned_at, rep_id) — never null just because a tour has more
-              -- than one rep. The old `HAVING count(*) = 1` wrongly returned null
+              -- than one rep. The old HAVING count(*) = 1 wrongly returned null
               -- for any multi-rep tour, so the New Opportunity form falsely said
               -- "not on a tour" and blocked creation for those clients.
               (SELECT u.name FROM users u WHERE u.id = COALESCE(
