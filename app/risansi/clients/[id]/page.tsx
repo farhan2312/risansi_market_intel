@@ -7,7 +7,7 @@ import { Topbar, Tag, StatusDot } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
 import { fyShortLabel, formatRev, formatLastVisit } from '@/lib/risansi-utils';
 import { hasRole, getCurrentUser, canViewClient } from '@/lib/risansi-auth';
-import { ClientActionButtons, PipelineOppBtn, EditDrawerTrigger } from '@/components/risansi/ClientActionButtons';
+import { ClientActionButtons, PipelineOppBtn } from '@/components/risansi/ClientActionButtons';
 import { AddContactButton } from '@/components/risansi/AddContactButton';
 import { EditContactButton } from '@/components/risansi/EditContactButton';
 import { BackButton } from '@/components/risansi/BackButton';
@@ -574,7 +574,8 @@ export default async function ClientProfilePage({
                 ) : (
                   <span style={{ fontSize: 12, color: 'var(--neg)' }}>Unassigned</span>
                 )}
-                {canEdit && <EditDrawerTrigger />}
+                {/* No edit affordance — reps are derived from the client's tour,
+                    not set on the client. Change the tour to change the reps. */}
               </div>
 
               {/* Manager(s) on the tour */}
