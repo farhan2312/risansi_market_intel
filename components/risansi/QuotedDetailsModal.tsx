@@ -107,7 +107,7 @@ export function QuotedDetailsModal({ opp, onSave, onCancel }: { opp: QuotedOpp; 
       setLink(data.link || ''); setFileName(data.fileName || f.name);
 
       const meta = data.meta || {};
-      const keys = ['quote_ref', 'quote_date', 'enquiry_no', 'enquiry_date', 'qtr', 'product_type', 'market', 'ril_rep', 'offer_value_inr', 'offer_value_usd'];
+      const keys = ['quote_ref', 'quote_date', 'enquiry_no', 'enquiry_date', 'qtr', 'product_type', 'market', 'offer_value_inr', 'offer_value_usd'];
       let filled = 0;
       for (const k of keys) if (fillEmpty(k, meta[k])) filled++;
 
@@ -154,7 +154,6 @@ export function QuotedDetailsModal({ opp, onSave, onCancel }: { opp: QuotedOpp; 
               <Field label="Market"><select name="market" defaultValue={opp.market ?? ''} style={INP}><option value="">—</option>{['DOMESTIC', 'EXPORT'].map(m => <option key={m} value={m}>{m}</option>)}</select></Field>
               <Field label="Client Status"><select name="client_status_at_quote" defaultValue={opp.client_status_at_quote ?? ''} style={INP}><option value="">—</option>{['NEW', 'EXISTING'].map(m => <option key={m} value={m}>{m}</option>)}</select></Field>
               <Field label="Product Category"><select name="product_type" defaultValue={opp.product_type ?? 'PCP'} style={INP}>{PRODUCT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></Field>
-              <Field label="RIL Rep"><input name="ril_rep" defaultValue={opp.ril_rep ?? ''} placeholder="e.g. NI" style={INP} /></Field>
               <Field label="Qtn. Prepared By"><input name="qtn_prepared_by" defaultValue={opp.qtn_prepared_by ?? ''} style={INP} /></Field>
               <Field label="Quarter"><select name="qtr" defaultValue={opp.qtr ?? ''} style={INP}><option value="">—</option>{['Q1', 'Q2', 'Q3', 'Q4'].map(q => <option key={q} value={q}>{q}</option>)}</select></Field>
               <Field label="Location"><input name="location" defaultValue={opp.location ?? ''} style={INP} /></Field>

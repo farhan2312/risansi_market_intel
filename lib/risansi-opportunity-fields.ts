@@ -94,7 +94,6 @@ export const OPP_FIELDS: OppFieldDef[] = [
   { name: 'enquiry_date', label: 'Enquiry Date',          kind: 'date',   step: 2, visibleFrom: 2 },
   { name: 'market',       label: 'Market',                kind: 'select', step: 2, visibleFrom: 2, requiredAt: QUOTE_REQ, options: ['DOMESTIC', 'EXPORT'] },
   { name: 'client_status_at_quote', label: 'Client Status', kind: 'select', step: 2, visibleFrom: 2, options: ['NEW', 'EXISTING'] },
-  { name: 'ril_rep',      label: 'RIL Rep',               kind: 'text',   step: 2, visibleFrom: 2, placeholder: 'e.g. NI' },
   { name: 'qtn_prepared_by', label: 'Qtn. Prepared By',   kind: 'text',   step: 2, visibleFrom: 2 },
   { name: 'qtr',          label: 'Quarter',               kind: 'select', step: 2, visibleFrom: 2, options: ['Q1', 'Q2', 'Q3', 'Q4'] },
   { name: 'location',     label: 'Location',              kind: 'text',   step: 2, visibleFrom: 2 },

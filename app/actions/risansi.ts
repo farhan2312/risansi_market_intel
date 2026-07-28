@@ -980,7 +980,7 @@ export async function saveQuotedDetails(oppId: number, formData: FormData) {
        revised_offer_date = $5, quotation_link = $6,
        offer_value_inr = $7, offer_value_usd = $8,
        revised_offer_value_inr = $9, revised_offer_value_usd = $10,
-       market = $11, ril_rep = $12, qtn_prepared_by = $13, client_status_at_quote = $14,
+       market = $11, ril_rep = COALESCE($12, ril_rep), qtn_prepared_by = $13, client_status_at_quote = $14,
        unit_project = $15, location = $16, qtr = $17, probability_code = $18,
        product_type    = COALESCE($19, product_type),
        value_cr        = COALESCE($20, value_cr),
