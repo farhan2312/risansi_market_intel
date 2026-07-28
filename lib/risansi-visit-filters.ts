@@ -53,7 +53,11 @@ export interface VisitFilterOptions { zones: string[]; tours: string[]; reps: st
 export async function getVisitFilterOptions(user: CurrentUser): Promise<VisitFilterOptions> {
   const admin = hasRole(user.role, 'admin');
   const uid   = Number(user.id) || 0;
-  const scope = admin ? '' : ` AND tr.id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = ${uid})`;
+  // Tours the user may see: their own tours PLUS the tours of any client granted
+  // to them by special access (tourless granted clients contribute nothing).
+  const ownTours = `(SELECT tour_id FROM tour_assignments WHERE rep_id = ${uid}
+                     UNION SELECT tour_id FROM clients WHERE id IN (SELECT client_id FROM client_rep_access WHERE rep_id = ${uid}))`;
+  const scope = admin ? '' : ` AND tr.id IN ${ownTours}`;
   const q = async (sql: string) => { try { return (await risansiPool.query<{ v: string }>(sql)).rows.map(r => r.v); } catch { return []; } };
 
   const [zones, tours, reps] = await Promise.all([
@@ -65,7 +69,7 @@ export async function getVisitFilterOptions(user: CurrentUser): Promise<VisitFil
              JOIN tour_assignments ta ON ta.rep_id = u.id
             WHERE u.is_active = TRUE
               AND u.role IN ('rep','manager')
-              AND ta.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = ${uid})
+              AND ta.tour_id IN ${ownTours}
             ORDER BY u.name`),
   ]);
   return { zones, tours, reps };

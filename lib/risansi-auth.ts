@@ -64,18 +64,21 @@ function intOrNull(v: unknown): number | null {
 
 /**
  * SQL predicate restricting a `clients` query (aliased `alias`) to what the
- * user may SEE. Visibility is purely TOUR-based:
+ * user may SEE. Visibility is TOUR-based, plus any direct SPECIAL-ACCESS grant:
  *   rep / manager → clients whose tour is one of the tours they're on
- *                   (tour_assignments). Rep and manager are identical here;
- *                   the difference is only which tours each is assigned to.
+ *                   (tour_assignments), OR clients an admin has granted them
+ *                   direct access to (client_rep_access). Rep and manager are
+ *                   identical here; the difference is only which tours each is on.
  *   admin / +     → everything (returns null = no restriction)
- * A user with no linked id, or a client with no tour, is not visible ('FALSE').
+ * A user with no linked id, or a client neither on their tour nor granted, is
+ * not visible ('FALSE').
  */
 export function clientVisibilitySql(user: CurrentUser, alias = 'c'): string | null {
   if (hasRole(user.role, 'admin')) return null;
   const uid = intOrNull(user.id);
   if (uid == null) return 'FALSE';
-  return `${alias}.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = ${uid})`;
+  return `(${alias}.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = ${uid})
+    OR ${alias}.id IN (SELECT client_id FROM client_rep_access WHERE rep_id = ${uid}))`;
 }
 
 /**
@@ -83,31 +86,47 @@ export function clientVisibilitySql(user: CurrentUser, alias = 'c'): string | nu
  * user may SEE, keyed on that table's CLIENT-ID column (e.g. 'v.client_id',
  * 'o.client_id'). A record is visible when its client's tour is one of the
  * user's tours — i.e. fully tour-based, so a rep sees every visit/opportunity
- * for clients on their tours, not only the ones they personally own.
- *   rep / manager → records whose client is on one of their tours
+ * for clients on their tours, not only the ones they personally own — plus any
+ * client an admin has granted them direct SPECIAL access to.
+ *   rep / manager → records whose client is on one of their tours, or granted
  *   admin / +     → everything (null = no restriction)
  */
 export function clientScopeSql(user: CurrentUser, clientIdCol: string): string | null {
   if (hasRole(user.role, 'admin')) return null;
   const uid = intOrNull(user.id);
   if (uid == null) return 'FALSE';
-  return `${clientIdCol} IN (
+  return `(${clientIdCol} IN (
     SELECT id FROM clients
      WHERE tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = ${uid})
-  )`;
+  ) OR ${clientIdCol} IN (SELECT client_id FROM client_rep_access WHERE rep_id = ${uid}))`;
 }
 
-/** Can this user SEE a single client? Tour-based (mirrors clientVisibilitySql). */
+/** Can this user SEE a single client? Tour-based, or a direct special-access
+ *  grant (mirrors clientVisibilitySql). */
 export async function canViewClient(user: CurrentUser, clientId: number): Promise<boolean> {
   if (hasRole(user.role, 'admin')) return true;
   const uid = intOrNull(user.id);
   if (uid == null) return false;
   const { rows } = await risansiPool.query<{ ok: boolean }>(
-    `SELECT EXISTS (
+    `SELECT (EXISTS (
        SELECT 1 FROM clients c
        WHERE c.id = $1 AND c.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = $2)
-     ) AS ok`,
+     ) OR EXISTS (
+       SELECT 1 FROM client_rep_access WHERE client_id = $1 AND rep_id = $2
+     )) AS ok`,
     [clientId, uid],
+  );
+  return rows[0]?.ok ?? false;
+}
+
+/** Does this rep hold a direct special-access grant for this client? Used to
+ *  own work (opportunities) they file for a granted client, independent of tour. */
+export async function hasSpecialClientAccess(repId: number, clientId: number): Promise<boolean> {
+  const rid = intOrNull(repId), cid = intOrNull(clientId);
+  if (rid == null || cid == null) return false;
+  const { rows } = await risansiPool.query<{ ok: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM client_rep_access WHERE client_id = $1 AND rep_id = $2) AS ok`,
+    [cid, rid],
   );
   return rows[0]?.ok ?? false;
 }
@@ -141,6 +160,7 @@ export function complaintVisibilitySql(user: CurrentUser, alias = 'cm'): string 
     ${alias}.assigned_to_user = ${uid}
     OR lower(${alias}.created_by) = '${email}'
     OR ${alias}.client_id IN (SELECT id FROM clients WHERE tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = ${uid}))
+    OR ${alias}.client_id IN (SELECT client_id FROM client_rep_access WHERE rep_id = ${uid})
   )`;
 }
 

@@ -3,6 +3,7 @@ import { Topbar, Tag, StatusDot, MultiSelectFilter, ActiveFilterBar, SortableTH 
 import { AddClientButton } from '@/components/risansi/ClientFormDrawer';
 import { EditClientLink } from '@/components/risansi/EditClientLink';
 import { EndClientToggle } from '@/components/risansi/EndClientToggle';
+import { SpecialAccessButton, type GrantableRep } from '@/components/risansi/SpecialAccessButton';
 import risansiPool from '@/lib/db-risansi';
 import { formatLastVisitShort } from '@/lib/risansi-utils';
 import { getCurrentUser, clientVisibilitySql } from '@/lib/risansi-auth';
@@ -118,12 +119,13 @@ export default async function ClientMasterPage({
     tour_zone:       string | null;
     rep_name:        string | null;
     is_end_client:   boolean;
+    special_count:   number;
   }
 
   interface RepOption { rep_name: string; client_count: number; }
 
   // ── All queries in parallel ────────────────────────────────────
-  const [clients, total, industries, zones, tiers, repOptions] = await Promise.all([
+  const [clients, total, industries, zones, tiers, repOptions, grantableReps] = await Promise.all([
 
     (async (): Promise<ClientRow[]> => {
       try {
@@ -136,7 +138,8 @@ export default async function ClientMasterPage({
              c.zone,
              tr.name AS tour_name,
              tr.zone AS tour_zone,
-             COALESCE(${OWNERS_SUBQUERY}, '—') AS rep_name
+             COALESCE(${OWNERS_SUBQUERY}, '—') AS rep_name,
+             (SELECT COUNT(*)::int FROM client_rep_access cra WHERE cra.client_id = c.id) AS special_count
            FROM clients c
            LEFT JOIN tour_routes tr ON tr.id = c.tour_id
            WHERE ${whereClause}
@@ -210,6 +213,19 @@ export default async function ClientMasterPage({
            GROUP BY u.name
            ORDER BY client_count DESC
            LIMIT 30`,
+        );
+        return rows;
+      } catch { return []; }
+    })(),
+
+    // Grantable reps for the Special Access picker: every active rep/manager.
+    (async (): Promise<GrantableRep[]> => {
+      try {
+        const { rows } = await risansiPool.query<GrantableRep>(
+          `SELECT id::text AS id, name, role, zone
+             FROM users
+            WHERE is_active = TRUE AND role IN ('rep', 'manager')
+            ORDER BY name ASC`,
         );
         return rows;
       } catch { return []; }
@@ -345,6 +361,7 @@ export default async function ClientMasterPage({
                     <SortableTH col="status"     label="Status"       currentSort={curSort} currentDir={curDir} />
                     <SortableTH col="tier"       label="Tier"         currentSort={curSort} currentDir={curDir} />
                     <th style={{ padding: '9px 12px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>End Client</th>
+                    <th style={{ padding: '9px 12px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>Access</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -412,6 +429,17 @@ export default async function ClientMasterPage({
                         {/* End Client */}
                         <td style={{ ...TD, textAlign: 'center' }}>
                           <EndClientToggle clientId={c.id} value={c.is_end_client} />
+                        </td>
+
+                        {/* Special access */}
+                        <td style={{ ...TD, textAlign: 'center' }}>
+                          <SpecialAccessButton
+                            clientId={Number(c.id)}
+                            clientName={c.legal_name}
+                            clientCode={c.code}
+                            reps={grantableReps}
+                            initialCount={c.special_count}
+                          />
                         </td>
 
                       </tr>

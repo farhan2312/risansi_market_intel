@@ -354,11 +354,12 @@ function NewOppForm({ client, lockClient, onBack, onSuccess }: {
         )}
       </div>
 
-      {/* Owner (derived from the tour) or an inline tour picker when it has none. */}
+      {/* Owner — the tour's rep, or the viewer themselves when they hold a
+          direct special-access grant. An inline tour picker shows when neither. */}
       {ownerName ? (
         <div style={{ fontSize: 11, color: 'var(--fg-3)', marginBottom: 14 }}>
           Owner: <span style={{ color: 'var(--fg-2)', fontWeight: 500 }}>{ownerName}</span>
-          <span style={{ fontStyle: 'italic' }}> · from this client&apos;s tour</span>
+          <span style={{ fontStyle: 'italic' }}> · responsible rep</span>
         </div>
       ) : (
         <div style={{

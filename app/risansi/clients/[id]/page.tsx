@@ -166,16 +166,27 @@ export default async function ClientProfilePage({
   const client = await q<Client | null>(async () => {
     const { rows } = await risansiPool.query<Client>(
       `SELECT c.*,
-              -- The ONE rep who owns new work here (tour's designated owner,
-              -- else its sole rep, else null). Distinct from rep_name below,
-              -- which lists the whole roster for display.
-              (SELECT u.name FROM users u WHERE u.id = COALESCE(
-                 (SELECT tr.primary_rep_id FROM tour_routes tr
-                   WHERE tr.id = c.tour_id AND tr.primary_rep_id IS NOT NULL),
-                 (SELECT max(ta.rep_id) FROM tour_assignments ta
-                   WHERE ta.tour_id = c.tour_id AND ta.role = 'rep'
-                   HAVING count(*) = 1)
-               ) AND u.is_active) AS owner_name,
+              -- The ONE rep who owns new work here. A viewer with a direct
+              -- special-access grant owns what they file (the server assigns
+              -- them), so resolve to them. Otherwise the tour's designated
+              -- owner, else its FIRST active rep by (assigned_at, rep_id) —
+              -- matching resolveClientPrimaryRep. (The old HAVING count(*) = 1
+              -- returned null for any multi-rep tour, falsely blocking creation.)
+              -- Distinct from rep_name below, which lists the whole roster.
+              CASE
+                WHEN $2::int IS NOT NULL
+                 AND EXISTS (SELECT 1 FROM client_rep_access a WHERE a.client_id = c.id AND a.rep_id = $2::int)
+                THEN (SELECT u.name FROM users u WHERE u.id = $2::int)
+                ELSE (SELECT u.name FROM users u WHERE u.id = COALESCE(
+                   (SELECT pu.id FROM tour_routes tr
+                      JOIN users pu ON pu.id = tr.primary_rep_id AND pu.is_active
+                     WHERE tr.id = c.tour_id),
+                   (SELECT ta.rep_id FROM tour_assignments ta
+                      JOIN users ru ON ru.id = ta.rep_id AND ru.is_active
+                     WHERE ta.tour_id = c.tour_id AND ta.role = 'rep'
+                     ORDER BY ta.assigned_at, ta.rep_id LIMIT 1)
+                 ))
+              END AS owner_name,
               COALESCE(
                 (SELECT string_agg(u.name, ', ' ORDER BY u.name)
                    FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
@@ -196,7 +207,7 @@ export default async function ClientProfilePage({
        FROM clients c
        LEFT JOIN tour_routes tr ON tr.id = c.tour_id
        WHERE ${whereClause} AND c.deleted_at IS NULL`,
-      [id],
+      [id, session?.user?.repId ?? null],
     );
     return rows[0] ?? null;
   }, null);

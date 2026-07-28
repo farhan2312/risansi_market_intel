@@ -19,13 +19,15 @@ const TASK_ORDER = `
   LIMIT 50`;
 
 // Rep / manager view: tasks assigned to / created by / on a visit owned by the
-// user, or whose client is on one of the user's tours. $1 = users.id, $2 = email.
+// user, whose client is on one of the user's tours, or whose client has been
+// granted to them via special access. $1 = users.id, $2 = email.
 export const REP_TASKS_QUERY = `SELECT ${TASK_SELECT}
   WHERE (
     t.assigned_to_rep = $1
     OR t.created_by = $2
     OR EXISTS (SELECT 1 FROM visits vs WHERE vs.id = t.visit_id AND vs.rep_id = $1)
     OR EXISTS (SELECT 1 FROM clients cl WHERE cl.id = t.client_id AND cl.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = $1))
+    OR EXISTS (SELECT 1 FROM client_rep_access cra WHERE cra.client_id = t.client_id AND cra.rep_id = $1)
   )${TASK_ORDER}`;
 
 // Admin / sysadmin view: every task.

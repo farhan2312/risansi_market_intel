@@ -128,8 +128,10 @@ export default async function PipelinePage({
   const scopedRepId = !showAll && repFilts.length === 0 ? currentRepId : null;
   if (scopedRepId != null) {
     // Tour-based attribution: a rep owns the opportunities of the clients on
-    // their tour(s), not a per-opportunity rep_id. (Matches the revenue scope.)
-    conds.push(`c.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = $${idx})`);
+    // their tour(s), not a per-opportunity rep_id — PLUS any client granted to
+    // them by special access. (Matches the revenue scope and ownerVis below.)
+    conds.push(`(c.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = $${idx})
+                 OR c.id IN (SELECT client_id FROM client_rep_access WHERE rep_id = $${idx}))`);
     vals.push(scopedRepId); idx++;
   }
 
@@ -187,7 +189,8 @@ export default async function PipelinePage({
   const revVals: (string | number | string[])[] = [];
   let rIdx = 1;
   if (scopedRepId != null) {
-    revConds.push(`c.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = $${rIdx})`);
+    revConds.push(`(c.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = $${rIdx})
+                    OR c.id IN (SELECT client_id FROM client_rep_access WHERE rep_id = $${rIdx}))`);
     revVals.push(scopedRepId); rIdx++;
   }
   if (repFilts.length > 0) {
@@ -238,7 +241,7 @@ export default async function PipelinePage({
   // limited to 200 rows, which is why that column reads far below the truth.
   const wonC: string[] = ["o.stage = 'Won'"];
   const wonV: (string | number | string[])[] = [];
-  if (scopedRepId != null)  { wonC.push(`o.client_id IN (SELECT c2.id FROM clients c2 JOIN tour_assignments ta ON ta.tour_id = c2.tour_id WHERE ta.rep_id = $${wonV.length + 1})`); wonV.push(scopedRepId); }
+  if (scopedRepId != null)  { wonC.push(`(o.client_id IN (SELECT c2.id FROM clients c2 JOIN tour_assignments ta ON ta.tour_id = c2.tour_id WHERE ta.rep_id = $${wonV.length + 1}) OR o.client_id IN (SELECT client_id FROM client_rep_access WHERE rep_id = $${wonV.length + 1}))`); wonV.push(scopedRepId); }
   if (prodTypeFilts.length) { wonC.push(`o.product_type = ANY($${wonV.length + 1}::text[])`);                                wonV.push(prodTypeFilts); }
   if (repFilts.length)      { wonC.push(`o.client_id IN (SELECT c2.id FROM clients c2 JOIN tour_assignments ta ON ta.tour_id = c2.tour_id JOIN users u2 ON u2.id = ta.rep_id WHERE u2.name = ANY($${wonV.length + 1}::text[]))`); wonV.push(repFilts); }
   if (indFilts.length)      { wonC.push(`o.client_id IN (SELECT id FROM clients WHERE industry = ANY($${wonV.length + 1}::text[]))`); wonV.push(indFilts); }

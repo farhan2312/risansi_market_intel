@@ -4,7 +4,7 @@ import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { getManagerAssignableReps, hasRole, getCurrentUser, canViewClient } from '@/lib/risansi-auth';
+import { getManagerAssignableReps, hasRole, getCurrentUser, canViewClient, hasSpecialClientAccess } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 import { recordAudit } from '@/lib/audit';
 import { normalizeClientName, uniqueLeadCode } from '@/lib/risansi-lead-code';
@@ -607,6 +607,10 @@ export async function setEndClient(clientIds: number[], value: boolean): Promise
 export async function planVisit(clientId: string, formData: FormData) {
   const user = await requireSession();
 
+  // Only for a client you can see (own tour or a special-access grant).
+  const viewer = await getCurrentUser();
+  if (!(await canViewClient(viewer, Number(clientId)))) throw new Error('You do not have access to this client.');
+
   const visitDate = (formData.get('visit_date') as string | null)?.trim();
   const purpose   = (formData.get('purpose')    as string | null)?.trim() ?? 'Routine';
 
@@ -634,6 +638,10 @@ export async function planVisit(clientId: string, formData: FormData) {
 export async function createOpportunity(clientId: string, formData: FormData) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) redirect('/api/auth/signin');
+
+  // Only for a client you can see (own tour or a special-access grant).
+  const viewer = await getCurrentUser();
+  if (!(await canViewClient(viewer, Number(clientId)))) throw new Error('You do not have access to this client.');
 
   const product  = (formData.get('product')  as string | null)?.trim() ?? 'New Opportunity';
   const stage    = (formData.get('stage')    as string | null)?.trim() ?? 'Suspect';
@@ -762,6 +770,14 @@ export async function createPipelineOpportunity(formData: FormData) {
 
   if (!clientId) throw new Error('Client is required.');
 
+  // You can only file an opportunity for a client you can see — a client on one
+  // of your tours or one you've been granted direct special access to. Admin/
+  // sysadmin always pass. getCurrentUser maps the session's repId to id.
+  const viewer = await getCurrentUser();
+  if (!(await canViewClient(viewer, Number(clientId)))) {
+    throw new Error('You do not have access to this client.');
+  }
+
   // Field readers. `s` → trimmed string or null; `nRaw` → any finite number;
   // `nInr`/`crOf` turn a rupee input into Crores (₹1,00,00,000 = 1 Cr).
   const s    = (k: string) => { const v = (formData.get(k) as string | null)?.trim(); return v ? v : null; };
@@ -822,7 +838,12 @@ export async function createPipelineOpportunity(formData: FormData) {
   }
 
   const derived = await resolveClientPrimaryRep(clientId, creatorRepId);
-  const primaryRepId = user.role === 'rep' ? creatorRepId : derived.repId;
+  // A special-access grantee (rep OR manager) owns what they file for a granted
+  // client, exactly like a rep filing their own — independent of the tour. This
+  // stops a manager grantee's opportunity from being handed to a stranger's tour
+  // rep (or blocked outright on a tour-less client).
+  const special = creatorRepId != null && await hasSpecialClientAccess(creatorRepId, Number(clientId));
+  const primaryRepId = (user.role === 'rep' || special) ? creatorRepId : derived.repId;
 
   if (!primaryRepId) {
     throw new Error(
@@ -1276,6 +1297,10 @@ export async function assignVisit(formData: FormData) {
   // A missing client must surface as an error — never report a fake success.
   if (!clientId) throw new Error('Please select a client before scheduling a visit.');
 
+  // Only schedule for a client you can see (own tour or a special-access grant).
+  const viewer = await getCurrentUser();
+  if (!(await canViewClient(viewer, Number(clientId)))) throw new Error('You do not have access to this client.');
+
   const date = visitDate ?? new Date().toISOString().slice(0, 10);
 
   // Rep assignment rule (enforced server-side regardless of the form):
@@ -1337,6 +1362,10 @@ export async function checkInVisit(data: {
 
   const { clientId, repId, visitDate, purpose, gpsLat, gpsLng } = data;
   if (!clientId) return null;
+
+  // Only check into a client you can see (own tour or a special-access grant).
+  const viewer = await getCurrentUser();
+  if (!(await canViewClient(viewer, Number(clientId)))) return null;
 
   // Insert core visit row
   let visitId: string | null = null;
