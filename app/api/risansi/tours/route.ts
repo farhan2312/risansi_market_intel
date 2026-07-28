@@ -13,9 +13,15 @@ export async function GET() {
     }
 
     const { rows } = await risansiPool.query(
-      `SELECT id::text AS id, name, zone
-         FROM tour_routes
-        ORDER BY name ASC`,
+      `SELECT tr.id::text AS id, tr.name, tr.zone,
+              COALESCE((SELECT string_agg(u.name, ', ' ORDER BY u.name)
+                        FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
+                       WHERE ta.tour_id = tr.id AND ta.role = 'rep'), '')     AS reps,
+              COALESCE((SELECT string_agg(u.name, ', ' ORDER BY u.name)
+                        FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
+                       WHERE ta.tour_id = tr.id AND ta.role = 'manager'), '') AS managers
+         FROM tour_routes tr
+        ORDER BY tr.name ASC`,
     );
     return NextResponse.json(rows);
   } catch (err) {

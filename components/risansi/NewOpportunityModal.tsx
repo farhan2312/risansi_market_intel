@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { createPipelineOpportunity } from '@/app/actions/risansi';
+import { TourAssignPicker } from './TourAssignPicker';
 import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
 import {
   CREATE_STAGES, STAGE_HINT,
@@ -174,9 +175,14 @@ function NewOppForm({ client, lockClient, onBack, onSuccess }: {
   const [items, setItems]     = useState<ItemRow[]>([]);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [competitors, setCompetitors] = useState<string[]>([]);
+  // Owner follows the client's tour. If the client has none yet, it can be
+  // mapped inline below; assignedOwner captures the resolved owner so the form
+  // unblocks without a reload.
+  const [assignedOwner, setAssignedOwner] = useState<string | null>(null);
 
   const hasStep2 = stageHasQuoteStep(stage);
-  const noOwner  = !client.owner_name;
+  const ownerName = assignedOwner ?? client.owner_name;
+  const noOwner  = !ownerName;
   const step1Fields = fieldsForStep(stage, 1);
   const step2Fields = fieldsForStep(stage, 2);
 
@@ -345,20 +351,28 @@ function NewOppForm({ client, lockClient, onBack, onSuccess }: {
         )}
       </div>
 
-      {/* Owner (derived from the tour) or a block if the tour can't name one. */}
-      {client.owner_name ? (
+      {/* Owner (derived from the tour) or an inline tour picker when it has none. */}
+      {ownerName ? (
         <div style={{ fontSize: 11, color: 'var(--fg-3)', marginBottom: 14 }}>
-          Owner: <span style={{ color: 'var(--fg-2)', fontWeight: 500 }}>{client.owner_name}</span>
+          Owner: <span style={{ color: 'var(--fg-2)', fontWeight: 500 }}>{ownerName}</span>
           <span style={{ fontStyle: 'italic' }}> · from this client&apos;s tour</span>
         </div>
       ) : (
         <div style={{
-          fontSize: 11.5, lineHeight: 1.5, color: 'var(--warn-strong, #92400E)',
-          background: 'var(--warn-soft, #FEF3C7)', border: '1px solid var(--warn, #F59E0B)',
-          borderRadius: 6, padding: '8px 10px', marginBottom: 14,
+          lineHeight: 1.5, background: 'var(--warn-soft, #FEF3C7)',
+          border: '1px solid var(--warn, #F59E0B)', borderRadius: 6, padding: '10px 12px', marginBottom: 14,
         }}>
-          This client isn&apos;t on a tour with an assigned rep, so a new opportunity would have
-          no owner. Put the client on a tour first, then come back.
+          <div style={{ fontSize: 11.5, color: 'var(--warn-strong, #92400E)', marginBottom: 8 }}>
+            This client isn&apos;t on a tour yet, so an opportunity would have no owner. Map it to a
+            tour below — ownership then follows the tour&apos;s reps.
+          </div>
+          <TourAssignPicker
+            clientId={String(client.id)}
+            onAssigned={(owner, tour) => {
+              setAssignedOwner(owner);
+              setError(owner ? '' : `Mapped to "${tour}", but that tour has no reps assigned — pick a tour that has reps, or add reps to it first.`);
+            }}
+          />
         </div>
       )}
 

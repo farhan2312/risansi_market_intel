@@ -724,6 +724,30 @@ export async function updateClientTier(clientId: string, formData: FormData) {
   revalidatePath('/risansi/clients');
 }
 
+// Map a client to a tour inline (from the New Opportunity form, when the client
+// isn't on one yet). Ownership then derives from the tour — returns the resolved
+// owner so the caller can clear the "no tour" block without a full reload.
+export async function assignClientTour(clientId: number, tourId: number): Promise<{ ownerName: string | null; tourName: string | null }> {
+  const user = await getCurrentUser();
+  if (!(await canViewClient(user, clientId))) throw new Error('You do not have access to this client.');
+  const { rows: tr } = await risansiPool.query<{ name: string }>('SELECT name FROM tour_routes WHERE id = $1', [tourId]);
+  if (!tr[0]) throw new Error('Tour not found.');
+  await risansiPool.query(
+    'UPDATE clients SET tour_id = $1, updated_by = $2, updated_at = NOW() WHERE id = $3',
+    [tourId, user.email ?? null, clientId],
+  );
+  const resolved = await resolveClientPrimaryRep(clientId, null);
+  let ownerName: string | null = null;
+  if (resolved.repId != null) {
+    const { rows } = await risansiPool.query<{ name: string }>('SELECT name FROM users WHERE id = $1', [resolved.repId]);
+    ownerName = rows[0]?.name ?? null;
+  }
+  await logActivity('client', String(clientId), `mapped to tour "${tr[0].name}"${ownerName ? ` · owner ${ownerName}` : ''}`, user.email!);
+  revalidatePath(`/risansi/clients/${clientId}`);
+  revalidatePath('/risansi/pipeline');
+  return { ownerName, tourName: tr[0].name };
+}
+
 // ── Pipeline: create opportunity (client_id from form) ─────────
 
 export async function createPipelineOpportunity(formData: FormData) {
