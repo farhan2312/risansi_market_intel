@@ -14,17 +14,21 @@ export async function GET(request: Request) {
 
     const res = await risansiPool.query(
       `SELECT c.id, c.code, c.legal_name, c.city, c.state, c.industry,
-              -- The ONE resolved owner, matching resolveClientPrimaryRep: the
-              -- tour's designated owner, else its sole rep, else null. This
-              -- replaced a string_agg of the whole tour roster (managers
-              -- included), which named people the server would never assign.
+              -- The ONE resolved owner, matching resolveClientPrimaryRep exactly:
+              -- the tour's designated (active) owner, else its FIRST active rep by
+              -- (assigned_at, rep_id) — never null just because a tour has more
+              -- than one rep. The old `HAVING count(*) = 1` wrongly returned null
+              -- for any multi-rep tour, so the New Opportunity form falsely said
+              -- "not on a tour" and blocked creation for those clients.
               (SELECT u.name FROM users u WHERE u.id = COALESCE(
-                 (SELECT tr.primary_rep_id FROM tour_routes tr
-                   WHERE tr.id = c.tour_id AND tr.primary_rep_id IS NOT NULL),
-                 (SELECT max(ta.rep_id) FROM tour_assignments ta
+                 (SELECT pu.id FROM tour_routes tr
+                    JOIN users pu ON pu.id = tr.primary_rep_id AND pu.is_active
+                   WHERE tr.id = c.tour_id),
+                 (SELECT ta.rep_id FROM tour_assignments ta
+                    JOIN users ru ON ru.id = ta.rep_id AND ru.is_active
                    WHERE ta.tour_id = c.tour_id AND ta.role = 'rep'
-                   HAVING count(*) = 1)
-               ) AND u.is_active)                                             AS owner_name
+                   ORDER BY ta.assigned_at, ta.rep_id LIMIT 1)
+               ))                                                             AS owner_name
        FROM clients c
        WHERE c.deleted_at IS NULL
          -- Match the Client 360 list, which shows every non-deleted client of
