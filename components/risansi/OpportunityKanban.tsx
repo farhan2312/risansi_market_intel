@@ -15,6 +15,7 @@ export interface KanbanOpp extends EditableOpp {
   tour_name:  string | null;
   can_edit?:  boolean;
   created_at?: string | null;   // ISO; cards sort newest-first within a column
+  updated_at?: string | null;   // bumped on every edit; drives the server re-sync below
 }
 
 const STAGES = ['Suspect', 'Prospect', 'Quoted', 'Negotiating', 'On Hold', 'Won', 'Lost', 'Dropped'] as const;
@@ -98,8 +99,11 @@ export function OpportunityKanban({ initialOpps, stageTotals }: {
   const allShown = shownStages.length === STAGES.length;
 
   // Sync from server when the underlying data actually changes (e.g. after create/edit).
-  // Signature keyed on id+stage so optimistic drag state isn't clobbered by unrelated renders.
-  const signature = initialOpps.map(o => `${o.id}:${o.stage}`).join('|');
+  // Keyed on id+stage+updated_at: updated_at is bumped by every edit (updateOpportunity /
+  // saveQuotedDetails / stage change), so a field edit that leaves the stage untouched
+  // still re-syncs — without that, saved edits didn't show on reopen. Unrelated renders
+  // (same updated_at) still don't clobber optimistic drag state.
+  const signature = initialOpps.map(o => `${o.id}:${o.stage}:${o.updated_at ?? ''}`).join('|');
   useEffect(() => {
     setOpps(initialOpps);
     // eslint-disable-next-line react-hooks/exhaustive-deps
