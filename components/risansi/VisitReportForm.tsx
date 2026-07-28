@@ -8,6 +8,7 @@ import { LogComplaintButton } from './LogComplaintButton';
 import { updateTaskStatus, deleteTask } from '@/app/actions/risansi-tasks';
 import { AddActionForm } from './AddActionForm';
 import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
+import { MonthYearSelect } from './MonthYearSelect';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { FormErrorBoundary } from './FormErrorBoundary';
@@ -1563,7 +1564,7 @@ function ExpansionOpportunityForm({ visitId, clientId, clientName, repId, isClos
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
               <label style={LBL}>Expected Close</label>
-              <Input placeholder="e.g. Jun 2026 or Q3 FY27" value={etaText} onChange={e => setEtaText(e.target.value)} disabled={isClosed} />
+              <MonthYearSelect value={etaText} onChange={setEtaText} disabled={isClosed} />
             </div>
             <div>
               <label style={LBL}>Quote Reference</label>

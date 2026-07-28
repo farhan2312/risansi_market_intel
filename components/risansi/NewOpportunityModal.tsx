@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { createPipelineOpportunity } from '@/app/actions/risansi';
 import { TourAssignPicker } from './TourAssignPicker';
+import { MonthYearSelect } from './MonthYearSelect';
 import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
 import {
   CREATE_STAGES, STAGE_HINT,
@@ -312,6 +313,8 @@ function NewOppForm({ client, lockClient, onBack, onSuccess }: {
         style={{ ...INP, height: 'auto', resize: 'vertical', lineHeight: 1.5, ...reqStyle }} />;
     } else if (f.kind === 'date') {
       control = <input name={f.name} type="date" required={htmlRequired} style={{ ...INP, ...reqStyle }} />;
+    } else if (f.kind === 'month') {
+      control = <MonthYearSelect name={f.name} />;
     } else if (f.kind === 'inr' || f.kind === 'number' || f.kind === 'usd') {
       control = <input name={f.name} type="number" step={f.kind === 'inr' ? '1' : '0.01'} min="0"
         inputMode="numeric" required={htmlRequired} placeholder={f.placeholder} style={{ ...INP, ...reqStyle }} />;

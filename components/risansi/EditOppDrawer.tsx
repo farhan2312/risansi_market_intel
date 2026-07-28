@@ -4,6 +4,7 @@ import { useState, useEffect, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { updateOpportunity, deleteOpportunity } from '@/app/actions/risansi';
 import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
+import { MonthYearSelect } from './MonthYearSelect';
 
 export interface EditableOpp {
   id: string;
@@ -277,7 +278,7 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
               </div>
               <div>
                 <label style={LABEL_STYLE}>Expected Close</label>
-                <input name="eta_text" defaultValue={opp.eta_text ?? ''} placeholder="Jun 2026 or Q3 FY27" style={INPUT_STYLE} />
+                <MonthYearSelect name="eta_text" value={opp.eta_text} />
               </div>
             </div>
 

@@ -36,7 +36,7 @@ export const STAGE_HINT: Record<CreateStage, string> = {
   Lost:        'Deal lost — record who to and why. Feeds win-rate and competitor analysis.',
 };
 
-export type FieldKind = 'text' | 'inr' | 'usd' | 'number' | 'date' | 'select' | 'prob_code' | 'textarea';
+export type FieldKind = 'text' | 'inr' | 'usd' | 'number' | 'date' | 'month' | 'select' | 'prob_code' | 'textarea';
 
 export interface OppFieldDef {
   name: string;                 // form field name === db column (or *_inr rupee input)
@@ -72,7 +72,7 @@ export const OPP_FIELDS: OppFieldDef[] = [
   { name: 'product_type', label: 'Product Type',          kind: 'select', step: 1, visibleFrom: 0, requiredAt: ALL_LINEAR, options: ['PCP', 'MMP', 'Spares', 'Service', 'Other'] },
   { name: 'value_inr',    label: 'Value (₹)',             kind: 'inr',    step: 1, visibleFrom: 0, requiredAt: FROM_PROSPECT, placeholder: 'e.g. 2500000', help: 'Full amount in rupees' },
   { name: 'probability_code', label: 'Probability',       kind: 'prob_code', step: 1, visibleFrom: 0, help: 'RIL likelihood code' },
-  { name: 'eta_text',     label: 'Expected Close',        kind: 'text',   step: 1, visibleFrom: 1, placeholder: 'e.g. Jun 2026 or Q3 FY27' },
+  { name: 'eta_text',     label: 'Expected Close',        kind: 'month',  step: 1, visibleFrom: 1 },
 
   // Outcome fields — deal-level, not quote-level, so they stay on step 1.
   { name: 'final_value_inr', label: 'Final Value (₹)',    kind: 'inr',    step: 1, visibleFrom: 4, onlyStages: ['Won'], requiredAt: ['Won'], placeholder: 'e.g. 2500000', help: 'Full booked amount in rupees' },
