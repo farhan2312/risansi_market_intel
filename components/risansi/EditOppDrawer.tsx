@@ -7,6 +7,11 @@ import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probabili
 import { MonthYearSelect } from './MonthYearSelect';
 import { SalesOrderList } from './SalesOrderList';
 import { SalesOrderManager } from './SalesOrderManager';
+import { QuotationPdfManager } from './QuotationPdfManager';
+
+// A quotation exists from Quoted onward — the PDF can be viewed/replaced/deleted
+// at any of these stages (even a locked Won/Lost, if the viewer may edit).
+const QUOTED_PLUS = ['Quoted', 'Negotiating', 'On Hold', 'Won', 'Lost', 'Dropped'];
 
 export interface EditableOpp {
   id: string;
@@ -34,6 +39,7 @@ export interface EditableOpp {
   final_value_cr?: number | string | null;
   lost_to_competitor?: string | null;
   lost_reason?: string | null;
+  quotation_link?: string | null;
 }
 
 interface QItem { id: number; pump_model: string | null; pump_qty: number | null; pump_speed: string | null; geared_motor_detail: string | null; motor_price: number | null; gearbox_vbelt_price: number | null; offer_value_inr: number | null; offer_value_usd: number | null; detailed_specifications: string | null; }
@@ -217,6 +223,9 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
             <ReadOnlyRow label="Quote Ref" value={opp.quote_ref ?? '—'} />
             <ReadOnlyRow label="Owner" value={opp.rep_name ?? '—'} />
             <ReadOnlyRow label="Notes" value={opp.notes ?? '—'} />
+            {(QUOTED_PLUS.includes(opp.stage) || opp.quotation_link) && (
+              <QuotationPdfManager oppId={Number(opp.id)} initialLink={opp.quotation_link ?? null} canEdit={canEdit} />
+            )}
             <QuotedItemsSection items={quoteItems} meta={quoteMeta} />
           </div>
         ) : (
@@ -306,6 +315,11 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
                 <input name="quote_date" type="date" defaultValue={opp.quote_date ?? ''} style={INPUT_STYLE} />
               </div>
             </div>
+
+            {/* Quotation PDF — manage it at any stage from Quoted onward. */}
+            {(QUOTED_PLUS.includes(opp.stage) || opp.quotation_link) && (
+              <QuotationPdfManager oppId={Number(opp.id)} initialLink={opp.quotation_link ?? null} canEdit />
+            )}
 
             {/* Won fields */}
             {stage === 'Won' && (

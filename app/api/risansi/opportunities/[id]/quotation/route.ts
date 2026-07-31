@@ -79,6 +79,29 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   return NextResponse.json({ ok: true, fileName, size: file.size, link, meta: parsed.meta, items: parsed.items });
 }
 
+// DELETE: remove the stored quotation PDF (edit-gated). Clears quotation_link
+// so the opportunity no longer points at a missing file.
+export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const oppId = parseInt(id, 10);
+  if (!Number.isInteger(oppId)) return NextResponse.json({ error: 'Bad id' }, { status: 400 });
+
+  const user = await getCurrentUser();
+  if (!user.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const opp = (await risansiPool.query<{ rep_id: number | null }>(
+    'SELECT rep_id FROM opportunities WHERE id = $1', [oppId],
+  )).rows[0];
+  if (!opp) return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 });
+  if (!(await canEditOpp(user, opp.rep_id))) {
+    return NextResponse.json({ error: 'You do not have permission to edit this opportunity.' }, { status: 403 });
+  }
+
+  await risansiPool.query('DELETE FROM opportunity_quotation_files WHERE opportunity_id = $1', [oppId]);
+  await risansiPool.query('UPDATE opportunities SET quotation_link = NULL WHERE id = $1', [oppId]);
+  return NextResponse.json({ ok: true });
+}
+
 // GET: stream the stored quotation PDF (inline) to viewers of the client.
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
