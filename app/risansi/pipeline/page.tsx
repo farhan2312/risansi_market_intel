@@ -503,7 +503,19 @@ export default async function PipelinePage({
               {winRatePct > 0 && ` · win rate FY ${winRatePct}%`}
             </div>
           </div>
-          <NewOpportunityButton />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <a
+              href="/api/risansi/opportunities/export"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px',
+                fontSize: 13, fontWeight: 600, background: 'var(--bg-elev)', color: 'var(--fg-2)',
+                border: '1px solid var(--line-strong)', borderRadius: 6, textDecoration: 'none',
+              }}
+            >
+              ⇩ Export Excel
+            </a>
+            <NewOpportunityButton />
+          </div>
         </div>
 
         {/* Rep scope toggle (rep role only) */}
