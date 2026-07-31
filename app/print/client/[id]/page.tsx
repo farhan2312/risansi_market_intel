@@ -93,7 +93,9 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
     q(async () => (await risansiPool.query<Record<string, unknown>>(
       // Every stage — Won opportunities are the client's order in hand and must
       // appear in the report. Order-in-hand first, then live pipeline, then closed.
-      `SELECT product, stage, value_cr::text AS value_cr, probability, expected_close_date
+      `SELECT product, stage, value_cr::text AS value_cr, probability, expected_close_date,
+              final_value_cr::text AS final_value_cr,
+              (SELECT COALESCE(SUM(so.so_value_cr), 0) FROM opportunity_sales_orders so WHERE so.opportunity_id = opportunities.id)::float8 AS so_sum_cr
          FROM opportunities WHERE client_id = $1
          ORDER BY CASE WHEN stage='Won' THEN 0 WHEN stage IN ('Lost','Dropped') THEN 2 ELSE 1 END,
                   value_cr DESC NULLS LAST`, [client.id],
@@ -146,7 +148,11 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
   const openOpps      = allOpps.filter(o => !['Won', 'Lost', 'Dropped'].includes(String(o.stage)));
   const wonOpps       = allOpps.filter(o => String(o.stage) === 'Won');
   const pipelineTotal = openOpps.reduce((s, o) => s + Number(o.value_cr), 0);
-  const wonTotal      = wonOpps.reduce((s, o) => s + Number(o.value_cr), 0);
+  // Order in Hand = Won value not yet turned into a Sales Order: Σ max(final − Σ SO, 0).
+  const wonTotal      = wonOpps.reduce((s, o) => {
+    const finalCr = o.final_value_cr != null ? Number(o.final_value_cr) : Number(o.value_cr);
+    return s + Math.max(0, finalCr - Number(o.so_sum_cr ?? 0));
+  }, 0);
   const lastVisit = formatLastVisit(client.last_visit_date as string | null);
   const c = client as Record<string, unknown>;
   const str = (k: string) => (c[k] == null || c[k] === '' ? null : String(c[k]));

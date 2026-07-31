@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { createPipelineOpportunity } from '@/app/actions/risansi';
 import { TourAssignPicker } from './TourAssignPicker';
 import { MonthYearSelect } from './MonthYearSelect';
+import { SalesOrderList } from './SalesOrderList';
+import { parseSalesOrdersJson } from '@/lib/risansi-sales-orders';
 import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
 import {
   CREATE_STAGES, STAGE_HINT,
@@ -218,6 +220,14 @@ function NewOppForm({ client, lockClient, onBack, onSuccess }: {
       setError(`Fill the required field${missing.length > 1 ? 's' : ''} first: ${labelsFor(missing).join(', ')}.`);
       return;
     }
+    // Sales Orders live on step 1, so validate them here before leaving for step 2.
+    if (stage === 'Won') {
+      const so = parseSalesOrdersJson(fd.get('sales_orders_json'));
+      if (so.error || so.rows.length === 0) {
+        setError(so.error || 'Add at least one Sales Order (SO Number, Date and Value) to mark this Won.');
+        return;
+      }
+    }
     setStep(2);
   };
 
@@ -241,6 +251,16 @@ function NewOppForm({ client, lockClient, onBack, onSuccess }: {
         setError(`Fill the required field${missing.length > 1 ? 's' : ''}: ${labelsFor(missing).join(', ')}.`);
         setLoading(false);
         return;
+      }
+      // Won needs a Sales Order (on step 1) — bounce back there, not step 2.
+      if (stage === 'Won') {
+        const so = parseSalesOrdersJson(fd.get('sales_orders_json'));
+        if (so.error || so.rows.length === 0) {
+          setStep(1);
+          setError(so.error || 'Add at least one Sales Order (SO Number, Date and Value) to mark this Won.');
+          setLoading(false);
+          return;
+        }
       }
 
       // Catch the common upload rejection (oversize) BEFORE creating, so the
@@ -420,6 +440,13 @@ function NewOppForm({ client, lockClient, onBack, onSuccess }: {
         </div>
 
         <div style={gridStyle}>{step1Fields.map(renderField)}</div>
+
+        {/* Sales Orders — required when creating a deal straight into Won. */}
+        {stage === 'Won' && (
+          <div style={{ marginTop: 14 }}>
+            <SalesOrderList />
+          </div>
+        )}
       </div>
 
       {/* ── Step 2 · the quotation ── */}

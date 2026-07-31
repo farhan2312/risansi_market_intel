@@ -3,6 +3,7 @@
 import { useState, useEffect, type CSSProperties } from 'react';
 import { updateOpportunity } from '@/app/actions/risansi';
 import type { EditableOpp } from './EditOppDrawer';
+import { SalesOrderList } from './SalesOrderList';
 
 interface Competitor { id: string; name: string; }
 
@@ -17,6 +18,10 @@ export function OppCompletionModal({ opp, stage, onSave, onCancel }: {
   const [competitors, setCompetitors] = useState<Competitor[]>([]);
   const isWon  = stage === 'Won';
   const isLost = stage === 'Lost';
+  // Final value is controlled so the SO list can show live coverage (Open/Closed).
+  const inrOf = (cr: number | string | null | undefined) =>
+    cr != null && cr !== '' ? String(Math.round(parseFloat(String(cr)) * 10_000_000)) : '';
+  const [finalInr, setFinalInr] = useState(inrOf(opp.final_value_cr) || inrOf(opp.value_cr));
 
   useEffect(() => {
     if (!isLost) return;
@@ -26,10 +31,6 @@ export function OppCompletionModal({ opp, stage, onSave, onCancel }: {
       .catch(() => setCompetitors([]));
   }, [isLost]);
 
-  // value_cr is in Crores; the form takes the full rupee amount (1 Cr = ₹10,000,000).
-  const inr = (cr: number | string | null | undefined) =>
-    cr != null && cr !== '' ? String(Math.round(parseFloat(String(cr)) * 10_000_000)) : '';
-
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true); setError('');
@@ -38,7 +39,7 @@ export function OppCompletionModal({ opp, stage, onSave, onCancel }: {
       fd.set('stage', stage);
       fd.set('product', opp.product);
       fd.set('product_type', opp.product_type ?? 'PCP');
-      fd.set('value_inr', inr(opp.value_cr) || '0');
+      fd.set('value_inr', inrOf(opp.value_cr) || '0');
       // Carry the opp's existing owner through so the Won update doesn't blank it.
       fd.set('rep_id', opp.rep_id ? String(opp.rep_id) : '');
       await updateOpportunity(Number(opp.id), fd);
@@ -88,7 +89,7 @@ export function OppCompletionModal({ opp, stage, onSave, onCancel }: {
                     <label style={LABEL}>Final Value (₹) *</label>
                     <input
                       name="final_value_inr" type="number" step="1" min="0" inputMode="numeric" required
-                      defaultValue={inr(opp.final_value_cr) || inr(opp.value_cr)}
+                      value={finalInr} onChange={e => setFinalInr(e.target.value)}
                       placeholder="e.g. 2500000" style={INPUT}
                     />
                     <p style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 4 }}>Full amount in rupees</p>
@@ -101,12 +102,16 @@ export function OppCompletionModal({ opp, stage, onSave, onCancel }: {
                     </p>
                   </div>
                 </div>
+
+                {/* Sales Orders — at least one required to mark Won. */}
+                <SalesOrderList finalValueInr={parseFloat(finalInr) || null} />
+
                 <div>
                   <label style={LABEL}>Notes (optional)</label>
                   <textarea name="notes" rows={3} defaultValue={opp.notes ?? ''} placeholder="Any notes about the win…" style={{ ...INPUT, resize: 'vertical' }} />
                 </div>
                 <div style={{ padding: '10px 14px', background: '#D1FAE5', borderRadius: 7, fontSize: 12, color: '#065F46' }}>
-                  ✓ Once saved, this opportunity will be locked and cannot be edited further.
+                  ✓ Once saved, the deal is locked — but you can still record more Sales Orders against it until they cover the final value (Won · Open → Won · Closed).
                 </div>
               </div>
             )}

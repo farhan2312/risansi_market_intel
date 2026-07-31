@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { updateOpportunity, deleteOpportunity } from '@/app/actions/risansi';
 import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
 import { MonthYearSelect } from './MonthYearSelect';
+import { SalesOrderList } from './SalesOrderList';
+import { SalesOrderManager } from './SalesOrderManager';
 
 export interface EditableOpp {
   id: string;
@@ -59,6 +61,13 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
   // o.*). Seeding from the async quote-meta fetch instead would let an early
   // save write a blank over the stored value before the fetch resolved.
   const [unitProject, setUnitProject] = useState(opp.unit_project ?? '');
+  // Final value is controlled so the Sales-Order coverage preview stays live
+  // while the user types it during a Won transition. (value_cr/final_value_cr
+  // are Crores; the field takes rupees.)
+  const [finalInr, setFinalInr] = useState(() => {
+    const cr = opp.final_value_cr != null && opp.final_value_cr !== '' ? opp.final_value_cr : opp.value_cr;
+    return cr != null && cr !== '' ? String(Math.round(parseFloat(String(cr)) * 10_000_000)) : '';
+  });
 
   // Load the quoted items + quote-level attributes for the read view.
   useEffect(() => {
@@ -160,7 +169,7 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
             color: opp.stage === 'Won' ? '#065F46' : '#9B1C1C',
             display: 'flex', alignItems: 'center', gap: 8,
           }}>
-            🔒 This opportunity is {opp.stage} and locked. No further changes can be made.
+            🔒 This opportunity is {opp.stage} and locked.{opp.stage === 'Won' ? ' The deal is frozen, but you can still record Sales Orders below until they cover the final value.' : ' No further changes can be made.'}
           </div>
         )}
 
@@ -187,6 +196,11 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
               <>
                 <ReadOnlyRow label="Final Value" value={inrLabel(opp.final_value_cr) || '—'} />
                 <ReadOnlyRow label="PO Number" value={opp.po_number ?? '—'} />
+                <SalesOrderManager
+                  oppId={Number(opp.id)}
+                  finalValueCr={opp.final_value_cr != null ? Number(opp.final_value_cr) : null}
+                  canEdit={canEdit}
+                />
               </>
             )}
             {opp.stage === 'Lost' && (
@@ -298,7 +312,7 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
                   <label style={LABEL_STYLE}>Final Value (₹)</label>
-                  <input name="final_value_inr" type="number" step="1" inputMode="numeric" defaultValue={inrFrom(opp.final_value_cr)} style={INPUT_STYLE} />
+                  <input name="final_value_inr" type="number" step="1" inputMode="numeric" value={finalInr} onChange={e => setFinalInr(e.target.value)} style={INPUT_STYLE} />
                   <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3 }}>Full amount in rupees</div>
                 </div>
                 <div>
@@ -306,6 +320,11 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
                   <input name="po_number" defaultValue={opp.po_number ?? ''} style={INPUT_STYLE} />
                 </div>
               </div>
+            )}
+
+            {/* Sales Orders — required to move this opportunity to Won. */}
+            {stage === 'Won' && opp.stage !== 'Won' && (
+              <SalesOrderList finalValueInr={parseFloat(finalInr) || null} />
             )}
 
             {/* Lost fields */}

@@ -277,7 +277,10 @@ export default async function ExecutiveReviewPage({ searchParams }: {
     //    the month). Leads Visited counts leads visited within the period.
     q(async () => (await risansiPool.query<{ total_business: string; revenue: string; leads: string; visited: string; active_clients: string }>(
       `SELECT
-         (SELECT COALESCE(round(sum(o.offer_value_inr)),0) FROM opportunities o JOIN clients c ON c.id=o.client_id
+         (SELECT COALESCE(round(sum(GREATEST(
+                   COALESCE(o.final_value_cr*10000000, o.value_cr*10000000, 0)
+                   - COALESCE((SELECT sum(so.so_value_cr)*10000000 FROM opportunity_sales_orders so WHERE so.opportunity_id=o.id), 0)
+                 , 0))),0) FROM opportunities o JOIN clients c ON c.id=o.client_id
            WHERE ${tourF} AND o.stage='Won' AND ${inMonths('COALESCE(o.quote_date, o.created_at::date)')})::text AS total_business,
          (SELECT COALESCE(round(sum(r.total_value)),0) FROM client_revenue_monthly r JOIN clients c ON c.id = r.client_id
            WHERE ${tourF} AND ${inMonths('r.month')})::text AS revenue,
@@ -334,7 +337,7 @@ export default async function ExecutiveReviewPage({ searchParams }: {
     offerStatus:     { headers: ['Offer status', 'Total Offer Value (INR)'], rows: offerRows, moneyFrom: 0 },
     attendance:      { headers: ['Month', 'Visit days', 'Clients'], rows: attRows, moneyFrom: 99 },
     kpis: [
-      { label: 'Order in Hand', value: fmtMoney(n(kpiRow?.total_business)), sub: 'won opportunities · not yet invoiced', accent: true },
+      { label: 'Order in Hand', value: fmtMoney(n(kpiRow?.total_business)), sub: 'won · not yet in a sales order', accent: true },
       { label: 'Revenue', value: fmtMoney(n(kpiRow?.revenue)), sub: 'invoiced · selected month(s)' },
       { label: 'Active Clients', value: (kpiRow ? Number(kpiRow.active_clients) : 0).toLocaleString('en-IN') },
       { label: 'Total Leads', value: (kpiRow ? Number(kpiRow.leads) : 0).toLocaleString('en-IN'), sub: 'prospective on tour' },

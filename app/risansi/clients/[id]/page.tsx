@@ -144,6 +144,7 @@ interface Opportunity {
   id: string; product: string; stage: string;
   value_cr: string; probability: number | null;
   expected_close_date: string | null;
+  final_value_cr?: string | null; so_sum_cr?: number;
 }
 
 interface ActivityEntry {
@@ -189,6 +190,11 @@ export default async function ClientProfilePage({
                    (SELECT ta.rep_id FROM tour_assignments ta
                       JOIN users ru ON ru.id = ta.rep_id AND ru.is_active
                      WHERE ta.tour_id = c.tour_id AND ta.role = 'rep'
+                     ORDER BY ta.assigned_at, ta.rep_id LIMIT 1),
+                   -- Manager-only tour (one-person team): the manager owns the work.
+                   (SELECT ta.rep_id FROM tour_assignments ta
+                      JOIN users ru ON ru.id = ta.rep_id AND ru.is_active
+                     WHERE ta.tour_id = c.tour_id AND ta.role = 'manager'
                      ORDER BY ta.assigned_at, ta.rep_id LIMIT 1)
                  ))
               END AS owner_name,
@@ -351,8 +357,11 @@ export default async function ClientProfilePage({
         id: string; product: string; stage: string;
         value_cr: string; probability: number | null;
         expected_close_date: string | null;
+        final_value_cr: string | null; so_sum_cr: number;
       }>(
-        `SELECT id, product, stage, value_cr::text, probability, expected_close_date
+        `SELECT id, product, stage, value_cr::text, probability, expected_close_date,
+                final_value_cr::text,
+                (SELECT COALESCE(SUM(so.so_value_cr), 0) FROM opportunity_sales_orders so WHERE so.opportunity_id = opportunities.id)::float8 AS so_sum_cr
          FROM opportunities
          WHERE client_id = $1
          ORDER BY CASE
@@ -531,7 +540,14 @@ export default async function ClientProfilePage({
   const openOpps = allOpps.filter(o => !CLOSED_STAGES.includes(o.stage));
   const wonOpps  = allOpps.filter(o => o.stage === 'Won');
   const pipelineTotal = openOpps.reduce((s, o) => s + Number(o.value_cr), 0); // value_cr already in Cr
-  const wonTotal      = wonOpps.reduce((s, o) => s + Number(o.value_cr), 0);
+  // "Order in Hand" = Won value not yet turned into a Sales Order:
+  // Σ max(final − Σ SO, 0). Legacy Wons with no SOs count their full value.
+  const oihPerWon = (o: Opportunity) => {
+    const finalCr = o.final_value_cr != null ? Number(o.final_value_cr) : Number(o.value_cr);
+    return Math.max(0, finalCr - Number(o.so_sum_cr ?? 0));
+  };
+  const wonTotal    = wonOpps.reduce((s, o) => s + oihPerWon(o), 0);   // order in hand
+  const openWonCount = wonOpps.filter(o => oihPerWon(o) > 0).length;   // Wons still to be fulfilled
 
   // ── Outcome color ─────────────────────────────────────────
 
@@ -666,7 +682,13 @@ export default async function ClientProfilePage({
         <MobileTabs>
 
         {/* ── KPI cards ────────────────────────────────────────── */}
-        <div data-tabgroup="overview" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 16 }}>
+        <div data-tabgroup="overview" style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 16 }}>
+          <MiniKpi label="Order in Hand"
+            value={wonTotal > 0 ? formatRev(wonTotal * 1e7) : '—'}
+            valueColor={wonTotal > 0 ? 'var(--accent)' : undefined}
+            sub={wonTotal > 0
+              ? `${openWonCount} won order${openWonCount === 1 ? '' : 's'} to fulfil`
+              : 'Nothing pending — all won orders fulfilled'} />
           <MiniKpi label="Lifetime Revenue"
             value={formatRev(lifetimeTotal * 100_000)}
             sub={`${client.since_year ?? '—'} – present · ${lifetimeOrders} orders`} />
@@ -1298,9 +1320,12 @@ export default async function ClientProfilePage({
                         <div style={{ fontWeight: 500, fontSize: 12, marginBottom: 4 }}>{o.product}</div>
                         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                           <Tag kind={tagKind} dot>{o.stage}</Tag>
-                          {isWon && (
-                            <span style={{ fontSize: 11, color: 'var(--pos)', fontWeight: 500 }}>Order in hand</span>
-                          )}
+                          {isWon && (() => {
+                            const inHand = oihPerWon(o);
+                            return inHand > 0
+                              ? <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600 }}>Open · {formatRev(inHand * 1e7)} in hand</span>
+                              : <span style={{ fontSize: 11, color: 'var(--pos)', fontWeight: 600 }}>Closed · fully in SO</span>;
+                          })()}
                           {!isWon && o.probability != null && (
                             <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>{o.probability}%</span>
                           )}

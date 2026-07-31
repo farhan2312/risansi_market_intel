@@ -9,6 +9,7 @@ import risansiPool from '@/lib/db-risansi';
 import { recordAudit } from '@/lib/audit';
 import { normalizeClientName, uniqueLeadCode } from '@/lib/risansi-lead-code';
 import { resolveClientPrimaryRep } from '@/lib/risansi-client-rep';
+import { parseSalesOrdersJson, inrToCr, type SoInput, type SalesOrder } from '@/lib/risansi-sales-orders';
 import { requiredFieldNames, labelsFor, CREATE_STAGES, STAGE_PROB, type CreateStage } from '@/lib/risansi-opportunity-fields';
 import { pctForProbabilityCode } from '@/lib/risansi-probability-codes';
 import { normaliseIndustry } from '@/lib/risansi-utils';
@@ -645,6 +646,9 @@ export async function createOpportunity(clientId: string, formData: FormData) {
 
   const product  = (formData.get('product')  as string | null)?.trim() ?? 'New Opportunity';
   const stage    = (formData.get('stage')    as string | null)?.trim() ?? 'Suspect';
+  // Won requires a Sales Order — only the pipeline create/complete flow captures
+  // it, so this legacy quick-create can't mint a Won directly.
+  if (stage === 'Won') throw new Error('Mark an opportunity Won from the Opportunities pipeline (a Sales Order is required).');
   const valueCr  = parseFloat((formData.get('estimated_value') as string | null) ?? '') || null;
   const prob     = formData.get('probability') ? parseInt(formData.get('probability') as string) : null;
   const eta      = (formData.get('eta_text') as string | null)?.trim() ||
@@ -813,6 +817,17 @@ export async function createPipelineOpportunity(formData: FormData) {
     throw new Error(`Fill the required field${missing.length > 1 ? 's' : ''} for the ${stage} stage: ${labelsFor(missing).join(', ')}.`);
   }
 
+  // A Won created directly needs at least one Sales Order (number + date + value).
+  let soRows: SoInput[] = [];
+  if (stage === 'Won') {
+    const parsed = parseSalesOrdersJson(formData.get('sales_orders_json'));
+    if (parsed.error) throw new Error(parsed.error);
+    if (parsed.rows.length === 0) {
+      throw new Error('Add at least one Sales Order (SO Number, Date and Value) to create a Won opportunity.');
+    }
+    soRows = parsed.rows;
+  }
+
   const value = crOf('value_inr') ?? (offerInr ? offerInr / 10_000_000 : null);
   // Probability is entered as the RIL code (1–4); the stored numeric % is
   // derived from the code so the weighted forecast + % displays keep working.
@@ -877,13 +892,35 @@ export async function createPipelineOpportunity(formData: FormData) {
 
   const existing = await opportunityColumns();
   const cols = Object.keys(candidates).filter(c => existing.size === 0 || existing.has(c));
-  const { rows: oppRows } = await risansiPool.query<{ id: string }>(
-    `INSERT INTO opportunities (${cols.join(', ')}, created_at, updated_at)
+  const insertSql = `INSERT INTO opportunities (${cols.join(', ')}, created_at, updated_at)
        VALUES (${cols.map((_, i) => `$${i + 1}`).join(', ')}, NOW(), NOW())
-     RETURNING id`,
-    cols.map(c => candidates[c]),
-  );
-  const newOppId = oppRows[0]?.id ?? null;
+     RETURNING id`;
+  const insertVals = cols.map(c => candidates[c]);
+
+  let newOppId: string | null = null;
+  if (soRows.length) {
+    // Won-on-create: the opportunity row and its Sales Orders commit together,
+    // so a Won can never be created without its required SOs.
+    const client = await risansiPool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows } = await client.query<{ id: string }>(insertSql, insertVals);
+      newOppId = rows[0]?.id ?? null;
+      if (newOppId) {
+        for (const r of soRows) {
+          await client.query(
+            `INSERT INTO opportunity_sales_orders (opportunity_id, so_number, so_date, so_value_cr, created_by)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [Number(newOppId), r.so_number, r.so_date, r.so_value_cr, user.email ?? null],
+          );
+        }
+      }
+      await client.query('COMMIT');
+    } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
+  } else {
+    const { rows: oppRows } = await risansiPool.query<{ id: string }>(insertSql, insertVals);
+    newOppId = oppRows[0]?.id ?? null;
+  }
 
   // Quoted line items, if any were entered.
   if (newOppId && items.length) {
@@ -922,38 +959,6 @@ export async function createPipelineOpportunity(formData: FormData) {
   // The new id lets the caller attach a quotation PDF to the record it just
   // created — the whole reason the create form has a second step.
   return { id: newOppId };
-}
-
-// ── Pipeline: update stage ─────────────────────────────────────
-
-export async function updateOpportunityStage(id: string, formData: FormData) {
-  const user = await requireSession();
-
-  const stage = (formData.get('stage') as string | null)?.trim() ?? 'Suspect';
-
-  // Ownership — assigned rep, their tour manager, or admin/sysadmin only.
-  const { rows: oppRows } = await risansiPool.query<{ rep_id: number | null; stage: string }>(
-    'SELECT rep_id, stage FROM opportunities WHERE id = $1', [id],
-  );
-  if (!oppRows[0]) throw new Error('Opportunity not found');
-  if (!(await userCanEditOpp(user, oppRows[0].rep_id))) {
-    throw new Error('You do not have permission to edit this opportunity.');
-  }
-  // Gate: Quoted is a mandatory gateway — Negotiating / Won / Lost are only
-  // reachable once a card has been Quoted, so it can never skip straight to Won/Lost.
-  if (['Negotiating', 'Won', 'Lost'].includes(stage)
-      && !['Quoted', 'Negotiating', 'Won', 'Lost'].includes(oppRows[0].stage)) {
-    throw new Error('Move this opportunity through Quoted first.');
-  }
-
-  await risansiPool.query(
-    `UPDATE opportunities SET stage = $1, updated_at = NOW() WHERE id = $2`,
-    [stage, id],
-  );
-
-  await logActivity('opportunity', id, `stage updated to ${stage}`, user.email!);
-  revalidatePath('/risansi/pipeline');
-  revalidatePath('/risansi');
 }
 
 // ── Pipeline: move to Quoted + capture the quotation details ───
@@ -1067,10 +1072,25 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
   if ((currentStage === 'Won' || currentStage === 'Lost') && newStage === currentStage) {
     throw new Error('This opportunity is locked and cannot be edited.');
   }
-  // Gate: Quoted is a mandatory gateway (see updateOpportunityStage).
+  // Gate: Quoted is a mandatory gateway. A deal that's been Quoted can be put
+  // On Hold and still advance to Won/Lost, so On Hold counts as "past Quoted".
   if (['Negotiating', 'Won', 'Lost'].includes(newStage ?? '')
-      && !['Quoted', 'Negotiating', 'Won', 'Lost'].includes(currentStage ?? '')) {
+      && !['Quoted', 'Negotiating', 'On Hold', 'Won', 'Lost'].includes(currentStage ?? '')) {
     throw new Error('Move this opportunity through Quoted first.');
+  }
+
+  // Marking Won requires at least one Sales Order (each with a number, date and
+  // value). Only enforced on the transition INTO Won — SOs are added afterwards
+  // through addSalesOrder, which bypasses the Won edit lock.
+  const isWonTransition = newStage === 'Won' && currentStage !== 'Won';
+  let soRows: SoInput[] = [];
+  if (isWonTransition) {
+    const parsed = parseSalesOrdersJson(formData.get('sales_orders_json'));
+    if (parsed.error) throw new Error(parsed.error);
+    if (parsed.rows.length === 0) {
+      throw new Error('Add at least one Sales Order (SO Number, Date and Value) to mark this opportunity Won.');
+    }
+    soRows = parsed.rows;
   }
 
   const valueInr = parseFloat((formData.get('value_inr')       as string | null) ?? '0');
@@ -1149,14 +1169,94 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
 
   const sets = cols.map((c, i) => `${c} = $${i + 1}`);
   const vals = cols.map(c => candidates[c]);
-  await risansiPool.query(
-    `UPDATE opportunities SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${cols.length + 1}`,
-    [...vals, oppId],
-  );
+  const updateSql = `UPDATE opportunities SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${cols.length + 1}`;
+  if (isWonTransition) {
+    // Atomic: the Won stage flip and its Sales Orders commit together, so a
+    // failed SO insert can never leave a Won with zero SOs (and then locked).
+    const client = await risansiPool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(updateSql, [...vals, oppId]);
+      for (const r of soRows) {
+        await client.query(
+          `INSERT INTO opportunity_sales_orders (opportunity_id, so_number, so_date, so_value_cr, created_by)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [oppId, r.so_number, r.so_date, r.so_value_cr, user.email ?? null],
+        );
+      }
+      await client.query('COMMIT');
+    } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
+  } else {
+    await risansiPool.query(updateSql, [...vals, oppId]);
+  }
 
   await logActivity('opportunity', String(oppId), `updated opportunity · ${candidates.stage}`, user.email!);
   revalidatePath('/risansi/pipeline');
   revalidatePath('/risansi');
+}
+
+// ── Sales Orders (against a Won opportunity) ───────────────────
+// SOs fulfil a Won opp over time. They deliberately bypass the Won "edit lock":
+// the deal itself is frozen once Won, but SO progress keeps moving until the SO
+// values cover the final value (Won · Open → Won · Closed).
+
+async function insertSalesOrders(oppId: number, rows: SoInput[], email: string | null): Promise<void> {
+  for (const r of rows) {
+    await risansiPool.query(
+      `INSERT INTO opportunity_sales_orders (opportunity_id, so_number, so_date, so_value_cr, created_by)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [oppId, r.so_number, r.so_date, r.so_value_cr, email],
+    );
+  }
+}
+
+export async function listSalesOrders(oppId: number): Promise<SalesOrder[]> {
+  const { rows } = await risansiPool.query<SalesOrder>(
+    `SELECT id, opportunity_id, so_number, so_date::text AS so_date,
+            so_value_cr::float8 AS so_value_cr, created_by
+       FROM opportunity_sales_orders WHERE opportunity_id = $1 ORDER BY so_date, id`,
+    [oppId],
+  );
+  return rows;
+}
+
+export async function addSalesOrder(oppId: number, formData: FormData): Promise<SalesOrder[]> {
+  const user = await requireSession();
+  const { rows: cur } = await risansiPool.query<{ stage: string; rep_id: number | null }>(
+    'SELECT stage, rep_id FROM opportunities WHERE id = $1', [oppId],
+  );
+  if (!cur[0]) throw new Error('Opportunity not found.');
+  if (!(await userCanEditOpp(user, cur[0].rep_id))) throw new Error('You do not have permission to edit this opportunity.');
+  if (cur[0].stage !== 'Won') throw new Error('Sales Orders can only be recorded against a Won opportunity.');
+
+  const num  = (formData.get('so_number') as string | null)?.trim() ?? '';
+  const date = (formData.get('so_date')   as string | null)?.trim() ?? '';
+  const inr  = parseFloat(((formData.get('so_value_inr') as string | null) ?? '').replace(/[^0-9.\-]/g, ''));
+  if (!num || !date || !Number.isFinite(inr) || inr <= 0) {
+    throw new Error('An SO Number, SO Date and SO Value greater than zero are all required.');
+  }
+  await insertSalesOrders(oppId, [{ so_number: num, so_date: date, so_value_cr: inrToCr(inr) }], user.email ?? null);
+  await logActivity('opportunity', String(oppId), `added sales order ${num}`, user.email!);
+  revalidatePath('/risansi/pipeline');
+  revalidatePath('/risansi');
+  return listSalesOrders(oppId);
+}
+
+export async function deleteSalesOrder(soId: number): Promise<SalesOrder[]> {
+  const user = await requireSession();
+  const { rows } = await risansiPool.query<{ opportunity_id: number; rep_id: number | null; so_number: string }>(
+    `SELECT so.opportunity_id, o.rep_id, so.so_number
+       FROM opportunity_sales_orders so JOIN opportunities o ON o.id = so.opportunity_id
+      WHERE so.id = $1`,
+    [soId],
+  );
+  if (!rows[0]) throw new Error('Sales order not found.');
+  if (!(await userCanEditOpp(user, rows[0].rep_id))) throw new Error('You do not have permission to edit this opportunity.');
+  await risansiPool.query('DELETE FROM opportunity_sales_orders WHERE id = $1', [soId]);
+  await logActivity('opportunity', String(rows[0].opportunity_id), `removed sales order ${rows[0].so_number}`, user.email!);
+  revalidatePath('/risansi/pipeline');
+  revalidatePath('/risansi');
+  return listSalesOrders(rows[0].opportunity_id);
 }
 
 // ── Pipeline: delete opportunity ───────────────────────────────
@@ -1265,24 +1365,6 @@ export async function deleteVisitPlan(visitId: string) {
 }
 
 // ── Pipeline: update value / probability ──────────────────────
-
-export async function updateOpportunityValue(id: string, formData: FormData) {
-  const user = await requireSession();
-
-  const value = parseFloat((formData.get('estimated_value') as string | null) ?? '0') || 0;
-  const prob  = parseInt((formData.get('probability')       as string | null) ?? '25', 10) || 25;
-
-  await risansiPool.query(
-    `UPDATE opportunities
-     SET value_cr = $1, probability = $2, updated_at = NOW()
-     WHERE id = $3`,
-    [value, prob, id],
-  );
-
-  await logActivity('opportunity', id, `value updated: ₹${value} Cr · ${prob}%`, user.email!);
-  revalidatePath('/risansi/pipeline');
-  revalidatePath('/risansi');
-}
 
 // ── Visits: assign visit ───────────────────────────────────────
 
@@ -1575,6 +1657,8 @@ export async function submitOpportunity(formData: FormData) {
   const product     = (formData.get('product')       as string | null)?.trim() ?? 'New Opportunity';
   const productType = (formData.get('product_type')  as string | null)?.trim() ?? 'PCP';
   const stage       = (formData.get('stage')         as string | null)?.trim() ?? 'Suspect';
+  // Won requires a Sales Order (captured only by the pipeline create/complete flow).
+  if (stage === 'Won') throw new Error('Mark an opportunity Won from the Opportunities pipeline (a Sales Order is required).');
   const valueInr    = parseFloat((formData.get('value_inr') as string | null) ?? '0') || 0;
   const valueCr     = valueInr > 0 ? valueInr / 10_000_000 : null;  // Rupees → Crores
   const probability = parseInt((formData.get('probability') as string | null) ?? '0', 10) || null;

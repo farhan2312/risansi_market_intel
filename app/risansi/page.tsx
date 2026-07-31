@@ -819,9 +819,10 @@ export default async function ExecDashboardPage() {
             spark={[]}
           />
 
-          {/* Order in Hand small metric — confirmed orders this FY */}
+          {/* Orders Booked this FY (from the orders ledger) — distinct from the
+              Opportunities "Order in Hand" (won value not yet turned into an SO). */}
           <SmallMetric
-            label="Order in Hand"
+            label="Orders Booked"
             value={orderInHand.value > 0 ? fmtCr(orderInHand.value) : '—'}
             delta={orderInHand.count > 0 ? `${orderInHand.count} orders` : `No orders in ${fyLabel}`}
             deltaPos={orderInHand.value > 0}
@@ -1021,7 +1022,7 @@ export default async function ExecDashboardPage() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', borderBottom: '1px solid var(--line)' }}>
               <OppStat label="Open Pipeline" value={pipelineTotal > 0 ? fmtCr(pipelineTotal) : '—'}
                 sub={`${openCount} open opp${openCount === 1 ? '' : 's'}`} color="var(--fg)" />
-              <OppStat label={`Order in Hand · ${fyLabel}`} value={orderInHand.value > 0 ? fmtCr(orderInHand.value) : '—'}
+              <OppStat label={`Orders Booked · ${fyLabel}`} value={orderInHand.value > 0 ? fmtCr(orderInHand.value) : '—'}
                 sub={`${orderInHand.count} order${orderInHand.count === 1 ? '' : 's'}`} color="var(--accent)" divider />
               <OppStat label="Won" value={wonRow.value > 0 ? fmtCr(wonRow.value) : '—'}
                 sub={`${wonRow.count} won`} color="var(--pos)" divider />

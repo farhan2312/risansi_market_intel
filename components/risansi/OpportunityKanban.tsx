@@ -16,6 +16,7 @@ export interface KanbanOpp extends EditableOpp {
   can_edit?:  boolean;
   created_at?: string | null;   // ISO; cards sort newest-first within a column
   updated_at?: string | null;   // bumped on every edit; drives the server re-sync below
+  so_sum_cr?: number | null;    // Σ of this opp's Sales Order values (Cr) — drives Won Open/Closed
 }
 
 const STAGES = ['Suspect', 'Prospect', 'Quoted', 'Negotiating', 'On Hold', 'Won', 'Lost', 'Dropped'] as const;
@@ -385,13 +386,27 @@ export function OpportunityKanban({ initialOpps, stageTotals }: {
                         {opp.eta_text ? ` · ${opp.eta_text}` : ''}
                       </span>
                     </div>
-                    {isWon && (
-                      <div style={{ marginTop: 6, fontSize: 10, color: 'var(--pos)' }}>
-                        🎉 Won
-                        {opp.final_value_cr ? ` · ₹${(parseFloat(String(opp.final_value_cr)) * 100).toFixed(1)}L` : ''}
-                        {opp.po_number ? ` · ${opp.po_number}` : ''}
-                      </div>
-                    )}
+                    {isWon && (() => {
+                      const finalCr = opp.final_value_cr != null ? parseFloat(String(opp.final_value_cr)) : (opp.value_cr || 0);
+                      const soSum   = opp.so_sum_cr != null ? Number(opp.so_sum_cr) : 0;
+                      const closed  = finalCr > 0 && soSum >= finalCr;
+                      return (
+                        <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <div style={{ fontSize: 10, color: 'var(--pos)' }}>
+                            🎉 Won
+                            {opp.final_value_cr ? ` · ₹${(parseFloat(String(opp.final_value_cr)) * 100).toFixed(1)}L` : ''}
+                            {opp.po_number ? ` · ${opp.po_number}` : ''}
+                          </div>
+                          <span style={{
+                            alignSelf: 'flex-start', fontSize: 9.5, fontWeight: 700, padding: '1px 7px', borderRadius: 999,
+                            background: closed ? 'rgba(6,95,70,0.14)' : 'rgba(179,114,10,0.16)',
+                            color: closed ? '#065F46' : '#9a6208',
+                          }}>
+                            {closed ? 'Closed' : `Open · ₹${(Math.max(0, finalCr - soSum) * 100).toFixed(1)}L in hand`}
+                          </span>
+                        </div>
+                      );
+                    })()}
                     {isLost && (
                       <div style={{ marginTop: 6, fontSize: 10, color: 'var(--neg)' }}>
                         ❌ Lost{opp.lost_to_competitor ? ` · ${opp.lost_to_competitor}` : ''}

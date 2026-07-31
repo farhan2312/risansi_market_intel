@@ -266,7 +266,7 @@ export default async function PipelinePage({
           ELSE FALSE
         END AS can_edit`;
 
-  const [openOpps, closedOpps, bookedYTD, annualTarget, winLossRows, lostToRows, stageOptions, productTypeOptions, repOptions, industryOptions, wonTotal, stageTotals] = await Promise.all([
+  const [openOpps, closedOpps, bookedYTD, annualTarget, winLossRows, lostToRows, stageOptions, productTypeOptions, repOptions, industryOptions, wonTotal, orderInHand, stageTotals] = await Promise.all([
 
     // 1. Open opportunities with filters + sort. Feeds the KPIs, the kanban (every
     //    open card must show), and the Active Opportunities table — so NO row cap
@@ -283,6 +283,7 @@ export default async function PipelinePage({
                o.enquiry_date::text        AS enquiry_date,
                o.revised_offer_date::text  AS revised_offer_date,
                o.expected_close_date::text AS expected_close_date,
+               (SELECT COALESCE(SUM(so.so_value_cr), 0) FROM opportunity_sales_orders so WHERE so.opportunity_id = o.id)::float8 AS so_sum_cr,
                c.legal_name AS client_name, c.code AS client_code, c.industry,
                COALESCE(r.name, '—') AS rep_name,
                (SELECT tr.name FROM tour_routes tr WHERE tr.id = c.tour_id) AS tour_name,
@@ -311,6 +312,7 @@ export default async function PipelinePage({
                o.enquiry_date::text        AS enquiry_date,
                o.revised_offer_date::text  AS revised_offer_date,
                o.expected_close_date::text AS expected_close_date,
+               (SELECT COALESCE(SUM(so.so_value_cr), 0) FROM opportunity_sales_orders so WHERE so.opportunity_id = o.id)::float8 AS so_sum_cr,
                c.legal_name AS client_name, c.code AS client_code, c.industry,
                COALESCE(r.name, '—') AS rep_name,
                (SELECT tr.name FROM tour_routes tr WHERE tr.id = c.tour_id) AS tour_name,
@@ -420,10 +422,25 @@ export default async function PipelinePage({
     //    the realised base for every forecast figure below.
     q<number>(async () => {
       const { rows } = await risansiPool.query<{ won_cr: string }>(
-        `SELECT COALESCE(SUM(o.value_cr), 0)::text AS won_cr FROM opportunities o ${wonWhere}`,
+        `SELECT COALESCE(SUM(COALESCE(o.final_value_cr, o.value_cr, 0)), 0)::text AS won_cr FROM opportunities o ${wonWhere}`,
         wonV as (string | number)[],
       );
       return Number(rows[0]?.won_cr ?? 0);
+    }, 0),
+
+    // 7b. Order in Hand (Cr) — Won value not yet turned into a Sales Order:
+    //     SUM over Won opps of max(final_value − Σ SO values, 0). Same scope as
+    //     the Won total; uncapped for an honest figure.
+    q<number>(async () => {
+      const { rows } = await risansiPool.query<{ oih_cr: string }>(
+        `SELECT COALESCE(SUM(GREATEST(
+                  COALESCE(o.final_value_cr, o.value_cr, 0)
+                  - COALESCE((SELECT SUM(so.so_value_cr) FROM opportunity_sales_orders so WHERE so.opportunity_id = o.id), 0)
+                , 0)), 0)::text AS oih_cr
+           FROM opportunities o ${wonWhere}`,
+        wonV as (string | number)[],
+      );
+      return Number(rows[0]?.oih_cr ?? 0);
     }, 0),
 
     // 8. True per-stage totals + counts for the kanban headers, uncapped. The
@@ -517,10 +534,12 @@ export default async function PipelinePage({
         {/* Forecast strip */}
         <div style={{ ...PANEL, marginBottom: 14 }}>
           <div style={{ padding: 16 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 2fr', gap: 18, alignItems: 'center' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 1fr 2fr', gap: 16, alignItems: 'center' }}>
               <ForecastBlock label="Booked (Invoiced)" value={bookedYTD} sub={`sales · ${fy.label}`} color="var(--fg-2)" />
               <ForecastBlock label="Won" value={wonTotal}
                 sub={wonCount > 0 ? `${wonCount} won opportunit${wonCount === 1 ? 'y' : 'ies'}` : 'no wins yet'} color="var(--pos)" />
+              <ForecastBlock label="Order in Hand" value={orderInHand}
+                sub="won · not yet in an SO" color="var(--accent)" />
               <ForecastBlock label="Best-case (100% pipe)" value={bestCase}
                 sub={`${fmtCr(wonTotal)} won + ${fmtCr(openTotal)} open`} color="var(--fg)" />
               <ForecastBlock label="Probability-weighted" value={probabilityWeighted}
