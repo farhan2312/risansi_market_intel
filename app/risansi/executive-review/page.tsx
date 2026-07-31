@@ -40,7 +40,7 @@ const FY_EXPR = (col: string) => `CASE WHEN EXTRACT(MONTH FROM ${col}) >= 4
   ELSE LPAD(((EXTRACT(YEAR FROM ${col})::int - 1) % 100)::text,2,'0')||'-'||LPAD((EXTRACT(YEAR FROM ${col})::int % 100)::text,2,'0') END`;
 
 export default async function ExecutiveReviewPage({ searchParams }: {
-  searchParams: Promise<{ tsm?: string; month?: string; months?: string; view?: string; ctype?: string; name?: string }>;
+  searchParams: Promise<{ tsm?: string; month?: string; months?: string; view?: string; ctype?: string; name?: string; tview?: string }>;
 }) {
   const session = await getServerSession(authOptions);
   const role = session?.user?.role ?? '';
@@ -217,6 +217,12 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   const monthNumSql = [...new Set(selMonths.map(m => Number(m.slice(5, 7))))].join(',');   // 6,7
   const inMonths    = (col: string) => `to_char(${col},'YYYY-MM') IN (${qMonths})`;
 
+  // Turnover view: 'month' compares the selected month(s) across fiscal years;
+  // 'fy' compares each whole fiscal year (Apr–Mar, to-date), so the current FY
+  // shows its turnover so far even when the selected month has no data yet.
+  const tview = sp.tview === 'fy' ? 'fy' : 'month';
+  const turnMonthFilter = tview === 'fy' ? '' : `EXTRACT(MONTH FROM r.month) IN (${monthNumSql}) AND `;
+
   const tourF = tsm ? `c.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = ${Number(tsm)})` : 'FALSE';
 
   const [clients, turnover, quotation, offers, attendance, kpiRow, monthRows] = await Promise.all([
@@ -233,10 +239,10 @@ export default async function ExecutiveReviewPage({ searchParams }: {
            COALESCE(sum(r.total_value) FILTER (WHERE r.month >= '${w5to}'),0) rev_cur,
            COALESCE(sum(r.total_value) FILTER (WHERE r.month <  '${w5from}'),0) rev_before,
            min(r.month) FILTER (WHERE r.total_value > 0) first_rev,
-           COALESCE(sum(r.total_value) FILTER (WHERE EXTRACT(MONTH FROM r.month) IN (${monthNumSql}) AND r.month >= '${d(fy)}'     AND r.month < '${d(fy + 1)}'),0) fyc,
-           COALESCE(sum(r.total_value) FILTER (WHERE EXTRACT(MONTH FROM r.month) IN (${monthNumSql}) AND r.month >= '${d(fy - 1)}' AND r.month < '${d(fy)}'),0)     f1,
-           COALESCE(sum(r.total_value) FILTER (WHERE EXTRACT(MONTH FROM r.month) IN (${monthNumSql}) AND r.month >= '${d(fy - 2)}' AND r.month < '${d(fy - 1)}'),0) f2,
-           COALESCE(sum(r.total_value) FILTER (WHERE EXTRACT(MONTH FROM r.month) IN (${monthNumSql}) AND r.month >= '${d(fy - 3)}' AND r.month < '${d(fy - 2)}'),0) f3
+           COALESCE(sum(r.total_value) FILTER (WHERE ${turnMonthFilter}r.month >= '${d(fy)}'     AND r.month < '${d(fy + 1)}'),0) fyc,
+           COALESCE(sum(r.total_value) FILTER (WHERE ${turnMonthFilter}r.month >= '${d(fy - 1)}' AND r.month < '${d(fy)}'),0)     f1,
+           COALESCE(sum(r.total_value) FILTER (WHERE ${turnMonthFilter}r.month >= '${d(fy - 2)}' AND r.month < '${d(fy - 1)}'),0) f2,
+           COALESCE(sum(r.total_value) FILTER (WHERE ${turnMonthFilter}r.month >= '${d(fy - 3)}' AND r.month < '${d(fy - 2)}'),0) f3
          FROM clients c LEFT JOIN client_revenue_monthly r ON r.client_id = c.id
         WHERE ${tourF} AND c.status='ACTIVE' AND c.deleted_at IS NULL GROUP BY c.id, c.is_end_client),
        band AS (SELECT *, CASE
@@ -357,7 +363,31 @@ export default async function ExecutiveReviewPage({ searchParams }: {
       ? selMonths.map(monLabel).join(', ')
       : `${selMonths.length} months (${monLabel(selMonths[0])} – ${monLabel(latest)})`;
   const periodLabel = `${tsmName} · ${periodText}`;
-  const note = 'Live data, scoped to the selected month(s). "Order in Hand" / "Order Received" are the value of Won opportunities dated in the period — order booked, not billed (₹0 until deals are marked Won). "Revenue" is invoiced revenue for the period. Turnover columns compare the same month(s) across fiscal years. Clients, Total Leads and Active Clients are current-portfolio counts and don\'t move with the month. "Hold-Active" and lead conversions are pending.';
+
+  // Turnover Month/FY toggle — preserves the rep + month selection.
+  const turnUrl = (tv: 'month' | 'fy') => {
+    const p = new URLSearchParams();
+    if (tsm) p.set('tsm', String(tsm));
+    if (selMonths.length) p.set('months', selMonths.join(','));
+    p.set('tview', tv);
+    return `/risansi/executive-review?${p.toString()}`;
+  };
+  const seg: React.CSSProperties = { padding: '7px 12px', fontSize: 12, fontWeight: 600, textDecoration: 'none', color: 'var(--fg-3)', background: 'var(--bg-elev)' };
+  const segOn: React.CSSProperties = { background: '#0A3D8F', color: '#fff' };
+  const turnoverToggle = (
+    <div>
+      <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Turnover</div>
+      <div style={{ display: 'flex', border: '1px solid var(--line-strong)', borderRadius: 6, overflow: 'hidden' }}>
+        <a href={turnUrl('month')} style={{ ...seg, ...(tview === 'month' ? segOn : {}) }}>By Month</a>
+        <a href={turnUrl('fy')} style={{ ...seg, ...(tview === 'fy' ? segOn : {}), borderLeft: '1px solid var(--line-strong)' }}>By FY</a>
+      </div>
+    </div>
+  );
+
+  const turnoverNote = tview === 'fy'
+    ? 'Turnover columns show each whole fiscal year (Apr–Mar) to date, so the current FY reflects its turnover so far.'
+    : 'Turnover columns compare the same month(s) across fiscal years.';
+  const note = `Live data, scoped to the selected month(s). "Order in Hand" is the value of Won opportunities not yet turned into a Sales Order; "Order Received" is the value of Won opportunities dated in the period. "Revenue" is invoiced revenue for the period. ${turnoverNote} Clients, Total Leads and Active Clients are current-portfolio counts and don't move with the month.`;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -370,6 +400,7 @@ export default async function ExecutiveReviewPage({ searchParams }: {
           selector={<div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
             <ViewSwitch />
             <ExecutiveSelector reps={reps} tsm={tsm} monthOptions={monthOptions} selectedMonths={selMonths} />
+            {turnoverToggle}
           </div>}
         />
       </div>
