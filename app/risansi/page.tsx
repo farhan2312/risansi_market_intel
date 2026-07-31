@@ -475,18 +475,26 @@ export default async function ExecDashboardPage() {
       });
     }, [...OPEN_STAGES, 'Won'].map(stage => ({ stage, count: 0, value: 0 }))),
 
-    // 7b. Order in Hand — confirmed purchase orders booked in the current FY
-    //     (the orders table; distinct from Won opportunities). Client-scoped for reps.
-    q<{ count: number; value: number }>(async () => {
-      const { rows } = await risansiPool.query<{ n: string; val: string }>(
-        `SELECT COUNT(*)::text AS n, COALESCE(SUM(o.order_value_cr),0)::text AS val
-         FROM orders o
+    // 7b. From Won opportunities: Order in Hand = won value NOT yet turned into a
+    //     Sales Order (Σ max(final − ΣSO, 0)); Order Booked = value already in
+    //     Sales Orders (Σ SO). Client-scoped for reps.
+    q<{ inHand: number; booked: number; openCount: number }>(async () => {
+      const { rows } = await risansiPool.query<{ in_hand: string; booked: string; open_count: string }>(
+        `SELECT
+           COALESCE(SUM(GREATEST(COALESCE(o.final_value_cr, o.value_cr, 0) - COALESCE(so.sosum, 0), 0)), 0)::text AS in_hand,
+           COALESCE(SUM(COALESCE(so.sosum, 0)), 0)::text AS booked,
+           COUNT(*) FILTER (WHERE GREATEST(COALESCE(o.final_value_cr, o.value_cr, 0) - COALESCE(so.sosum, 0), 0) > 0)::text AS open_count
+         FROM opportunities o
          JOIN clients c ON c.id = o.client_id
-         WHERE o.financial_year = $1 AND c.deleted_at IS NULL${cVisAnd}`,
-        [fy.code],
+         LEFT JOIN LATERAL (SELECT SUM(so_value_cr) AS sosum FROM opportunity_sales_orders WHERE opportunity_id = o.id) so ON TRUE
+         WHERE o.stage = 'Won' AND c.deleted_at IS NULL${cVisAnd}`,
       );
-      return { count: Number(rows[0]?.n ?? 0), value: Number(rows[0]?.val ?? 0) };
-    }, { count: 0, value: 0 }),
+      return {
+        inHand: Number(rows[0]?.in_hand ?? 0),
+        booked: Number(rows[0]?.booked ?? 0),
+        openCount: Number(rows[0]?.open_count ?? 0),
+      };
+    }, { inHand: 0, booked: 0, openCount: 0 }),
 
     // 8. Market share from competitor_installed_base
     q<CIBTotals>(async () => {
@@ -819,14 +827,13 @@ export default async function ExecDashboardPage() {
             spark={[]}
           />
 
-          {/* Orders Booked this FY (from the orders ledger) — distinct from the
-              Opportunities "Order in Hand" (won value not yet turned into an SO). */}
+          {/* Order in Hand — won value not yet turned into a Sales Order. */}
           <SmallMetric
-            label="Orders Booked"
-            value={orderInHand.value > 0 ? fmtCr(orderInHand.value) : '—'}
-            delta={orderInHand.count > 0 ? `${orderInHand.count} orders` : `No orders in ${fyLabel}`}
-            deltaPos={orderInHand.value > 0}
-            sub={`Confirmed · ${fyLabel}`}
+            label="Order in Hand"
+            value={orderInHand.inHand > 0 ? fmtCr(orderInHand.inHand) : '—'}
+            delta={orderInHand.openCount > 0 ? `${orderInHand.openCount} won · awaiting SO` : 'All won orders in SOs'}
+            deltaPos={orderInHand.inHand > 0}
+            sub="Won, not yet in a Sales Order"
             spark={[]}
           />
 
@@ -1018,12 +1025,14 @@ export default async function ExecDashboardPage() {
               </a>
             </div>
 
-            {/* Summary strip: open pipeline, order in hand (this FY), won — side by side */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', borderBottom: '1px solid var(--line)' }}>
+            {/* Summary strip: open pipeline · order in hand · order booked · won */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', borderBottom: '1px solid var(--line)' }}>
               <OppStat label="Open Pipeline" value={pipelineTotal > 0 ? fmtCr(pipelineTotal) : '—'}
                 sub={`${openCount} open opp${openCount === 1 ? '' : 's'}`} color="var(--fg)" />
-              <OppStat label={`Orders Booked · ${fyLabel}`} value={orderInHand.value > 0 ? fmtCr(orderInHand.value) : '—'}
-                sub={`${orderInHand.count} order${orderInHand.count === 1 ? '' : 's'}`} color="var(--accent)" divider />
+              <OppStat label="Order in Hand" value={orderInHand.inHand > 0 ? fmtCr(orderInHand.inHand) : '—'}
+                sub="won · not yet in SO" color="var(--accent)" divider />
+              <OppStat label="Order Booked" value={orderInHand.booked > 0 ? fmtCr(orderInHand.booked) : '—'}
+                sub="value in sales orders" color="var(--fg-2)" divider />
               <OppStat label="Won" value={wonRow.value > 0 ? fmtCr(wonRow.value) : '—'}
                 sub={`${wonRow.count} won`} color="var(--pos)" divider />
             </div>
