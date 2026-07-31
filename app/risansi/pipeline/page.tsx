@@ -276,6 +276,13 @@ export default async function PipelinePage({
     q<OppRow[]>(async () => {
       const { rows } = await risansiPool.query(`
         SELECT o.*,
+               -- Date columns as YYYY-MM-DD text (override the o.* raw dates,
+               -- last-wins): a type="date" input can't read an ISO timestamp, and
+               -- JS Date serialisation shifts the day by the server's timezone.
+               o.quote_date::text          AS quote_date,
+               o.enquiry_date::text        AS enquiry_date,
+               o.revised_offer_date::text  AS revised_offer_date,
+               o.expected_close_date::text AS expected_close_date,
                c.legal_name AS client_name, c.code AS client_code, c.industry,
                COALESCE(r.name, '—') AS rep_name,
                (SELECT tr.name FROM tour_routes tr WHERE tr.id = c.tour_id) AS tour_name,
@@ -297,6 +304,13 @@ export default async function PipelinePage({
     q<OppRow[]>(async () => {
       const { rows } = await risansiPool.query(`
         SELECT o.*,
+               -- Date columns as YYYY-MM-DD text (override the o.* raw dates,
+               -- last-wins): a type="date" input can't read an ISO timestamp, and
+               -- JS Date serialisation shifts the day by the server's timezone.
+               o.quote_date::text          AS quote_date,
+               o.enquiry_date::text        AS enquiry_date,
+               o.revised_offer_date::text  AS revised_offer_date,
+               o.expected_close_date::text AS expected_close_date,
                c.legal_name AS client_name, c.code AS client_code, c.industry,
                COALESCE(r.name, '—') AS rep_name,
                (SELECT tr.name FROM tour_routes tr WHERE tr.id = c.tour_id) AS tour_name,
