@@ -33,6 +33,11 @@ export async function GET(request: Request) {
                    (SELECT ta.rep_id FROM tour_assignments ta
                       JOIN users ru ON ru.id = ta.rep_id AND ru.is_active
                      WHERE ta.tour_id = c.tour_id AND ta.role = 'rep'
+                     ORDER BY ta.assigned_at, ta.rep_id LIMIT 1),
+                   -- Manager-only tour (one-person team): the manager owns the work.
+                   (SELECT ta.rep_id FROM tour_assignments ta
+                      JOIN users ru ON ru.id = ta.rep_id AND ru.is_active
+                     WHERE ta.tour_id = c.tour_id AND ta.role = 'manager'
                      ORDER BY ta.assigned_at, ta.rep_id LIMIT 1)
                  ))
               END                                                            AS owner_name

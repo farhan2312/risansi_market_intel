@@ -42,12 +42,17 @@ export async function resolveClientPrimaryRep(
   const { rows } = await risansiPool.query<{
     tour_owner: number | null;
     rep_ids: number[] | null;
+    manager_ids: number[] | null;
   }>(
     `SELECT (SELECT u.id FROM users u WHERE u.id = tr.primary_rep_id AND u.is_active) AS tour_owner,
             (SELECT array_agg(ta.rep_id ORDER BY ta.assigned_at, ta.rep_id)
                FROM tour_assignments ta
                JOIN users ru ON ru.id = ta.rep_id AND ru.is_active
-              WHERE ta.tour_id = c.tour_id AND ta.role = 'rep') AS rep_ids
+              WHERE ta.tour_id = c.tour_id AND ta.role = 'rep') AS rep_ids,
+            (SELECT array_agg(ta.rep_id ORDER BY ta.assigned_at, ta.rep_id)
+               FROM tour_assignments ta
+               JOIN users ru ON ru.id = ta.rep_id AND ru.is_active
+              WHERE ta.tour_id = c.tour_id AND ta.role = 'manager') AS manager_ids
        FROM clients c
        LEFT JOIN tour_routes tr ON tr.id = c.tour_id
       WHERE c.id = $1`,
@@ -59,12 +64,22 @@ export async function resolveClientPrimaryRep(
 
   if (row.tour_owner != null) return { repId: row.tour_owner, basis: 'tour-owner', ambiguous: false };
 
-  const reps = row.rep_ids ?? [];
-  if (reps.length === 0) return { repId: null, basis: 'none', ambiguous: false };
-  if (reps.length === 1) return { repId: reps[0], basis: 'sole-rep', ambiguous: false };
+  // Pick an owner from a candidate roster: a sole member owns outright; several
+  // members prefer the creator (if on the tour), else the first by roster order.
+  const pick = (ids: number[]): ResolvedRep => {
+    if (ids.length === 1) return { repId: ids[0], basis: 'sole-rep', ambiguous: false };
+    if (creatorRepId != null && ids.includes(creatorRepId)) {
+      return { repId: creatorRepId, basis: 'creator-on-tour', ambiguous: true };
+    }
+    return { repId: ids[0], basis: 'roster-order', ambiguous: true };
+  };
 
-  if (creatorRepId != null && reps.includes(creatorRepId)) {
-    return { repId: creatorRepId, basis: 'creator-on-tour', ambiguous: true };
-  }
-  return { repId: reps[0], basis: 'roster-order', ambiguous: true };
+  // Reps own the work. But a manager-only tour (a one-person team like a lone
+  // manager who is also the field rep) still needs an owner — the manager acts
+  // as the rep. So ownership needs at least one person, rep OR manager.
+  const reps = row.rep_ids ?? [];
+  if (reps.length > 0) return pick(reps);
+  const managers = row.manager_ids ?? [];
+  if (managers.length > 0) return pick(managers);
+  return { repId: null, basis: 'none', ambiguous: false };
 }
