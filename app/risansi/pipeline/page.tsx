@@ -105,10 +105,29 @@ export default async function PipelinePage({
   const repFilts      = typeof sp.rep          === 'string' && sp.rep && sp.rep !== 'all' ? sp.rep.split(',').filter(Boolean)          : [];
   const indFilts      = typeof sp.industry     === 'string' && sp.industry     ? sp.industry.split(',').filter(Boolean)     : [];
   const probFilts     = typeof sp.prob         === 'string' && sp.prob         ? sp.prob.split(',').filter(Boolean)         : [];
+  const valFilts      = typeof sp.val          === 'string' && sp.val          ? sp.val.split(',').filter(Boolean)          : [];
   // Quote tracking: free-text (quote no. / client / product) + quote-date range.
   const qname = typeof sp.qname === 'string' ? sp.qname.trim() : '';
   const qfrom = typeof sp.qfrom === 'string' ? sp.qfrom : '';
   const qto   = typeof sp.qto   === 'string' ? sp.qto   : '';
+
+  // Value buckets (on value_cr, in Crores). Boundaries are constants we control,
+  // so they inline safely (no params). Selecting several ORs their ranges.
+  const VALUE_BUCKETS: { label: string; min: number; max: number | null }[] = [
+    { label: '< ₹1L',    min: 0,    max: 0.01 },
+    { label: '₹1–5L',    min: 0.01, max: 0.05 },
+    { label: '₹5–10L',   min: 0.05, max: 0.10 },
+    { label: '₹10–50L',  min: 0.10, max: 0.50 },
+    { label: '₹50L–1Cr', min: 0.50, max: 1.0 },
+    { label: '≥ ₹1Cr',   min: 1.0,  max: null },
+  ];
+  const valueRangeSql = (col: string, labels: string[]): string => {
+    const parts = labels
+      .map(l => VALUE_BUCKETS.find(b => b.label === l))
+      .filter((b): b is { label: string; min: number; max: number | null } => !!b)
+      .map(b => (b.max == null ? `${col} >= ${b.min}` : `(${col} >= ${b.min} AND ${col} < ${b.max})`));
+    return parts.length ? `(${parts.join(' OR ')})` : '';
+  };
 
   // Sort
   const sortKey  = typeof sp.sort  === 'string' ? sp.sort            : 'value';
@@ -157,6 +176,10 @@ export default async function PipelinePage({
   if (probFilts.length > 0) {
     conds.push(`o.probability_code = ANY($${idx}::text[])`);
     vals.push(probFilts); idx++;
+  }
+  if (valFilts.length > 0) {
+    const vsql = valueRangeSql('o.value_cr', valFilts);
+    if (vsql) conds.push(vsql);
   }
   // Track a quote by its number/name (also matches client & product), and by
   // when it was quoted.
@@ -246,6 +269,7 @@ export default async function PipelinePage({
   if (repFilts.length)      { wonC.push(`o.client_id IN (SELECT c2.id FROM clients c2 JOIN tour_assignments ta ON ta.tour_id = c2.tour_id JOIN users u2 ON u2.id = ta.rep_id WHERE u2.name = ANY($${wonV.length + 1}::text[]))`); wonV.push(repFilts); }
   if (indFilts.length)      { wonC.push(`o.client_id IN (SELECT id FROM clients WHERE industry = ANY($${wonV.length + 1}::text[]))`); wonV.push(indFilts); }
   if (probFilts.length)     { wonC.push(`o.probability_code = ANY($${wonV.length + 1}::text[])`);                            wonV.push(probFilts); }
+  if (valFilts.length)      { const v = valueRangeSql('o.value_cr', valFilts); if (v) wonC.push(v); }
   const wonWhere = `WHERE ${wonC.join(' AND ')}${ownerVisAnd}`;
 
   // Per-opportunity edit permission, evaluated in SQL:
@@ -483,7 +507,7 @@ export default async function PipelinePage({
     ? Math.round((totalWon / (totalWon + totalLost)) * 100)
     : 0;
 
-  const anyFilter = stageFilts.length > 0 || prodTypeFilts.length > 0 || repFilts.length > 0 || indFilts.length > 0 || probFilts.length > 0 || !!qname || !!qfrom || !!qto;
+  const anyFilter = stageFilts.length > 0 || prodTypeFilts.length > 0 || repFilts.length > 0 || indFilts.length > 0 || probFilts.length > 0 || valFilts.length > 0 || !!qname || !!qfrom || !!qto;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -589,6 +613,7 @@ export default async function PipelinePage({
           <MultiSelectFilter param="rep"          label="Rep"          options={repOptions}          selected={repFilts}      />
           <MultiSelectFilter param="industry"     label="Industry"     options={industryOptions}     selected={indFilts}      />
           <MultiSelectFilter param="prob"         label="Probability"  options={PROBABILITY_CODE_OPTIONS} selected={probFilts} />
+          <MultiSelectFilter param="val"          label="Value"        options={VALUE_BUCKETS.map(b => b.label)} selected={valFilts} />
           <TextSearchFilter param="qname" placeholder="Quote no. / name…" />
           <DateRangeFilter fromParam="qfrom" toParam="qto" from={qfrom} to={qto} label="Quote Date" />
         </div>
