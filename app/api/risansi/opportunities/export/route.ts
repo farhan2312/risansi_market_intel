@@ -25,7 +25,7 @@ const LOST_REASONS  = [
 
 interface Row {
   id: number; client_code: string | null; client_name: string | null;
-  tour_name: string | null; rep_name: string | null;
+  tour_name: string | null; tour_people: string | null;
   stage: string | null; product: string | null; unit_project: string | null;
   product_type: string | null; value_cr: number | null; probability_code: string | null;
   probability: number | null; eta_text: string | null;
@@ -60,7 +60,12 @@ export async function GET() {
       `SELECT o.id,
               c.code AS client_code, c.legal_name AS client_name,
               tr.name AS tour_name,
-              COALESCE(r.name, '') AS rep_name,
+              -- Tour-based: an opportunity belongs to the client's tour and all
+              -- its reps (managers marked). No single "owner rep".
+              (SELECT string_agg(u.name || CASE WHEN ta.role = 'manager' THEN ' (mgr)' ELSE '' END, ', '
+                                 ORDER BY (ta.role = 'manager'), u.name)
+                 FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
+                WHERE ta.tour_id = c.tour_id) AS tour_people,
               o.stage, o.product, o.unit_project, o.product_type,
               o.value_cr::float8 AS value_cr, o.probability_code, o.probability, o.eta_text,
               o.quote_ref, o.quote_date::text AS quote_date, o.enquiry_no, o.enquiry_date::text AS enquiry_date,
@@ -76,7 +81,6 @@ export async function GET() {
          FROM opportunities o
          JOIN clients c ON c.id = o.client_id
          LEFT JOIN tour_routes tr ON tr.id = c.tour_id
-         LEFT JOIN users r ON r.id = o.rep_id
          ${where}
          ORDER BY c.legal_name ASC, o.id ASC`,
     )).rows;
@@ -108,7 +112,7 @@ export async function GET() {
     { h: 'Client Code', w: 14, f: r => r.client_code ?? '' },
     { h: 'Client Name', w: 30, f: r => r.client_name ?? '' },
     { h: 'Tour', w: 16, f: r => r.tour_name ?? '' },
-    { h: 'Owner (rep)', w: 18, f: r => r.rep_name ?? '' },
+    { h: 'Reps / Manager in Tour', w: 30, f: r => r.tour_people ?? '' },
     { h: 'Stage', w: 13, f: r => r.stage ?? '', list: 'Lists!$A$2:$A$9' },
     { h: 'Product / Description', w: 30, f: r => r.product ?? '' },
     { h: 'Project Name / Unit', w: 26, f: r => r.unit_project ?? '' },
