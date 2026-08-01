@@ -10,6 +10,7 @@ import { recordAudit } from '@/lib/audit';
 import { normalizeClientName, uniqueLeadCode } from '@/lib/risansi-lead-code';
 import { resolveClientPrimaryRep } from '@/lib/risansi-client-rep';
 import { parseSalesOrdersJson, inrToCr, type SoInput, type SalesOrder } from '@/lib/risansi-sales-orders';
+import { poInrToCr, type PurchaseOrder } from '@/lib/risansi-purchase-orders';
 import { requiredFieldNames, labelsFor, CREATE_STAGES, STAGE_PROB, type CreateStage } from '@/lib/risansi-opportunity-fields';
 import { pctForProbabilityCode } from '@/lib/risansi-probability-codes';
 import { normaliseIndustry } from '@/lib/risansi-utils';
@@ -1286,6 +1287,69 @@ export async function updateWonFinalValue(oppId: number, formData: FormData): Pr
   await logActivity('opportunity', String(oppId), `final value updated to ₹${Math.round(inr)}`, user.email!);
   revalidatePath('/risansi/pipeline');
   revalidatePath('/risansi');
+}
+
+// ── Purchase Orders (customer POs against a Won opportunity) ────
+// A free-standing record of the customer's POs, independent of the SO coverage
+// maths. Same Won-only gate and permission as the SO actions.
+
+export async function listPurchaseOrders(oppId: number): Promise<PurchaseOrder[]> {
+  const { rows } = await risansiPool.query<PurchaseOrder>(
+    `SELECT id, opportunity_id, po_number, po_date::text AS po_date,
+            po_value_cr::float8 AS po_value_cr, created_by
+       FROM opportunity_purchase_orders WHERE opportunity_id = $1 ORDER BY po_date, id`,
+    [oppId],
+  );
+  return rows;
+}
+
+export async function addPurchaseOrder(oppId: number, formData: FormData): Promise<PurchaseOrder[]> {
+  const user = await requireSession();
+  const { rows: cur } = await risansiPool.query<{ stage: string; rep_id: number | null; client_id: number | null }>(
+    'SELECT stage, rep_id, client_id FROM opportunities WHERE id = $1', [oppId],
+  );
+  if (!cur[0]) throw new Error('Opportunity not found.');
+  if (!(await userCanEditOpp(user, cur[0].rep_id, cur[0].client_id))) throw new Error('You do not have permission to edit this opportunity.');
+  if (cur[0].stage !== 'Won') throw new Error('Purchase Orders can only be recorded against a Won opportunity.');
+
+  const num  = (formData.get('po_number') as string | null)?.trim() ?? '';
+  const date = (formData.get('po_date')   as string | null)?.trim() ?? '';
+  const inr  = parseFloat(((formData.get('po_value_inr') as string | null) ?? '').replace(/[^0-9.\-]/g, ''));
+  if (!num || !date || !Number.isFinite(inr) || inr <= 0) {
+    throw new Error('A PO Number, PO Date and PO Value greater than zero are all required.');
+  }
+  if (!/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(date)) {
+    throw new Error('Enter a valid PO Date (YYYY-MM-DD).');
+  }
+  const cr = poInrToCr(inr);
+  if (cr >= 9_999_999) throw new Error('That PO value is unrealistically large — please check it.');
+
+  await risansiPool.query(
+    `INSERT INTO opportunity_purchase_orders (opportunity_id, po_number, po_date, po_value_cr, created_by)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [oppId, num, date, cr, user.email ?? null],
+  );
+  await logActivity('opportunity', String(oppId), `added purchase order ${num}`, user.email!);
+  revalidatePath('/risansi/pipeline');
+  revalidatePath('/risansi');
+  return listPurchaseOrders(oppId);
+}
+
+export async function deletePurchaseOrder(poId: number): Promise<PurchaseOrder[]> {
+  const user = await requireSession();
+  const { rows } = await risansiPool.query<{ opportunity_id: number; rep_id: number | null; client_id: number | null; po_number: string }>(
+    `SELECT po.opportunity_id, o.rep_id, o.client_id, po.po_number
+       FROM opportunity_purchase_orders po JOIN opportunities o ON o.id = po.opportunity_id
+      WHERE po.id = $1`,
+    [poId],
+  );
+  if (!rows[0]) throw new Error('Purchase order not found.');
+  if (!(await userCanEditOpp(user, rows[0].rep_id, rows[0].client_id))) throw new Error('You do not have permission to edit this opportunity.');
+  await risansiPool.query('DELETE FROM opportunity_purchase_orders WHERE id = $1', [poId]);
+  await logActivity('opportunity', String(rows[0].opportunity_id), `removed purchase order ${rows[0].po_number}`, user.email!);
+  revalidatePath('/risansi/pipeline');
+  revalidatePath('/risansi');
+  return listPurchaseOrders(rows[0].opportunity_id);
 }
 
 // ── Pipeline: delete opportunity ───────────────────────────────

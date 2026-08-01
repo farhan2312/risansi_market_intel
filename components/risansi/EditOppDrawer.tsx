@@ -7,6 +7,7 @@ import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probabili
 import { MonthYearSelect } from './MonthYearSelect';
 import { SalesOrderList } from './SalesOrderList';
 import { SalesOrderManager } from './SalesOrderManager';
+import { PurchaseOrderManager } from './PurchaseOrderManager';
 import { QuotationPdfManager } from './QuotationPdfManager';
 
 // A quotation exists from Quoted onward — the PDF can be viewed/replaced/deleted
@@ -202,13 +203,15 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
             <ReadOnlyRow label="Value" value={inrLabel(opp.value_cr) || '—'} />
             {opp.stage === 'Won' && (
               <>
-                <ReadOnlyRow label="PO Number" value={opp.po_number ?? '—'} />
+                {opp.po_number && <ReadOnlyRow label="PO Number" value={opp.po_number} />}
                 {/* Final value is editable inside the Sales Orders panel below. */}
                 <SalesOrderManager
                   oppId={Number(opp.id)}
                   finalValueCr={opp.final_value_cr != null ? Number(opp.final_value_cr) : null}
                   canEdit={canEdit}
                 />
+                {/* Customer POs — a free-standing list (No / Date / Value). */}
+                <PurchaseOrderManager oppId={Number(opp.id)} canEdit={canEdit} />
               </>
             )}
             {opp.stage === 'Lost' && (
