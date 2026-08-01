@@ -862,7 +862,12 @@ export function VisitReportForm({
               </div>
               <div>
                 <label style={LBL}>Qty</label>
-                <input type="number" inputMode="numeric" min={1} value={newEq.qty} onChange={e => setNewEq(p => ({ ...p, qty: parseInt(e.target.value) || 1 }))} style={INP} />
+                {/* Allow clearing the field (shown blank) so a fresh number can be
+                    typed — the old `|| 1` snapped it back to 1 on every keystroke,
+                    making it feel locked. Coerced to ≥1 at save. */}
+                <input type="number" inputMode="numeric" min={1} value={newEq.qty === 0 ? '' : newEq.qty}
+                  onChange={e => { const n = parseInt(e.target.value, 10); setNewEq(p => ({ ...p, qty: Number.isNaN(n) ? 0 : n })); }}
+                  style={INP} />
               </div>
               <div>
                 <label style={LBL}>Condition</label>
@@ -881,10 +886,11 @@ export function VisitReportForm({
             <div style={{ display: 'flex', gap: 8 }}>
               <button
                 onClick={async () => {
+                  const eqPayload = { ...newEq, qty: Math.max(1, Number(newEq.qty) || 1) };
                   if (editingEqId != null) {
-                    await updateEquipment(editingEqId, visit.id, { ...newEq });
+                    await updateEquipment(editingEqId, visit.id, eqPayload);
                   } else {
-                    await addEquipment(visit.id, visit.client_id, { ...newEq });
+                    await addEquipment(visit.id, visit.client_id, eqPayload);
                   }
                   setShowEqForm(false);
                   setEditingEqId(null);
