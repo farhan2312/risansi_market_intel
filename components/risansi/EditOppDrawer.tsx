@@ -217,10 +217,15 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
             {opp.stage === 'Won' ? (
               <>
                 {/* Fulfilment first — the point of a Won opp, so it's never buried.
-                    Final value is editable inside the Sales Orders panel. */}
+                    Final value is editable inside the Sales Orders panel; it defaults
+                    to the quoted value when no separate final value was recorded. */}
                 <SalesOrderManager
                   oppId={Number(opp.id)}
-                  finalValueCr={opp.final_value_cr != null ? Number(opp.final_value_cr) : null}
+                  finalValueCr={
+                    opp.final_value_cr != null && opp.final_value_cr !== ''
+                      ? Number(opp.final_value_cr)
+                      : (opp.value_cr != null ? Number(opp.value_cr) : null)
+                  }
                   canEdit={canEdit}
                 />
                 {/* Customer POs — a free-standing list (No / Date / Value). */}

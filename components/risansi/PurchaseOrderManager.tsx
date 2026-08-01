@@ -113,7 +113,9 @@ export function PurchaseOrderManager({ oppId, canEdit }: {
   );
 }
 
-const CARD: CSSProperties = { border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden', background: 'var(--bg-paper)' };
+// flexShrink:0 is essential — see the note in SalesOrderManager: an overflow:hidden
+// flex item loses its auto min-size and would clip the Add button in the scroll column.
+const CARD: CSSProperties = { border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden', background: 'var(--bg-paper)', flexShrink: 0 };
 const HEAD: CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
   padding: '9px 14px', background: 'var(--bg-elev)', borderBottom: '1px solid var(--line)',

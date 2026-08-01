@@ -176,7 +176,11 @@ export function SalesOrderManager({ oppId, finalValueCr, canEdit }: {
   );
 }
 
-const CARD: CSSProperties = { border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden', background: 'var(--bg-paper)' };
+// flexShrink:0 is essential: this card is a flex item in the modal's scrollable
+// column, and `overflow: hidden` disables a flex item's automatic min-size, so
+// without it the card gets squeezed shorter than its content and clips the Add
+// button. Keeping overflow:hidden rounds the header corners.
+const CARD: CSSProperties = { border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden', background: 'var(--bg-paper)', flexShrink: 0 };
 const HEAD: CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
   padding: '9px 14px', background: 'var(--bg-elev)', borderBottom: '1px solid var(--line)',
