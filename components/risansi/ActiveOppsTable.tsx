@@ -31,13 +31,12 @@ export function ActiveOppsTable({ opps }: { opps: EditableOpp[] }) {
         <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
             <tr style={{ background: 'var(--bg-elev)' }}>
+              <th style={TH}>Quote Date</th>
               <th style={TH}>Client</th>
-              <th style={TH}>Product</th>
               <th style={TH}>Stage</th>
               <th style={{ ...TH, textAlign: 'right' }}>Value</th>
-              <th style={{ ...TH, textAlign: 'center' }}>Prob</th>
-              <th style={TH}>ETA</th>
-              <th style={TH}>Rep</th>
+              <th style={TH}>Product &amp; Notes</th>
+              <th style={TH}>Expected Close</th>
             </tr>
           </thead>
           <tbody>
@@ -51,24 +50,12 @@ export function ActiveOppsTable({ opps }: { opps: EditableOpp[] }) {
                   onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-elev)')}
                   onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                 >
-                  <td data-label="" style={TD}>
+                  <td data-label="Quote Date" style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>
+                    {opp.quote_date || '—'}
+                  </td>
+                  <td data-label="Client" style={TD}>
                     <div style={{ fontWeight: 600, color: 'var(--fg)', fontSize: 12 }}>{opp.client_name}</div>
                     <div style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', marginTop: 1 }}>{opp.client_code}</div>
-                  </td>
-                  <td data-label="Product" style={TD}>
-                    <div style={{ color: 'var(--fg)' }}>{opp.product}</div>
-                    {opp.product_type && (
-                      <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 1 }}>{opp.product_type}</div>
-                    )}
-                    {opp.auto_created && (
-                      <span style={{
-                        fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 4,
-                        background: '#EBF1FB', color: '#1A5CB8', textTransform: 'uppercase',
-                        letterSpacing: '0.05em', display: 'inline-block', marginTop: 2,
-                      }}>
-                        ⚡ Auto
-                      </span>
-                    )}
                   </td>
                   <td data-label="Stage" style={TD}>
                     <span style={{
@@ -81,14 +68,27 @@ export function ActiveOppsTable({ opps }: { opps: EditableOpp[] }) {
                   <td data-label="Value" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, color: '#0A3D8F', whiteSpace: 'nowrap' }}>
                     {opp.value_cr ? `₹${(opp.value_cr * 100).toFixed(1)}L` : '—'}
                   </td>
-                  <td data-label="Prob" style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>
-                    {opp.probability != null ? `${opp.probability}%` : '—'}
+                  <td data-label="Product & Notes" style={{ ...TD, maxWidth: 340 }}>
+                    <div style={{ color: 'var(--fg)' }}>
+                      {opp.product}{opp.product_type ? ` · ${opp.product_type}` : ''}
+                      {opp.auto_created && (
+                        <span style={{
+                          fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 4, marginLeft: 6,
+                          background: '#EBF1FB', color: '#1A5CB8', textTransform: 'uppercase', letterSpacing: '0.05em',
+                        }}>⚡ Auto</span>
+                      )}
+                    </div>
+                    {opp.notes && (
+                      <div style={{
+                        fontSize: 10, color: 'var(--fg-3)', marginTop: 2, lineHeight: 1.4,
+                        display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+                      }}>
+                        {opp.notes}
+                      </div>
+                    )}
                   </td>
-                  <td data-label="ETA" style={{ ...TD, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', fontSize: 11, whiteSpace: 'nowrap' }}>
+                  <td data-label="Expected Close" style={{ ...TD, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', fontSize: 11, whiteSpace: 'nowrap' }}>
                     {opp.eta_text || '—'}
-                  </td>
-                  <td data-label="Rep" style={{ ...TD, color: 'var(--fg-3)', fontSize: 11 }}>
-                    {opp.rep_name || '—'}
                   </td>
                 </tr>
               );
