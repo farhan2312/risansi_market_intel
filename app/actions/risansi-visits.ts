@@ -435,6 +435,7 @@ export async function addEquipment(
     model?: string; qty?: number; application?: string;
     capacity_m3h?: number; head_m?: number; kw?: number;
     drive_system?: string; moc?: string; condition?: string;
+    condition_remark?: string;
     performance_feedback?: string;
     reason_for_competitor?: string;
     competitor_activity_type?: string;
@@ -462,11 +463,11 @@ export async function addEquipment(
     `INSERT INTO equipment (
        client_id, visit_id, pump_type, supplier, is_ril,
        model, qty, application, capacity_m3h, head_m, kw,
-       drive_system, moc, condition, performance_feedback,
+       drive_system, moc, condition, condition_remark, performance_feedback,
        reason_for_competitor, competitor_activity_type,
        is_opportunity, created_at
      ) VALUES (
-       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW()
+       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,NOW()
      )`,
     [
       clientId, visitId,
@@ -474,7 +475,7 @@ export async function addEquipment(
       data.model ?? null, data.qty ?? 1, data.application ?? null,
       data.capacity_m3h ?? null, data.head_m ?? null, data.kw ?? null,
       data.drive_system ?? null, data.moc ?? null,
-      data.condition ?? null, data.performance_feedback ?? null,
+      data.condition ?? null, data.condition_remark ?? null, data.performance_feedback ?? null,
       data.reason_for_competitor ?? null, data.competitor_activity_type ?? null,
       isOpp,
     ],
@@ -500,6 +501,7 @@ export async function updateEquipment(
     model?: string; qty?: number; application?: string;
     capacity_m3h?: number; head_m?: number; kw?: number;
     drive_system?: string; moc?: string; condition?: string;
+    condition_remark?: string;
     performance_feedback?: string;
     reason_for_competitor?: string;
     competitor_activity_type?: string;
@@ -528,15 +530,15 @@ export async function updateEquipment(
     `UPDATE equipment SET
        pump_type = $1, supplier = $2, is_ril = $3, model = $4, qty = $5,
        application = $6, capacity_m3h = $7, head_m = $8, kw = $9,
-       drive_system = $10, moc = $11, condition = $12, performance_feedback = $13,
-       reason_for_competitor = $14, competitor_activity_type = $15, is_opportunity = $16
-     WHERE id = $17 AND visit_id = $18`,
+       drive_system = $10, moc = $11, condition = $12, condition_remark = $13, performance_feedback = $14,
+       reason_for_competitor = $15, competitor_activity_type = $16, is_opportunity = $17
+     WHERE id = $18 AND visit_id = $19`,
     [
       data.pump_type, data.supplier, data.is_ril,
       data.model ?? null, data.qty ?? 1, data.application ?? null,
       data.capacity_m3h ?? null, data.head_m ?? null, data.kw ?? null,
       data.drive_system ?? null, data.moc ?? null,
-      data.condition ?? null, data.performance_feedback ?? null,
+      data.condition ?? null, data.condition_remark ?? null, data.performance_feedback ?? null,
       data.reason_for_competitor ?? null, data.competitor_activity_type ?? null,
       isOpp, equipmentId, visitId,
     ],

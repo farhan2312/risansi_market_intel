@@ -279,7 +279,7 @@ export function VisitReportForm({
   const [supplierOther, setSupplierOther] = useState(false);
   const [newEq, setNewEq] = useState({
     pump_type: 'PCP', supplier: '', model: '', qty: 1,
-    application: '', condition: 'Good', is_ril: true,
+    application: '', condition: 'Good', condition_remark: '', is_ril: true,
     reason_for_competitor: '', competitor_activity_type: '',
     performance_feedback: '',
   });
@@ -747,12 +747,19 @@ export function VisitReportForm({
                   <td data-label="Condition" style={{ padding: '8px 10px' }}>
                     <span style={{
                       fontSize: 11, padding: '2px 6px', borderRadius: 4,
-                      background: e.condition === 'EOL' ? 'var(--neg-soft)' : e.condition === 'Good' ? 'var(--pos-soft)' : 'var(--warn-soft)',
-                      color: e.condition === 'EOL' ? 'var(--neg-strong)' : e.condition === 'Good' ? 'var(--pos-strong)' : 'var(--warn)',
+                      background: e.condition === 'EOL' ? 'var(--neg-soft)'
+                        : (e.condition === 'Good' || e.condition === 'Running') ? 'var(--pos-soft)'
+                        : e.condition === 'Standby' ? 'var(--accent-soft)' : 'var(--warn-soft)',
+                      color: e.condition === 'EOL' ? 'var(--neg-strong)'
+                        : (e.condition === 'Good' || e.condition === 'Running') ? 'var(--pos-strong)'
+                        : e.condition === 'Standby' ? 'var(--brand-blue)' : 'var(--warn)',
                     }}>
                       {String(e.condition ?? '—')}
                     </span>
                     {Boolean(e.is_opportunity) && <span style={{ marginLeft: 4, fontSize: 10, color: 'var(--brand-blue)' }}>⚡ Opp</span>}
+                    {e.condition_remark ? (
+                      <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3, lineHeight: 1.4 }}>{String(e.condition_remark)}</div>
+                    ) : null}
                   </td>
                   <td data-label={eqTab === 'ril' ? 'Feedback' : 'Reason'} style={{ padding: '8px 10px', color: 'var(--fg-3)', fontSize: 11 }}>
                     {eqTab === 'ril' ? String(e.performance_feedback ?? '—') : String(e.reason_for_competitor ?? '—')}
@@ -774,6 +781,7 @@ export function VisitReportForm({
                             qty: Number(e.qty ?? 1),
                             application: String(e.application ?? ''),
                             condition: String(e.condition ?? 'Good'),
+                            condition_remark: String(e.condition_remark ?? ''),
                             is_ril: Boolean(e.is_ril),
                             reason_for_competitor: String(e.reason_for_competitor ?? ''),
                             competitor_activity_type: String(e.competitor_activity_type ?? ''),
@@ -872,9 +880,20 @@ export function VisitReportForm({
               <div>
                 <label style={LBL}>Condition</label>
                 <select value={newEq.condition} onChange={e => setNewEq(p => ({ ...p, condition: e.target.value }))} style={INP}>
-                  {['Good', 'Requires Maintenance', 'EOL'].map(c => <option key={c}>{c}</option>)}
+                  {['Running', 'Standby', 'Good', 'Requires Maintenance', 'EOL'].map(c => <option key={c}>{c}</option>)}
                 </select>
               </div>
+            </div>
+
+            <div style={{ marginBottom: 10 }}>
+              <label style={LBL}>Condition Remark</label>
+              <textarea
+                value={newEq.condition_remark}
+                onChange={e => setNewEq(p => ({ ...p, condition_remark: e.target.value }))}
+                rows={2}
+                placeholder="Notes on the pump's condition / status…"
+                style={{ ...INP, height: 'auto', resize: 'vertical', lineHeight: 1.5 }}
+              />
             </div>
 
             {newEq.condition === 'EOL' && eqTab === 'competitor' && (
@@ -895,7 +914,7 @@ export function VisitReportForm({
                   setShowEqForm(false);
                   setEditingEqId(null);
                   setSupplierOther(false);
-                  setNewEq({ pump_type: 'PCP', supplier: '', model: '', qty: 1, application: '', condition: 'Good', is_ril: true, reason_for_competitor: '', competitor_activity_type: '', performance_feedback: '' });
+                  setNewEq({ pump_type: 'PCP', supplier: '', model: '', qty: 1, application: '', condition: 'Good', condition_remark: '', is_ril: true, reason_for_competitor: '', competitor_activity_type: '', performance_feedback: '' });
                 }}
                 style={{ padding: '7px 14px', background: '#0A3D8F', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}
               >
