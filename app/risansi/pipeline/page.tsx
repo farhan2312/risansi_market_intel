@@ -668,10 +668,10 @@ export default async function PipelinePage({
               <div style={PANEL_H}>
                 <span style={PANEL_TITLE}>Active Opportunities</span>
                 <span style={{ fontSize: 11, color: 'var(--fg-3)', marginLeft: 'auto' }}>
-                  {Math.min(openOpps.length, 50)} of {openOpps.length}
+                  {openOpps.length} total
                 </span>
               </div>
-              <ActiveOppsTable opps={openOpps.slice(0, 50)} usdRate={usdRate} />
+              <ActiveOppsTable opps={openOpps} usdRate={usdRate} />
             </div>
           }
           kanban={<OpportunityKanban key="kanban" initialOpps={[...openOpps, ...closedOpps]} stageTotals={stageTotals} />}
