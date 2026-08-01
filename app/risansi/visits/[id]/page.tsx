@@ -53,13 +53,13 @@ export default async function VisitReportPage({
     client_type: string | null; focus_industries: string[] | null;
     avg_annual_pump_req: number | null; ongoing_tenders: number | null;
     upcoming_tenders: boolean | null; upcoming_tenders_details: string | null;
-    pcp_suppliers: string | null;
+    pcp_suppliers: string | null; tcd: number | null;
   }>(
     `SELECT v.*,
        c.legal_name, c.code, c.industry, c.is_sugar,
        c.city, c.state, c.tier,
        c.client_type, c.focus_industries, c.avg_annual_pump_req,
-       c.ongoing_tenders, c.upcoming_tenders, c.upcoming_tenders_details, c.pcp_suppliers,
+       c.ongoing_tenders, c.upcoming_tenders, c.upcoming_tenders_details, c.pcp_suppliers, c.tcd,
        COALESCE(r.name, '—') AS rep_name,
        r.email AS rep_email
      FROM visits v

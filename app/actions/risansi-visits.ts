@@ -354,6 +354,7 @@ export async function saveVisitField(
 const SAFE_CLIENT_PROFILE_COLS = new Set([
   'client_type', 'focus_industries', 'avg_annual_pump_req',
   'ongoing_tenders', 'upcoming_tenders', 'upcoming_tenders_details', 'pcp_suppliers',
+  'tcd',
 ]);
 
 export async function saveClientProfileFromVisit(
@@ -387,7 +388,7 @@ export async function saveClientProfileFromVisit(
     let val = v;
     // Defend the integer columns against overflow / negatives regardless of what
     // the client sent, so a mis-keyed value can't throw 22003 and lose the save.
-    if (k === 'avg_annual_pump_req' || k === 'ongoing_tenders') {
+    if (k === 'avg_annual_pump_req' || k === 'ongoing_tenders' || k === 'tcd') {
       const n = v == null ? null : Number(v);
       val = (n != null && Number.isFinite(n)) ? Math.min(INT4_MAX, Math.max(0, Math.round(n))) : null;
     }

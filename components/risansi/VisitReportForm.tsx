@@ -53,6 +53,7 @@ interface VisitData {
   is_sugar: boolean; city: string | null;
   // Client profile fields edited on the Client Type page (persist to the client)
   client_type: string | null; focus_industries: string[] | null;
+  tcd: number | null;
   avg_annual_pump_req: number | null; ongoing_tenders: number | null;
   upcoming_tenders: boolean | null; upcoming_tenders_details: string | null;
   pcp_suppliers: string | null;
@@ -205,6 +206,7 @@ export function VisitReportForm({
 
   // ── Client Type page (persists to the CLIENT, not the visit) ──
   const [clientType, setClientType]           = useState(visit.client_type ?? '');
+  const [tcd, setTcd]                         = useState(visit.tcd?.toString() ?? '');
   const [focusInd, setFocusInd]               = useState<string[]>(visit.focus_industries ?? []);
   const [avgPumpReq, setAvgPumpReq]           = useState(visit.avg_annual_pump_req?.toString() ?? '');
   const [ongoingTenders, setOngoingTenders]   = useState(visit.ongoing_tenders?.toString() ?? '');
@@ -222,6 +224,7 @@ export function VisitReportForm({
   // change a value doesn't fire a redundant UPDATE (and updated_at bump).
   const savedRef = useRef<Record<string, string>>({
     client_type:              JSON.stringify(visit.client_type ?? null),
+    tcd:                      JSON.stringify(visit.tcd ?? null),
     focus_industries:         JSON.stringify(visit.focus_industries ?? []),
     avg_annual_pump_req:      JSON.stringify(visit.avg_annual_pump_req ?? null),
     ongoing_tenders:          JSON.stringify(visit.ongoing_tenders ?? null),
@@ -987,6 +990,21 @@ export function VisitReportForm({
             </select>
             <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 6 }}>
               This updates the client record. Selecting <strong>EPC</strong> or <strong>OEM</strong> adds a few account questions below.
+            </div>
+          </div>
+
+          {/* TCD — a client-level plant capacity, prefilled from the client and
+              saved back to it, so it stays in sync with Client 360 either way. */}
+          <div>
+            <label style={LBL}>TCD (Tonnes Cane/Day)</label>
+            <input
+              type="number" inputMode="numeric" min={0} value={tcd} disabled={disabled}
+              onChange={e => setTcd(e.target.value)}
+              onBlur={e => saveClientProfile({ tcd: numOrNull(e.target.value) })}
+              style={{ ...INP, maxWidth: 320 }} placeholder="e.g. 2500"
+            />
+            <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 6 }}>
+              Plant crushing capacity. Updates the client record — visible and editable on Client 360.
             </div>
           </div>
 
