@@ -52,34 +52,35 @@ export function PurchaseOrderManager({ oppId, canEdit }: {
   };
 
   return (
-    <div style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
+    <div style={CARD}>
       <div style={HEAD}>
-        <span>Purchase Orders</span>
+        <span>Purchase Orders{pos && pos.length > 0 ? ` · ${pos.length}` : ''}</span>
         <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--fg-3)', textTransform: 'none', letterSpacing: 0 }}>customer POs</span>
       </div>
 
-      <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {pos === null ? (
-          <div style={MUTED}>Loading…</div>
-        ) : pos.length === 0 ? (
-          <div style={MUTED}>No purchase orders yet.{canEdit ? ' Add the first below.' : ''}</div>
-        ) : (
-          pos.map(o => (
-            <div key={o.id} style={ROW}>
-              <div style={{ minWidth: 0 }}>
-                <span style={{ fontWeight: 600, fontSize: 13 }}>{o.po_number}</span>
-                <span style={{ fontSize: 11, color: 'var(--fg-3)', marginLeft: 8 }}>{o.po_date}</span>
+      <div style={BODY}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {pos === null ? (
+            <div style={{ height: 20, background: 'var(--bg-sunk)', borderRadius: 4 }} />
+          ) : pos.length === 0 ? (
+            <div style={MUTED}>No purchase orders recorded yet.</div>
+          ) : (
+            pos.map(o => (
+              <div key={o.id} style={ROW}>
+                <div style={{ minWidth: 0 }}>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>{o.po_number}</span>
+                  <span style={{ fontSize: 11, color: 'var(--fg-3)', marginLeft: 8 }}>{o.po_date}</span>
+                </div>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>{fmtInr(Number(o.po_value_cr) * CR)}</span>
+                  {canEdit && (
+                    <button type="button" onClick={() => remove(o.id)} disabled={busy} aria-label="Remove PO" style={REMOVE}>Remove</button>
+                  )}
+                </span>
               </div>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>{fmtInr(Number(o.po_value_cr) * CR)}</span>
-                {canEdit && (
-                  <button type="button" onClick={() => remove(o.id)} disabled={busy} aria-label="Remove PO"
-                    style={{ border: '1px solid var(--line-strong)', background: 'var(--bg-paper)', color: '#9B1C1C', borderRadius: 5, fontSize: 11, fontWeight: 600, padding: '2px 8px', cursor: 'pointer', fontFamily: 'inherit' }}>Remove</button>
-                )}
-              </span>
-            </div>
-          ))
-        )}
+            ))
+          )}
+        </div>
 
         {pos !== null && pos.length > 0 && (
           <div style={{ ...ROW, borderTop: '1px solid var(--line)', paddingTop: 8, fontWeight: 600 }}>
@@ -90,30 +91,37 @@ export function PurchaseOrderManager({ oppId, canEdit }: {
 
         {err && <div style={{ fontSize: 12, color: '#9B1C1C' }}>{err}</div>}
 
-        {canEdit && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr auto', gap: 6, alignItems: 'center', marginTop: 4 }}>
-            <input value={num} onChange={e => setNum(e.target.value)} placeholder="PO Number" style={INP} />
-            <input type="date" value={date} onChange={e => setDate(e.target.value)} style={INP} />
-            <input type="number" min={0} value={val} onChange={e => setVal(e.target.value)} placeholder="Value ₹" style={INP} />
-            <button type="button" onClick={add} disabled={busy}
-              style={{ background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, padding: '7px 12px', cursor: busy ? 'default' : 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
-              {busy ? '…' : 'Add'}
+        {canEdit ? (
+          <div style={{ borderTop: '1px dashed var(--line-strong)', paddingTop: 10 }}>
+            <div style={{ ...MINI, marginBottom: 6 }}>Record a purchase order</div>
+            <input value={num} onChange={e => setNum(e.target.value)} placeholder="PO Number" style={{ ...INP, marginBottom: 6 }} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+              <input type="date" value={date} onChange={e => setDate(e.target.value)} style={INP} />
+              <input type="number" min={0} value={val} onChange={e => setVal(e.target.value)} placeholder="Value ₹" style={INP} />
+            </div>
+            <button type="button" onClick={add} disabled={busy} style={BTN_ADD}>
+              {busy ? 'Adding…' : '+ Add Purchase Order'}
             </button>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );
 }
 
+const CARD: CSSProperties = { border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden', background: 'var(--bg-paper)' };
 const HEAD: CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
   padding: '9px 14px', background: 'var(--bg-elev)', borderBottom: '1px solid var(--line)',
   fontSize: 12, fontWeight: 700, color: 'var(--fg-2)', textTransform: 'uppercase', letterSpacing: '0.05em',
 };
+const BODY: CSSProperties = { padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 };
 const ROW: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 };
-const MUTED: CSSProperties = { fontSize: 12, color: 'var(--fg-3)', padding: '4px 0' };
+const MUTED: CSSProperties = { fontSize: 12, color: 'var(--fg-3)', padding: '2px 0' };
+const MINI: CSSProperties = { fontSize: 10, fontWeight: 700, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.06em' };
 const INP: CSSProperties = {
-  width: '100%', padding: '7px 9px', border: '1px solid var(--line-strong)', borderRadius: 6,
+  width: '100%', padding: '8px 10px', border: '1px solid var(--line-strong)', borderRadius: 6,
   fontSize: 13, background: 'var(--bg-paper)', color: 'var(--fg)', boxSizing: 'border-box', fontFamily: 'inherit',
 };
+const BTN_ADD: CSSProperties = { marginTop: 8, width: '100%', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, padding: '9px 12px', cursor: 'pointer', fontFamily: 'inherit' };
+const REMOVE: CSSProperties = { border: '1px solid var(--line-strong)', background: 'var(--bg-paper)', color: '#9B1C1C', borderRadius: 5, fontSize: 11, fontWeight: 600, padding: '2px 8px', cursor: 'pointer', fontFamily: 'inherit' };

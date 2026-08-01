@@ -116,6 +116,23 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
   // View-only when locked (Won/Lost) OR the viewer lacks edit rights.
   const readOnly = isLocked || !canEdit;
 
+  const probLabel = (() => {
+    const c = PROBABILITY_CODES.find(x => x.code === opp.probability_code);
+    return c ? probabilityCodeLabel(c) : (opp.probability_code ?? '—');
+  })();
+  // Static deal facts for a Won opp — shown as a compact grid below the actionable
+  // Sales/Purchase Order panels, so the read view leads with what you act on.
+  const wonDetails: [string, string][] = [
+    ['Product', opp.product],
+    ['Product Type', opp.product_type ?? '—'],
+    ['Quoted Value', inrLabel(opp.value_cr) || '—'],
+    ['Probability', probLabel],
+    ['Expected Close', opp.eta_text ?? '—'],
+    ['Quote Ref', opp.quote_ref ?? '—'],
+    ['Tour', opp.tour_name ?? '—'],
+    ['Reps / Manager', opp.tour_people ?? opp.rep_name ?? '—'],
+  ];
+
   return (
     <>
       <div onClick={onClose} style={{
@@ -196,15 +213,11 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
 
         {/* Read-only view for locked or view-only opps */}
         {readOnly ? (
-          <div style={{ flex: 1, overflowY: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <ReadOnlyRow label="Stage" value={opp.stage} />
-            <ReadOnlyRow label="Product" value={opp.product} />
-            <ReadOnlyRow label="Product Type" value={opp.product_type ?? '—'} />
-            <ReadOnlyRow label="Value" value={inrLabel(opp.value_cr) || '—'} />
-            {opp.stage === 'Won' && (
+          <div style={{ flex: 1, overflowY: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {opp.stage === 'Won' ? (
               <>
-                {opp.po_number && <ReadOnlyRow label="PO Number" value={opp.po_number} />}
-                {/* Final value is editable inside the Sales Orders panel below. */}
+                {/* Fulfilment first — the point of a Won opp, so it's never buried.
+                    Final value is editable inside the Sales Orders panel. */}
                 <SalesOrderManager
                   oppId={Number(opp.id)}
                   finalValueCr={opp.final_value_cr != null ? Number(opp.final_value_cr) : null}
@@ -212,27 +225,40 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
                 />
                 {/* Customer POs — a free-standing list (No / Date / Value). */}
                 <PurchaseOrderManager oppId={Number(opp.id)} canEdit={canEdit} />
+
+                {/* Deal facts — compact grid, demoted below the actionable panels. */}
+                <DetailGrid rows={opp.po_number ? [...wonDetails, ['PO Number', opp.po_number]] : wonDetails} />
+                {opp.notes && <ReadOnlyRow label="Notes" value={opp.notes} />}
+
+                {(QUOTED_PLUS.includes(opp.stage) || opp.quotation_link) && (
+                  <QuotationPdfManager oppId={Number(opp.id)} initialLink={opp.quotation_link ?? null} canEdit={canEdit} />
+                )}
+                <QuotedItemsSection items={quoteItems} meta={quoteMeta} />
               </>
-            )}
-            {opp.stage === 'Lost' && (
+            ) : (
               <>
-                <ReadOnlyRow label="Lost To" value={opp.lost_to_competitor ?? '—'} />
-                <ReadOnlyRow label="Lost Reason" value={opp.lost_reason ?? '—'} />
+                <ReadOnlyRow label="Stage" value={opp.stage} />
+                <ReadOnlyRow label="Product" value={opp.product} />
+                <ReadOnlyRow label="Product Type" value={opp.product_type ?? '—'} />
+                <ReadOnlyRow label="Value" value={inrLabel(opp.value_cr) || '—'} />
+                {opp.stage === 'Lost' && (
+                  <>
+                    <ReadOnlyRow label="Lost To" value={opp.lost_to_competitor ?? '—'} />
+                    <ReadOnlyRow label="Lost Reason" value={opp.lost_reason ?? '—'} />
+                  </>
+                )}
+                <ReadOnlyRow label="Probability" value={probLabel} />
+                <ReadOnlyRow label="Expected Close" value={opp.eta_text ?? '—'} />
+                <ReadOnlyRow label="Quote Ref" value={opp.quote_ref ?? '—'} />
+                <ReadOnlyRow label="Tour" value={opp.tour_name ?? '—'} />
+                <ReadOnlyRow label="Reps / Manager" value={opp.tour_people ?? opp.rep_name ?? '—'} />
+                <ReadOnlyRow label="Notes" value={opp.notes ?? '—'} />
+                {(QUOTED_PLUS.includes(opp.stage) || opp.quotation_link) && (
+                  <QuotationPdfManager oppId={Number(opp.id)} initialLink={opp.quotation_link ?? null} canEdit={canEdit} />
+                )}
+                <QuotedItemsSection items={quoteItems} meta={quoteMeta} />
               </>
             )}
-            <ReadOnlyRow label="Probability" value={(() => {
-              const c = PROBABILITY_CODES.find(x => x.code === opp.probability_code);
-              return c ? probabilityCodeLabel(c) : (opp.probability_code ?? '—');
-            })()} />
-            <ReadOnlyRow label="Expected Close" value={opp.eta_text ?? '—'} />
-            <ReadOnlyRow label="Quote Ref" value={opp.quote_ref ?? '—'} />
-            <ReadOnlyRow label="Tour" value={opp.tour_name ?? '—'} />
-            <ReadOnlyRow label="Reps / Manager" value={opp.tour_people ?? opp.rep_name ?? '—'} />
-            <ReadOnlyRow label="Notes" value={opp.notes ?? '—'} />
-            {(QUOTED_PLUS.includes(opp.stage) || opp.quotation_link) && (
-              <QuotationPdfManager oppId={Number(opp.id)} initialLink={opp.quotation_link ?? null} canEdit={canEdit} />
-            )}
-            <QuotedItemsSection items={quoteItems} meta={quoteMeta} />
           </div>
         ) : (
         /* Editable form */
@@ -422,6 +448,24 @@ function ReadOnlyRow({ label, value }: { label: string; value: string }) {
       }}>
         {value || '—'}
       </div>
+    </div>
+  );
+}
+
+// Compact 2-column label/value grid — dense alternative to a stack of boxed
+// ReadOnlyRows, used for a Won opp's static deal facts.
+function DetailGrid({ rows }: { rows: [string, string][] }) {
+  return (
+    <div style={{
+      display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '11px 16px',
+      padding: '12px 14px', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--bg-elev)',
+    }}>
+      {rows.map(([l, v]) => (
+        <div key={l} style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{l}</div>
+          <div style={{ fontSize: 13, color: 'var(--fg)', marginTop: 2, overflowWrap: 'anywhere' }}>{v || '—'}</div>
+        </div>
+      ))}
     </div>
   );
 }

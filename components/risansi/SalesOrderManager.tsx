@@ -5,9 +5,9 @@ import { listSalesOrders, addSalesOrder, deleteSalesOrder, updateWonFinalValue }
 import type { SalesOrder } from '@/lib/risansi-sales-orders';
 
 // Live Sales Order management for an existing Won opportunity (shown in the Edit
-// drawer's read-only Won view). The core deal is locked once Won, but SOs keep
-// moving until they cover the final value — so this reads/adds/removes SOs
-// directly against the server and shows Won · Open vs Won · Closed live.
+// drawer's Won view). The core deal is locked once Won, but SOs keep moving until
+// they cover the final value — so this reads/adds/removes SOs directly against
+// the server and shows a coverage bar with Won · Open vs Won · Closed.
 
 const CR = 10_000_000;
 const fmtInr = (n: number) =>
@@ -54,11 +54,12 @@ export function SalesOrderManager({ oppId, finalValueCr, canEdit }: {
     return Number.isFinite(inr) && inr > 0 && Math.round(inr) !== Math.round((finalCr ?? 0) * CR);
   })();
 
-  const totalInr = (sos ?? []).reduce((s, o) => s + Number(o.so_value_cr) * CR, 0);
-  const finalInr = finalCr != null ? finalCr * CR : null;
-  const hasFinal = finalInr != null && finalInr > 0;
-  const covered  = hasFinal && totalInr >= (finalInr as number);
+  const totalInr  = (sos ?? []).reduce((s, o) => s + Number(o.so_value_cr) * CR, 0);
+  const finalInr  = finalCr != null ? finalCr * CR : null;
+  const hasFinal  = finalInr != null && finalInr > 0;
+  const covered   = hasFinal && totalInr >= (finalInr as number);
   const remaining = hasFinal ? Math.max(0, (finalInr as number) - totalInr) : 0;
+  const pct       = hasFinal ? Math.min(100, (totalInr / (finalInr as number)) * 100) : 0;
 
   const add = async () => {
     if (!num.trim() || !date || !(parseFloat(val) > 0)) { setErr('SO Number, Date and a Value greater than zero are all required.'); return; }
@@ -79,80 +80,95 @@ export function SalesOrderManager({ oppId, finalValueCr, canEdit }: {
   };
 
   return (
-    <div style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
+    <div style={CARD}>
       <div style={HEAD}>
-        <span>Sales Orders</span>
+        <span>Sales Orders{sos && sos.length > 0 ? ` · ${sos.length}` : ''}</span>
         {hasFinal && (
           <span style={{
             fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999,
-            background: covered ? '#D1FAE5' : 'var(--quote-soft, #F8EBD3)',
-            color: covered ? '#065F46' : 'var(--quote, #B3720A)',
+            background: covered ? 'var(--pos-soft)' : 'var(--quote-soft, #F8EBD3)',
+            color: covered ? 'var(--pos-strong)' : 'var(--quote, #B3720A)',
           }}>
             {covered ? 'Won · Closed' : 'Won · Open'}
           </span>
         )}
       </div>
 
-      <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {/* Final value — editable on a Won; with the SOs it decides Open/Closed. */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 8, borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontSize: 12, color: 'var(--fg-3)', minWidth: 68 }}>Final Value</span>
-          {canEdit ? (
-            <>
-              <input type="number" min={0} inputMode="numeric" value={finalStr} onChange={e => setFinalStr(e.target.value)} placeholder="₹" style={{ ...INP, maxWidth: 170 }} />
-              {finalDirty && (
-                <button type="button" onClick={saveFinal} disabled={savingFinal}
-                  style={{ background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, padding: '7px 12px', cursor: savingFinal ? 'default' : 'pointer', fontFamily: 'inherit' }}>
-                  {savingFinal ? '…' : 'Save'}
-                </button>
-              )}
-            </>
-          ) : (
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600 }}>{finalInr != null ? fmtInr(finalInr) : '—'}</span>
+      <div style={BODY}>
+        {/* Final value + coverage */}
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <span style={MINI}>Final Value</span>
+            {canEdit ? (
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <input type="number" min={0} inputMode="numeric" value={finalStr} onChange={e => setFinalStr(e.target.value)} placeholder="₹" style={{ ...INP, maxWidth: 150, textAlign: 'right' }} />
+                {finalDirty && (
+                  <button type="button" onClick={saveFinal} disabled={savingFinal} style={BTN_SM}>
+                    {savingFinal ? '…' : 'Save'}
+                  </button>
+                )}
+              </div>
+            ) : (
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600 }}>{finalInr != null ? fmtInr(finalInr) : '—'}</span>
+            )}
+          </div>
+          {hasFinal && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ height: 6, background: 'var(--bg-sunk)', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${pct}%`, background: covered ? 'var(--pos)' : 'var(--accent)', transition: 'width 200ms' }} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--fg-3)', marginTop: 4, fontFamily: 'var(--font-mono)' }}>
+                <span>{fmtInr(totalInr)} in SOs</span>
+                <span style={{ color: covered ? 'var(--pos-strong)' : 'var(--fg-3)', fontWeight: covered ? 600 : 400 }}>
+                  {covered ? 'Fully covered ✓' : `${fmtInr(remaining)} in hand`}
+                </span>
+              </div>
+            </div>
           )}
         </div>
-        {sos === null ? (
-          <div style={MUTED}>Loading…</div>
-        ) : sos.length === 0 ? (
-          <div style={MUTED}>No sales orders yet.{canEdit ? ' Add the first below.' : ''}</div>
-        ) : (
-          sos.map(o => (
-            <div key={o.id} style={ROW}>
-              <div style={{ minWidth: 0 }}>
-                <span style={{ fontWeight: 600, fontSize: 13 }}>{o.so_number}</span>
-                <span style={{ fontSize: 11, color: 'var(--fg-3)', marginLeft: 8 }}>{o.so_date}</span>
-              </div>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>{fmtInr(Number(o.so_value_cr) * CR)}</span>
-                {canEdit && (
-                  <button type="button" onClick={() => remove(o.id)} disabled={busy} aria-label="Remove SO"
-                    style={{ border: '1px solid var(--line-strong)', background: 'var(--bg-paper)', color: '#9B1C1C', borderRadius: 5, fontSize: 11, fontWeight: 600, padding: '2px 8px', cursor: 'pointer', fontFamily: 'inherit' }}>Remove</button>
-                )}
-              </span>
-            </div>
-          ))
-        )}
 
-        {sos !== null && sos.length > 0 && (
-          <div style={{ ...ROW, borderTop: '1px solid var(--line)', paddingTop: 8, fontWeight: 600 }}>
-            <span style={{ fontSize: 12, color: 'var(--fg-3)' }}>SO total{hasFinal ? ` of ${fmtInr(finalInr as number)}` : ''}</span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>
-              {fmtInr(totalInr)}{hasFinal && !covered ? <span style={{ color: 'var(--fg-3)', fontWeight: 500 }}> · {fmtInr(remaining)} in hand</span> : null}
-            </span>
-          </div>
-        )}
+        {/* SO list */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {sos === null ? (
+            <div style={{ ...MUTED, height: 20, background: 'var(--bg-sunk)', borderRadius: 4, animation: 'pulse 1.2s ease-in-out infinite' }} />
+          ) : sos.length === 0 ? (
+            <div style={MUTED}>No sales orders recorded yet.</div>
+          ) : (
+            sos.map(o => (
+              <div key={o.id} style={ROW}>
+                <div style={{ minWidth: 0 }}>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>{o.so_number}</span>
+                  <span style={{ fontSize: 11, color: 'var(--fg-3)', marginLeft: 8 }}>{o.so_date}</span>
+                </div>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>{fmtInr(Number(o.so_value_cr) * CR)}</span>
+                  {canEdit && (
+                    <button type="button" onClick={() => remove(o.id)} disabled={busy} aria-label="Remove SO" style={REMOVE}>Remove</button>
+                  )}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
 
         {err && <div style={{ fontSize: 12, color: '#9B1C1C' }}>{err}</div>}
 
-        {canEdit && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr auto', gap: 6, alignItems: 'center', marginTop: 4 }}>
-            <input value={num} onChange={e => setNum(e.target.value)} placeholder="SO Number" style={INP} />
-            <input type="date" value={date} onChange={e => setDate(e.target.value)} style={INP} />
-            <input type="number" min={0} value={val} onChange={e => setVal(e.target.value)} placeholder="Value ₹" style={INP} />
-            <button type="button" onClick={add} disabled={busy}
-              style={{ background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, padding: '7px 12px', cursor: busy ? 'default' : 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
-              {busy ? '…' : 'Add'}
+        {/* Add block — always visible while editable, so it's never buried. */}
+        {canEdit ? (
+          <div style={{ borderTop: '1px dashed var(--line-strong)', paddingTop: 10 }}>
+            <div style={{ ...MINI, marginBottom: 6 }}>Record a sales order</div>
+            <input value={num} onChange={e => setNum(e.target.value)} placeholder="SO Number" style={{ ...INP, marginBottom: 6 }} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+              <input type="date" value={date} onChange={e => setDate(e.target.value)} style={INP} />
+              <input type="number" min={0} value={val} onChange={e => setVal(e.target.value)} placeholder="Value ₹" style={INP} />
+            </div>
+            <button type="button" onClick={add} disabled={busy} style={BTN_ADD}>
+              {busy ? 'Adding…' : '+ Add Sales Order'}
             </button>
+          </div>
+        ) : (
+          <div style={{ ...MUTED, borderTop: '1px dashed var(--line-strong)', paddingTop: 10 }}>
+            View only — you’re not on this client’s tour, so you can’t record sales orders here.
           </div>
         )}
       </div>
@@ -160,14 +176,20 @@ export function SalesOrderManager({ oppId, finalValueCr, canEdit }: {
   );
 }
 
+const CARD: CSSProperties = { border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden', background: 'var(--bg-paper)' };
 const HEAD: CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
   padding: '9px 14px', background: 'var(--bg-elev)', borderBottom: '1px solid var(--line)',
   fontSize: 12, fontWeight: 700, color: 'var(--fg-2)', textTransform: 'uppercase', letterSpacing: '0.05em',
 };
+const BODY: CSSProperties = { padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 12 };
 const ROW: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 };
-const MUTED: CSSProperties = { fontSize: 12, color: 'var(--fg-3)', padding: '4px 0' };
+const MUTED: CSSProperties = { fontSize: 12, color: 'var(--fg-3)', padding: '2px 0' };
+const MINI: CSSProperties = { fontSize: 10, fontWeight: 700, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.06em' };
 const INP: CSSProperties = {
-  width: '100%', padding: '7px 9px', border: '1px solid var(--line-strong)', borderRadius: 6,
+  width: '100%', padding: '8px 10px', border: '1px solid var(--line-strong)', borderRadius: 6,
   fontSize: 13, background: 'var(--bg-paper)', color: 'var(--fg)', boxSizing: 'border-box', fontFamily: 'inherit',
 };
+const BTN_SM: CSSProperties = { background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, padding: '7px 12px', cursor: 'pointer', fontFamily: 'inherit' };
+const BTN_ADD: CSSProperties = { marginTop: 8, width: '100%', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, padding: '9px 12px', cursor: 'pointer', fontFamily: 'inherit' };
+const REMOVE: CSSProperties = { border: '1px solid var(--line-strong)', background: 'var(--bg-paper)', color: '#9B1C1C', borderRadius: 5, fontSize: 11, fontWeight: 600, padding: '2px 8px', cursor: 'pointer', fontFamily: 'inherit' };
