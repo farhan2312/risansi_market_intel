@@ -200,8 +200,8 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
             <ReadOnlyRow label="Value" value={inrLabel(opp.value_cr) || '—'} />
             {opp.stage === 'Won' && (
               <>
-                <ReadOnlyRow label="Final Value" value={inrLabel(opp.final_value_cr) || '—'} />
                 <ReadOnlyRow label="PO Number" value={opp.po_number ?? '—'} />
+                {/* Final value is editable inside the Sales Orders panel below. */}
                 <SalesOrderManager
                   oppId={Number(opp.id)}
                   finalValueCr={opp.final_value_cr != null ? Number(opp.final_value_cr) : null}

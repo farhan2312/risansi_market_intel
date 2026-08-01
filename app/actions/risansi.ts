@@ -1259,6 +1259,27 @@ export async function deleteSalesOrder(soId: number): Promise<SalesOrder[]> {
   return listSalesOrders(rows[0].opportunity_id);
 }
 
+// Adjust a Won opportunity's final value. The rest of a Won is frozen, but the
+// final value (with the SOs) decides Open vs Closed, so it stays editable —
+// same permission, bypassing the Won edit lock like the SO actions do.
+export async function updateWonFinalValue(oppId: number, formData: FormData): Promise<void> {
+  const user = await requireSession();
+  const { rows } = await risansiPool.query<{ stage: string; rep_id: number | null }>(
+    'SELECT stage, rep_id FROM opportunities WHERE id = $1', [oppId],
+  );
+  if (!rows[0]) throw new Error('Opportunity not found.');
+  if (!(await userCanEditOpp(user, rows[0].rep_id))) throw new Error('You do not have permission to edit this opportunity.');
+  if (rows[0].stage !== 'Won') throw new Error('Only a Won opportunity’s final value can be adjusted here.');
+
+  const inr = parseFloat(((formData.get('final_value_inr') as string | null) ?? '').replace(/[^0-9.\-]/g, ''));
+  if (!Number.isFinite(inr) || inr <= 0) throw new Error('Enter a final value greater than zero.');
+
+  await risansiPool.query('UPDATE opportunities SET final_value_cr = $1, updated_at = NOW() WHERE id = $2', [inr / 10_000_000, oppId]);
+  await logActivity('opportunity', String(oppId), `final value updated to ₹${Math.round(inr)}`, user.email!);
+  revalidatePath('/risansi/pipeline');
+  revalidatePath('/risansi');
+}
+
 // ── Pipeline: delete opportunity ───────────────────────────────
 
 export async function deleteOpportunity(oppId: number) {

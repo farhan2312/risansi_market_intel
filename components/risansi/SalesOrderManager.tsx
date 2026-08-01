@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, type CSSProperties } from 'react';
-import { listSalesOrders, addSalesOrder, deleteSalesOrder } from '@/app/actions/risansi';
+import { listSalesOrders, addSalesOrder, deleteSalesOrder, updateWonFinalValue } from '@/app/actions/risansi';
 import type { SalesOrder } from '@/lib/risansi-sales-orders';
 
 // Live Sales Order management for an existing Won opportunity (shown in the Edit
@@ -24,6 +24,11 @@ export function SalesOrderManager({ oppId, finalValueCr, canEdit }: {
   const [val, setVal]   = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr]   = useState('');
+  // The final value drives Open/Closed alongside the SOs, so it stays editable
+  // on a Won (the deal is otherwise frozen).
+  const [finalCr, setFinalCr]     = useState<number | null>(finalValueCr);
+  const [finalStr, setFinalStr]   = useState(finalValueCr != null ? String(Math.round(finalValueCr * CR)) : '');
+  const [savingFinal, setSavingFinal] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -33,8 +38,24 @@ export function SalesOrderManager({ oppId, finalValueCr, canEdit }: {
     return () => { active = false; };
   }, [oppId]);
 
+  const saveFinal = async () => {
+    const inr = parseFloat(finalStr.replace(/[^0-9.\-]/g, ''));
+    if (!(inr > 0)) { setErr('Enter a final value greater than zero.'); return; }
+    setSavingFinal(true); setErr('');
+    try {
+      const fd = new FormData(); fd.set('final_value_inr', String(inr));
+      await updateWonFinalValue(oppId, fd);
+      setFinalCr(inr / CR);
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Could not update the final value.'); }
+    finally { setSavingFinal(false); }
+  };
+  const finalDirty = (() => {
+    const inr = parseFloat(finalStr.replace(/[^0-9.\-]/g, ''));
+    return Number.isFinite(inr) && inr > 0 && Math.round(inr) !== Math.round((finalCr ?? 0) * CR);
+  })();
+
   const totalInr = (sos ?? []).reduce((s, o) => s + Number(o.so_value_cr) * CR, 0);
-  const finalInr = finalValueCr != null ? finalValueCr * CR : null;
+  const finalInr = finalCr != null ? finalCr * CR : null;
   const hasFinal = finalInr != null && finalInr > 0;
   const covered  = hasFinal && totalInr >= (finalInr as number);
   const remaining = hasFinal ? Math.max(0, (finalInr as number) - totalInr) : 0;
@@ -73,6 +94,23 @@ export function SalesOrderManager({ oppId, finalValueCr, canEdit }: {
       </div>
 
       <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {/* Final value — editable on a Won; with the SOs it decides Open/Closed. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 8, borderBottom: '1px solid var(--line)' }}>
+          <span style={{ fontSize: 12, color: 'var(--fg-3)', minWidth: 68 }}>Final Value</span>
+          {canEdit ? (
+            <>
+              <input type="number" min={0} inputMode="numeric" value={finalStr} onChange={e => setFinalStr(e.target.value)} placeholder="₹" style={{ ...INP, maxWidth: 170 }} />
+              {finalDirty && (
+                <button type="button" onClick={saveFinal} disabled={savingFinal}
+                  style={{ background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, padding: '7px 12px', cursor: savingFinal ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+                  {savingFinal ? '…' : 'Save'}
+                </button>
+              )}
+            </>
+          ) : (
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600 }}>{finalInr != null ? fmtInr(finalInr) : '—'}</span>
+          )}
+        </div>
         {sos === null ? (
           <div style={MUTED}>Loading…</div>
         ) : sos.length === 0 ? (
