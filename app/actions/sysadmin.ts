@@ -71,6 +71,27 @@ export async function setAnnualTarget(formData: FormData): Promise<void> {
   revalidatePath('/risansi/admin/settings');
 }
 
+// USD→INR conversion rate, used to show quoted values in USD alongside ₹.
+export async function setUsdRate(formData: FormData): Promise<void> {
+  const email = await requireSysadmin();
+  const raw = (formData.get('usd_inr_rate') as string | null)?.trim() ?? '';
+  const val = parseFloat(raw);
+  if (!Number.isFinite(val) || val <= 0) {
+    throw new Error('Enter a valid USD→INR rate (e.g. 86).');
+  }
+  const { rows: before } = await risansiPool.query<{ value: string }>(
+    `SELECT value FROM app_settings WHERE key = 'usd_inr_rate'`);
+  await risansiPool.query(
+    `INSERT INTO app_settings (key, value, updated_by, updated_at)
+     VALUES ('usd_inr_rate', $1, $2, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+    [String(val), email]);
+  await audit('setting', 'usd_inr_rate', 'update', before[0]?.value ?? null, String(val), email);
+  revalidatePath('/risansi');
+  revalidatePath('/risansi/admin/settings');
+  revalidatePath('/risansi/pipeline');
+}
+
 function parseIntArray(raw: FormDataEntryValue | null): number[] {
   try {
     const parsed = JSON.parse((raw as string) || '[]');

@@ -157,6 +157,22 @@ export function fmtL(val: number | null | undefined, decimals = 2): string {
   return `₹${val.toFixed(decimals)} L`;
 }
 
+/** USD amount from a value already in Crores, at the given ₹/USD rate. */
+export function crToUsd(cr: number | null | undefined, rate: number): number {
+  const c = Number(cr ?? 0);
+  if (!c || !rate) return 0;
+  return (c * 10_000_000) / rate;
+}
+
+/** "$2.79M" / "$960K" / "$12,345" — USD from a Crore value. null-safe. */
+export function fmtUsdFromCr(cr: number | null | undefined, rate: number): string {
+  const usd = crToUsd(cr, rate);
+  if (!usd) return '—';
+  if (usd >= 1_000_000) return '$' + (usd / 1_000_000).toFixed(2) + 'M';
+  if (usd >= 1_000)     return '$' + (usd / 1_000).toFixed(1) + 'K';
+  return '$' + Math.round(usd).toLocaleString('en-US');
+}
+
 export function formatRev(val: number | null | undefined): string {
   const n = Number(val ?? 0)
   if (!n) return '—'

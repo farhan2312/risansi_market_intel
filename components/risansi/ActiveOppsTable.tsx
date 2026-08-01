@@ -3,6 +3,7 @@
 import { useState, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { EditOppDrawer, type EditableOpp } from './EditOppDrawer';
+import { fmtUsdFromCr } from '@/lib/risansi-utils';
 
 const STAGE_COLORS: Record<string, string> = {
   Suspect:     '#6B7FA3',
@@ -13,7 +14,7 @@ const STAGE_COLORS: Record<string, string> = {
   Lost:        '#9CA3AF',
 };
 
-export function ActiveOppsTable({ opps }: { opps: EditableOpp[] }) {
+export function ActiveOppsTable({ opps, usdRate }: { opps: EditableOpp[]; usdRate?: number }) {
   const router = useRouter();
   const [selectedOpp, setSelectedOpp] = useState<EditableOpp | null>(null);
 
@@ -67,6 +68,11 @@ export function ActiveOppsTable({ opps }: { opps: EditableOpp[] }) {
                   </td>
                   <td data-label="Value" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, color: '#0A3D8F', whiteSpace: 'nowrap' }}>
                     {opp.value_cr ? `₹${(opp.value_cr * 100).toFixed(1)}L` : '—'}
+                    {opp.value_cr && usdRate ? (
+                      <div style={{ fontSize: 10, fontWeight: 400, color: 'var(--fg-3)', marginTop: 1 }}>
+                        ≈ {fmtUsdFromCr(opp.value_cr, usdRate)}
+                      </div>
+                    ) : null}
                   </td>
                   <td data-label="Product & Notes" style={{ ...TD, maxWidth: 340 }}>
                     <div style={{ color: 'var(--fg)' }}>

@@ -4,7 +4,8 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, MultiSelectFilter, ActiveFilterBar } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, clientScopeSql } from '@/lib/risansi-auth';
-import { getCurrentFY, fmtCr } from '@/lib/risansi-utils';
+import { getCurrentFY, fmtCr, fmtUsdFromCr } from '@/lib/risansi-utils';
+import { getUsdRate } from '@/lib/risansi-settings';
 import { PROBABILITY_CODE_OPTIONS } from '@/lib/risansi-probability-codes';
 import { NewOpportunityButton } from '@/components/risansi/NewOpportunityButton';
 import { OpportunityKanban } from '@/components/risansi/OpportunityKanban';
@@ -290,7 +291,7 @@ export default async function PipelinePage({
           ELSE FALSE
         END AS can_edit`;
 
-  const [openOpps, closedOpps, bookedYTD, annualTarget, winLossRows, lostToRows, stageOptions, productTypeOptions, repOptions, industryOptions, wonTotal, orderInHand, stageTotals] = await Promise.all([
+  const [openOpps, closedOpps, bookedYTD, annualTarget, winLossRows, lostToRows, stageOptions, productTypeOptions, repOptions, industryOptions, wonTotal, orderInHand, orderBooked, stageTotals, usdRate] = await Promise.all([
 
     // 1. Open opportunities with filters + sort. Feeds the KPIs, the kanban (every
     //    open card must show), and the Active Opportunities table — so NO row cap
@@ -471,6 +472,20 @@ export default async function PipelinePage({
       return Number(rows[0]?.oih_cr ?? 0);
     }, 0),
 
+    // 7c. Order Booked (Cr) — Won value already turned into Sales Orders: SUM of
+    //     so_value_cr across the Won opps in scope. The filter-responsive companion
+    //     to Order in Hand (booked + in-hand ≈ Won total, allowing over-delivery).
+    q<number>(async () => {
+      const { rows } = await risansiPool.query<{ booked_cr: string }>(
+        `SELECT COALESCE(SUM(
+                  (SELECT COALESCE(SUM(so.so_value_cr), 0) FROM opportunity_sales_orders so WHERE so.opportunity_id = o.id)
+                ), 0)::text AS booked_cr
+           FROM opportunities o ${wonWhere}`,
+        wonV as (string | number)[],
+      );
+      return Number(rows[0]?.booked_cr ?? 0);
+    }, 0),
+
     // 8. True per-stage totals + counts for the kanban headers, uncapped. The
     //    board caps closed cards at 200, so its columns undercount; these give
     //    the honest figure while the cards themselves stay capped for rendering.
@@ -488,6 +503,9 @@ export default async function PipelinePage({
       for (const r of rows) m[r.stage] = { count: Number(r.n), valueCr: Number(r.v) };
       return m;
     }, {}),
+
+    // 9. USD→INR rate (company setting) for the ≈ $ figures on the tiles/table.
+    getUsdRate(),
   ]);
 
   // ── Derived values ─────────────────────────────────────────
@@ -581,16 +599,18 @@ export default async function PipelinePage({
         {/* Forecast strip */}
         <div style={{ ...PANEL, marginBottom: 14 }}>
           <div style={{ padding: 16 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 1fr 2fr', gap: 16, alignItems: 'center' }}>
-              <ForecastBlock label="Booked (Invoiced)" value={bookedYTD} sub={`sales · ${fy.label}`} color="var(--fg-2)" />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 1fr 1fr 2fr', gap: 16, alignItems: 'center' }}>
+              <ForecastBlock label="Booked (Invoiced)" value={bookedYTD} sub={`sales · ${fy.label}`} color="var(--fg-2)" rate={usdRate} />
               <ForecastBlock label="Won" value={wonTotal}
-                sub={wonCount > 0 ? `${wonCount} won opportunit${wonCount === 1 ? 'y' : 'ies'}` : 'no wins yet'} color="var(--pos)" />
+                sub={wonCount > 0 ? `${wonCount} won opportunit${wonCount === 1 ? 'y' : 'ies'}` : 'no wins yet'} color="var(--pos)" rate={usdRate} />
+              <ForecastBlock label="Order Booked" value={orderBooked}
+                sub="won · SO created" color="var(--pos)" rate={usdRate} />
               <ForecastBlock label="Order in Hand" value={orderInHand}
-                sub="won · not yet in an SO" color="var(--accent)" />
+                sub="won · not yet in an SO" color="var(--accent)" rate={usdRate} />
               <ForecastBlock label="Best-case (100% pipe)" value={bestCase}
-                sub={`${fmtCr(wonTotal)} won + ${fmtCr(openTotal)} open`} color="var(--fg)" />
+                sub={`${fmtCr(wonTotal)} won + ${fmtCr(openTotal)} open`} color="var(--fg)" rate={usdRate} />
               <ForecastBlock label="Probability-weighted" value={probabilityWeighted}
-                sub={`${fmtCr(weightedOpen)} weighted pipe + won`} color="var(--accent)" highlight />
+                sub={`${fmtCr(weightedOpen)} weighted pipe + won`} color="var(--accent)" highlight rate={usdRate} />
               <ForecastBlock label="Annual Target" value={target}
                 sub={`${fmtCr(toGo)} to go`} color="var(--fg-2)" />
               <div>
@@ -651,7 +671,7 @@ export default async function PipelinePage({
                   {Math.min(openOpps.length, 50)} of {openOpps.length}
                 </span>
               </div>
-              <ActiveOppsTable opps={openOpps.slice(0, 50)} />
+              <ActiveOppsTable opps={openOpps.slice(0, 50)} usdRate={usdRate} />
             </div>
           }
           kanban={<OpportunityKanban key="kanban" initialOpps={[...openOpps, ...closedOpps]} stageTotals={stageTotals} />}
@@ -734,9 +754,9 @@ export default async function PipelinePage({
 // ── Sub-components ─────────────────────────────────────────────
 
 function ForecastBlock({
-  label, value, sub, color, highlight = false,
+  label, value, sub, color, highlight = false, rate,
 }: {
-  label: string; value: number; sub: string; color: string; highlight?: boolean;
+  label: string; value: number; sub: string; color: string; highlight?: boolean; rate?: number;
 }) {
   return (
     <div style={highlight ? {
@@ -749,6 +769,11 @@ function ForecastBlock({
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 22, marginTop: 2, color, lineHeight: 1.1 }}>
         ₹{value.toFixed(1)}<span style={{ fontSize: 12, color: 'var(--fg-3)', marginLeft: 4 }}>Cr</span>
       </div>
+      {rate != null && (
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)', marginTop: 1 }}>
+          ≈ {fmtUsdFromCr(value, rate)}
+        </div>
+      )}
       <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 2 }}>{sub}</div>
     </div>
   );

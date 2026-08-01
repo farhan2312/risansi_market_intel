@@ -3,6 +3,8 @@ import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser } from '@/lib/risansi-auth';
 import { AccessDenied } from '../_components/AccessDenied';
 import { SettingsForm } from './SettingsForm';
+import { UsdRateForm } from './UsdRateForm';
+import { DEFAULT_USD_INR_RATE } from '@/lib/risansi-settings';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,6 +23,17 @@ export default async function SettingsPage() {
          FROM app_settings WHERE key = 'annual_target_cr' LIMIT 1`,
     );
     if (rows[0]) { annualTarget = rows[0].value; updatedBy = rows[0].updated_by; updatedAt = rows[0].updated_at; }
+  } catch { /* table may not exist yet */ }
+
+  let usdRate = String(DEFAULT_USD_INR_RATE);
+  let usdUpdatedBy: string | null = null;
+  let usdUpdatedAt: string | null = null;
+  try {
+    const { rows } = await risansiPool.query<{ value: string; updated_by: string | null; updated_at: string | null }>(
+      `SELECT value, updated_by, to_char(updated_at,'DD Mon YYYY, HH24:MI') AS updated_at
+         FROM app_settings WHERE key = 'usd_inr_rate' LIMIT 1`,
+    );
+    if (rows[0]) { usdRate = rows[0].value; usdUpdatedBy = rows[0].updated_by; usdUpdatedAt = rows[0].updated_at; }
   } catch { /* table may not exist yet */ }
 
   return (
@@ -43,6 +56,19 @@ export default async function SettingsPage() {
           {updatedAt && (
             <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 12 }}>
               Last updated {updatedAt}{updatedBy ? ` by ${updatedBy}` : ''}
+            </div>
+          )}
+        </div>
+
+        <div style={{ maxWidth: 460, background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', padding: 20, marginTop: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)', marginBottom: 4 }}>USD → INR Rate</div>
+          <div style={{ fontSize: 12, color: 'var(--fg-3)', marginBottom: 14 }}>
+            Used to show quoted values in USD alongside ₹ on the Opportunities and Client pages. Enter how many rupees equal $1.
+          </div>
+          <UsdRateForm current={usdRate} />
+          {usdUpdatedAt && (
+            <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 12 }}>
+              Last updated {usdUpdatedAt}{usdUpdatedBy ? ` by ${usdUpdatedBy}` : ''}
             </div>
           )}
         </div>
