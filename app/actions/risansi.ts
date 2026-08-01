@@ -4,7 +4,7 @@ import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { getManagerAssignableReps, hasRole, getCurrentUser, canViewClient, hasSpecialClientAccess } from '@/lib/risansi-auth';
+import { getManagerAssignableReps, hasRole, getCurrentUser, canViewClient, hasSpecialClientAccess, type RisansiRole } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 import { recordAudit } from '@/lib/audit';
 import { normalizeClientName, uniqueLeadCode } from '@/lib/risansi-lead-code';
@@ -71,13 +71,21 @@ async function resolveAssignableRepId(
 
 // Can this user move / edit an opportunity owned by `oppRepId`?
 //   admin/sysadmin → always · assigned rep → own · manager → reps sharing a tour.
+// An opportunity belongs to the client's TOUR, not one owner: anyone who can SEE
+// the client (a rep/manager on its tour, a special-access grantee, or admin) may
+// edit it. `clientId` is what makes this tour-based — pass it wherever possible.
+// The oppRepId fast-path and the manager fallback remain for callers that don't.
 async function userCanEditOpp(
-  user: { role?: string; repId?: number | null },
+  user: { role?: string; repId?: number | null; email?: string | null },
   oppRepId: number | null,
+  clientId?: number | null,
 ): Promise<boolean> {
   const role = user.role ?? 'rep';
   if (hasRole(role, 'admin')) return true;
   if (user.repId != null && oppRepId != null && Number(oppRepId) === Number(user.repId)) return true;
+  if (clientId != null) {
+    return canViewClient({ id: user.repId ?? null, email: user.email ?? null, role: role as RisansiRole }, Number(clientId));
+  }
   if (role === 'manager' && user.repId != null && oppRepId != null) {
     const assignable = await getManagerAssignableReps(user.repId);
     return assignable.includes(Number(oppRepId));
@@ -967,14 +975,14 @@ export async function createPipelineOpportunity(formData: FormData) {
 export async function saveQuotedDetails(oppId: number, formData: FormData) {
   const user = await requireSession();
 
-  const { rows } = await risansiPool.query<{ stage: string; rep_id: number | null }>(
-    'SELECT stage, rep_id FROM opportunities WHERE id = $1', [oppId],
+  const { rows } = await risansiPool.query<{ stage: string; rep_id: number | null; client_id: number | null }>(
+    'SELECT stage, rep_id, client_id FROM opportunities WHERE id = $1', [oppId],
   );
   if (!rows[0]) throw new Error('Opportunity not found');
   if (rows[0].stage === 'Won' || rows[0].stage === 'Lost') {
     throw new Error('This opportunity is locked and cannot be edited.');
   }
-  if (!(await userCanEditOpp(user, rows[0].rep_id))) {
+  if (!(await userCanEditOpp(user, rows[0].rep_id, rows[0].client_id))) {
     throw new Error('You do not have permission to edit this opportunity.');
   }
 
@@ -1057,13 +1065,13 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
   const user = await requireSession();
 
   // Lock guard — a Won/Lost opp can't be edited unless it's being moved out of that stage
-  const { rows: cur } = await risansiPool.query<{ stage: string; rep_id: number | null }>(
-    'SELECT stage, rep_id FROM opportunities WHERE id = $1', [oppId],
+  const { rows: cur } = await risansiPool.query<{ stage: string; rep_id: number | null; client_id: number | null }>(
+    'SELECT stage, rep_id, client_id FROM opportunities WHERE id = $1', [oppId],
   );
   if (!cur[0]) throw new Error('Opportunity not found');
 
-  // Ownership — assigned rep, their tour manager, or admin/sysadmin only.
-  if (!(await userCanEditOpp(user, cur[0].rep_id))) {
+  // Tour-based edit rights — anyone who can see the client (its tour) or admin.
+  if (!(await userCanEditOpp(user, cur[0].rep_id, cur[0].client_id))) {
     throw new Error('You do not have permission to edit this opportunity.');
   }
 
@@ -1222,11 +1230,11 @@ export async function listSalesOrders(oppId: number): Promise<SalesOrder[]> {
 
 export async function addSalesOrder(oppId: number, formData: FormData): Promise<SalesOrder[]> {
   const user = await requireSession();
-  const { rows: cur } = await risansiPool.query<{ stage: string; rep_id: number | null }>(
-    'SELECT stage, rep_id FROM opportunities WHERE id = $1', [oppId],
+  const { rows: cur } = await risansiPool.query<{ stage: string; rep_id: number | null; client_id: number | null }>(
+    'SELECT stage, rep_id, client_id FROM opportunities WHERE id = $1', [oppId],
   );
   if (!cur[0]) throw new Error('Opportunity not found.');
-  if (!(await userCanEditOpp(user, cur[0].rep_id))) throw new Error('You do not have permission to edit this opportunity.');
+  if (!(await userCanEditOpp(user, cur[0].rep_id, cur[0].client_id))) throw new Error('You do not have permission to edit this opportunity.');
   if (cur[0].stage !== 'Won') throw new Error('Sales Orders can only be recorded against a Won opportunity.');
 
   const num  = (formData.get('so_number') as string | null)?.trim() ?? '';
@@ -1244,14 +1252,14 @@ export async function addSalesOrder(oppId: number, formData: FormData): Promise<
 
 export async function deleteSalesOrder(soId: number): Promise<SalesOrder[]> {
   const user = await requireSession();
-  const { rows } = await risansiPool.query<{ opportunity_id: number; rep_id: number | null; so_number: string }>(
-    `SELECT so.opportunity_id, o.rep_id, so.so_number
+  const { rows } = await risansiPool.query<{ opportunity_id: number; rep_id: number | null; client_id: number | null; so_number: string }>(
+    `SELECT so.opportunity_id, o.rep_id, o.client_id, so.so_number
        FROM opportunity_sales_orders so JOIN opportunities o ON o.id = so.opportunity_id
       WHERE so.id = $1`,
     [soId],
   );
   if (!rows[0]) throw new Error('Sales order not found.');
-  if (!(await userCanEditOpp(user, rows[0].rep_id))) throw new Error('You do not have permission to edit this opportunity.');
+  if (!(await userCanEditOpp(user, rows[0].rep_id, rows[0].client_id))) throw new Error('You do not have permission to edit this opportunity.');
   await risansiPool.query('DELETE FROM opportunity_sales_orders WHERE id = $1', [soId]);
   await logActivity('opportunity', String(rows[0].opportunity_id), `removed sales order ${rows[0].so_number}`, user.email!);
   revalidatePath('/risansi/pipeline');
@@ -1264,11 +1272,11 @@ export async function deleteSalesOrder(soId: number): Promise<SalesOrder[]> {
 // same permission, bypassing the Won edit lock like the SO actions do.
 export async function updateWonFinalValue(oppId: number, formData: FormData): Promise<void> {
   const user = await requireSession();
-  const { rows } = await risansiPool.query<{ stage: string; rep_id: number | null }>(
-    'SELECT stage, rep_id FROM opportunities WHERE id = $1', [oppId],
+  const { rows } = await risansiPool.query<{ stage: string; rep_id: number | null; client_id: number | null }>(
+    'SELECT stage, rep_id, client_id FROM opportunities WHERE id = $1', [oppId],
   );
   if (!rows[0]) throw new Error('Opportunity not found.');
-  if (!(await userCanEditOpp(user, rows[0].rep_id))) throw new Error('You do not have permission to edit this opportunity.');
+  if (!(await userCanEditOpp(user, rows[0].rep_id, rows[0].client_id))) throw new Error('You do not have permission to edit this opportunity.');
   if (rows[0].stage !== 'Won') throw new Error('Only a Won opportunity’s final value can be adjusted here.');
 
   const inr = parseFloat(((formData.get('final_value_inr') as string | null) ?? '').replace(/[^0-9.\-]/g, ''));
@@ -1284,6 +1292,13 @@ export async function updateWonFinalValue(oppId: number, formData: FormData): Pr
 
 export async function deleteOpportunity(oppId: number) {
   const user = await requireSession();
+  const { rows } = await risansiPool.query<{ rep_id: number | null; client_id: number | null }>(
+    'SELECT rep_id, client_id FROM opportunities WHERE id = $1', [oppId],
+  );
+  if (!rows[0]) throw new Error('Opportunity not found.');
+  if (!(await userCanEditOpp(user, rows[0].rep_id, rows[0].client_id))) {
+    throw new Error('You do not have permission to delete this opportunity.');
+  }
   await risansiPool.query('DELETE FROM opportunities WHERE id = $1', [oppId]);
   await logActivity('opportunity', String(oppId), 'deleted opportunity', user.email!);
   revalidatePath('/risansi/pipeline');

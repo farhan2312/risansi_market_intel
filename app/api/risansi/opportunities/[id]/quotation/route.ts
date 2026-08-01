@@ -10,11 +10,12 @@ export const runtime = 'nodejs';
 
 const MAX_BYTES = 15 * 1024 * 1024; // 15 MB
 
-// Mirror of userCanEditOpp in app/actions/risansi.ts — admin always, the owning
-// rep, or a manager sharing the owner's tour.
-async function canEditOpp(user: CurrentUser, oppRepId: number | null): Promise<boolean> {
+// Mirror of userCanEditOpp in app/actions/risansi.ts — tour-based: admin always,
+// or anyone who can see the client (a rep/manager on its tour, special-access).
+async function canEditOpp(user: CurrentUser, oppRepId: number | null, clientId: number | null): Promise<boolean> {
   if (hasRole(user.role, 'admin')) return true;
   if (user.id != null && oppRepId != null && Number(oppRepId) === Number(user.id)) return true;
+  if (clientId != null) return canViewClient(user, Number(clientId));
   if (user.role === 'manager' && user.id != null && oppRepId != null) {
     return (await getManagerAssignableReps(user.id)).includes(Number(oppRepId));
   }
@@ -30,11 +31,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const user = await getCurrentUser();
   if (!user.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const opp = (await risansiPool.query<{ rep_id: number | null; stage: string }>(
-    'SELECT rep_id, stage FROM opportunities WHERE id = $1', [oppId],
+  const opp = (await risansiPool.query<{ rep_id: number | null; stage: string; client_id: number | null }>(
+    'SELECT rep_id, stage, client_id FROM opportunities WHERE id = $1', [oppId],
   )).rows[0];
   if (!opp) return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 });
-  if (!(await canEditOpp(user, opp.rep_id))) {
+  if (!(await canEditOpp(user, opp.rep_id, opp.client_id))) {
     return NextResponse.json({ error: 'You do not have permission to edit this opportunity.' }, { status: 403 });
   }
 
@@ -89,11 +90,11 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   const user = await getCurrentUser();
   if (!user.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const opp = (await risansiPool.query<{ rep_id: number | null }>(
-    'SELECT rep_id FROM opportunities WHERE id = $1', [oppId],
+  const opp = (await risansiPool.query<{ rep_id: number | null; client_id: number | null }>(
+    'SELECT rep_id, client_id FROM opportunities WHERE id = $1', [oppId],
   )).rows[0];
   if (!opp) return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 });
-  if (!(await canEditOpp(user, opp.rep_id))) {
+  if (!(await canEditOpp(user, opp.rep_id, opp.client_id))) {
     return NextResponse.json({ error: 'You do not have permission to edit this opportunity.' }, { status: 403 });
   }
 

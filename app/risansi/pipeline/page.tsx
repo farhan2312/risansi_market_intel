@@ -254,15 +254,14 @@ export default async function PipelinePage({
   const ceRoleIdx = vals.length + 1;
   const ceRepIdx  = vals.length + 2;
   vals.push(role, currentRepId ?? 0);
+  // Tour-based: an opportunity belongs to the client's tour, so anyone on that
+  // tour (or with special access, or admin) can edit it — matches userCanEditOpp.
   const CAN_EDIT_CASE = `
         CASE
           WHEN $${ceRoleIdx} IN ('admin','sysadmin') THEN TRUE
           WHEN o.rep_id = $${ceRepIdx} THEN TRUE
-          WHEN EXISTS (
-            SELECT 1 FROM tour_assignments ta1
-            JOIN tour_assignments ta2 ON ta1.tour_id = ta2.tour_id
-            WHERE ta1.rep_id = $${ceRepIdx} AND ta2.rep_id = o.rep_id
-          ) THEN TRUE
+          WHEN EXISTS (SELECT 1 FROM tour_assignments ta WHERE ta.tour_id = c.tour_id AND ta.rep_id = $${ceRepIdx}) THEN TRUE
+          WHEN EXISTS (SELECT 1 FROM client_rep_access cra WHERE cra.client_id = c.id AND cra.rep_id = $${ceRepIdx}) THEN TRUE
           ELSE FALSE
         END AS can_edit`;
 
@@ -284,6 +283,8 @@ export default async function PipelinePage({
                o.revised_offer_date::text  AS revised_offer_date,
                o.expected_close_date::text AS expected_close_date,
                (SELECT COALESCE(SUM(so.so_value_cr), 0) FROM opportunity_sales_orders so WHERE so.opportunity_id = o.id)::float8 AS so_sum_cr,
+               (SELECT string_agg(u2.name || CASE WHEN ta2.role = 'manager' THEN ' (mgr)' ELSE '' END, ', ' ORDER BY (ta2.role = 'manager'), u2.name)
+                  FROM tour_assignments ta2 JOIN users u2 ON u2.id = ta2.rep_id WHERE ta2.tour_id = c.tour_id) AS tour_people,
                c.legal_name AS client_name, c.code AS client_code, c.industry,
                COALESCE(r.name, '—') AS rep_name,
                (SELECT tr.name FROM tour_routes tr WHERE tr.id = c.tour_id) AS tour_name,
@@ -313,6 +314,8 @@ export default async function PipelinePage({
                o.revised_offer_date::text  AS revised_offer_date,
                o.expected_close_date::text AS expected_close_date,
                (SELECT COALESCE(SUM(so.so_value_cr), 0) FROM opportunity_sales_orders so WHERE so.opportunity_id = o.id)::float8 AS so_sum_cr,
+               (SELECT string_agg(u2.name || CASE WHEN ta2.role = 'manager' THEN ' (mgr)' ELSE '' END, ', ' ORDER BY (ta2.role = 'manager'), u2.name)
+                  FROM tour_assignments ta2 JOIN users u2 ON u2.id = ta2.rep_id WHERE ta2.tour_id = c.tour_id) AS tour_people,
                c.legal_name AS client_name, c.code AS client_code, c.industry,
                COALESCE(r.name, '—') AS rep_name,
                (SELECT tr.name FROM tour_routes tr WHERE tr.id = c.tour_id) AS tour_name,

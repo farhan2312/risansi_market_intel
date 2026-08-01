@@ -40,6 +40,8 @@ export interface EditableOpp {
   lost_to_competitor?: string | null;
   lost_reason?: string | null;
   quotation_link?: string | null;
+  tour_name?: string | null;
+  tour_people?: string | null;   // all reps + manager on the client's tour
 }
 
 interface QItem { id: number; pump_model: string | null; pump_qty: number | null; pump_speed: string | null; geared_motor_detail: string | null; motor_price: number | null; gearbox_vbelt_price: number | null; offer_value_inr: number | null; offer_value_usd: number | null; detailed_specifications: string | null; }
@@ -187,7 +189,7 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
             color: 'var(--warn, #92400E)', fontWeight: 500,
             display: 'flex', alignItems: 'center', gap: 8,
           }}>
-            👁 View only — assigned to <strong>{opp.rep_name ?? 'another rep'}</strong>. Only they or their tour manager can edit.
+            👁 View only — this opportunity is on the <strong>{opp.tour_name ?? 'client’s'}</strong> tour. Only reps on that tour (or an admin) can edit it.
           </div>
         )}
 
@@ -221,7 +223,8 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
             })()} />
             <ReadOnlyRow label="Expected Close" value={opp.eta_text ?? '—'} />
             <ReadOnlyRow label="Quote Ref" value={opp.quote_ref ?? '—'} />
-            <ReadOnlyRow label="Owner" value={opp.rep_name ?? '—'} />
+            <ReadOnlyRow label="Tour" value={opp.tour_name ?? '—'} />
+            <ReadOnlyRow label="Reps / Manager" value={opp.tour_people ?? opp.rep_name ?? '—'} />
             <ReadOnlyRow label="Notes" value={opp.notes ?? '—'} />
             {(QUOTED_PLUS.includes(opp.stage) || opp.quotation_link) && (
               <QuotationPdfManager oppId={Number(opp.id)} initialLink={opp.quotation_link ?? null} canEdit={canEdit} />
@@ -355,16 +358,16 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
               </div>
             )}
 
-            {/* Owner — derived from the client's tour, not editable. An
-                opportunity inherits its rep from the client's tour assignment,
-                so there is no separate rep picker here. */}
+            {/* Tour — an opportunity belongs to the client's tour and all its
+                reps, not one owner, so there is no rep picker here. */}
             <div>
-              <label style={LABEL_STYLE}>Owner</label>
-              <div style={{ ...INPUT_STYLE, color: 'var(--fg-2)', display: 'flex', alignItems: 'center', minHeight: 36 }}>
-                {opp.rep_name ?? '— from client tour —'}
+              <label style={LABEL_STYLE}>Tour · Reps / Manager</label>
+              <div style={{ ...INPUT_STYLE, color: 'var(--fg-2)', display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-start', minHeight: 36, height: 'auto', padding: '8px 10px' }}>
+                <span style={{ fontWeight: 600 }}>{opp.tour_name ?? '— no tour —'}</span>
+                {opp.tour_people && <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>{opp.tour_people}</span>}
               </div>
               <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3 }}>
-                Set by the client&apos;s tour assignment.
+                Belongs to the client&apos;s tour — all its reps can work it.
               </div>
             </div>
 
