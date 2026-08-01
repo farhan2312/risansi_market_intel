@@ -5,7 +5,8 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, Tag, StatusDot } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
-import { fyShortLabel, formatRev, formatLastVisit } from '@/lib/risansi-utils';
+import { fyShortLabel, formatRev, formatLastVisit, fmtUsdFromCr } from '@/lib/risansi-utils';
+import { getUsdRate } from '@/lib/risansi-settings';
 import { hasRole, getCurrentUser, canViewClient } from '@/lib/risansi-auth';
 import { ClientActionButtons, PipelineOppBtn } from '@/components/risansi/ClientActionButtons';
 import { AddContactButton } from '@/components/risansi/AddContactButton';
@@ -145,6 +146,7 @@ interface Opportunity {
   value_cr: string; probability: number | null;
   expected_close_date: string | null;
   final_value_cr?: string | null; so_sum_cr?: number;
+  quotation_link?: string | null; quote_ref?: string | null;
 }
 
 interface ActivityEntry {
@@ -358,9 +360,10 @@ export default async function ClientProfilePage({
         value_cr: string; probability: number | null;
         expected_close_date: string | null;
         final_value_cr: string | null; so_sum_cr: number;
+        quotation_link: string | null; quote_ref: string | null;
       }>(
         `SELECT id, product, stage, value_cr::text, probability, expected_close_date,
-                final_value_cr::text,
+                final_value_cr::text, quotation_link, quote_ref,
                 (SELECT COALESCE(SUM(so.so_value_cr), 0) FROM opportunity_sales_orders so WHERE so.opportunity_id = opportunities.id)::float8 AS so_sum_cr
          FROM opportunities
          WHERE client_id = $1
@@ -533,6 +536,7 @@ export default async function ClientProfilePage({
   // Last visit — from clients.last_visit_date (most recent COMPLETED visit only;
   // planned future visits never count). formatLastVisit treats future dates as "never".
   const lastVisitInfo = formatLastVisit(client.last_visit_date);
+  const usdRate = await getUsdRate();
 
   // The opportunity panel shows every stage; these split it for the summary.
   // "Open" = live pipeline (drives the KPI tile); "Won" = order in hand.
@@ -704,7 +708,9 @@ export default async function ClientProfilePage({
             sub={rilPumpsTotal > 0 ? `${rilUnits} PCP · ${rilMmp} MMP` : 'No installed-base data'} />
           <MiniKpi label="Open Pipeline"
             value={formatRev(pipelineTotal * 1e7)}
-            sub={openOpps.length > 0 ? `${openOpps.length} opportunit${openOpps.length === 1 ? 'y' : 'ies'}` : 'No open opportunities'} />
+            sub={pipelineTotal > 0
+              ? `≈ ${fmtUsdFromCr(pipelineTotal, usdRate)} · ${openOpps.length} opportunit${openOpps.length === 1 ? 'y' : 'ies'}`
+              : 'No open opportunities'} />
           <MiniKpi label="Outstanding"
             value={client.total_outstanding != null ? formatRev(Number(client.total_outstanding)) : '—'}
             valueColor={client.total_outstanding ? 'var(--neg)' : undefined}
@@ -1315,7 +1321,7 @@ export default async function ClientProfilePage({
                     >
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', marginBottom: 2 }}>
-                          {`OPP-${String(o.id).padStart(4, '0')}`}
+                          {`OPP-${String(o.id).padStart(4, '0')}`}{o.quote_ref ? ` · ${o.quote_ref}` : ''}
                         </div>
                         <div style={{ fontWeight: 500, fontSize: 12, marginBottom: 4 }}>{o.product}</div>
                         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -1334,11 +1340,33 @@ export default async function ClientProfilePage({
                           )}
                         </div>
                       </div>
-                      <div style={{
-                        fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 500, flexShrink: 0, marginLeft: 8,
-                        color: isWon ? 'var(--pos)' : undefined,
-                      }}>
-                        {formatRev(Number(o.value_cr) * 1e7)}
+                      <div style={{ flexShrink: 0, marginLeft: 8, textAlign: 'right' }}>
+                        {o.quotation_link ? (
+                          <a
+                            href={o.quotation_link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="View quotation"
+                            style={{
+                              fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 500,
+                              color: isWon ? 'var(--pos)' : 'var(--brand-blue)', textDecoration: 'none',
+                            }}
+                          >
+                            {formatRev(Number(o.value_cr) * 1e7)} <span style={{ fontSize: 11 }}>↗</span>
+                          </a>
+                        ) : (
+                          <span style={{
+                            fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 500,
+                            color: isWon ? 'var(--pos)' : undefined,
+                          }}>
+                            {formatRev(Number(o.value_cr) * 1e7)}
+                          </span>
+                        )}
+                        {Number(o.value_cr) > 0 && (
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 400, color: 'var(--fg-3)', marginTop: 1 }}>
+                            ≈ {fmtUsdFromCr(Number(o.value_cr), usdRate)}
+                          </div>
+                        )}
                       </div>
                     </div>
                     );
