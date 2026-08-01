@@ -103,7 +103,11 @@ export function PurchaseOrderManager({ oppId, canEdit }: {
               {busy ? 'Adding…' : '+ Add Purchase Order'}
             </button>
           </div>
-        ) : null}
+        ) : (
+          <div style={{ ...MUTED, borderTop: '1px dashed var(--line-strong)', paddingTop: 10 }}>
+            View only — you’re not on this client’s tour, so you can’t record purchase orders here.
+          </div>
+        )}
       </div>
     </div>
   );

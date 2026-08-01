@@ -86,8 +86,8 @@ export function SalesOrderManager({ oppId, finalValueCr, canEdit }: {
         {hasFinal && (
           <span style={{
             fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999,
-            background: covered ? 'var(--pos-soft)' : 'var(--quote-soft, #F8EBD3)',
-            color: covered ? 'var(--pos-strong)' : 'var(--quote, #B3720A)',
+            background: covered ? 'var(--pos-soft)' : 'var(--warn-soft)',
+            color: covered ? 'var(--pos-strong)' : 'var(--warn)',
           }}>
             {covered ? 'Won · Closed' : 'Won · Open'}
           </span>
@@ -130,7 +130,7 @@ export function SalesOrderManager({ oppId, finalValueCr, canEdit }: {
         {/* SO list */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {sos === null ? (
-            <div style={{ ...MUTED, height: 20, background: 'var(--bg-sunk)', borderRadius: 4, animation: 'pulse 1.2s ease-in-out infinite' }} />
+            <div style={{ height: 20, background: 'var(--bg-sunk)', borderRadius: 4 }} />
           ) : sos.length === 0 ? (
             <div style={MUTED}>No sales orders recorded yet.</div>
           ) : (
