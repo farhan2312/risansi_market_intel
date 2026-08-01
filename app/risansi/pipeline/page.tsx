@@ -12,6 +12,7 @@ import { ActiveOppsTable } from '@/components/risansi/ActiveOppsTable';
 import { OpportunitiesTabs } from '@/components/risansi/OpportunitiesTabs';
 import { TextSearchFilter } from '@/components/risansi/TextSearchFilter';
 import { DateRangeFilter } from '@/components/risansi/DateRangeFilter';
+import { ForecastBar } from '@/components/risansi/ForecastBar';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
@@ -492,7 +493,14 @@ export default async function PipelinePage({
   // ── Derived values ─────────────────────────────────────────
 
   const openTotal    = openOpps.reduce((s, o) => s + o.value_cr, 0);
-  const weightedOpen = openOpps.reduce((s, o) => s + o.value_cr * ((o.probability ?? 50) / 100), 0);
+  // Spares are recurring, near-certain business, so they're weighted at a fixed
+  // 90% of quoted value regardless of an explicit probability. Everything else
+  // uses its own probability, defaulting to 50%. product_type is spelt both
+  // "SPARE" and "Spares" in the data, so match case-insensitively.
+  const SPARES_WIN_PROBABILITY = 90;
+  const oppWeight = (o: OppRow) =>
+    /spare/i.test(o.product_type ?? '') ? SPARES_WIN_PROBABILITY : (o.probability ?? 50);
+  const weightedOpen = openOpps.reduce((s, o) => s + o.value_cr * (oppWeight(o) / 100), 0);
   // Won opportunities are the realised base for every forecast figure — the
   // sales-Booked tile stays for reference but no longer drives the maths.
   const wonCount     = stageTotals.Won?.count ?? 0;
@@ -742,24 +750,6 @@ function ForecastBlock({
         ₹{value.toFixed(1)}<span style={{ fontSize: 12, color: 'var(--fg-3)', marginLeft: 4 }}>Cr</span>
       </div>
       <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 2 }}>{sub}</div>
-    </div>
-  );
-}
-
-function ForecastBar({ booked, weightedOpen, target }: {
-  booked: number; weightedOpen: number; target: number;
-}) {
-  const tot = Math.max(target, booked + weightedOpen) * 1.05 || 1;
-  const bookedPct = Math.min((booked / tot) * 100, 100);
-  const pipePct   = Math.min((weightedOpen / tot) * 100, Math.max(0, 100 - bookedPct));
-  const targetPct = Math.min((target / tot) * 100, 99);
-  return (
-    <div style={{ height: 22, background: 'var(--bg-sunk)', borderRadius: 3, position: 'relative', overflow: 'visible' }}>
-      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', borderRadius: 3 }}>
-        <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${bookedPct}%`, background: 'var(--pos)' }} />
-        <div style={{ position: 'absolute', left: `${bookedPct}%`, top: 0, bottom: 0, width: `${pipePct}%`, background: 'var(--accent)', opacity: 0.85 }} />
-      </div>
-      <div style={{ position: 'absolute', left: `${targetPct}%`, top: -3, bottom: -3, width: 2, background: 'var(--bg-ink)', zIndex: 1 }} />
     </div>
   );
 }
