@@ -7,6 +7,7 @@ import { Topbar } from '@/components/risansi';
 import Link from 'next/link';
 import { VisitReportForm } from '@/components/risansi/VisitReportForm';
 import { withinVisitEditWindow, visitEditDaysLeft } from '@/lib/risansi-visit-edit-window';
+import { prefillVisitFromPrevious } from '@/lib/risansi-visit-prefill';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
@@ -101,6 +102,13 @@ export default async function VisitReportPage({
   // admin/sysadmin — not the rep alone.
   const visitRepId  = visit.rep_id != null ? Number(visit.rep_id) : null;
   const canEditVisit = await canEditVisitReport({ role: session.user.role ?? null, repId: myRepId }, visitRepId);
+
+  // Seed a fresh, editable visit's competitor equipment + sugar/non-sugar pump
+  // counts from the client's last submitted visit (runs once; won't clobber). The
+  // RIL installed base already persists via client_pumps.
+  if (canEditVisit && !isSubmitted) {
+    await prefillVisitFromPrevious(Number(id), Number(visit.client_id));
+  }
 
   const [contacts, equipment, sugarRes, nonsugarRes, oppsRes, tasksRes, reps, expansionOppRow] = await Promise.all([
     q(async () => {
