@@ -27,7 +27,12 @@ export function ActionQueueRow({ task }: { task: QueueTask }) {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  const isOverdue = !!task.due_date && task.status === 'open' && new Date(task.due_date) < new Date();
+  // due_date is a plain YYYY-MM-DD string. Compare against *today's* local date
+  // (date-only) so something due today reads as "Due today", not overdue — the
+  // same rule the header count and the Overdue filter bucket use.
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const isOverdue = !!task.due_date && task.status !== 'completed' && task.due_date < todayStr;
 
   const handleToggle = async () => {
     setLoading(true);

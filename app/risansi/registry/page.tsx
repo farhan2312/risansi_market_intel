@@ -1,10 +1,13 @@
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { Topbar } from '@/components/risansi';
+import { Topbar, MultiSelectFilter, ActiveFilterBar } from '@/components/risansi';
 import { ActionQueueRow, type QueueTask } from '@/components/risansi/ActionQueueRow';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, hasRole } from '@/lib/risansi-auth';
-import { REP_TASKS_QUERY, ADMIN_TASKS_QUERY } from '@/lib/risansi-action-queue';
+import {
+  buildTasksQuery, buildTasksCountQuery, TASK_DUE_BUCKETS,
+  RESP_EXTERNAL, RESP_UNASSIGNED, type TaskFilters,
+} from '@/lib/risansi-action-queue';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,13 +15,20 @@ async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
 }
 
-export default async function ActionRegistryPage() {
+// Array-safe: a repeated query key arrives as string[]; flatten either shape and
+// split comma-joined values uniformly so filters never silently drop.
+const parseList = (v: string | string[] | undefined): string[] =>
+  (Array.isArray(v) ? v : v ? [v] : []).flatMap(s => s.split(',')).filter(Boolean);
+
+export default async function ActionRegistryPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  const sp = await searchParams;
   const session = await getServerSession(authOptions);
   const email = session?.user?.email ?? '';
   const user  = await getCurrentUser();
-
-  // Admin / sysadmin see every task; rep / manager see only what belongs to
-  // them (assigned, created, on their visits, or a client on one of their tours).
   const isAdmin = hasRole(user.role, 'admin');
 
   // Resolve the user's users.id for the scoped query (sessions usually carry it).
@@ -32,18 +42,46 @@ export default async function ActionRegistryPage() {
     }, null);
   }
 
+  const filters: TaskFilters = {
+    status:      parseList(sp.status),
+    priority:    parseList(sp.priority),
+    responsible: parseList(sp.resp),
+    due:         parseList(sp.due),
+  };
+  const hasFilters = Object.values(filters).some(a => a && a.length > 0);
+
+  // Filter option lists (small, so fetched unscoped).
+  const [statusOpts, priorityOpts, respOpts] = await Promise.all([
+    q<string[]>(async () => (await risansiPool.query<{ v: string }>(
+      `SELECT DISTINCT status AS v FROM tasks WHERE status IS NOT NULL AND status <> '' ORDER BY 1`)).rows.map(r => r.v), ['open', 'completed']),
+    q<string[]>(async () => (await risansiPool.query<{ v: string }>(
+      `SELECT DISTINCT priority AS v FROM tasks WHERE priority IS NOT NULL AND priority <> ''
+        ORDER BY CASE lower(priority) WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2 ELSE 3 END`)).rows.map(r => r.v), []),
+    q<string[]>(async () => (await risansiPool.query<{ v: string }>(
+      `SELECT DISTINCT u.name AS v FROM tasks t JOIN users u ON u.id = t.assigned_to_rep ORDER BY 1`)).rows.map(r => r.v), []),
+  ]);
+  const responsibleOptions = [...respOpts, RESP_EXTERNAL, RESP_UNASSIGNED];
+
+  const blocked = !isAdmin && repId == null;
+
   const tasks = await q<QueueTask[]>(async () => {
-    if (isAdmin) {
-      const { rows } = await risansiPool.query<QueueTask>(ADMIN_TASKS_QUERY);
-      return rows;
-    }
-    if (repId == null) return [];
-    const { rows } = await risansiPool.query<QueueTask>(REP_TASKS_QUERY, [repId, email]);
+    if (blocked) return [];
+    const { sql, params } = buildTasksQuery({ isAdmin, repId, email, filters });
+    const { rows } = await risansiPool.query<QueueTask>(sql, params as (string | number)[]);
     return rows;
   }, []);
 
-  const openCount    = tasks.filter(t => t.status !== 'completed').length;
-  const overdueCount = tasks.filter(t => t.status === 'open' && !!t.due_date && new Date(t.due_date) < new Date()).length;
+  // Counts come from a dedicated aggregate (no LIMIT), so the header reflects the
+  // whole matched set rather than plateauing at the 200-row page cap. Overdue
+  // uses the same < today, non-completed rule as the Overdue filter bucket.
+  const counts = await q<{ open: number; overdue: number }>(async () => {
+    if (blocked) return { open: 0, overdue: 0 };
+    const { sql, params } = buildTasksCountQuery({ isAdmin, repId, email, filters });
+    const { rows } = await risansiPool.query<{ open_count: string; overdue_count: string }>(sql, params as (string | number)[]);
+    return { open: Number(rows[0]?.open_count ?? 0), overdue: Number(rows[0]?.overdue_count ?? 0) };
+  }, { open: 0, overdue: 0 });
+  const openCount    = counts.open;
+  const overdueCount = counts.overdue;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -52,7 +90,21 @@ export default async function ActionRegistryPage() {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>
-        <div className="panel">
+        {/* Filters */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
+          <MultiSelectFilter param="status"   label="Status"        options={statusOpts}          selected={filters.status ?? []} />
+          <MultiSelectFilter param="resp"     label="Responsible"   options={responsibleOptions}  selected={filters.responsible ?? []} />
+          <MultiSelectFilter param="due"      label="Due"           options={TASK_DUE_BUCKETS}    selected={filters.due ?? []} />
+          <MultiSelectFilter param="priority" label="Priority"      options={priorityOpts}        selected={filters.priority ?? []} />
+        </div>
+        <ActiveFilterBar filters={[
+          { param: 'status',   label: 'Status',      values: filters.status ?? [] },
+          { param: 'resp',     label: 'Responsible', values: filters.responsible ?? [] },
+          { param: 'due',      label: 'Due',         values: filters.due ?? [] },
+          { param: 'priority', label: 'Priority',    values: filters.priority ?? [] },
+        ]} />
+
+        <div className="panel" style={{ marginTop: 8 }}>
           <div className="panel-header">
             <span className="panel-title">Action Registry</span>
             <span style={{ fontSize: 12, color: 'var(--fg-3)' }}>
@@ -65,7 +117,7 @@ export default async function ActionRegistryPage() {
           <div>
             {tasks.length === 0 ? (
               <div style={{ padding: '24px', textAlign: 'center', color: 'var(--fg-3)', fontSize: 13 }}>
-                No action items — all caught up ✓
+                {hasFilters ? 'No action items match these filters.' : 'No action items — all caught up ✓'}
               </div>
             ) : (
               tasks.map(task => <ActionQueueRow key={task.id} task={task} />)
