@@ -553,6 +553,27 @@ export default async function ClientProfilePage({
   const wonTotal    = wonOpps.reduce((s, o) => s + oihPerWon(o), 0);   // order in hand
   const openWonCount = wonOpps.filter(o => oihPerWon(o) > 0).length;   // Wons still to be fulfilled
 
+  // ── Quotation pipeline summary (stage funnel + conversion metrics) ──
+  const PIPE_STAGES = ['Suspect', 'Prospect', 'Quoted', 'Negotiating', 'On Hold', 'Won', 'Lost', 'Dropped'];
+  const stageAgg: Record<string, { count: number; val: number }> = {};
+  for (const o of allOpps) {
+    const a = (stageAgg[o.stage] ??= { count: 0, val: 0 });
+    a.count += 1; a.val += Number(o.value_cr) || 0;
+  }
+  const pipeRows = PIPE_STAGES.filter(s => stageAgg[s]).map(s => ({ stage: s, ...stageAgg[s] }));
+  const maxStageVal   = Math.max(1, ...pipeRows.map(r => r.val));
+  const wonCount      = stageAgg['Won']?.count ?? 0;
+  const lostCount     = (stageAgg['Lost']?.count ?? 0) + (stageAgg['Dropped']?.count ?? 0);
+  const decidedCount  = wonCount + lostCount;
+  const winRatePct    = decidedCount > 0 ? Math.round((wonCount / decidedCount) * 100) : null;
+  const quotedPlusVal = allOpps.filter(o => ['Quoted', 'Negotiating', 'On Hold', 'Won'].includes(o.stage)).reduce((s, o) => s + (Number(o.value_cr) || 0), 0);
+  const wonValTotal   = wonOpps.reduce((s, o) => s + (o.final_value_cr != null ? Number(o.final_value_cr) : Number(o.value_cr)), 0);
+  const quotesOnFile  = allOpps.filter(o => o.quotation_link).length;
+  const STAGE_HUE: Record<string, string> = {
+    Suspect: '#6B7FA3', Prospect: '#1A5CB8', Quoted: '#D97706', Negotiating: '#F97316',
+    'On Hold': '#7C3AED', Won: '#0E9F6E', Lost: '#E02424', Dropped: '#64748B',
+  };
+
   // ── Outcome color ─────────────────────────────────────────
 
   function outcomeKind(outcome: string | null): 'pos' | 'warn' | 'neg' | undefined {
@@ -1282,6 +1303,41 @@ export default async function ClientProfilePage({
 
             {/* Opportunities — every stage. Won opportunities are the client's
                 order in hand and lead the list; open pipeline follows. */}
+            {allOpps.length > 0 && (
+              <div data-tabgroup="activity" style={{ ...PANEL, marginBottom: 12 }}>
+                <div style={PANEL_H}>
+                  <span style={PANEL_TITLE}>Quotation Pipeline</span>
+                  <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
+                    {allOpps.length} opp{allOpps.length === 1 ? '' : 's'} · {quotesOnFile} with quotation
+                  </span>
+                </div>
+                <div style={{ padding: 14 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+                    <PipeStat label="Quoted value" value={formatRev(quotedPlusVal * 1e7)} sub={`≈ ${fmtUsdFromCr(quotedPlusVal, usdRate)}`} />
+                    <PipeStat label="Won value" value={formatRev(wonValTotal * 1e7)} sub={`${wonCount} won`} color="var(--pos)" />
+                    <PipeStat label="Win rate" value={winRatePct != null ? `${winRatePct}%` : '—'} sub={decidedCount > 0 ? `${wonCount}W · ${lostCount}L` : 'no decisions yet'} />
+                    <PipeStat label="Order in hand" value={formatRev(wonTotal * 1e7)} sub="won · not yet in SO" color="var(--accent)" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                    {pipeRows.map(r => {
+                      const hue = STAGE_HUE[r.stage] ?? '#6B7FA3';
+                      const pct = Math.round((r.val / maxStageVal) * 100);
+                      return (
+                        <div key={r.stage} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span style={{ width: 82, flexShrink: 0, fontSize: 11, fontWeight: 600, color: hue }}>{r.stage}</span>
+                          <div style={{ flex: 1, height: 18, background: 'var(--bg-sunk)', borderRadius: 4, overflow: 'hidden' }}>
+                            <div style={{ height: '100%', width: `${Math.max(pct, 3)}%`, background: `${hue}22`, borderLeft: `3px solid ${hue}` }} />
+                          </div>
+                          <span style={{ width: 40, flexShrink: 0, textAlign: 'right', fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>{r.count}</span>
+                          <span style={{ width: 76, flexShrink: 0, textAlign: 'right', fontSize: 11, fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--fg)' }}>{formatRev(r.val * 1e7)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div data-tabgroup="activity" style={PANEL}>
               <div style={PANEL_H}>
                 <span style={PANEL_TITLE}>Opportunities{allOpps.length > 0 ? ` · ${allOpps.length}` : ''}</span>
@@ -1463,6 +1519,16 @@ function MiniKpi({ label, value, sub, neg = false, valueColor }: { label: string
         </div>
         {sub && <div style={{ fontSize: 11, color: neg ? 'var(--neg)' : 'var(--fg-3)', marginTop: 3 }}>{sub}</div>}
       </div>
+    </div>
+  );
+}
+
+function PipeStat({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
+  return (
+    <div style={{ minWidth: 0 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</div>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 16, fontWeight: 600, marginTop: 3, color: color ?? 'var(--fg)', lineHeight: 1.1, overflowWrap: 'anywhere' }}>{value}</div>
+      {sub && <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 2 }}>{sub}</div>}
     </div>
   );
 }
