@@ -91,6 +91,9 @@ interface ExpansionOpp {
   eta_text: string | null;
   quote_ref: string | null;
   notes: string | null;
+  tsm_user_id: number | null;
+  tsm_external: string | null;
+  tsm_external_email: string | null;
 }
 
 // ── Props ──────────────────────────────────────────────────────
@@ -949,6 +952,7 @@ export function VisitReportForm({
           repId={visit.rep_id ? Number(visit.rep_id) : null}
           isClosed={disabled}
           existingOpp={expansionOpp}
+          reps={reps}
         />
       </FormSection>
 
@@ -1684,15 +1688,21 @@ function SummaryTextarea({
 
 // ── Expansion / New Business ───────────────────────────────────
 
-function ExpansionOpportunityForm({ visitId, clientId, clientName, repId, isClosed, existingOpp }: {
+function ExpansionOpportunityForm({ visitId, clientId, clientName, repId, isClosed, existingOpp, reps }: {
   visitId: number;
   clientId: number;
   clientName: string;
   repId: number | null;
   isClosed: boolean;
   existingOpp: ExpansionOpp | null;
+  reps: TaskRep[];
 }) {
   const [hasExpansion, setHasExpansion] = useState(!!existingOpp);
+  const [tsmMode, setTsmMode]                 = useState<'none' | 'internal' | 'external'>(
+    existingOpp?.tsm_user_id ? 'internal' : (existingOpp?.tsm_external ? 'external' : 'none'));
+  const [tsmUserId, setTsmUserId]             = useState(existingOpp?.tsm_user_id?.toString() ?? '');
+  const [tsmExternal, setTsmExternal]         = useState(existingOpp?.tsm_external ?? '');
+  const [tsmExternalEmail, setTsmExternalEmail] = useState(existingOpp?.tsm_external_email ?? '');
   const [product, setProduct]           = useState(existingOpp?.product ?? '');
   const [productType, setProductType]   = useState(existingOpp?.product_type ?? 'PCP');
   const [stage, setStage]               = useState(existingOpp?.stage ?? 'Suspect');
@@ -1723,11 +1733,14 @@ function ExpansionOpportunityForm({ visitId, clientId, clientName, repId, isClos
       etaText: etaText || null,
       quoteRef: quoteRef || null,
       notes: notes || null,
+      tsmUserId:        tsmMode === 'internal' && tsmUserId ? parseInt(tsmUserId, 10) : null,
+      tsmExternal:      tsmMode === 'external' ? (tsmExternal.trim() || null) : null,
+      tsmExternalEmail: tsmMode === 'external' ? (tsmExternalEmail.trim() || null) : null,
     };
     saveTimer.current = setTimeout(() => { saveExpansionOpportunity(snapshot).catch(() => {}); }, 900);
     return () => clearTimeout(saveTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasExpansion, product, productType, stage, valueInr, probabilityCode, etaText, quoteRef, notes]);
+  }, [hasExpansion, product, productType, stage, valueInr, probabilityCode, etaText, quoteRef, notes, tsmMode, tsmUserId, tsmExternal, tsmExternalEmail]);
 
   const toggleStyle = (active: boolean): CSSProperties => ({
     padding: '6px 16px', borderRadius: 6,
@@ -1816,6 +1829,43 @@ function ExpansionOpportunityForm({ visitId, clientId, clientName, repId, isClos
           <div>
             <label style={LBL}>Notes</label>
             <Textarea placeholder="Key context, next steps…" value={notes} onChange={e => setNotes(e.target.value)} disabled={isClosed} rows={2} />
+          </div>
+
+          {/* Tag a TSM — emailed on report submission for follow-up (esp. EPC/OEM) */}
+          <div style={{ borderTop: '1px solid var(--line)', paddingTop: 12 }}>
+            <label style={LBL}>Tag a TSM for follow-up</label>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+              {(['none', 'internal', 'external'] as const).map(m => {
+                const on = tsmMode === m;
+                return (
+                  <button key={m} type="button" disabled={isClosed} onClick={() => setTsmMode(m)}
+                    style={{
+                      flex: 1, padding: '6px 10px', fontSize: 12, borderRadius: 6, cursor: isClosed ? 'default' : 'pointer', fontFamily: 'inherit',
+                      border: `1px solid ${on ? 'var(--accent)' : 'var(--line-strong)'}`,
+                      background: on ? 'var(--accent)' : 'var(--bg-paper)', color: on ? '#fff' : 'var(--fg-2)', fontWeight: on ? 600 : 400,
+                    }}>
+                    {m === 'none' ? 'No one' : m === 'internal' ? 'Portal TSM' : 'External'}
+                  </button>
+                );
+              })}
+            </div>
+            {tsmMode === 'internal' && (
+              <select value={tsmUserId} onChange={e => setTsmUserId(e.target.value)} disabled={isClosed} style={INP}>
+                <option value="">— Select TSM —</option>
+                {reps.map(r => <option key={r.id} value={r.id}>{r.name}{r.zone ? ` · ${r.zone}` : ''}</option>)}
+              </select>
+            )}
+            {tsmMode === 'external' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <Input placeholder="TSM name *" value={tsmExternal} onChange={e => setTsmExternal(e.target.value)} disabled={isClosed} />
+                <Input type="email" placeholder="Email * — notified on submit" value={tsmExternalEmail} onChange={e => setTsmExternalEmail(e.target.value)} disabled={isClosed} />
+              </div>
+            )}
+            {tsmMode !== 'none' && (
+              <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 4 }}>
+                The tagged TSM is emailed when this report is submitted.
+              </div>
+            )}
           </div>
         </div>
       )}

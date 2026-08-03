@@ -9,6 +9,7 @@ import { withinVisitEditWindow, VISIT_EDIT_WINDOW_DAYS } from '@/lib/risansi-vis
 import { canEditVisitReport } from '@/lib/risansi-auth';
 import { pctForProbabilityCode } from '@/lib/risansi-probability-codes';
 import { isEpcOem } from '@/lib/risansi-client-types';
+import { notifyExpansionTagged } from '@/lib/risansi-email';
 
 // A session's role, for the visit edit gate.
 function callerRole(session: { user?: { role?: string | null } }): string | null {
@@ -74,6 +75,9 @@ export async function saveExpansionOpportunity(input: {
   etaText: string | null;
   quoteRef: string | null;
   notes: string | null;
+  tsmUserId?: number | null;
+  tsmExternal?: string | null;
+  tsmExternalEmail?: string | null;
 }) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) throw new Error('Unauthorized');
@@ -143,26 +147,34 @@ export async function saveExpansionOpportunity(input: {
   // The form captures the RIL probability code; derive the numeric % from it.
   const probability = pctForProbabilityCode(input.probabilityCode) ?? 20;
 
+  const tsmUserId       = input.tsmUserId ?? null;
+  const tsmExternal     = input.tsmExternal?.trim() || null;
+  const tsmExternalEmail = input.tsmExternalEmail?.trim() || null;
+
   if (existingId) {
     await risansiPool.query(
       `UPDATE opportunities SET
          rep_id = COALESCE($2, rep_id),
          product = $3, product_type = $4, stage = $5,
          value_cr = $6, probability = $7, probability_code = $8, eta_text = $9,
-         quote_ref = $10, notes = $11, updated_at = NOW()
+         quote_ref = $10, notes = $11,
+         tsm_user_id = $12, tsm_external = $13, tsm_external_email = $14, updated_at = NOW()
        WHERE id = $1`,
       [existingId, repId, product, input.productType, input.stage,
-       valueCr, probability, input.probabilityCode, input.etaText, input.quoteRef, input.notes],
+       valueCr, probability, input.probabilityCode, input.etaText, input.quoteRef, input.notes,
+       tsmUserId, tsmExternal, tsmExternalEmail],
     );
   } else {
     await risansiPool.query(
       `INSERT INTO opportunities (
          client_id, rep_id, visit_id, product, product_type, stage,
          value_cr, probability, probability_code, eta_text, quote_ref, notes,
+         tsm_user_id, tsm_external, tsm_external_email,
          auto_created, auto_source, created_by, created_at, updated_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,TRUE,'expansion_plan',$13,NOW(),NOW())`,
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,TRUE,'expansion_plan',$16,NOW(),NOW())`,
       [input.clientId, repId, input.visitId, product, input.productType, input.stage,
-       valueCr, probability, input.probabilityCode, input.etaText, input.quoteRef, input.notes, session.user.email],
+       valueCr, probability, input.probabilityCode, input.etaText, input.quoteRef, input.notes,
+       tsmUserId, tsmExternal, tsmExternalEmail, session.user.email],
     );
     // Log only the initial creation, not the debounced updates that follow.
     await recordAudit({
@@ -718,6 +730,47 @@ export async function submitVisit(visitId: string) {
     summary: `Submitted visit report for ${visit.legal_name}`,
     actorEmail: session.user.email,
   });
+
+  // Notify a TSM tagged on this visit's expansion opportunity — once, on submit.
+  try {
+    const exp = (await risansiPool.query<{
+      id: number; product: string | null; stage: string | null; value_cr: string | null; notes: string | null;
+      tsm_user_id: number | null; tsm_external: string | null; tsm_external_email: string | null;
+    }>(
+      `SELECT id, product, stage, value_cr::text AS value_cr, notes, tsm_user_id, tsm_external, tsm_external_email
+         FROM opportunities
+        WHERE visit_id = $1 AND auto_source = 'expansion_plan' AND tsm_notified_at IS NULL
+          AND (tsm_user_id IS NOT NULL OR (tsm_external IS NOT NULL AND tsm_external_email IS NOT NULL))
+        ORDER BY created_at DESC LIMIT 1`,
+      [visitId],
+    )).rows[0];
+    if (exp) {
+      let to: string | null = null;
+      let toName: string | null = null;
+      if (exp.tsm_user_id) {
+        const u = (await risansiPool.query<{ name: string | null; email: string | null }>(
+          'SELECT name, email FROM users WHERE id = $1', [exp.tsm_user_id])).rows[0];
+        if (u?.email && u.email.toLowerCase() !== session.user.email!.toLowerCase()) { to = u.email; toName = u.name; }
+      } else if (exp.tsm_external && exp.tsm_external_email) {
+        to = exp.tsm_external_email; toName = exp.tsm_external;
+      }
+      if (to) {
+        const tagger = (await risansiPool.query<{ name: string | null }>(
+          'SELECT name FROM users WHERE lower(email) = lower($1)', [session.user.email])).rows[0];
+        await notifyExpansionTagged({
+          to, toName,
+          taggedBy: tagger?.name || session.user.email,
+          clientName: visit.legal_name,
+          product: exp.product, stage: exp.stage,
+          valueInr: exp.value_cr ? Math.round(parseFloat(exp.value_cr) * 10_000_000) : null,
+          notes: exp.notes,
+        });
+      }
+      await risansiPool.query('UPDATE opportunities SET tsm_notified_at = NOW() WHERE id = $1', [exp.id]);
+    }
+  } catch (e) {
+    console.error('[expansion-tsm] notification failed', e);
+  }
 
   revalidatePath(`/risansi/visits/${visitId}`);
   revalidatePath(`/risansi/clients/${visit.cid}`);
