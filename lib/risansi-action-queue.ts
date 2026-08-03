@@ -56,6 +56,7 @@ export interface TaskQueryOpts {
   repId: number | null;
   email: string;
   filters?: TaskFilters;
+  mine?: boolean;   // scope to the caller's own actions (assigned to or created by them)
 }
 
 // Rep / manager visibility: tasks assigned to / created by / on a visit owned by
@@ -78,10 +79,13 @@ function buildWhere(opts: TaskQueryOpts): { where: string; params: (string | num
   const conds: string[] = [];
   const params: (string | number | string[])[] = [];
 
-  if (!opts.isAdmin) {
+  // $1 = repId, $2 = email — pushed whenever the visibility clause (non-admin) or
+  // the "mine" scope needs them; both reference $1/$2 directly.
+  if (!opts.isAdmin || opts.mine) {
     params.push(opts.repId ?? 0, opts.email);   // $1, $2
-    conds.push(repVisibilitySql());
   }
+  if (!opts.isAdmin) conds.push(repVisibilitySql());
+  if (opts.mine)     conds.push(`(t.assigned_to_rep = $1 OR t.created_by = $2)`);
 
   const f = opts.filters ?? {};
   if (f.status?.length)   { conds.push(`t.status = ANY($${params.length + 1}::text[])`);   params.push(f.status); }

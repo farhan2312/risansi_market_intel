@@ -50,6 +50,17 @@ export default async function ActionRegistryPage({
   };
   const hasFilters = Object.values(filters).some(a => a && a.length > 0);
 
+  // Default the board to the caller's own actions (assigned to or created by
+  // them); "All actions" (mine=all) opens it up to everyone they can see.
+  const mine = sp.mine !== 'all';
+  const buildHref = (over: Record<string, string | null>) => {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(sp)) if (typeof v === 'string' && v) p.set(k, v);
+    for (const [k, v] of Object.entries(over)) { if (v == null) p.delete(k); else p.set(k, v); }
+    const s = p.toString();
+    return s ? `/risansi/registry?${s}` : '/risansi/registry';
+  };
+
   // Filter option lists (small, so fetched unscoped).
   const [statusOpts, priorityOpts, respOpts] = await Promise.all([
     q<string[]>(async () => (await risansiPool.query<{ v: string }>(
@@ -66,7 +77,7 @@ export default async function ActionRegistryPage({
 
   const tasks = await q<QueueTask[]>(async () => {
     if (blocked) return [];
-    const { sql, params } = buildTasksQuery({ isAdmin, repId, email, filters });
+    const { sql, params } = buildTasksQuery({ isAdmin, repId, email, filters, mine });
     const { rows } = await risansiPool.query<QueueTask>(sql, params as (string | number)[]);
     return rows;
   }, []);
@@ -76,7 +87,7 @@ export default async function ActionRegistryPage({
   // uses the same < today, non-completed rule as the Overdue filter bucket.
   const counts = await q<{ open: number; overdue: number }>(async () => {
     if (blocked) return { open: 0, overdue: 0 };
-    const { sql, params } = buildTasksCountQuery({ isAdmin, repId, email, filters });
+    const { sql, params } = buildTasksCountQuery({ isAdmin, repId, email, filters, mine });
     const { rows } = await risansiPool.query<{ open_count: string; overdue_count: string }>(sql, params as (string | number)[]);
     return { open: Number(rows[0]?.open_count ?? 0), overdue: Number(rows[0]?.overdue_count ?? 0) };
   }, { open: 0, overdue: 0 });
@@ -90,6 +101,20 @@ export default async function ActionRegistryPage({
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>
+        {/* Scope: the caller's own actions (default) vs everyone's */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+          <a href={buildHref({ mine: null })} style={{
+            padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 500, textDecoration: 'none',
+            border: '1px solid var(--line)',
+            background: mine ? '#0A3D8F' : 'var(--bg-elev)', color: mine ? '#fff' : 'var(--fg-3)',
+          }}>My actions</a>
+          <a href={buildHref({ mine: 'all' })} style={{
+            padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 500, textDecoration: 'none',
+            border: '1px solid var(--line)',
+            background: !mine ? '#0A3D8F' : 'var(--bg-elev)', color: !mine ? '#fff' : 'var(--fg-3)',
+          }}>All actions</a>
+        </div>
+
         {/* Filters */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
           <MultiSelectFilter param="status"   label="Status"        options={statusOpts}          selected={filters.status ?? []} />
