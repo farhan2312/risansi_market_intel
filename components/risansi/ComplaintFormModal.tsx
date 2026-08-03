@@ -54,7 +54,15 @@ export function ComplaintFormModal({ clients, fixedClient, users, onClose, onSav
     if (clientId == null) { setError('Pick a client'); return; }
     const fd = new FormData(e.currentTarget);
     fd.set('client_id', String(clientId));
-    if (assignMode === 'user') fd.delete('assigned_to_external'); else fd.delete('assigned_to_user');
+    if (assignMode === 'user') {
+      fd.delete('assigned_to_external'); fd.delete('assigned_to_external_email');
+    } else {
+      fd.delete('assigned_to_user');
+      const name = (fd.get('assigned_to_external') as string | null)?.trim();
+      const em   = (fd.get('assigned_to_external_email') as string | null)?.trim();
+      if (!name) { setError('Enter the external handler’s name'); return; }
+      if (!em || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { setError('Enter a valid email — they’ll be notified'); return; }
+    }
     setPending(true);
     createComplaint(fd)
       .then(() => onSaved())
@@ -125,7 +133,10 @@ export function ComplaintFormModal({ clients, fixedClient, users, onClose, onSav
                 {users.map(u => <option key={u.id} value={u.id}>{u.name} · {u.role}</option>)}
               </select>
             ) : (
-              <input name="assigned_to_external" placeholder="Name of external handler" style={INP} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <input name="assigned_to_external" placeholder="Name of external handler *" style={INP} />
+                <input name="assigned_to_external_email" type="email" placeholder="Email * — they’ll be notified" style={INP} />
+              </div>
             )}
           </Field>
 

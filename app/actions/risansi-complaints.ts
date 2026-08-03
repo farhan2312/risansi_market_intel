@@ -3,6 +3,47 @@
 import { revalidatePath } from 'next/cache';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, hasRole, canViewClient, type CurrentUser } from '@/lib/risansi-auth';
+import { notifyComplaintRaised } from '@/lib/risansi-email';
+
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+// Email whoever a complaint was escalated to — the in-system user (looked up by
+// id) or an external person at the address captured with them. Best-effort: any
+// failure is logged and swallowed so it can never break the complaint action.
+async function notifyComplaintRecipient(opts: {
+  creatorEmail: string; complaintNo: string; clientName?: string | null;
+  details: string; priority?: string | null; dueDate?: string | null; channel?: string | null;
+  assignedUser?: number | null; assignedExt?: string | null; assignedExtEmail?: string | null;
+}) {
+  try {
+    let to: string | null = null;
+    let toName: string | null = null;
+    if (opts.assignedUser) {
+      const u = (await risansiPool.query<{ name: string | null; email: string | null }>(
+        'SELECT name, email FROM users WHERE id = $1', [opts.assignedUser])).rows[0];
+      if (!u?.email) return;
+      if (u.email.toLowerCase() === opts.creatorEmail.toLowerCase()) return;  // don't self-notify
+      to = u.email; toName = u.name;
+    } else if (opts.assignedExt && opts.assignedExtEmail) {
+      to = opts.assignedExtEmail; toName = opts.assignedExt;
+    }
+    if (!to) return;
+    const creator = (await risansiPool.query<{ name: string | null }>(
+      'SELECT name FROM users WHERE email = $1', [opts.creatorEmail])).rows[0];
+    await notifyComplaintRaised({
+      to, toName,
+      raisedBy: creator?.name || opts.creatorEmail,
+      complaintNo: opts.complaintNo,
+      clientName: opts.clientName,
+      details: opts.details,
+      priority: opts.priority,
+      dueDate: opts.dueDate,
+      channel: opts.channel,
+    });
+  } catch (e) {
+    console.error('[complaint] recipient notification failed', e);
+  }
+}
 
 // NOTE: a 'use server' module may only export async functions, so these stay
 // as local (non-exported) constants — exporting them breaks the production build.
@@ -78,14 +119,24 @@ export async function createComplaint(fd: FormData): Promise<void> {
 
   const assignedUser = await validateAssignee(intField(fd, 'assigned_to_user'));
   const assignedExt  = str(fd, 'assigned_to_external');
+  const assignedExtEmail = str(fd, 'assigned_to_external_email');
   if (assignedUser == null && !assignedExt) throw new Error('Assign the complaint to someone');
+  // An external handler (not in the system) must come with a valid email so they
+  // can be notified — mirrors the Action Registry.
+  if (assignedUser == null && assignedExt) {
+    if (!assignedExtEmail) throw new Error('An email is required for a person outside the system.');
+    if (!EMAIL_RE.test(assignedExtEmail)) throw new Error('Please enter a valid email for the external person.');
+  }
 
   const priority = str(fd, 'priority') ?? 'Medium';
   const channel  = str(fd, 'channel');
+  const dueDate  = str(fd, 'due_date');
 
-  const { rows: c } = await risansiPool.query<{ code: string }>('SELECT code FROM clients WHERE id = $1', [clientId]);
+  const { rows: c } = await risansiPool.query<{ code: string; legal_name: string | null }>(
+    'SELECT code, legal_name FROM clients WHERE id = $1', [clientId]);
 
   // Retry on the (rare) unique-number race.
+  let savedNo = '';
   for (let attempt = 0; attempt < 4; attempt++) {
     const no = await nextComplaintNo();
     try {
@@ -94,17 +145,18 @@ export async function createComplaint(fd: FormData): Promise<void> {
            complaint_no, client_id, client_code, channel, complaint_date, details,
            part_name, quantity, pump_model, invoice_no, invoice_date, client_po_no, client_po_date,
            priority, status, due_date, assigned_to_user, assigned_to_external, reported_by_user,
-           source, created_by, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'Open',$15,$16,$17,$18,'app',$19,now(),now())`,
+           source, created_by, assigned_to_external_email, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'Open',$15,$16,$17,$18,'app',$19,$20,now(),now())`,
         [
           no, clientId, c[0]?.code ?? null, channel, str(fd, 'complaint_date'), details,
           str(fd, 'part_name'), intField(fd, 'quantity'), str(fd, 'pump_model'),
           str(fd, 'invoice_no'), str(fd, 'invoice_date'), str(fd, 'client_po_no'), str(fd, 'client_po_date'),
           COMPLAINT_PRIORITIES.includes(priority as never) ? priority : 'Medium',
-          str(fd, 'due_date'), assignedUser, assignedExt, user.id,
-          user.email,
+          dueDate, assignedUser, assignedExt, user.id,
+          user.email, assignedExt ? assignedExtEmail : null,
         ],
       );
+      savedNo = no;
       break;
     } catch (e) {
       if (attempt === 3 || !(e instanceof Error) || !/complaints_complaint_no_key|duplicate key/i.test(e.message)) throw e;
@@ -113,6 +165,17 @@ export async function createComplaint(fd: FormData): Promise<void> {
 
   revalidatePath('/risansi/complaints');
   if (clientId) revalidatePath(`/risansi/clients/${clientId}`);
+
+  // Notify the responsible person by email — in-system user or external handler.
+  if (savedNo) {
+    await notifyComplaintRecipient({
+      creatorEmail: user.email,
+      complaintNo: savedNo,
+      clientName: c[0]?.legal_name ?? null,
+      details, priority, dueDate, channel,
+      assignedUser, assignedExt, assignedExtEmail: assignedExt ? assignedExtEmail : null,
+    });
+  }
 }
 
 // ── Edit core fields (creator while open, assignee, or admin) ──
@@ -190,11 +253,16 @@ export async function reassignComplaint(fd: FormData): Promise<void> {
 
   const assignedUser = await validateAssignee(intField(fd, 'assigned_to_user'));
   const assignedExt  = str(fd, 'assigned_to_external');
+  const assignedExtEmail = str(fd, 'assigned_to_external_email');
   if (assignedUser == null && !assignedExt) throw new Error('Pick who to assign it to');
+  if (assignedUser == null && assignedExt) {
+    if (!assignedExtEmail) throw new Error('An email is required for a person outside the system.');
+    if (!EMAIL_RE.test(assignedExtEmail)) throw new Error('Please enter a valid email for the external person.');
+  }
 
   await risansiPool.query(
-    `UPDATE complaints SET assigned_to_user = $1, assigned_to_external = $2, updated_at = now() WHERE id = $3`,
-    [assignedUser, assignedExt, id],
+    `UPDATE complaints SET assigned_to_user = $1, assigned_to_external = $2, assigned_to_external_email = $3, updated_at = now() WHERE id = $4`,
+    [assignedUser, assignedExt, assignedExt ? assignedExtEmail : null, id],
   );
   const label = assignedExt ?? (await risansiPool.query<{ name: string }>('SELECT name FROM users WHERE id = $1', [assignedUser])).rows[0]?.name ?? 'someone';
   await risansiPool.query(
@@ -203,6 +271,25 @@ export async function reassignComplaint(fd: FormData): Promise<void> {
   );
   revalidatePath('/risansi/complaints');
   if (row.client_id) revalidatePath(`/risansi/clients/${row.client_id}`);
+
+  // Notify the new assignee by email (best-effort).
+  if (user.email) {
+    const info = (await risansiPool.query<{ complaint_no: string; details: string; priority: string | null; due_date: string | null; channel: string | null; legal_name: string | null }>(
+      `SELECT co.complaint_no, co.details, co.priority, co.due_date::text AS due_date, co.channel, cl.legal_name
+         FROM complaints co LEFT JOIN clients cl ON cl.id = co.client_id WHERE co.id = $1`, [id])).rows[0];
+    if (info) {
+      await notifyComplaintRecipient({
+        creatorEmail: user.email,
+        complaintNo: info.complaint_no,
+        clientName: info.legal_name,
+        details: info.details,
+        priority: info.priority,
+        dueDate: info.due_date,
+        channel: info.channel,
+        assignedUser, assignedExt, assignedExtEmail: assignedExt ? assignedExtEmail : null,
+      });
+    }
+  }
 }
 
 // ── Add an update-log entry (anyone with access) ──
