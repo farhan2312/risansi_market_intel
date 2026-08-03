@@ -60,6 +60,64 @@ function prettyDate(d?: string | null): string | null {
   return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
+/** Build an absolute portal link from a path (uses the public APP_URL). */
+export const appLink = (path: string) => `${APP_URL}${path.startsWith('/') ? path : '/' + path}`;
+
+// Generic notification card — one consistent layout for every portal email, so
+// the many event/scheduled notifications stay on-brand without duplicating HTML.
+// Everything is escaped; the caller supplies plain-text strings that already name
+// the people/clients involved.
+export interface NotifCard {
+  to: string | string[];
+  subject: string;
+  section: string;              // header label after "Risansi · "
+  accent?: string;              // hex; defaults to brand blue
+  greetingName?: string | null; // recipient's first-person greeting
+  intro: string;                // 1–2 sentences
+  title?: string | null;        // bold box heading
+  body?: string | null;         // box body text
+  meta?: [string, string][];    // label/value rows
+  ctaLabel?: string;
+  ctaPath?: string;             // path joined to APP_URL
+  footer?: string | null;
+}
+
+export async function sendNotification(c: NotifCard) {
+  const accent = c.accent || '#0A3D8F';
+  const rows = (c.meta ?? [])
+    .filter(([, v]) => v != null && String(v).trim() !== '')
+    .map(([l, v]) => `<tr><td style="padding:4px 0;color:#6B7280;font-size:13px;width:122px;vertical-align:top;">${escapeHtml(l)}</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:500;">${escapeHtml(String(v))}</td></tr>`)
+    .join('');
+  const hasBox = !!(c.title || c.body || rows);
+  const box = hasBox ? `
+    <div style="border:1px solid #E5E7EB;border-left:3px solid ${accent};border-radius:6px;padding:14px 16px;margin-bottom:18px;">
+      ${c.title ? `<div style="color:${accent};font-size:15px;font-weight:600;margin-bottom:${c.body || rows ? '6px' : '0'};">${escapeHtml(c.title)}</div>` : ''}
+      ${c.body ? `<div style="color:#374151;font-size:13px;line-height:1.5;margin-bottom:${rows ? '10px' : '0'};white-space:pre-wrap;">${escapeHtml(c.body)}</div>` : ''}
+      ${rows ? `<table role="presentation" cellpadding="0" cellspacing="0">${rows}</table>` : ''}
+    </div>` : '';
+  const cta = c.ctaLabel && c.ctaPath ? `
+    <a href="${appLink(c.ctaPath)}" style="display:inline-block;background:${accent};color:#ffffff;text-decoration:none;font-size:14px;font-weight:500;padding:10px 20px;border-radius:6px;">${escapeHtml(c.ctaLabel)}</a>` : '';
+  const html = `
+  <div style="background:#F3F4F6;padding:24px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+      <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:10px;overflow:hidden;border:1px solid #E5E7EB;">
+        <tr><td style="background:${accent};padding:16px 24px;">
+          <span style="color:#ffffff;font-size:15px;font-weight:600;letter-spacing:0.02em;">Risansi &middot; ${escapeHtml(c.section)}</span>
+        </td></tr>
+        <tr><td style="padding:24px;">
+          <p style="margin:0 0 4px;color:#111827;font-size:15px;">Hi ${escapeHtml(c.greetingName || 'there')},</p>
+          <p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.5;">${escapeHtml(c.intro)}</p>
+          ${box}${cta}
+        </td></tr>
+        <tr><td style="padding:14px 24px;border-top:1px solid #F3F4F6;">
+          <span style="color:#9CA3AF;font-size:11px;">${escapeHtml(c.footer || "You're receiving this from the Risansi sales portal.")}</span>
+        </td></tr>
+      </table>
+    </td></tr></table>
+  </div>`;
+  return sendEmail({ to: c.to, subject: c.subject, html });
+}
+
 /**
  * Email the person a new action was assigned to. Caller decides whether the
  * assignee is "in the system" (has an email) and isn't the creator.

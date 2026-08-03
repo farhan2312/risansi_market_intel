@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, hasRole } from '@/lib/risansi-auth';
+import { notifySpecialAccess } from '@/lib/risansi-notify';
 
 // ── Special access ────────────────────────────────────────────────
 // Admins/sysadmins grant a rep direct access to a client, independent of the
@@ -60,14 +61,17 @@ export async function grantClientAccess(clientId: number, repId: number): Promis
   );
   if (ok.length === 0) throw new Error('That user cannot be granted access (must be an active rep or manager).');
 
-  await risansiPool.query(
+  const grant = await risansiPool.query(
     `INSERT INTO client_rep_access (client_id, rep_id, granted_by)
        VALUES ($1, $2, $3)
-     ON CONFLICT (client_id, rep_id) DO NOTHING`,
+     ON CONFLICT (client_id, rep_id) DO NOTHING
+     RETURNING id`,
     [clientId, repId, user.email ?? null],
   );
 
   revalidatePath('/risansi/admin/clients');
+  // Only on a genuinely new grant (not a duplicate) → tell the rep.
+  if ((grant.rowCount ?? 0) > 0) await notifySpecialAccess(clientId, repId, user.email ?? '');
   return grantsFor(clientId);
 }
 

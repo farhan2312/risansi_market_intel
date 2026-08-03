@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, hasRole, canViewClient, type CurrentUser } from '@/lib/risansi-auth';
 import { notifyComplaintRaised } from '@/lib/risansi-email';
+import { notifyComplaintClosed, notifyComplaintUpdate } from '@/lib/risansi-notify';
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
@@ -242,6 +243,9 @@ export async function setComplaintStatus(fd: FormData): Promise<void> {
   );
   revalidatePath('/risansi/complaints');
   if (row.client_id) revalidatePath(`/risansi/clients/${row.client_id}`);
+
+  // Tell the raiser + assignee once it's resolved / closed.
+  if (status === 'Resolved' || status === 'Closed') await notifyComplaintClosed(id, actor);
 }
 
 // ── Reassign (creator, assignee, manager/rep on the tour, or admin) ──
@@ -307,6 +311,8 @@ export async function addComplaintUpdate(fd: FormData): Promise<void> {
   await risansiPool.query('UPDATE complaints SET updated_at = now() WHERE id = $1', [id]);
   revalidatePath('/risansi/complaints');
   if (row.client_id) revalidatePath(`/risansi/clients/${row.client_id}`);
+
+  await notifyComplaintUpdate(id, user.email ?? '', body);
 }
 
 // ── Delete (admin only) ──

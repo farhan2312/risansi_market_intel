@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser } from '@/lib/risansi-auth';
 import { isBugSeverity } from '@/lib/risansi-bugs';
+import { notifyBugReported } from '@/lib/risansi-notify';
 
 export const runtime = 'nodejs';
 
@@ -66,6 +67,8 @@ export async function POST(req: Request) {
       [bugId, shot.name, shot.mime, shot.size, shot.bytes],
     );
   }
+
+  await notifyBugReported({ title, severity, reporterName, pageUrl: pageUrl || null });
 
   return NextResponse.json({ ok: true, id: bugId });
 }

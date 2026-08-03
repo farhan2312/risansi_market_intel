@@ -12,6 +12,7 @@ import { resolveClientPrimaryRep } from '@/lib/risansi-client-rep';
 import { parseSalesOrdersJson, inrToCr, type SoInput, type SalesOrder } from '@/lib/risansi-sales-orders';
 import { poInrToCr, type PurchaseOrder } from '@/lib/risansi-purchase-orders';
 import { notifyVisitPlanned } from '@/lib/risansi-email';
+import { notifyCheckIn, notifyOppClosed, notifySalesOrder, notifyNewLead, notifyQuotationIssued } from '@/lib/risansi-notify';
 import { requiredFieldNames, labelsFor, CREATE_STAGES, STAGE_PROB, type CreateStage } from '@/lib/risansi-opportunity-fields';
 import { pctForProbabilityCode } from '@/lib/risansi-probability-codes';
 import { normaliseIndustry } from '@/lib/risansi-utils';
@@ -1001,6 +1002,13 @@ export async function createPipelineOpportunity(formData: FormData) {
         [newOppId, stage, user.email],
       );
     } catch { /* table may not exist */ }
+
+    // Notify on a create that lands straight in a notable stage.
+    if (stage === 'Won' || stage === 'Lost') {
+      await notifyOppClosed(Number(newOppId), user.email ?? '', stage);
+    } else if (stage === 'Quoted') {
+      await notifyQuotationIssued(Number(newOppId), user.email ?? '');
+    }
   }
 
   // Flag a guessed owner in the log. When the tour has several reps and none is
@@ -1105,6 +1113,9 @@ export async function saveQuotedDetails(oppId: number, formData: FormData) {
   await logActivity('opportunity', String(oppId), `moved to Quoted${s('quote_ref') ? ` · ${s('quote_ref')}` : ''}`, user.email!);
   revalidatePath('/risansi/pipeline');
   revalidatePath('/risansi');
+
+  // Only on a genuine transition into Quoted (a quotation being issued).
+  if (rows[0].stage !== 'Quoted') await notifyQuotationIssued(Number(oppId), user.email ?? '');
 }
 
 // ── Pipeline: full opportunity edit ────────────────────────────
@@ -1249,6 +1260,11 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
   await logActivity('opportunity', String(oppId), `updated opportunity · ${candidates.stage}`, user.email!);
   revalidatePath('/risansi/pipeline');
   revalidatePath('/risansi');
+
+  // Only on a genuine transition into Won/Lost — not every edit of a closed opp.
+  if (newStage !== currentStage && (newStage === 'Won' || newStage === 'Lost')) {
+    await notifyOppClosed(Number(oppId), user.email ?? '', newStage);
+  }
 }
 
 // ── Sales Orders (against a Won opportunity) ───────────────────
@@ -1295,6 +1311,7 @@ export async function addSalesOrder(oppId: number, formData: FormData): Promise<
   await logActivity('opportunity', String(oppId), `added sales order ${num}`, user.email!);
   revalidatePath('/risansi/pipeline');
   revalidatePath('/risansi');
+  await notifySalesOrder(oppId, user.email ?? '', num);
   return listSalesOrders(oppId);
 }
 
@@ -1625,6 +1642,7 @@ export async function checkInVisit(data: {
   if (visitId) {
     await logActivity('client', clientId, `checked in: ${purpose}`, user.email!);
     revalidatePath('/risansi/mobile');
+    await notifyCheckIn(Number(clientId), repId ? Number(repId) : null, user.email!);
   }
   return visitId;
 }
@@ -1966,4 +1984,9 @@ export async function addClient(formData: FormData): Promise<void> {
   revalidatePath('/risansi/clients');
   revalidatePath('/risansi/admin/clients');
   revalidatePath('/risansi');
+
+  // A prospective client is a lead → tell the tour manager it was added.
+  if (((formData.get('status') as string | null)?.trim() || 'ACTIVE') === 'PROSPECTIVE') {
+    await notifyNewLead(Number(clientId), email);
+  }
 }

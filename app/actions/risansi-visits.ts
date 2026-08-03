@@ -10,6 +10,7 @@ import { canEditVisitReport } from '@/lib/risansi-auth';
 import { pctForProbabilityCode } from '@/lib/risansi-probability-codes';
 import { isEpcOem } from '@/lib/risansi-client-types';
 import { notifyExpansionTagged } from '@/lib/risansi-email';
+import { notifyCheckIn, notifyVisitSubmitted } from '@/lib/risansi-notify';
 
 // A session's role, for the visit edit gate.
 function callerRole(session: { user?: { role?: string | null } }): string | null {
@@ -206,8 +207,8 @@ export async function checkInVisit({
 
     // Only someone allowed to edit this visit may check it in (the UPDATE is
     // already scoped to unsubmitted visits; this adds the missing who-check).
-    const civ = await risansiPool.query<{ rep_id: number | null }>(
-      'SELECT rep_id FROM visits WHERE id = $1', [visitId],
+    const civ = await risansiPool.query<{ rep_id: number | null; client_id: number | null }>(
+      'SELECT rep_id, client_id FROM visits WHERE id = $1', [visitId],
     );
     if (!civ.rows[0]) throw new Error('Visit not found');
     if (!(await canEditVisitReport({ role: callerRole(session), repId: await callerRepId(session) }, civ.rows[0].rep_id))) {
@@ -230,6 +231,9 @@ export async function checkInVisit({
     );
 
     revalidatePath(`/risansi/visits/${visitId}`);
+    if (civ.rows[0].client_id != null) {
+      await notifyCheckIn(civ.rows[0].client_id, civ.rows[0].rep_id, session.user.email);
+    }
   } catch (err) {
     console.error('checkInVisit error:', err);
     throw err;
@@ -771,6 +775,9 @@ export async function submitVisit(visitId: string) {
   } catch (e) {
     console.error('[expansion-tsm] notification failed', e);
   }
+
+  // Summarise the submitted report to the tour manager(s).
+  await notifyVisitSubmitted(Number(visit.client_id), null, session.user.email);
 
   revalidatePath(`/risansi/visits/${visitId}`);
   revalidatePath(`/risansi/clients/${visit.cid}`);
