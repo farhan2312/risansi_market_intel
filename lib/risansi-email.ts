@@ -185,3 +185,72 @@ export async function notifyComplaintRaised(a: {
 
   return sendEmail({ to: a.to, subject: `Complaint escalated to you: ${a.complaintNo}`, html });
 }
+
+// ── Planned-visit notification ──────────────────────────────────
+
+/**
+ * Email about a newly planned visit. `audience` tailors the wording: a manager
+ * being told their rep planned a visit, or a rep being told a visit was planned
+ * for them.
+ */
+export async function notifyVisitPlanned(a: {
+  to: string;
+  toName?: string | null;
+  plannedBy?: string | null;
+  clientName?: string | null;
+  visitDate?: string | null;
+  purpose?: string | null;
+  repName?: string | null;
+  audience: 'manager' | 'rep';
+}) {
+  const link = `${APP_URL}/risansi/field`;
+  const when = prettyDate(a.visitDate);
+
+  const intro = a.audience === 'manager'
+    ? `${escapeHtml(a.repName || 'A rep on your tour')} has planned a visit.`
+    : `A visit has been planned for you${a.plannedBy ? ` by ${escapeHtml(a.plannedBy)}` : ''}.`;
+
+  const metaRow = (label: string, value: string) => `
+    <tr>
+      <td style="padding:4px 0;color:#6B7280;font-size:13px;width:110px;vertical-align:top;">${escapeHtml(label)}</td>
+      <td style="padding:4px 0;color:#111827;font-size:13px;font-weight:500;">${escapeHtml(value)}</td>
+    </tr>`;
+
+  const meta = [
+    a.clientName ? metaRow('Client', a.clientName) : '',
+    when         ? metaRow('Visit date', when) : '',
+    a.purpose    ? metaRow('Purpose', a.purpose) : '',
+    a.audience === 'manager' && a.repName ? metaRow('Rep', a.repName) : '',
+    a.audience === 'rep' && a.plannedBy   ? metaRow('Planned by', a.plannedBy) : '',
+  ].join('');
+
+  const subject = a.audience === 'manager'
+    ? `Visit planned by ${a.repName || 'your rep'}${a.clientName ? ` · ${a.clientName}` : ''}`
+    : `A visit has been planned for you${a.clientName ? ` · ${a.clientName}` : ''}`;
+
+  const html = `
+  <div style="background:#F3F4F6;padding:24px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+      <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:10px;overflow:hidden;border:1px solid #E5E7EB;">
+        <tr><td style="background:#0A3D8F;padding:16px 24px;">
+          <span style="color:#ffffff;font-size:15px;font-weight:600;letter-spacing:0.02em;">Risansi &middot; Visit Planner</span>
+        </td></tr>
+        <tr><td style="padding:24px;">
+          <p style="margin:0 0 4px;color:#111827;font-size:15px;">Hi ${escapeHtml(a.toName || 'there')},</p>
+          <p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.5;">${intro}</p>
+          <div style="border:1px solid #E5E7EB;border-left:3px solid #0A3D8F;border-radius:6px;padding:14px 16px;margin-bottom:18px;">
+            <table role="presentation" cellpadding="0" cellspacing="0">${meta}</table>
+          </div>
+          <a href="${link}" style="display:inline-block;background:#0A3D8F;color:#ffffff;text-decoration:none;font-size:14px;font-weight:500;padding:10px 20px;border-radius:6px;">
+            Open the Visit Planner
+          </a>
+        </td></tr>
+        <tr><td style="padding:14px 24px;border-top:1px solid #F3F4F6;">
+          <span style="color:#9CA3AF;font-size:11px;">You're receiving this because of a planned visit in the Risansi portal.</span>
+        </td></tr>
+      </table>
+    </td></tr></table>
+  </div>`;
+
+  return sendEmail({ to: a.to, subject, html });
+}

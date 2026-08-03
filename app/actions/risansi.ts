@@ -11,6 +11,7 @@ import { normalizeClientName, uniqueLeadCode } from '@/lib/risansi-lead-code';
 import { resolveClientPrimaryRep } from '@/lib/risansi-client-rep';
 import { parseSalesOrdersJson, inrToCr, type SoInput, type SalesOrder } from '@/lib/risansi-sales-orders';
 import { poInrToCr, type PurchaseOrder } from '@/lib/risansi-purchase-orders';
+import { notifyVisitPlanned } from '@/lib/risansi-email';
 import { requiredFieldNames, labelsFor, CREATE_STAGES, STAGE_PROB, type CreateStage } from '@/lib/risansi-opportunity-fields';
 import { pctForProbabilityCode } from '@/lib/risansi-probability-codes';
 import { normaliseIndustry } from '@/lib/risansi-utils';
@@ -614,6 +615,50 @@ export async function setEndClient(clientIds: number[], value: boolean): Promise
   revalidatePath('/risansi/admin/clients');
 }
 
+// Email about a newly planned visit (best-effort). If the planner is the rep the
+// visit is for, the tour's manager(s) are told; if a manager/admin planned it for
+// someone else, that rep is told. Any failure is logged and swallowed.
+async function notifyVisitPlan(opts: {
+  plannerEmail: string; clientId: number; repId: number | null; visitDate: string; purpose: string;
+}) {
+  try {
+    const { plannerEmail, clientId, repId, visitDate, purpose } = opts;
+    const planner = (await risansiPool.query<{ id: number; name: string | null }>(
+      'SELECT id, name FROM users WHERE lower(email) = lower($1)', [plannerEmail])).rows[0];
+    const client = (await risansiPool.query<{ legal_name: string | null; tour_id: number | null }>(
+      'SELECT legal_name, tour_id FROM clients WHERE id = $1', [clientId])).rows[0];
+    if (!client) return;
+    const rep = repId != null ? (await risansiPool.query<{ name: string | null; email: string | null }>(
+      'SELECT name, email FROM users WHERE id = $1', [repId])).rows[0] : null;
+    const plannedBy = planner?.name || plannerEmail;
+    const plannerIsRep = planner?.id != null && repId != null && planner.id === repId;
+
+    if (plannerIsRep) {
+      if (client.tour_id == null) return;
+      const mgrs = (await risansiPool.query<{ name: string | null; email: string | null }>(
+        `SELECT u.name, u.email FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
+          WHERE ta.tour_id = $1 AND ta.role = 'manager'`, [client.tour_id])).rows;
+      for (const m of mgrs) {
+        if (!m.email || m.email.toLowerCase() === plannerEmail.toLowerCase()) continue;
+        await notifyVisitPlanned({
+          to: m.email, toName: m.name, plannedBy,
+          clientName: client.legal_name, visitDate, purpose,
+          repName: rep?.name || plannedBy, audience: 'manager',
+        });
+      }
+    } else {
+      if (!rep?.email || rep.email.toLowerCase() === plannerEmail.toLowerCase()) return;
+      await notifyVisitPlanned({
+        to: rep.email, toName: rep.name, plannedBy,
+        clientName: client.legal_name, visitDate, purpose,
+        repName: rep.name, audience: 'rep',
+      });
+    }
+  } catch (e) {
+    console.error('[visit-plan] notification failed', e);
+  }
+}
+
 export async function planVisit(clientId: string, formData: FormData) {
   const user = await requireSession();
 
@@ -641,6 +686,8 @@ export async function planVisit(clientId: string, formData: FormData) {
 
   await logActivity('client', clientId, `planned visit on ${date} · ${purpose}`, user.email!);
   revalidatePath(`/risansi/clients/${clientId}`);
+
+  await notifyVisitPlan({ plannerEmail: user.email!, clientId: Number(clientId), repId: resolvedRepId, visitDate: date, purpose });
 }
 
 // ── Client: create opportunity ─────────────────────────────────
@@ -1528,6 +1575,8 @@ export async function assignVisit(formData: FormData) {
   revalidatePath('/risansi/visits');  // legacy redirect
   revalidatePath(`/risansi/clients/${clientId}`);
   revalidatePath('/risansi');
+
+  await notifyVisitPlan({ plannerEmail: user.email!, clientId: Number(clientId), repId, visitDate: date, purpose });
 }
 
 // ── Mobile: GPS check-in ───────────────────────────────────────
