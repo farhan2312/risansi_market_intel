@@ -1114,8 +1114,11 @@ export async function saveQuotedDetails(oppId: number, formData: FormData) {
   revalidatePath('/risansi/pipeline');
   revalidatePath('/risansi');
 
-  // Only on a genuine transition into Quoted (a quotation being issued).
-  if (rows[0].stage !== 'Quoted') await notifyQuotationIssued(Number(oppId), user.email ?? '');
+  // Notify only the FIRST time an opp reaches Quoted — Negotiating / On Hold
+  // already imply it passed through Quoted, so re-entering must not re-fire.
+  if (!['Quoted', 'Negotiating', 'On Hold'].includes(rows[0].stage)) {
+    await notifyQuotationIssued(Number(oppId), user.email ?? '');
+  }
 }
 
 // ── Pipeline: full opportunity edit ────────────────────────────
@@ -1264,6 +1267,10 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
   // Only on a genuine transition into Won/Lost — not every edit of a closed opp.
   if (newStage !== currentStage && (newStage === 'Won' || newStage === 'Lost')) {
     await notifyOppClosed(Number(oppId), user.email ?? '', newStage);
+  }
+  // First-time transition into Quoted via the Edit drawer → quotation issued.
+  if (newStage === 'Quoted' && !['Quoted', 'Negotiating', 'On Hold', 'Won', 'Lost'].includes(currentStage ?? '')) {
+    await notifyQuotationIssued(Number(oppId), user.email ?? '');
   }
 }
 
@@ -1985,8 +1992,10 @@ export async function addClient(formData: FormData): Promise<void> {
   revalidatePath('/risansi/admin/clients');
   revalidatePath('/risansi');
 
-  // A prospective client is a lead → tell the tour manager it was added.
-  if (((formData.get('status') as string | null)?.trim() || 'ACTIVE') === 'PROSPECTIVE') {
+  // A lead (is_lead flag) or a manually-set prospective client → tell the tour
+  // manager. Keyed off isLead because the form's status defaults to ACTIVE even
+  // for a lead (only is_lead marks it).
+  if (isLead || ((formData.get('status') as string | null)?.trim() || 'ACTIVE') === 'PROSPECTIVE') {
     await notifyNewLead(Number(clientId), email);
   }
 }

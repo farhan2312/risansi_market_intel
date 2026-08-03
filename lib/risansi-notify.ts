@@ -27,9 +27,20 @@ async function tourManagers(clientId: number): Promise<{ name: string | null; em
   const { rows } = await risansiPool.query<{ name: string | null; email: string }>(
     `SELECT u.name, u.email FROM tour_assignments ta
        JOIN users u ON u.id = ta.rep_id
-      WHERE ta.role = 'manager' AND u.email IS NOT NULL AND u.email <> ''
+      WHERE ta.role = 'manager' AND u.is_active = TRUE AND u.email IS NOT NULL AND u.email <> ''
         AND ta.tour_id = (SELECT tour_id FROM clients WHERE id = $1)`, [clientId]);
   return rows;
+}
+
+// Claim a scheduled window so a repeat fire can't re-send. Returns true only the
+// first time for that (kind, run_key).
+async function claimRun(kind: string, runKeySql: string): Promise<boolean> {
+  try {
+    const r = await risansiPool.query(
+      `INSERT INTO notification_runs (kind, run_key) VALUES ($1, ${runKeySql})
+         ON CONFLICT DO NOTHING RETURNING 1`, [kind]);
+    return (r.rowCount ?? 0) > 0;
+  } catch { return true; }  // marker table missing → don't block the send
 }
 
 const plural = (n: number, s: string) => `${n} ${s}${n === 1 ? '' : 's'}`;
@@ -55,22 +66,22 @@ export async function runOverdueActionReminders(): Promise<number> {
          LEFT JOIN users r   ON r.id = t.assigned_to_rep
          LEFT JOIN clients c ON c.id = t.client_id
         WHERE t.status <> 'completed' AND t.due_date < CURRENT_DATE
-          AND (t.last_reminded_at IS NULL OR t.last_reminded_at::date < CURRENT_DATE)`);
+          AND (t.last_reminded_at IS NULL OR t.last_reminded_at::date < CURRENT_DATE)
+        ORDER BY days DESC LIMIT 300`);
     for (const t of rows) {
       const to = t.rep_email || t.ext_email;
       const toName = t.rep_name || t.ext_name;
-      if (to) {
-        await sendNotification({
-          to, section: 'Action Registry', accent: RED, greetingName: firstName(toName),
-          subject: `Overdue action: ${t.title}`,
-          intro: `Your action is ${plural(t.days, 'day')} overdue. Please close it out or update its due date.`,
-          title: t.title,
-          meta: [['Client', t.client_name ?? '—'], ['Was due', prettyDate(t.due_date)], ['Overdue by', plural(t.days, 'day')]],
-          ctaLabel: 'Open the Action Registry', ctaPath: '/risansi/registry',
-        });
-        sent++;
-      }
-      await risansiPool.query('UPDATE tasks SET last_reminded_at = NOW() WHERE id = $1', [t.id]);
+      if (!to) continue;   // no recipient yet — leave un-stamped so it re-selects once an email exists
+      const res = await sendNotification({
+        to, section: 'Action Registry', accent: RED, greetingName: firstName(toName),
+        subject: `Overdue action: ${t.title}`,
+        intro: `Your action is ${plural(t.days, 'day')} overdue. Please close it out or update its due date.`,
+        title: t.title,
+        meta: [['Client', t.client_name ?? '—'], ['Was due', prettyDate(t.due_date)], ['Overdue by', plural(t.days, 'day')]],
+        ctaLabel: 'Open the Action Registry', ctaPath: '/risansi/registry',
+      });
+      // Only stamp on a real send, so a transient Resend failure retries next run.
+      if (res.ok) { sent++; await risansiPool.query('UPDATE tasks SET last_reminded_at = NOW() WHERE id = $1', [t.id]); }
     }
   } catch (e) { console.error('[cron] overdue action reminders failed', e); }
   return sent;
@@ -93,22 +104,21 @@ export async function runOverdueComplaintReminders(): Promise<number> {
          LEFT JOIN users u    ON u.id = co.assigned_to_user
          LEFT JOIN clients cl ON cl.id = co.client_id
         WHERE co.status NOT IN ('Resolved','Closed') AND co.due_date IS NOT NULL AND co.due_date < CURRENT_DATE
-          AND (co.last_reminded_at IS NULL OR co.last_reminded_at::date < CURRENT_DATE)`);
+          AND (co.last_reminded_at IS NULL OR co.last_reminded_at::date < CURRENT_DATE)
+        ORDER BY days DESC LIMIT 300`);
     for (const co of rows) {
       const to = co.user_email || co.ext_email;
       const toName = co.user_name || co.ext_name;
-      if (to) {
-        await sendNotification({
-          to, section: 'Complaints', accent: RED, greetingName: firstName(toName),
-          subject: `Overdue complaint: ${co.complaint_no}`,
-          intro: `Complaint ${co.complaint_no} is ${plural(co.days, 'day')} past its target date and still open.`,
-          title: co.complaint_no, body: co.details,
-          meta: [['Client', co.client_name ?? '—'], ['Target was', prettyDate(co.due_date)], ['Overdue by', plural(co.days, 'day')]],
-          ctaLabel: 'Open the Complaints board', ctaPath: '/risansi/complaints',
-        });
-        sent++;
-      }
-      await risansiPool.query('UPDATE complaints SET last_reminded_at = NOW() WHERE id = $1', [co.id]);
+      if (!to) continue;
+      const res = await sendNotification({
+        to, section: 'Complaints', accent: RED, greetingName: firstName(toName),
+        subject: `Overdue complaint: ${co.complaint_no}`,
+        intro: `Complaint ${co.complaint_no} is ${plural(co.days, 'day')} past its target date and still open.`,
+        title: co.complaint_no, body: co.details,
+        meta: [['Client', co.client_name ?? '—'], ['Target was', prettyDate(co.due_date)], ['Overdue by', plural(co.days, 'day')]],
+        ctaLabel: 'Open the Complaints board', ctaPath: '/risansi/complaints',
+      });
+      if (res.ok) { sent++; await risansiPool.query('UPDATE complaints SET last_reminded_at = NOW() WHERE id = $1', [co.id]); }
     }
   } catch (e) { console.error('[cron] overdue complaint reminders failed', e); }
   return sent;
@@ -135,6 +145,8 @@ export async function runAdminOverdueEscalation(): Promise<number> {
         ORDER BY days DESC`)).rows;
 
     if (!acts.length && !comps.length) return 0;
+    // Claim today so a repeat fire (retry / double-schedule / unauth hit) can't re-blast admins.
+    if (!(await claimRun('admin_escalation', 'CURRENT_DATE'))) return 0;
 
     const lines: string[] = [];
     for (const a of acts) lines.push(`• ${a.who} — ${a.days}d overdue on action “${a.title}” (${a.client_name ?? 'no client'})`);
@@ -145,7 +157,7 @@ export async function runAdminOverdueEscalation(): Promise<number> {
     for (const admin of admins) {
       await sendNotification({
         to: admin.email, section: 'Escalation', accent: RED, greetingName: firstName(admin.name),
-        subject: `Escalation: ${acts.length + comps.length} item(s) overdue 5+ days`,
+        subject: `Escalation: ${acts.length + comps.length} item(s) overdue more than 5 days`,
         intro: `The following items have been overdue for more than 5 days and need attention.`,
         title: `${plural(acts.length, 'action')} · ${plural(comps.length, 'complaint')}`,
         body,
@@ -162,6 +174,8 @@ export async function runAdminOverdueEscalation(): Promise<number> {
 export async function runWeeklyManagerDigest(): Promise<number> {
   let sent = 0;
   try {
+    // One digest per ISO week, regardless of how many times the route is hit.
+    if (!(await claimRun('manager_digest', "date_trunc('week', CURRENT_DATE)::date"))) return 0;
     const mgrs = (await risansiPool.query<{ id: number; name: string | null; email: string }>(
       `SELECT DISTINCT u.id, u.name, u.email FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
         WHERE ta.role = 'manager' AND u.is_active = TRUE AND u.email IS NOT NULL AND u.email <> ''`)).rows;
@@ -418,10 +432,12 @@ export async function notifySpecialAccess(clientId: number, repId: number, grant
 }
 
 // A bug was filed → all system admins, naming the reporter.
-export async function notifyBugReported(a: { title: string; severity?: string | null; reporterName?: string | null; pageUrl?: string | null }) {
+export async function notifyBugReported(a: { title: string; severity?: string | null; reporterName?: string | null; reporterEmail?: string | null; pageUrl?: string | null }) {
   try {
     const admins = await sysadmins();
+    const skip = (a.reporterEmail || '').trim().toLowerCase();
     for (const admin of admins) {
+      if (skip && admin.email.toLowerCase() === skip) continue;   // don't email the reporter themselves
       await sendNotification({
         to: admin.email, section: 'Bugs', accent: RED, greetingName: firstName(admin.name),
         subject: `New bug reported: ${a.title}`,

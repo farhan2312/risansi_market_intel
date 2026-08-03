@@ -68,7 +68,7 @@ export async function POST(req: Request) {
     );
   }
 
-  await notifyBugReported({ title, severity, reporterName, pageUrl: pageUrl || null });
+  await notifyBugReported({ title, severity, reporterName, reporterEmail, pageUrl: pageUrl || null });
 
   return NextResponse.json({ ok: true, id: bugId });
 }
