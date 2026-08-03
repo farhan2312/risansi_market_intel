@@ -193,15 +193,21 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   const tsm = (sp.tsm && reps.some(r => r.id === sp.tsm)) ? sp.tsm : (reps[0]?.id ?? '');
   const tsmName = reps.find(r => r.id === tsm)?.name ?? '—';
 
-  // Month selection → the report scopes to exactly the month(s) chosen (not a
-  // cumulative FY-to-date). Accept a multi-value `months` param (comma-joined
-  // YYYY-MM); fall back to the legacy single `month`, then the current month.
-  // Every value is validated against YYYY-MM so it is safe to inline in SQL.
+  // The review is scoped to the current fiscal year to date (Apr→Mar) — there is
+  // no month picker any more. selMonths is every month of the current FY up to
+  // now, so the month-scoped sections (revenue, quotation, offers, attendance,
+  // leads) show the FY so far, while turnover spans full FYs below. Every value
+  // is YYYY-MM so it is safe to inline in SQL.
   const now = new Date();
-  const curMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const rawMonths = (sp.months ?? sp.month ?? '').split(',').map(s => s.trim()).filter(Boolean);
-  let selMonths = [...new Set(rawMonths.filter(m => /^\d{4}-(0[1-9]|1[0-2])$/.test(m)))].sort();
-  if (selMonths.length === 0) selMonths = [curMonth];
+  const fyStartYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+  const selMonths: string[] = [];
+  for (
+    let dcur = new Date(fyStartYear, 3, 1);
+    dcur <= new Date(now.getFullYear(), now.getMonth(), 1);
+    dcur = new Date(dcur.getFullYear(), dcur.getMonth() + 1, 1)
+  ) {
+    selMonths.push(`${dcur.getFullYear()}-${String(dcur.getMonth() + 1).padStart(2, '0')}`);
+  }
 
   // FY-comparison tables anchor on the latest selected month's fiscal year.
   const latest = selMonths[selMonths.length - 1];
@@ -210,22 +216,18 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   const fy = selM >= 4 ? selY : selY - 1;            // FY start year (anchor)
   const d = (y: number, m = 4) => `${y}-${String(m).padStart(2, '0')}-01`;
   const w5from = d(fy - 5), w5to = d(fy);            // 5 completed FYs before the anchor FY
-  const monLabel = (m: string) => new Date(m + '-01').toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
 
   // Safe SQL fragments built only from the validated month list.
   const qMonths     = selMonths.map(m => `'${m}'`).join(',');                              // '2026-07','2026-06'
-  const monthNumSql = [...new Set(selMonths.map(m => Number(m.slice(5, 7))))].join(',');   // 6,7
   const inMonths    = (col: string) => `to_char(${col},'YYYY-MM') IN (${qMonths})`;
 
-  // Turnover view: 'month' compares the selected month(s) across fiscal years;
-  // 'fy' compares each whole fiscal year (Apr–Mar, to-date), so the current FY
-  // shows its turnover so far even when the selected month has no data yet.
-  const tview = sp.tview === 'fy' ? 'fy' : 'month';
-  const turnMonthFilter = tview === 'fy' ? '' : `EXTRACT(MONTH FROM r.month) IN (${monthNumSql}) AND `;
+  // Turnover always compares each whole fiscal year (Apr–Mar, to-date), so the
+  // current FY shows its turnover so far — no month scoping, no toggle.
+  const turnMonthFilter = '';
 
   const tourF = tsm ? `c.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = ${Number(tsm)})` : 'FALSE';
 
-  const [clients, turnover, quotation, offers, attendance, kpiRow, monthRows] = await Promise.all([
+  const [clients, turnover, quotation, offers, attendance, kpiRow] = await Promise.all([
     // 1. Clients Summary
     q(async () => (await risansiPool.query<{ cat: string; nn: string }>(
       `SELECT ${CANON} cat, count(*)::text nn FROM clients c
@@ -294,15 +296,6 @@ export default async function ExecutiveReviewPage({ searchParams }: {
          (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status='PROSPECTIVE' AND c.deleted_at IS NULL
             AND EXISTS (SELECT 1 FROM visits v WHERE v.client_id = c.id AND ${inMonths('v.visit_date')}))::text AS visited,
          (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status='ACTIVE' AND c.deleted_at IS NULL)::text AS active_clients`)).rows[0], null),
-
-    // 7. Month options for the picker — every month that has any data, newest
-    //    first; the current + selected months are ensured client-side.
-    q(async () => (await risansiPool.query<{ ym: string }>(
-      `SELECT to_char(m, 'YYYY-MM') AS ym FROM (
-         SELECT month::date AS m FROM client_revenue_monthly
-         UNION SELECT visit_date FROM visits
-         UNION SELECT COALESCE(quote_date, created_at::date) FROM opportunities
-       ) t WHERE m IS NOT NULL GROUP BY 1 ORDER BY 1 DESC LIMIT 120`)).rows, []),
   ]);
 
   // ── shape into ExecData ──
@@ -344,50 +337,17 @@ export default async function ExecutiveReviewPage({ searchParams }: {
     attendance:      { headers: ['Month', 'Visit days', 'Clients'], rows: attRows, moneyFrom: 99 },
     kpis: [
       { label: 'Order in Hand', value: fmtMoney(n(kpiRow?.total_business)), sub: 'won · not yet in a sales order', accent: true },
-      { label: 'Revenue', value: fmtMoney(n(kpiRow?.revenue)), sub: 'invoiced · selected month(s)' },
+      { label: 'Revenue', value: fmtMoney(n(kpiRow?.revenue)), sub: 'invoiced · FY to date' },
       { label: 'Active Clients', value: (kpiRow ? Number(kpiRow.active_clients) : 0).toLocaleString('en-IN') },
       { label: 'Total Leads', value: (kpiRow ? Number(kpiRow.leads) : 0).toLocaleString('en-IN'), sub: 'prospective on tour' },
       { label: 'Leads Visited', value: (kpiRow ? Number(kpiRow.visited) : 0).toLocaleString('en-IN') },
     ],
   };
 
-  // Picker options: every month with data, plus the current and selected
-  // months, newest first — so a chosen month always appears even with no data.
-  const monthOptions = [...new Set([curMonth, ...selMonths, ...monthRows.map(r => r.ym)])]
-    .sort().reverse()
-    .map(ym => ({ value: ym, label: monLabel(ym) }));
-
-  const periodText = selMonths.length === 1
-    ? monLabel(selMonths[0])
-    : selMonths.length <= 3
-      ? selMonths.map(monLabel).join(', ')
-      : `${selMonths.length} months (${monLabel(selMonths[0])} – ${monLabel(latest)})`;
+  const periodText  = `FY ${yy(fy)} to date`;
   const periodLabel = `${tsmName} · ${periodText}`;
 
-  // Turnover Month/FY toggle — preserves the rep + month selection.
-  const turnUrl = (tv: 'month' | 'fy') => {
-    const p = new URLSearchParams();
-    if (tsm) p.set('tsm', String(tsm));
-    if (selMonths.length) p.set('months', selMonths.join(','));
-    p.set('tview', tv);
-    return `/risansi/executive-review?${p.toString()}`;
-  };
-  const seg: React.CSSProperties = { padding: '7px 12px', fontSize: 12, fontWeight: 600, textDecoration: 'none', color: 'var(--fg-3)', background: 'var(--bg-elev)' };
-  const segOn: React.CSSProperties = { background: '#0A3D8F', color: '#fff' };
-  const turnoverToggle = (
-    <div>
-      <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Turnover</div>
-      <div style={{ display: 'flex', border: '1px solid var(--line-strong)', borderRadius: 6, overflow: 'hidden' }}>
-        <a href={turnUrl('month')} style={{ ...seg, ...(tview === 'month' ? segOn : {}) }}>By Month</a>
-        <a href={turnUrl('fy')} style={{ ...seg, ...(tview === 'fy' ? segOn : {}), borderLeft: '1px solid var(--line-strong)' }}>By FY</a>
-      </div>
-    </div>
-  );
-
-  const turnoverNote = tview === 'fy'
-    ? 'Turnover columns show each whole fiscal year (Apr–Mar) to date, so the current FY reflects its turnover so far.'
-    : 'Turnover columns compare the same month(s) across fiscal years.';
-  const note = `Live data, scoped to the selected month(s). "Order in Hand" is the value of Won opportunities not yet turned into a Sales Order; "Order Received" is the value of Won opportunities dated in the period. "Revenue" is invoiced revenue for the period. ${turnoverNote} Clients, Total Leads and Active Clients are current-portfolio counts and don't move with the month.`;
+  const note = `Live data for ${tsmName}'s current fiscal year (Apr–Mar) to date. "Order in Hand" is the value of Won opportunities not yet turned into a Sales Order; "Order Received" is the value of Won opportunities dated in the FY. "Revenue" is invoiced revenue for the FY to date. Turnover columns show each whole fiscal year to date, so the current FY reflects its turnover so far. Clients, Total Leads and Active Clients are current-portfolio counts.`;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -399,8 +359,7 @@ export default async function ExecutiveReviewPage({ searchParams }: {
           note={note}
           selector={<div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
             <ViewSwitch />
-            <ExecutiveSelector reps={reps} tsm={tsm} monthOptions={monthOptions} selectedMonths={selMonths} />
-            {turnoverToggle}
+            <ExecutiveSelector reps={reps} tsm={tsm} />
           </div>}
         />
       </div>

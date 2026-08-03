@@ -2,16 +2,13 @@
 
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import type { CSSProperties } from 'react';
-import { MultiSelectFilter } from './MultiSelectFilter';
 
 export interface SelRep { id: string; name: string }
-export interface MonthOpt { value: string; label: string }
 
-// TSM + month picker for the Executive Review page. The TSM select writes to
-// the URL directly; the month picker is a multi-select (month + year) so the
-// report can scope to one or several specific months at once.
-export function ExecutiveSelector({ reps, tsm, monthOptions, selectedMonths }: {
-  reps: SelRep[]; tsm: string; monthOptions: MonthOpt[]; selectedMonths: string[];
+// TSM picker for the Executive Review page. The review is scoped to the current
+// fiscal year to date and turnover spans full FYs, so there is no month picker.
+export function ExecutiveSelector({ reps, tsm }: {
+  reps: SelRep[]; tsm: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -31,12 +28,6 @@ export function ExecutiveSelector({ reps, tsm, monthOptions, selectedMonths }: {
           {reps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
       </label>
-      <div>
-        <span style={LBL}>Month(s)</span>
-        <div style={{ marginTop: 4 }}>
-          <MultiSelectFilter param="months" label="Months" options={monthOptions} selected={selectedMonths} />
-        </div>
-      </div>
     </div>
   );
 }
