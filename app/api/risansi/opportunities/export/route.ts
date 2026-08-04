@@ -23,6 +23,24 @@ const LOST_REASONS  = [
   'No decision — Deferred', 'Other',
 ];
 
+// Value buckets on value_cr (Crores) — same constants as the pipeline filter, so
+// they inline safely (no params).
+const VALUE_BUCKETS: { label: string; min: number; max: number | null }[] = [
+  { label: '< ₹1L',    min: 0,    max: 0.01 },
+  { label: '₹1–5L',    min: 0.01, max: 0.05 },
+  { label: '₹5–10L',   min: 0.05, max: 0.10 },
+  { label: '₹10–50L',  min: 0.10, max: 0.50 },
+  { label: '₹50L–1Cr', min: 0.50, max: 1.0 },
+  { label: '≥ ₹1Cr',   min: 1.0,  max: null },
+];
+const valueRangeSql = (col: string, labels: string[]): string => {
+  const parts = labels
+    .map(l => VALUE_BUCKETS.find(b => b.label === l))
+    .filter((b): b is { label: string; min: number; max: number | null } => !!b)
+    .map(b => (b.max == null ? `${col} >= ${b.min}` : `(${col} >= ${b.min} AND ${col} < ${b.max})`));
+  return parts.length ? `(${parts.join(' OR ')})` : '';
+};
+
 interface Row {
   id: number; client_code: string | null; client_name: string | null;
   tour_name: string | null; tour_people: string | null;
@@ -45,13 +63,51 @@ interface So { opportunity_id: number; so_number: string; so_date: string; so_va
 const CR = 10_000_000;
 const rupees = (cr: number | null) => (cr != null ? Math.round(Number(cr) * CR) : '');
 
-export async function GET() {
+export async function GET(req: Request) {
   const user = await getCurrentUser();
   if (!user.email) return new NextResponse('Unauthorized', { status: 401 });
 
-  // Per-user visibility (null = admin, no restriction).
-  const scope = clientScopeSql(user, 'o.client_id');
-  const where = scope ? `WHERE ${scope}` : '';
+  // Mirror the Opportunities page filters (passed through on the export link) so
+  // the export matches what's on screen. Same conditions, same aliases (o / c).
+  const params = new URL(req.url).searchParams;
+  const parseList = (v: string | null) => (v ? v.split(',').filter(Boolean) : []);
+  const stageFilts    = parseList(params.get('stage'));
+  const prodTypeFilts = parseList(params.get('product_type'));
+  const repFilts      = params.get('rep') && params.get('rep') !== 'all' ? parseList(params.get('rep')) : [];
+  const indFilts      = parseList(params.get('industry'));
+  const probFilts     = parseList(params.get('prob'));
+  const valFilts      = parseList(params.get('val'));
+  const qname = (params.get('qname') ?? '').trim();
+  const qfrom = (params.get('qfrom') ?? '').trim();
+  const qto   = (params.get('qto')   ?? '').trim();
+
+  const conds: string[] = [];
+  const vals: (string | number | string[])[] = [];
+  let idx = 1;
+  const scope = clientScopeSql(user, 'o.client_id');   // per-user visibility (inlined; no param)
+  if (scope) conds.push(scope);
+  if (stageFilts.length)    { conds.push(`o.stage = ANY($${idx}::text[])`);            vals.push(stageFilts);    idx++; }
+  if (prodTypeFilts.length) { conds.push(`o.product_type = ANY($${idx}::text[])`);     vals.push(prodTypeFilts); idx++; }
+  if (repFilts.length)      { conds.push(`EXISTS (SELECT 1 FROM tour_assignments ta JOIN users u2 ON u2.id = ta.rep_id WHERE ta.tour_id = c.tour_id AND u2.name = ANY($${idx}::text[]))`); vals.push(repFilts); idx++; }
+  if (indFilts.length)      { conds.push(`c.industry = ANY($${idx}::text[])`);          vals.push(indFilts);      idx++; }
+  if (probFilts.length)     { conds.push(`o.probability_code = ANY($${idx}::text[])`);  vals.push(probFilts);     idx++; }
+  if (valFilts.length)      { const v = valueRangeSql('o.value_cr', valFilts); if (v) conds.push(v); }
+  if (qname) { conds.push(`(o.quote_ref ILIKE $${idx} OR c.legal_name ILIKE $${idx} OR o.product ILIKE $${idx})`); vals.push(`%${qname}%`); idx++; }
+  if (qfrom) { conds.push(`o.quote_date >= $${idx}`); vals.push(qfrom); idx++; }
+  if (qto)   { conds.push(`o.quote_date <= $${idx}`); vals.push(qto);   idx++; }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+
+  // Human-readable list for the "Filters Applied" sheet.
+  const appliedFilters: [string, string][] = [];
+  if (stageFilts.length)    appliedFilters.push(['Stage', stageFilts.join(', ')]);
+  if (prodTypeFilts.length) appliedFilters.push(['Product Type', prodTypeFilts.join(', ')]);
+  if (repFilts.length)      appliedFilters.push(['Rep / Tour', repFilts.join(', ')]);
+  if (indFilts.length)      appliedFilters.push(['Industry', indFilts.join(', ')]);
+  if (probFilts.length)     appliedFilters.push(['Probability code', probFilts.join(', ')]);
+  if (valFilts.length)      appliedFilters.push(['Value bucket', valFilts.join(', ')]);
+  if (qname) appliedFilters.push(['Quote no. / name search', qname]);
+  if (qfrom) appliedFilters.push(['Quote date from', qfrom]);
+  if (qto)   appliedFilters.push(['Quote date to', qto]);
 
   let rows: Row[] = [];
   let sos: So[] = [];
@@ -83,14 +139,17 @@ export async function GET() {
          LEFT JOIN tour_routes tr ON tr.id = c.tour_id
          ${where}
          ORDER BY c.legal_name ASC, o.id ASC`,
+      vals as (string | number)[],
     )).rows;
 
     sos = (await risansiPool.query<So>(
       `SELECT so.opportunity_id, so.so_number, so.so_date::text AS so_date, so.so_value_cr::float8 AS so_value_cr
          FROM opportunity_sales_orders so
          JOIN opportunities o ON o.id = so.opportunity_id
-         ${where.replace('o.client_id', 'o.client_id')}
+         JOIN clients c ON c.id = o.client_id
+         ${where}
          ORDER BY so.opportunity_id, so.so_date, so.id`,
+      vals as (string | number)[],
     )).rows;
   } catch (err) {
     console.error('[opportunities/export] query failed:', err);
@@ -185,7 +244,7 @@ export async function GET() {
   const title = ws.getCell('D1'); title.value = 'Opportunities Export';
   title.font = { size: 14, bold: true, color: { argb: 'FF0A3D8F' } };
   const sub = ws.getCell('D2');
-  sub.value = `${rows.length.toLocaleString('en-IN')} opportunit${rows.length === 1 ? 'y' : 'ies'} · ${stamp}`;
+  sub.value = `${rows.length.toLocaleString('en-IN')} opportunit${rows.length === 1 ? 'y' : 'ies'}${appliedFilters.length ? ` · ${appliedFilters.length} filter${appliedFilters.length === 1 ? '' : 's'} applied` : ''} · ${stamp}`;
   sub.font = { size: 10, color: { argb: 'FF64748B' } };
 
   const header = ws.getRow(3);
@@ -222,6 +281,33 @@ export async function GET() {
       }
     }
   });
+
+  // ── Filters Applied sheet — what was in effect for this export ──
+  const fws = wb.addWorksheet('Filters Applied');
+  fws.getColumn(1).width = 26; fws.getColumn(2).width = 52;
+  const fTitle = fws.getCell('A1'); fTitle.value = 'Filters applied to this export';
+  fTitle.font = { size: 13, bold: true, color: { argb: 'FF0A3D8F' } };
+  const fSub = fws.getCell('A2');
+  fSub.value = `Generated ${stamp} · ${rows.length.toLocaleString('en-IN')} row${rows.length === 1 ? '' : 's'}`;
+  fSub.font = { size: 10, color: { argb: 'FF64748B' } };
+  const fh = fws.getRow(4);
+  ['Filter', 'Value'].forEach((h, i) => {
+    const cell = fh.getCell(i + 1);
+    cell.value = h;
+    cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0A3D8F' } };
+  });
+  if (appliedFilters.length === 0) {
+    const c = fws.getCell('A5');
+    c.value = 'No filters applied — full export.';
+    c.font = { italic: true, color: { argb: 'FF64748B' } };
+  } else {
+    appliedFilters.forEach(([label, value], i) => {
+      const row = fws.getRow(5 + i);
+      row.getCell(1).value = label; row.getCell(1).font = { bold: true };
+      row.getCell(2).value = value; row.getCell(2).alignment = { wrapText: true };
+    });
+  }
 
   const buf = Buffer.from(await wb.xlsx.writeBuffer());
   return new NextResponse(new Uint8Array(buf), {

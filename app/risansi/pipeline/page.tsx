@@ -542,6 +542,14 @@ export default async function PipelinePage({
 
   const anyFilter = stageFilts.length > 0 || prodTypeFilts.length > 0 || repFilts.length > 0 || indFilts.length > 0 || probFilts.length > 0 || valFilts.length > 0 || !!qname || !!qfrom || !!qto;
 
+  // Carry the active filters onto the Excel export so it matches what's on screen.
+  const exportParams = new URLSearchParams();
+  for (const k of ['stage', 'product_type', 'rep', 'industry', 'prob', 'val', 'qname', 'qfrom', 'qto']) {
+    const v = sp[k];
+    if (typeof v === 'string' && v) exportParams.set(k, v);
+  }
+  const exportHref = `/api/risansi/opportunities/export${exportParams.toString() ? `?${exportParams.toString()}` : ''}`;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
@@ -565,7 +573,7 @@ export default async function PipelinePage({
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <a
-              href="/api/risansi/opportunities/export"
+              href={exportHref}
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px',
                 fontSize: 13, fontWeight: 600, background: 'var(--bg-elev)', color: 'var(--fg-2)',
