@@ -511,6 +511,13 @@ export default async function PipelinePage({
   // ── Derived values ─────────────────────────────────────────
 
   const openTotal    = openOpps.reduce((s, o) => s + o.value_cr, 0);
+  // The table shows the open pipeline by default. When the Stage filter selects a
+  // closed stage (Won/Lost/Dropped) — which the open query structurally excludes —
+  // fold in the matching closed opps so the filter actually returns rows.
+  const CLOSED_STAGE_SET = ['Won', 'Lost', 'Dropped'];
+  const tableOpps = stageFilts.some(s => CLOSED_STAGE_SET.includes(s))
+    ? [...openOpps, ...closedOpps]
+    : openOpps;
   // Spares are recurring, near-certain business, so they're weighted at a fixed
   // 90% of quoted value regardless of an explicit probability. Everything else
   // uses its own probability, defaulting to 50%. product_type is spelt both
@@ -666,12 +673,12 @@ export default async function PipelinePage({
           table={
             <div key="table" style={PANEL}>
               <div style={PANEL_H}>
-                <span style={PANEL_TITLE}>Active Opportunities</span>
+                <span style={PANEL_TITLE}>{tableOpps === openOpps ? 'Active Opportunities' : 'Opportunities'}</span>
                 <span style={{ fontSize: 11, color: 'var(--fg-3)', marginLeft: 'auto' }}>
-                  {openOpps.length} total
+                  {tableOpps.length} total
                 </span>
               </div>
-              <ActiveOppsTable opps={openOpps} usdRate={usdRate} />
+              <ActiveOppsTable opps={tableOpps} usdRate={usdRate} />
             </div>
           }
           kanban={<OpportunityKanban key="kanban" initialOpps={[...openOpps, ...closedOpps]} stageTotals={stageTotals} />}
