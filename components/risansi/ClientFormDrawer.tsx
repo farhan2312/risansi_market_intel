@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { addClient, updateClient } from '@/app/actions/risansi';
 import { leadCodeBase } from '@/lib/risansi-lead-code';
 import { CLIENT_TYPES } from '@/lib/risansi-client-types';
+import { COUNTRIES, INDIAN_STATES } from '@/lib/risansi-geo';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -60,6 +61,7 @@ export function ClientFormDrawer({ mode, client, existingContacts, allowCodeEdit
   const [industry, setIndustry]     = useState<string>(client?.industry ?? '');
   const [isSugar, setIsSugar]       = useState<boolean>(Boolean(client?.is_sugar));
   const [mapsUrl, setMapsUrl]       = useState<string>(client?.google_maps_url ?? '');
+  const [country, setCountry]       = useState<string>(client?.country ?? 'India');
 
   // Tours (dropdown bound to tour_routes) + current owners (multi-owner picker)
   const [tours, setTours]   = useState<Array<{ id: string; name: string; zone: string | null }>>([]);
@@ -385,12 +387,24 @@ export function ClientFormDrawer({ mode, client, existingContacts, allowCodeEdit
           <Section label="Location">
             <Row>
               <Field label="Country">
-                <input type="text" name="country" maxLength={100}
-                  defaultValue={client?.country ?? 'India'} style={INP} />
+                <select name="country" value={country}
+                  onChange={e => setCountry(e.target.value)} style={INP}>
+                  {withCurrent(COUNTRIES, client?.country).map(c =>
+                    <option key={c} value={c}>{c}</option>)}
+                </select>
               </Field>
               <Field label="State">
-                <input type="text" name="state" maxLength={100}
-                  defaultValue={client?.state ?? ''} style={INP} />
+                {country === 'India' ? (
+                  <select name="state" defaultValue={client?.state ?? ''} style={INP}>
+                    <option value="">— Select state —</option>
+                    {withCurrent(INDIAN_STATES, client?.state).map(s =>
+                      <option key={s} value={s}>{s}</option>)}
+                  </select>
+                ) : (
+                  <input type="text" name="state" maxLength={100}
+                    defaultValue={client?.state ?? ''} placeholder="State / region"
+                    style={INP} />
+                )}
               </Field>
             </Row>
             <Field label="City">
