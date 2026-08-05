@@ -49,6 +49,20 @@ export async function updateBugStatus(bugId: number, status: string) {
   return { ok: true };
 }
 
+// Save the sysadmin's resolution notes for a bug (what/why/how it was fixed).
+// Empty text clears the field. Sysadmin only.
+export async function updateBugResolutionNotes(bugId: number, notes: string) {
+  if (!Number.isInteger(bugId)) throw new Error('Invalid bug.');
+  await requireSysadminName();
+  const clean = typeof notes === 'string' ? notes.trim().slice(0, 8000) : '';
+  await risansiPool.query(
+    'UPDATE bugs SET resolution_notes = $2, updated_at = now() WHERE id = $1',
+    [bugId, clean || null],
+  );
+  revalidatePath('/risansi/admin/bugs');
+  return { ok: true };
+}
+
 // Edit a bug's severity (triage) — sysadmin only.
 export async function updateBugSeverity(bugId: number, severity: string) {
   if (!Number.isInteger(bugId)) throw new Error('Invalid bug.');

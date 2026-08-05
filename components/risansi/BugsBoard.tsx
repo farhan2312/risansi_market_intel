@@ -6,7 +6,7 @@ import {
   BUG_STATUSES, BUG_STATUS_LABELS, BUG_STATUS_HINTS, BUG_STATUS_COLORS,
   BUG_SEVERITIES, BUG_SEVERITY_LABELS, BUG_SEVERITY_COLORS, turnaround, type BugStatus,
 } from '@/lib/risansi-bugs';
-import { updateBugStatus, updateBugSeverity, deleteBug } from '@/app/actions/risansi-bugs';
+import { updateBugStatus, updateBugSeverity, updateBugResolutionNotes, deleteBug } from '@/app/actions/risansi-bugs';
 
 export interface BugCard {
   id: number;
@@ -21,6 +21,7 @@ export interface BugCard {
   recorded_at: string | null;
   resolved_by: string | null;
   resolved_at: string | null;
+  resolution_notes: string | null;
   created_at: string;
   has_screenshot: boolean;
 }
@@ -66,6 +67,23 @@ export function BugsBoard({ initialBugs }: { initialBugs: BugCard[] }) {
     setSelected(null);
     try { await deleteBug(id); router.refresh(); }
     catch { setBugs(prev); setSave('error'); setTimeout(() => setSave('idle'), 2500); }
+  };
+
+  // Save resolution notes. Throws on failure so the modal can surface it inline
+  // and keep the admin's draft intact.
+  const saveNotes = async (id: number, notes: string) => {
+    const prev = bugs;
+    const clean = notes.trim() || null;
+    setBugs(p => p.map(b => (b.id === id ? { ...b, resolution_notes: clean } : b)));
+    setSelected(sel => (sel && sel.id === id ? { ...sel, resolution_notes: clean } : sel));
+    try {
+      await updateBugResolutionNotes(id, notes);
+      router.refresh();
+    } catch (e) {
+      setBugs(prev);
+      setSelected(sel => (sel && sel.id === id ? { ...sel, resolution_notes: prev.find(b => b.id === id)?.resolution_notes ?? null } : sel));
+      throw e;
+    }
   };
 
   const retriage = async (id: number, severity: string) => {
@@ -158,18 +176,29 @@ export function BugsBoard({ initialBugs }: { initialBugs: BugCard[] }) {
       </div>
 
       {selected && (
-        <BugDetailModal bug={selected} onClose={() => setSelected(null)} onMove={move} onSeverity={retriage} onDelete={remove} />
+        <BugDetailModal key={selected.id} bug={selected} onClose={() => setSelected(null)}
+          onMove={move} onSeverity={retriage} onSaveNotes={saveNotes} onDelete={remove} />
       )}
     </div>
   );
 }
 
-function BugDetailModal({ bug, onClose, onMove, onSeverity, onDelete }: {
+function BugDetailModal({ bug, onClose, onMove, onSeverity, onSaveNotes, onDelete }: {
   bug: BugCard; onClose: () => void; onMove: (id: number, s: BugStatus) => void;
-  onSeverity: (id: number, s: string) => void; onDelete: (id: number) => void;
+  onSeverity: (id: number, s: string) => void;
+  onSaveNotes: (id: number, notes: string) => Promise<void>; onDelete: (id: number) => void;
 }) {
   const [confirmDel, setConfirmDel] = useState(false);
+  const [notes, setNotes]           = useState(bug.resolution_notes ?? '');
+  const [notesState, setNotesState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const dirty = notes.trim() !== (bug.resolution_notes ?? '').trim();
   const fmt = (iso: string | null) => iso ? new Date(iso).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+
+  const doSaveNotes = async () => {
+    setNotesState('saving');
+    try { await onSaveNotes(bug.id, notes); setNotesState('saved'); setTimeout(() => setNotesState('idle'), 1600); }
+    catch { setNotesState('error'); setTimeout(() => setNotesState('idle'), 2800); }
+  };
 
   return (
     <div style={OVERLAY} onClick={onClose}>
@@ -256,6 +285,42 @@ function BugDetailModal({ bug, onClose, onMove, onSeverity, onDelete }: {
               </a>
             </div>
           )}
+
+          {/* Resolution notes */}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+              <span style={LBL}>Resolution Notes</span>
+              <span style={{ fontSize: 11, fontStyle: 'italic', color: notesState === 'saved' ? 'var(--pos)' : notesState === 'error' ? 'var(--neg)' : 'var(--fg-3)' }}>
+                {notesState === 'saving' && 'Saving…'}
+                {notesState === 'saved'  && '✓ Saved'}
+                {notesState === 'error'  && '⚠ Failed — try again'}
+              </span>
+            </div>
+            <textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder="Root cause, how it was fixed, what to verify…"
+              rows={4}
+              maxLength={8000}
+              style={{
+                width: '100%', boxSizing: 'border-box', resize: 'vertical', minHeight: 76,
+                padding: '9px 11px', fontSize: 13, fontFamily: 'inherit', lineHeight: 1.5,
+                color: 'var(--fg)', background: 'var(--bg-elev)',
+                border: '1px solid var(--line-strong)', borderRadius: 6,
+              }} />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+              <button type="button" onClick={doSaveNotes} disabled={!dirty || notesState === 'saving'}
+                style={{
+                  padding: '6px 14px', fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
+                  borderRadius: 6, border: 'none',
+                  cursor: dirty && notesState !== 'saving' ? 'pointer' : 'default',
+                  background: dirty ? 'var(--accent)' : 'var(--bg-sunk)',
+                  color: dirty ? '#fff' : 'var(--fg-3)',
+                }}>
+                {notesState === 'saving' ? 'Saving…' : 'Save notes'}
+              </button>
+            </div>
+          </div>
 
           {/* Timeline / turnaround */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, padding: '12px 14px', background: 'var(--bg-sunk)', borderRadius: 6 }}>
