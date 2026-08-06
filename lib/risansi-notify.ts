@@ -8,7 +8,7 @@
 // never break a cron run or the action that triggered it.
 
 import risansiPool from '@/lib/db-risansi';
-import { sendNotification } from '@/lib/risansi-email';
+import { sendNotification, notifyAdminEscalation } from '@/lib/risansi-email';
 
 const BRAND = '#0A3D8F';
 const RED   = '#B91C1C';
@@ -148,21 +148,14 @@ export async function runAdminOverdueEscalation(): Promise<number> {
     // Claim today so a repeat fire (retry / double-schedule / unauth hit) can't re-blast admins.
     if (!(await claimRun('admin_escalation', 'CURRENT_DATE'))) return 0;
 
-    const lines: string[] = [];
-    for (const a of acts) lines.push(`• ${a.who} — ${a.days}d overdue on action “${a.title}” (${a.client_name ?? 'no client'})`);
-    for (const c of comps) lines.push(`• ${c.who} — ${c.days}d overdue on complaint ${c.complaint_no} (${c.client_name ?? 'no client'})`);
-    const body = lines.join('\n');
+    const actionRows = acts.map(a => ({ who: a.who ?? 'Unassigned', title: a.title, client: a.client_name, days: a.days }));
+    const complaintRows = comps.map(c => ({ who: c.who ?? 'Unassigned', title: `Complaint ${c.complaint_no}`, client: c.client_name, days: c.days }));
 
     let sent = 0;
     for (const admin of admins) {
-      await sendNotification({
-        to: admin.email, section: 'Escalation', accent: RED, greetingName: firstName(admin.name),
-        subject: `Escalation: ${acts.length + comps.length} item(s) overdue more than 5 days`,
-        intro: `The following items have been overdue for more than 5 days and need attention.`,
-        title: `${plural(acts.length, 'action')} · ${plural(comps.length, 'complaint')}`,
-        body,
-        ctaLabel: 'Open the Action Registry', ctaPath: '/risansi/registry',
-        footer: 'You are receiving this as a system administrator.',
+      await notifyAdminEscalation({
+        to: admin.email, toName: firstName(admin.name),
+        actions: actionRows, complaints: complaintRows,
       });
       sent++;
     }

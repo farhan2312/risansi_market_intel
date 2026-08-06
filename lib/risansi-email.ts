@@ -378,3 +378,84 @@ export async function notifyExpansionTagged(a: {
 
   return sendEmail({ to: a.to, subject: `Expansion opportunity tagged to you${a.clientName ? ` · ${a.clientName}` : ''}`, html });
 }
+
+// ── Admin overdue-escalation digest ─────────────────────────────
+
+export interface EscalationRow {
+  who: string;                 // person responsible (or "Unassigned")
+  title: string;               // action title, or "Complaint CMP-0130"
+  client: string | null;
+  days: number;                // days overdue
+}
+
+/**
+ * Daily digest to a system admin listing everything overdue > 5 days, one clean
+ * block-level row per item. Renders as a real list (table rows) rather than a
+ * single pre-wrapped string, so Gmail/Outlook can't collapse it into one blob.
+ */
+export async function notifyAdminEscalation(a: {
+  to: string;
+  toName?: string | null;
+  actions: EscalationRow[];
+  complaints: EscalationRow[];
+}) {
+  const RED = '#B91C1C';
+  const total = a.actions.length + a.complaints.length;
+
+  // One item = name + overdue pill on the top line, title + client beneath.
+  const itemRow = (r: EscalationRow) => `
+    <tr>
+      <td style="padding:11px 0;border-top:1px solid #F3F4F6;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+          <td style="vertical-align:top;padding-right:10px;">
+            <div style="color:#111827;font-size:14px;font-weight:600;line-height:1.35;">${escapeHtml(r.who)}</div>
+            <div style="color:#374151;font-size:13px;line-height:1.4;margin-top:2px;">${escapeHtml(r.title)}</div>
+            ${r.client ? `<div style="color:#6B7280;font-size:12px;line-height:1.4;margin-top:2px;">${escapeHtml(r.client)}</div>` : ''}
+          </td>
+          <td style="vertical-align:top;text-align:right;white-space:nowrap;width:86px;">
+            <span style="display:inline-block;background:#FEE2E2;color:${RED};font-size:12px;font-weight:600;padding:3px 10px;border-radius:12px;">${escapeHtml(String(r.days))}d overdue</span>
+          </td>
+        </tr></table>
+      </td>
+    </tr>`;
+
+  const section = (label: string, rows: EscalationRow[]) => rows.length ? `
+    <tr><td style="padding:14px 0 2px;">
+      <span style="color:${RED};font-size:11px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;">${escapeHtml(label)} &middot; ${rows.length}</span>
+    </td></tr>
+    ${rows.map(itemRow).join('')}` : '';
+
+  const box = `
+    <div style="border:1px solid #E5E7EB;border-left:3px solid ${RED};border-radius:6px;padding:6px 16px 14px;margin-bottom:18px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        ${section('Actions', a.actions)}
+        ${section('Complaints', a.complaints)}
+      </table>
+    </div>`;
+
+  const html = `
+  <div style="background:#F3F4F6;padding:24px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+      <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:10px;overflow:hidden;border:1px solid #E5E7EB;">
+        <tr><td style="background:${RED};padding:16px 24px;">
+          <span style="color:#ffffff;font-size:15px;font-weight:600;letter-spacing:0.02em;">Risansi &middot; Escalation</span>
+        </td></tr>
+        <tr><td style="padding:24px;">
+          <p style="margin:0 0 4px;color:#111827;font-size:15px;">Hi ${escapeHtml(a.toName || 'there')},</p>
+          <p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.5;">
+            ${total} item${total === 1 ? '' : 's'} ${total === 1 ? 'has' : 'have'} been overdue for more than 5 days and need attention.
+          </p>
+          ${box}
+          <a href="${appLink('/risansi/registry')}" style="display:inline-block;background:${RED};color:#ffffff;text-decoration:none;font-size:14px;font-weight:500;padding:10px 20px;border-radius:6px;">
+            Open the Action Registry
+          </a>
+        </td></tr>
+        <tr><td style="padding:14px 24px;border-top:1px solid #F3F4F6;">
+          <span style="color:#9CA3AF;font-size:11px;">You are receiving this as a system administrator.</span>
+        </td></tr>
+      </table>
+    </td></tr></table>
+  </div>`;
+
+  return sendEmail({ to: a.to, subject: `Escalation: ${total} item${total === 1 ? '' : 's'} overdue more than 5 days`, html });
+}
