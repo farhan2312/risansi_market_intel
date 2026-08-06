@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import { Topbar, Tag, StatusDot, MultiSelectFilter, ActiveFilterBar, SortableTH } from '@/components/risansi';
+import { clientStatusLabel, statusDotKind, CLIENT_STATUS_FILTER_OPTIONS } from '@/lib/risansi-client-status';
 import { AddClientButton } from '@/components/risansi/ClientFormDrawer';
 import { EditClientLink } from '@/components/risansi/EditClientLink';
 import { EndClientToggle } from '@/components/risansi/EndClientToggle';
@@ -256,21 +257,12 @@ export default async function ClientMasterPage({
     return `/risansi/admin/clients?${p.toString()}`;
   }
 
-  function statusDotKind(s: string): 'active' | 'inactive' | 'prospect' {
-    const su = s.toUpperCase();
-    if (su === 'ACTIVE')      return 'active';
-    if (su === 'INACTIVE')    return 'inactive';
-    if (su === 'PROSPECTIVE') return 'prospect';
-    return 'inactive';
-  }
-
   function tierKind(t: string | null): 'accent' | undefined {
     return t === 'Key' ? 'accent' : undefined;
   }
 
   const curSort = sortKey;
   const curDir  = orderDir === 'DESC' ? 'desc' : 'asc';
-  const STATUS_OPTIONS = ['ACTIVE', 'INACTIVE', 'PROSPECTIVE', 'BLACKLISTED'];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -302,7 +294,7 @@ export default async function ClientMasterPage({
           <MultiSelectFilter param="industry" label="Industry"  options={industries}      selected={indFilts}  />
           <MultiSelectFilter param="zone"     label="Zone"      options={zones}           selected={zoneFilts} />
           <MultiSelectFilter param="tier"     label="Tier"      options={tiers}           selected={tierFilts} />
-          <MultiSelectFilter param="status"   label="Status"    options={STATUS_OPTIONS}  selected={statFilts} />
+          <MultiSelectFilter param="status"   label="Status"    options={CLIENT_STATUS_FILTER_OPTIONS} selected={statFilts} />
           <MultiSelectFilter param="rep"      label="Rep"       options={repOptions.map(r => ({ value: r.rep_name, label: r.rep_name, count: r.client_count }))} selected={repFilts} />
         </div>
 
@@ -311,7 +303,7 @@ export default async function ClientMasterPage({
           { param: 'industry', label: 'Industry', values: indFilts  },
           { param: 'zone',     label: 'Zone',     values: zoneFilts },
           { param: 'tier',     label: 'Tier',     values: tierFilts },
-          { param: 'status',   label: 'Status',   values: statFilts },
+          { param: 'status',   label: 'Status',   values: statFilts, formatValue: clientStatusLabel },
           { param: 'rep',      label: 'Rep',      values: repFilts  },
         ]} />
 
@@ -417,7 +409,7 @@ export default async function ClientMasterPage({
                         <td style={{ ...TD, whiteSpace: 'nowrap' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                             <StatusDot s={statusDotKind(c.status)} />
-                            <span style={{ fontSize: 11 }}>{c.status}</span>
+                            <span style={{ fontSize: 11 }}>{clientStatusLabel(c.status)}</span>
                           </div>
                         </td>
 

@@ -5,6 +5,7 @@ import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser } from '@/lib/risansi-auth';
 import { OWNERS_SUBQUERY, REV_JOIN, buildClientFilter } from '@/lib/risansi-client-filter';
 import { getCurrentFY } from '@/lib/risansi-utils';
+import { clientStatusLabel } from '@/lib/risansi-client-status';
 
 // xlsx generation needs the Node runtime.
 export const runtime = 'nodejs';
@@ -90,7 +91,7 @@ export async function GET(req: Request) {
     { h: 'Industry', w: 16, f: r => r.industry ?? '' },
     { h: 'Client Type', w: 14, f: r => r.client_type ?? '' },
     { h: 'Tier', w: 10, f: r => r.tier ?? '' },
-    { h: 'Status', w: 12, f: r => r.status ?? '' },
+    { h: 'Status', w: 16, f: r => r.status ? clientStatusLabel(r.status) : '' },
     { h: 'Market Type', w: 12, f: r => r.market_type ?? '' },
     { h: 'Sugar', w: 7, f: r => yn(r.is_sugar) },
     { h: 'Tender', w: 8, f: r => yn(r.is_tender) },

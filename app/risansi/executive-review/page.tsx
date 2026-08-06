@@ -292,8 +292,8 @@ export default async function ExecutiveReviewPage({ searchParams }: {
            WHERE ${tourF} AND o.stage='Won' AND ${inMonths('COALESCE(o.quote_date, o.created_at::date)')})::text AS total_business,
          (SELECT COALESCE(round(sum(r.total_value)),0) FROM client_revenue_monthly r JOIN clients c ON c.id = r.client_id
            WHERE ${tourF} AND ${inMonths('r.month')})::text AS revenue,
-         (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status='PROSPECTIVE' AND c.deleted_at IS NULL)::text AS leads,
-         (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status='PROSPECTIVE' AND c.deleted_at IS NULL
+         (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status IN ('PROSPECTIVE_LEAD','PROSPECTIVE_CLIENT') AND c.deleted_at IS NULL)::text AS leads,
+         (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status IN ('PROSPECTIVE_LEAD','PROSPECTIVE_CLIENT') AND c.deleted_at IS NULL
             AND EXISTS (SELECT 1 FROM visits v WHERE v.client_id = c.id AND ${inMonths('v.visit_date')}))::text AS visited,
          (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status='ACTIVE' AND c.deleted_at IS NULL)::text AS active_clients`)).rows[0], null),
   ]);

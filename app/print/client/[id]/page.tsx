@@ -4,6 +4,7 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, canViewClient } from '@/lib/risansi-auth';
 import { formatRev, fmtCr, formatLastVisit } from '@/lib/risansi-utils';
+import { clientStatusLabel } from '@/lib/risansi-client-status';
 import { AutoPrint } from '@/components/risansi/AutoPrint';
 import {
   PRINT_CSS, ROOT, C, Section, Facts, TextBlock, TH, TD, DocHeader,
@@ -179,7 +180,7 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
               {str('since_year') ? ` · Customer since ${str('since_year')}` : ''}
             </>}
             meta={<>
-              <div style={{ fontWeight: 700, color: client.status === 'ACTIVE' ? C.pos : C.fg3 }}>{String(client.status)}</div>
+              <div style={{ fontWeight: 700, color: client.status === 'ACTIVE' ? C.pos : C.fg3 }}>{clientStatusLabel(client.status as string)}</div>
               {str('tier') ? <div style={{ marginTop: 2 }}>{str('tier')}</div> : null}
               {str('zone') ? <div style={{ marginTop: 2 }}>{str('zone')}</div> : null}
             </>}

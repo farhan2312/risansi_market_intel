@@ -6,6 +6,7 @@ import { addClient, updateClient } from '@/app/actions/risansi';
 import { leadCodeBase } from '@/lib/risansi-lead-code';
 import { CLIENT_TYPES } from '@/lib/risansi-client-types';
 import { COUNTRIES, INDIAN_STATES } from '@/lib/risansi-geo';
+import { CLIENT_STATUS_LABELS, allowedStatusesForCode } from '@/lib/risansi-client-status';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -32,7 +33,6 @@ interface Props {
 
 const MARKET_TYPES      = ['Domestic', 'Export'];
 const CAPACITY_BRACKETS = ['0-5000', '5001-9000', '9001 & above'];
-const STATUS_OPTIONS    = ['ACTIVE', 'INACTIVE', 'PROSPECTIVE', 'CLOSED', 'DUPLICATE'];
 const TIER_OPTIONS      = ['Key', 'Standard', 'OEM/Trader'];
 const SUGAR_INDUSTRIES  = ['Sugar', 'Distillery', 'Jaggery', 'Sugar + Distillery', 'Sugar & Distillery'];
 const MAX_CONTACTS      = 10;
@@ -54,7 +54,15 @@ export function ClientFormDrawer({ mode, client, existingContacts, allowCodeEdit
   // Create-mode: is this a full Client (admin types the code) or a Lead (code auto-
   // generated from the name)? `nameForCode` mirrors the legal-name input for the live
   // LEAD_ preview.
-  const [entryType, setEntryType]     = useState<'client' | 'lead'>('client');
+  // Create-mode segregation: Prospective vs Active, and (when Prospective) Lead vs
+  // Client. A Prospective-Lead auto-generates a LEAD_ code; everything else takes a
+  // typed ERP code. `status` is derived from the two toggles.
+  const [newKind,   setNewKind]   = useState<'prospective' | 'active'>('prospective');
+  const [prospKind, setProspKind] = useState<'lead' | 'client'>('lead');
+  const isLeadEntry  = mode === 'create' && newKind === 'prospective' && prospKind === 'lead';
+  const createStatus = newKind === 'active'
+    ? 'ACTIVE'
+    : prospKind === 'lead' ? 'PROSPECTIVE_LEAD' : 'PROSPECTIVE_CLIENT';
   const [nameForCode, setNameForCode] = useState<string>(client?.legal_name ?? '');
 
   const [industries, setIndustries] = useState<string[]>([]);
@@ -62,6 +70,9 @@ export function ClientFormDrawer({ mode, client, existingContacts, allowCodeEdit
   const [isSugar, setIsSugar]       = useState<boolean>(Boolean(client?.is_sugar));
   const [mapsUrl, setMapsUrl]       = useState<string>(client?.google_maps_url ?? '');
   const [country, setCountry]       = useState<string>(client?.country ?? 'India');
+  // Edit mode with an editable code (Client Master): track the live code so the
+  // status options recompute when it flips between LEAD_ and a real code.
+  const [codeDraft, setCodeDraft]   = useState<string>(client?.code ?? '');
 
   // Tours (dropdown bound to tour_routes) + current owners (multi-owner picker)
   const [tours, setTours]   = useState<Array<{ id: string; name: string; zone: string | null }>>([]);
@@ -169,7 +180,11 @@ export function ClientFormDrawer({ mode, client, existingContacts, allowCodeEdit
   const industryOpts   = withCurrent(industries, client?.industry);
   const clientTypeOpts = withCurrent(CLIENT_TYPES, client?.client_type);
   const capacityOpts   = withCurrent(CAPACITY_BRACKETS, client?.capacity_bracket);
-  const statusOpts     = withCurrent(STATUS_OPTIONS, client?.status);
+  // Edit mode: statuses valid for the client's code type (lead vs real). In Client
+  // Master (allowCodeEdit) the code is editable, so track the live draft so the
+  // options refresh when it flips LEAD_ ↔ real. Plus the current value, defensively.
+  const statusCode     = mode === 'edit' && allowCodeEdit ? codeDraft : client?.code;
+  const statusOpts     = withCurrent(allowedStatusesForCode(statusCode), client?.status);
   const tierOpts       = withCurrent(TIER_OPTIONS, client?.tier);
 
   return (
@@ -220,41 +235,70 @@ export function ClientFormDrawer({ mode, client, existingContacts, allowCodeEdit
           {/* ── 1. Identity ── */}
           <Section label="Identity">
             {mode === 'create' && (
-              <Field label="Record Type">
-                <div style={{ display: 'inline-flex', border: '1px solid var(--line-strong)', borderRadius: 7, overflow: 'hidden' }}>
-                  {(['client', 'lead'] as const).map((t, i) => {
-                    const on = entryType === t;
-                    return (
-                      <button
-                        key={t} type="button" onClick={() => setEntryType(t)}
-                        style={{
-                          padding: '7px 18px', fontSize: 13, fontFamily: 'inherit', cursor: on ? 'default' : 'pointer',
-                          border: 'none', borderLeft: i === 0 ? 'none' : '1px solid var(--line)',
-                          background: on ? 'var(--brand-blue)' : 'transparent',
-                          color: on ? '#fff' : 'var(--fg-2)', fontWeight: on ? 600 : 500,
-                        }}
-                      >
-                        {t === 'client' ? 'Client' : 'Lead'}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div style={HINT}>
-                  {entryType === 'client'
-                    ? 'A full client — you enter the client code.'
-                    : 'A lead — the code is auto-generated (LEAD_…) from the company name.'}
-                </div>
-              </Field>
+              <>
+                <Field label="Status">
+                  <div style={{ display: 'inline-flex', border: '1px solid var(--line-strong)', borderRadius: 7, overflow: 'hidden' }}>
+                    {(['prospective', 'active'] as const).map((t, i) => {
+                      const on = newKind === t;
+                      return (
+                        <button key={t} type="button" onClick={() => setNewKind(t)}
+                          style={{
+                            padding: '7px 18px', fontSize: 13, fontFamily: 'inherit', cursor: on ? 'default' : 'pointer',
+                            border: 'none', borderLeft: i === 0 ? 'none' : '1px solid var(--line)',
+                            background: on ? 'var(--brand-blue)' : 'transparent',
+                            color: on ? '#fff' : 'var(--fg-2)', fontWeight: on ? 600 : 500,
+                          }}>
+                          {t === 'prospective' ? 'Prospective' : 'Active'}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div style={HINT}>
+                    {newKind === 'active'
+                      ? 'An existing client who has placed an order — enter their ERP client code.'
+                      : 'Not yet a client. Choose whether they are a raw lead or an enquiry with a code.'}
+                  </div>
+                </Field>
+
+                {newKind === 'prospective' && (
+                  <Field label="Prospective Type">
+                    <div style={{ display: 'inline-flex', border: '1px solid var(--line-strong)', borderRadius: 7, overflow: 'hidden' }}>
+                      {(['lead', 'client'] as const).map((t, i) => {
+                        const on = prospKind === t;
+                        return (
+                          <button key={t} type="button" onClick={() => setProspKind(t)}
+                            style={{
+                              padding: '7px 16px', fontSize: 13, fontFamily: 'inherit', cursor: on ? 'default' : 'pointer',
+                              border: 'none', borderLeft: i === 0 ? 'none' : '1px solid var(--line)',
+                              background: on ? 'var(--brand-blue)' : 'transparent',
+                              color: on ? '#fff' : 'var(--fg-2)', fontWeight: on ? 600 : 500,
+                            }}>
+                            {t === 'lead' ? 'Prospective-Lead' : 'Prospective-Client'}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div style={HINT}>
+                      {prospKind === 'lead'
+                        ? 'A raw lead — the code is auto-generated (LEAD_…) from the company name.'
+                        : 'An enquiry arrived and you have their ERP client code — enter it below.'}
+                    </div>
+                  </Field>
+                )}
+              </>
             )}
             {/* Rendered once (not inside the code field) so it never shares a DOM slot
                 with the code <input> — otherwise React reuses the node and the code box
-                inherits this "true"/"false" value on toggle. */}
+                inherits this value on toggle. */}
             {mode === 'create' && (
-              <input type="hidden" name="is_lead" value={entryType === 'lead' ? 'true' : 'false'} />
+              <>
+                <input type="hidden" name="is_lead" value={isLeadEntry ? 'true' : 'false'} />
+                <input type="hidden" name="status"  value={createStatus} />
+              </>
             )}
-            <Field label="Client Code" required={mode === 'edit' || entryType === 'client'}>
+            <Field label="Client Code" required={mode === 'edit' || !isLeadEntry}>
               {mode === 'create' ? (
-                entryType === 'client' ? (
+                !isLeadEntry ? (
                   <>
                     <input
                       type="text" name="code" required maxLength={20}
@@ -281,8 +325,8 @@ export function ClientFormDrawer({ mode, client, existingContacts, allowCodeEdit
                 <>
                   <input
                     type="text" name="code" required maxLength={20}
-                    defaultValue={client?.code ?? ''} style={{ ...INP, fontFamily: 'var(--font-mono)' }}
-                    onChange={e => (e.currentTarget.value = e.currentTarget.value.toUpperCase())}
+                    value={codeDraft} style={{ ...INP, fontFamily: 'var(--font-mono)' }}
+                    onChange={e => setCodeDraft(e.target.value.toUpperCase())}
                   />
                   <div style={{ ...HINT, color: 'var(--warn, var(--fg-3))' }}>
                     Changing the code changes this client’s identifier and its URL. Must stay unique.
@@ -433,9 +477,21 @@ export function ClientFormDrawer({ mode, client, existingContacts, allowCodeEdit
           <Section label="Territory">
             <Row>
               <Field label="Status">
-                <select name="status" style={INP} defaultValue={client?.status ?? 'ACTIVE'}>
-                  {statusOpts.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
+                {mode === 'create' ? (
+                  <div style={{
+                    padding: '9px 12px', background: 'var(--bg-sunk)', border: '1px solid var(--line)',
+                    borderRadius: 6, fontSize: 13, color: 'var(--fg-2)',
+                  }}>
+                    {CLIENT_STATUS_LABELS[createStatus] ?? createStatus}
+                    <span style={{ marginLeft: 8, fontStyle: 'italic', color: 'var(--fg-3)', fontSize: 11 }}>
+                      set above
+                    </span>
+                  </div>
+                ) : (
+                  <select name="status" style={INP} defaultValue={client?.status ?? 'ACTIVE'}>
+                    {statusOpts.map(s => <option key={s} value={s}>{CLIENT_STATUS_LABELS[s] ?? s}</option>)}
+                  </select>
+                )}
               </Field>
               <Field label="Tier">
                 <select name="tier" style={INP} defaultValue={client?.tier ?? 'Standard'}>

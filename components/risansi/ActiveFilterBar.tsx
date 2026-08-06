@@ -8,6 +8,7 @@ export interface FilterDef {
   param:    string;   // URL search param key
   label:    string;   // Human-readable label for the pill prefix
   values:   string[]; // Currently selected values (server-parsed)
+  formatValue?: (value: string) => string; // display mapper (raw value still used for removal)
 }
 
 interface Props {
@@ -20,11 +21,12 @@ export function ActiveFilterBar({ filters }: Props) {
   const router   = useRouter();
   const pathname = usePathname();
 
-  // Flatten all active (param, value) pairs into pills
-  const pills: { param: string; filterLabel: string; value: string }[] = [];
-  for (const { param, label, values } of filters) {
+  // Flatten all active (param, value) pairs into pills. `value` stays raw (used for
+  // removal); `display` is the friendly label shown to the user.
+  const pills: { param: string; filterLabel: string; value: string; display: string }[] = [];
+  for (const { param, label, values, formatValue } of filters) {
     for (const value of values) {
-      pills.push({ param, filterLabel: label, value });
+      pills.push({ param, filterLabel: label, value, display: formatValue ? formatValue(value) : value });
     }
   }
 
@@ -70,7 +72,7 @@ export function ActiveFilterBar({ filters }: Props) {
         Filters:
       </span>
 
-      {pills.map(({ param, filterLabel, value }) => (
+      {pills.map(({ param, filterLabel, value, display }) => (
         <span
           key={`${param}:${value}`}
           className="r-pill"
@@ -87,12 +89,12 @@ export function ActiveFilterBar({ filters }: Props) {
           }}
         >
           <span style={{ fontSize: 10, opacity: 0.7 }}>{filterLabel}:</span>
-          {value}
+          {display}
           <button
             type="button"
             className="r-pill-x"
             onClick={() => removePill(param, value)}
-            aria-label={`Remove ${filterLabel} ${value} filter`}
+            aria-label={`Remove ${filterLabel} ${display} filter`}
             style={{
               background:  'none',
               border:      'none',

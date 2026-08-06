@@ -8,6 +8,10 @@ import { getManagerAssignableReps, hasRole, getCurrentUser, canViewClient, hasSp
 import risansiPool from '@/lib/db-risansi';
 import { recordAudit } from '@/lib/audit';
 import { normalizeClientName, uniqueLeadCode } from '@/lib/risansi-lead-code';
+import {
+  isProspectiveStatus, isLeadCode, CLIENT_STATUSES,
+  allowedStatusesForCode, clientStatusLabel,
+} from '@/lib/risansi-client-status';
 import { resolveClientPrimaryRep } from '@/lib/risansi-client-rep';
 import { parseSalesOrdersJson, inrToCr, type SoInput, type SalesOrder } from '@/lib/risansi-sales-orders';
 import { poInrToCr, type PurchaseOrder } from '@/lib/risansi-purchase-orders';
@@ -371,6 +375,14 @@ export async function updateClient(clientId: number, formData: FormData): Promis
   if (newCode && currentCode && newCode !== currentCode) {
     const dup = await risansiPool.query('SELECT 1 FROM clients WHERE UPPER(code) = $1 AND id <> $2', [newCode, clientId]);
     if (dup.rows.length > 0) throw new Error(`Client code "${newCode}" is already in use.`);
+  }
+
+  // Coupling: the status must be valid for the (final) code type — a LEAD_ code can
+  // only be Prospective-Lead/Duplicate; a real code can't be Prospective-Lead. Enforced
+  // on every save so a raw code edit (LEAD_ → real) can't leave a lead status behind.
+  // The guided path for that transition is convertLeadToClient.
+  if (!allowedStatusesForCode(newCode).includes(newStatus as never)) {
+    throw new Error(`"${clientStatusLabel(newStatus)}" isn't a valid status for ${isLeadCode(newCode) ? 'a lead (LEAD_) code — use “Convert to Client” to assign an ERP code first' : 'a real client code'}.`);
   }
 
   // Update the client, and when the code changes cascade it to the denormalised
@@ -1913,25 +1925,37 @@ export async function addClient(formData: FormData): Promise<void> {
   const legalName = normalizeClientName((formData.get('legal_name') as string | null) ?? '');
   if (!legalName) throw new Error('Legal name is required.');
 
-  const isLead = formData.get('is_lead') === 'true';
+  const isLead    = formData.get('is_lead') === 'true';
+  const rawStatus = (formData.get('status') as string | null)?.trim() || 'ACTIVE';
 
   let code: string;
+  let status: string;
   if (isLead) {
-    // Lead: auto-generate a unique LEAD_ code from the company name. Check against
-    // ALL codes (incl. soft-deleted) since the unique index is not partial.
+    // Prospective-Lead: auto-generate a unique LEAD_ code from the company name.
+    // Check against ALL codes (incl. soft-deleted) since the unique index isn't
+    // partial. The status is locked to match the code type.
     const { rows } = await risansiPool.query<{ code: string }>('SELECT code FROM clients');
     const taken = new Set(rows.map(r => String(r.code).toUpperCase()));
-    code = uniqueLeadCode(legalName, c => taken.has(c));
+    code   = uniqueLeadCode(legalName, c => taken.has(c));
+    status = 'PROSPECTIVE_LEAD';
   } else {
-    // Client: the admin supplies the code.
+    // Real client (Prospective-Client or Active): the admin supplies the code,
+    // which must NOT be a LEAD_ code — those are reserved for auto-coded leads.
     code = (formData.get('code') as string | null)?.toUpperCase().trim() ?? '';
     if (!code) throw new Error('Client code is required.');
+    if (isLeadCode(code)) throw new Error('A LEAD_ code is reserved for leads — choose "Prospective-Lead" to auto-generate one, or enter a real ERP client code.');
+    // Check ALL codes (incl. soft-deleted): the clients.code unique index is not
+    // partial, so a soft-deleted code would still collide on INSERT — surface the
+    // friendly message rather than a raw constraint violation.
     const existing = await risansiPool.query<{ id: number }>(
-      'SELECT id FROM clients WHERE code = $1 AND deleted_at IS NULL', [code],
+      'SELECT id FROM clients WHERE UPPER(code) = $1', [code],
     );
     if (existing.rows.length > 0) {
       throw new Error(`Code ${code} already exists`);
     }
+    // A real code can't hold a lead status; anything unknown falls back to ACTIVE.
+    status = (rawStatus !== 'PROSPECTIVE_LEAD' && (CLIENT_STATUSES as readonly string[]).includes(rawStatus))
+      ? rawStatus : 'ACTIVE';
   }
 
   const result = await risansiPool.query<{ id: number }>(
@@ -1965,7 +1989,7 @@ export async function addClient(formData: FormData): Promise<void> {
       (formData.get('capacity_bracket')  as string | null)?.trim() || null,
       formData.get('tcd')  ? parseInt(formData.get('tcd')  as string) : null,
       formData.get('klpd') ? parseInt(formData.get('klpd') as string) : null,
-      (formData.get('status')            as string | null)?.trim() || 'ACTIVE',
+      status,
       (formData.get('tier')              as string | null)?.trim() || 'Standard',
       (formData.get('since_year')        as string | null)?.trim() || null,
       formData.get('tour_id') ? parseInt(formData.get('tour_id') as string, 10) : null,
@@ -1992,10 +2016,73 @@ export async function addClient(formData: FormData): Promise<void> {
   revalidatePath('/risansi/admin/clients');
   revalidatePath('/risansi');
 
-  // A lead (is_lead flag) or a manually-set prospective client → tell the tour
-  // manager. Keyed off isLead because the form's status defaults to ACTIVE even
-  // for a lead (only is_lead marks it).
-  if (isLead || ((formData.get('status') as string | null)?.trim() || 'ACTIVE') === 'PROSPECTIVE') {
+  // Any new prospect (Prospective-Lead or Prospective-Client) → tell the tour manager.
+  if (isProspectiveStatus(status)) {
     await notifyNewLead(Number(clientId), email);
   }
+}
+
+/**
+ * Convert a Prospective-Lead into a Prospective-Client: swap its auto LEAD_ code
+ * for the real ERP client code and flip the status. Reuses updateClient's code
+ * cascade so the denormalised client_code snapshots stay in sync. Returns the new
+ * code so the caller can navigate to the client's new URL.
+ */
+export async function convertLeadToClient(clientId: number, erpCode: string): Promise<{ newCode: string }> {
+  const session = await getServerSession(authOptions);
+  if (!hasRole(session?.user?.role, 'admin')) throw new Error('Unauthorized');
+  const email = session!.user.email ?? 'system';
+
+  if (!Number.isInteger(clientId)) throw new Error('Invalid client.');
+  const newCode = (erpCode ?? '').toUpperCase().trim();
+  if (!newCode) throw new Error('Enter the ERP client code.');
+  if (isLeadCode(newCode)) throw new Error('The new code must be a real ERP client code, not a LEAD_ code.');
+
+  const cur = (await risansiPool.query<{ code: string; status: string; legal_name: string }>(
+    'SELECT code, status, legal_name FROM clients WHERE id = $1', [clientId],
+  )).rows[0];
+  if (!cur) throw new Error('Client not found.');
+  if (!isLeadCode(cur.code)) throw new Error('This client already has a real client code — nothing to convert.');
+
+  const dup = await risansiPool.query('SELECT 1 FROM clients WHERE UPPER(code) = $1 AND id <> $2', [newCode, clientId]);
+  if (dup.rows.length > 0) throw new Error(`Client code "${newCode}" is already in use.`);
+
+  const oldCode = cur.code;
+  const tx = await risansiPool.connect();
+  try {
+    await tx.query('BEGIN');
+    await tx.query(
+      `UPDATE clients SET code = $1, status = 'PROSPECTIVE_CLIENT', updated_by = $2, updated_at = NOW() WHERE id = $3`,
+      [newCode, email, clientId],
+    );
+    // client_code is a plain text copy (no FK) in these tables — keep it in sync.
+    for (const tbl of ['client_pumps', 'competitor_installed_base', 'complaints']) {
+      await tx.query(
+        `UPDATE ${tbl} SET client_code = $1 WHERE client_id = $2 OR (client_code = $3 AND client_id IS NULL)`,
+        [newCode, clientId, oldCode],
+      );
+    }
+    await tx.query('COMMIT');
+  } catch (e) {
+    await tx.query('ROLLBACK');
+    throw e;
+  } finally {
+    tx.release();
+  }
+
+  try {
+    await risansiPool.query(
+      `INSERT INTO client_status_log (client_id, from_status, to_status, reason, changed_by)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [clientId, cur.status, 'PROSPECTIVE_CLIENT', `Converted lead to client (${oldCode} → ${newCode})`, email],
+    );
+  } catch { /* table may not exist */ }
+
+  await logActivity('client', String(clientId), `converted lead ${oldCode} → client ${newCode} · ${cur.legal_name}`, email);
+  revalidatePath('/risansi/clients');
+  revalidatePath('/risansi/admin/clients');
+  revalidatePath(`/risansi/clients/${oldCode}`);
+  revalidatePath(`/risansi/clients/${newCode}`);
+  revalidatePath('/risansi');
+  return { newCode };
 }

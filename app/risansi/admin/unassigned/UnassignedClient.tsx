@@ -4,6 +4,7 @@ import { useState, useTransition, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { Tag } from '@/components/risansi';
 import { mapClients } from '@/app/actions/sysadmin';
+import { clientStatusLabel } from '@/lib/risansi-client-status';
 
 export interface UnassignedRow {
   id:         number;
@@ -105,7 +106,7 @@ export function UnassignedClient({ clients, tours, counts }: {
         </select>
         <select value={statusF} onChange={e => setStatusF(e.target.value)} style={SEL}>
           <option value="">All statuses</option>
-          {statuses.map(s => <option key={s} value={s}>{s === 'PROSPECTIVE' ? 'Prospective (leads)' : s.charAt(0) + s.slice(1).toLowerCase()}</option>)}
+          {statuses.map(s => <option key={s} value={s}>{clientStatusLabel(s)}</option>)}
         </select>
         <select value={missing} onChange={e => setMissing(e.target.value)} style={SEL}>
           <option value="all">Missing: any</option>
@@ -164,7 +165,7 @@ export function UnassignedClient({ clients, tours, counts }: {
                   <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>{c.code}</td>
                   <td style={{ ...TD, fontWeight: 500, color: 'var(--fg)' }}>{c.legal_name}</td>
                   <td style={TD}>{c.status
-                    ? <Tag kind={c.status === 'PROSPECTIVE' ? 'accent' : c.status === 'ACTIVE' ? 'pos' : c.status === 'CLOSED' ? 'neg' : 'warn'}>{c.status}</Tag>
+                    ? <Tag kind={c.status === 'ACTIVE' ? 'pos' : c.status === 'PROSPECTIVE_LEAD' ? 'accent' : c.status === 'CLOSED' ? 'neg' : 'warn'}>{clientStatusLabel(c.status)}</Tag>
                     : '—'}</td>
                   <td style={TD}>{c.industry ? <Tag>{c.industry}</Tag> : '—'}</td>
                   <td style={TD}>{c.zone ?? '—'}</td>

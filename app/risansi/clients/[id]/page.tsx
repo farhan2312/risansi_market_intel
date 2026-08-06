@@ -4,6 +4,8 @@ import { notFound } from 'next/navigation';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, Tag, StatusDot } from '@/components/risansi';
+import { ConvertLeadButton } from '@/components/risansi/ConvertLeadButton';
+import { clientStatusLabel, statusDotKind } from '@/lib/risansi-client-status';
 import risansiPool from '@/lib/db-risansi';
 import { fyShortLabel, formatRev, formatLastVisit, fmtUsdFromCr } from '@/lib/risansi-utils';
 import { getUsdRate } from '@/lib/risansi-settings';
@@ -606,8 +608,8 @@ export default async function ClientProfilePage({
               <span className="r-detail-title" style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
                 {client.legal_name}
               </span>
-              <StatusDot s={client.status === 'ACTIVE' ? 'active' : client.status === 'INACTIVE' ? 'inactive' : 'prospect'} />
-              <span style={{ fontSize: 12, color: 'var(--fg-3)', marginLeft: -4 }}>{client.status}</span>
+              <StatusDot s={statusDotKind(client.status)} />
+              <span style={{ fontSize: 12, color: 'var(--fg-3)', marginLeft: -4 }}>{clientStatusLabel(client.status)}</span>
               {client.tier === 'Key' && <Tag kind="accent">Key Account</Tag>}
               {client.tier && client.tier !== 'Key' && <Tag>{client.tier}</Tag>}
             </div>
@@ -683,6 +685,9 @@ export default async function ClientProfilePage({
           >
             🖨 Export PDF
           </a>
+          {canEdit && client.status === 'PROSPECTIVE_LEAD' && (
+            <ConvertLeadButton clientId={Number(client.id)} currentCode={client.code} legalName={client.legal_name} />
+          )}
           <ClientActionButtons
             clientId={client.id}
             clientName={client.legal_name}

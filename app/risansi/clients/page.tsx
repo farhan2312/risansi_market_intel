@@ -6,6 +6,7 @@ import risansiPool from '@/lib/db-risansi';
 import { formatLastVisitShort } from '@/lib/risansi-utils';
 import { getCurrentUser, clientVisibilitySql } from '@/lib/risansi-auth';
 import { OWNERS_SUBQUERY, REV_JOIN, REV_BUCKETS, buildClientFilter } from '@/lib/risansi-client-filter';
+import { clientStatusLabel, statusDotKind, CLIENT_STATUS_FILTER_OPTIONS } from '@/lib/risansi-client-status';
 import { FilterBar } from './FilterBar';
 
 const PAGE_SIZE = 50;
@@ -243,21 +244,12 @@ export default async function ClientListPage({
     return `/risansi/clients?${p.toString()}`;
   }
 
-  function statusDotKind(s: string): 'active' | 'inactive' | 'prospect' {
-    const su = s.toUpperCase();
-    if (su === 'ACTIVE')      return 'active';
-    if (su === 'INACTIVE')    return 'inactive';
-    if (su === 'PROSPECTIVE') return 'prospect';
-    return 'inactive';
-  }
-
   function tierKind(t: string | null): 'accent' | undefined {
     return t === 'Key' ? 'accent' : undefined;
   }
 
   const curSort = sortKey;
   const curDir  = orderDir === 'DESC' ? 'desc' : 'asc';
-  const STATUS_OPTIONS = ['ACTIVE', 'INACTIVE', 'PROSPECTIVE', 'BLACKLISTED'];
 
   // Export link — carries the current filters so the .xlsx matches this view.
   const exportQs = new URLSearchParams();
@@ -321,7 +313,7 @@ export default async function ClientListPage({
             <MultiSelectFilter param="industry" label="Industry"       options={industries}      selected={indFilts}  />
             <MultiSelectFilter param="zone"     label="Zone"           options={zones}           selected={zoneFilts} />
             <MultiSelectFilter param="tier"     label="Tier"           options={tiers}           selected={tierFilts} />
-            <MultiSelectFilter param="status"   label="Status"         options={STATUS_OPTIONS}  selected={statFilts} />
+            <MultiSelectFilter param="status"   label="Status"         options={CLIENT_STATUS_FILTER_OPTIONS} selected={statFilts} />
             <MultiSelectFilter param="rep"      label="Rep"            options={repOptions.map(r => ({ value: r.rep_name, label: r.rep_name, count: r.client_count }))} selected={repFilts} />
             <MultiSelectFilter param="fy"       label="Customer Since" options={fyYears}         selected={fyFilts} />
             <MultiSelectFilter param="rev"      label="Revenue"        options={revBuckets}      selected={revFilts}  />
@@ -333,7 +325,7 @@ export default async function ClientListPage({
           { param: 'industry', label: 'Industry', values: indFilts  },
           { param: 'zone',     label: 'Zone',     values: zoneFilts },
           { param: 'tier',     label: 'Tier',     values: tierFilts },
-          { param: 'status',   label: 'Status',   values: statFilts },
+          { param: 'status',   label: 'Status',   values: statFilts, formatValue: clientStatusLabel },
           { param: 'rep',      label: 'Rep',      values: repFilts  },
           { param: 'fy',       label: 'Customer Since', values: fyFilts },
           { param: 'rev',      label: 'Revenue',  values: revFilts },
@@ -444,7 +436,7 @@ export default async function ClientListPage({
                         <td data-label="Status" style={{ ...TD, whiteSpace: 'nowrap' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                             <StatusDot s={statusDotKind(c.status)} />
-                            <span style={{ fontSize: 11 }}>{c.status}</span>
+                            <span style={{ fontSize: 11 }}>{clientStatusLabel(c.status)}</span>
                           </div>
                         </td>
 

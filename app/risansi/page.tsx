@@ -9,6 +9,7 @@ import { RefreshButton } from '@/components/risansi/RefreshButton';
 import Link from 'next/link';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, clientVisibilitySql, clientScopeSql, hasRole } from '@/lib/risansi-auth';
+import { clientStatusLabel } from '@/lib/risansi-client-status';
 import {
   getCurrentFY, fyShortLabel,
   fyYtdPct, fyDaysLeft, formatIndianDate, formatTime, fmtCr, fmtL,
@@ -1106,7 +1107,7 @@ export default async function ExecDashboardPage() {
                             {acc.py > 0 ? `${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(1)}%` : '—'}
                           </td>
                           <td style={TD}>
-                            <Tag kind="pos" dot>{acc.status}</Tag>
+                            <Tag kind="pos" dot>{clientStatusLabel(acc.status)}</Tag>
                           </td>
                         </tr>
                       );
