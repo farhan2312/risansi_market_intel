@@ -8,7 +8,9 @@ export interface FilterDef {
   param:    string;   // URL search param key
   label:    string;   // Human-readable label for the pill prefix
   values:   string[]; // Currently selected values (server-parsed)
-  formatValue?: (value: string) => string; // display mapper (raw value still used for removal)
+  // Serializable value→label map (a function can't cross the server→client boundary).
+  // The raw value is still used for removal; only the pill text uses the label.
+  valueLabels?: Record<string, string>;
 }
 
 interface Props {
@@ -24,9 +26,9 @@ export function ActiveFilterBar({ filters }: Props) {
   // Flatten all active (param, value) pairs into pills. `value` stays raw (used for
   // removal); `display` is the friendly label shown to the user.
   const pills: { param: string; filterLabel: string; value: string; display: string }[] = [];
-  for (const { param, label, values, formatValue } of filters) {
+  for (const { param, label, values, valueLabels } of filters) {
     for (const value of values) {
-      pills.push({ param, filterLabel: label, value, display: formatValue ? formatValue(value) : value });
+      pills.push({ param, filterLabel: label, value, display: valueLabels?.[value] ?? value });
     }
   }
 

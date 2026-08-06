@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { Topbar, Tag, StatusDot, MultiSelectFilter, ActiveFilterBar, SortableTH } from '@/components/risansi';
-import { clientStatusLabel, statusDotKind, CLIENT_STATUS_FILTER_OPTIONS } from '@/lib/risansi-client-status';
+import { clientStatusLabel, statusDotKind, CLIENT_STATUS_FILTER_OPTIONS, CLIENT_STATUS_LABELS } from '@/lib/risansi-client-status';
 import { AddClientButton } from '@/components/risansi/ClientFormDrawer';
 import { EditClientLink } from '@/components/risansi/EditClientLink';
 import { EndClientToggle } from '@/components/risansi/EndClientToggle';
@@ -303,7 +303,7 @@ export default async function ClientMasterPage({
           { param: 'industry', label: 'Industry', values: indFilts  },
           { param: 'zone',     label: 'Zone',     values: zoneFilts },
           { param: 'tier',     label: 'Tier',     values: tierFilts },
-          { param: 'status',   label: 'Status',   values: statFilts, formatValue: clientStatusLabel },
+          { param: 'status',   label: 'Status',   values: statFilts, valueLabels: CLIENT_STATUS_LABELS },
           { param: 'rep',      label: 'Rep',      values: repFilts  },
         ]} />
 

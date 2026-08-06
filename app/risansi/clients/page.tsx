@@ -6,7 +6,7 @@ import risansiPool from '@/lib/db-risansi';
 import { formatLastVisitShort } from '@/lib/risansi-utils';
 import { getCurrentUser, clientVisibilitySql } from '@/lib/risansi-auth';
 import { OWNERS_SUBQUERY, REV_JOIN, REV_BUCKETS, buildClientFilter } from '@/lib/risansi-client-filter';
-import { clientStatusLabel, statusDotKind, CLIENT_STATUS_FILTER_OPTIONS } from '@/lib/risansi-client-status';
+import { clientStatusLabel, statusDotKind, CLIENT_STATUS_FILTER_OPTIONS, CLIENT_STATUS_LABELS } from '@/lib/risansi-client-status';
 import { FilterBar } from './FilterBar';
 
 const PAGE_SIZE = 50;
@@ -325,7 +325,7 @@ export default async function ClientListPage({
           { param: 'industry', label: 'Industry', values: indFilts  },
           { param: 'zone',     label: 'Zone',     values: zoneFilts },
           { param: 'tier',     label: 'Tier',     values: tierFilts },
-          { param: 'status',   label: 'Status',   values: statFilts, formatValue: clientStatusLabel },
+          { param: 'status',   label: 'Status',   values: statFilts, valueLabels: CLIENT_STATUS_LABELS },
           { param: 'rep',      label: 'Rep',      values: repFilts  },
           { param: 'fy',       label: 'Customer Since', values: fyFilts },
           { param: 'rev',      label: 'Revenue',  values: revFilts },
