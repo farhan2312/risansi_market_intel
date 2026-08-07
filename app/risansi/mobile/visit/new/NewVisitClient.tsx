@@ -62,7 +62,10 @@ export function NewVisitClient({
         setGpsState('done');
         setStatusMsg('Checked in! Opening report…');
         startTransition(() => {
-          router.push(`/risansi/mobile/visit/${visitId}/report`);
+          // The unified report (same one the mobile home page's "resume visit"
+          // links use) — it's already responsive; the old mobile-only wizard at
+          // /risansi/mobile/visit/[id]/report was retired (see risansi.ts).
+          router.push(`/risansi/visits/${visitId}`);
         });
       } else {
         setGpsState('error');
