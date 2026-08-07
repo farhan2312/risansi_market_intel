@@ -51,11 +51,13 @@ const SALES_NAV: NavItem[] = [
   { id: 'pipeline',  href: '/risansi/pipeline', label: 'Opportunities',  Icon: IcPipeline },
   { id: 'compete',   href: '/risansi/compete',  label: 'Competition',    Icon: IcTower, alertKey: 'compete' },
   { id: 'complaints',href: '/risansi/complaints', label: 'Complaints',   Icon: IcAlert },
+  // Open to every role — scoped server-side: admins see every TSM/account,
+  // managers the reps on their tours, reps only themselves.
+  { id: 'exec-review', href: '/risansi/executive-review', label: 'Executive Review', Icon: IcDash },
 ];
 
 // GROUP 2 — Admin (admin / sysadmin only)
 const ADMIN_NAV: NavItem[] = [
-  { id: 'exec-review',   href: '/risansi/executive-review', label: 'Executive Review', Icon: IcDash },
   { id: 'clients-admin', href: '/risansi/admin/clients', label: 'Client Master',  Icon: IcList },
   { id: 'revenue-admin', href: '/risansi/admin/revenue', label: 'Revenue Upload', Icon: IcBag },
   { id: 'outstanding-admin', href: '/risansi/admin/outstanding', label: 'Outstanding Upload', Icon: IcBag },

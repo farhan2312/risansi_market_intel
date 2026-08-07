@@ -184,6 +184,26 @@ export async function getManagerAssignableReps(managerRepId: number): Promise<nu
 }
 
 /**
+ * Whose Executive Review may this user open?
+ *   admin / sysadmin → null (no restriction — every TSM)
+ *   manager          → the reps on the tours they're assigned to, plus
+ *                      themselves (getManagerAssignableReps). Note this is
+ *                      symmetric on shared tours, so a manager also sees a peer
+ *                      manager who works the same tour.
+ *   rep              → themselves only
+ * Returns the allowed users.id list, or null meaning "no restriction". An empty
+ * array means "nobody" (a user with no linked id), which callers must treat as
+ * no access rather than as unrestricted.
+ */
+export async function getReviewableRepIds(user: CurrentUser): Promise<number[] | null> {
+  if (hasRole(user.role, 'admin')) return null;
+  const uid = intOrNull(user.id);
+  if (uid == null) return [];
+  if (user.role === 'manager') return getManagerAssignableReps(uid);
+  return [uid];
+}
+
+/**
  * Who may fill or correct a visit report: the assigned rep, a manager who
  * shares one of that rep's tours, or admin/sysadmin. Same shape as the
  * opportunity edit gate (userCanEditOpp) so record editing stays consistent

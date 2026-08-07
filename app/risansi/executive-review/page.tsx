@@ -2,7 +2,7 @@ import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
 import { Topbar } from '@/components/risansi';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { hasRole } from '@/lib/risansi-auth';
+import { getCurrentUser, getReviewableRepIds, clientVisibilitySql, clientScopeSql } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 import { ExecutiveViews, type ExecData, type Row } from '@/components/risansi/ExecutiveViews';
 import { ExecutiveSelector, type SelRep } from '@/components/risansi/ExecutiveSelector';
@@ -44,9 +44,18 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   searchParams: Promise<{ tsm?: string; month?: string; months?: string; view?: string; ctype?: string; name?: string; tview?: string }>;
 }) {
   const session = await getServerSession(authOptions);
-  const role = session?.user?.role ?? '';
-  if (!hasRole(role, 'admin')) redirect('/risansi');
+  if (!session?.user?.email) redirect('/api/auth/signin');
   const sp = await searchParams;
+
+  // Open to every signed-in role, scoped server-side. `allowedRepIds` is null
+  // for admin/sysadmin (no restriction), otherwise the exact set of TSMs this
+  // user may review; `clientVis` is the matching predicate for the Account
+  // Review side. Both the tsm and name params are validated against the scoped
+  // option lists below, so a hand-typed id can never widen access.
+  const me = await getCurrentUser();
+  const allowedRepIds = await getReviewableRepIds(me);
+  const clientVis = clientVisibilitySql(me, 'c');
+  const visAnd = clientVis ? ` AND (${clientVis})` : '';
 
   // ── Account Review: a group of mills, or a single OEM ──────────
   if (sp.view === 'account') {
@@ -55,13 +64,17 @@ export default async function ExecutiveReviewPage({ searchParams }: {
     const curFy = (nowD.getMonth() + 1) >= 4 ? nowD.getFullYear() : nowD.getFullYear() - 1;
     const FYS = Array.from({ length: 5 }, (_, i) => fyLabel(curFy - 4 + i));
 
+    // Scoped to the accounts this user may see: a rep only gets the groups/OEMs
+    // among their own clients, a manager theirs, admins everything. The unit
+    // counts in the labels reflect the same scope.
     const options = await q<NameOpt[]>(async () => (await risansiPool.query<NameOpt>(
       ctype === 'group'
-        ? `SELECT group_name AS value, group_name || ' (' || count(*) || ' units)' AS label
-             FROM clients WHERE group_name IS NOT NULL AND btrim(group_name) <> '' AND deleted_at IS NULL
-            GROUP BY group_name ORDER BY group_name`
-        : `SELECT code AS value, legal_name AS label FROM clients
-            WHERE client_type = 'OEM' AND deleted_at IS NULL ORDER BY legal_name`)).rows, []);
+        ? `SELECT c.group_name AS value, c.group_name || ' (' || count(*) || ' units)' AS label
+             FROM clients c
+            WHERE c.group_name IS NOT NULL AND btrim(c.group_name) <> '' AND c.deleted_at IS NULL${visAnd}
+            GROUP BY c.group_name ORDER BY c.group_name`
+        : `SELECT c.code AS value, c.legal_name AS label FROM clients c
+            WHERE c.client_type = 'OEM' AND c.deleted_at IS NULL${visAnd} ORDER BY c.legal_name`)).rows, []);
     const picked = options.some(o => o.value === sp.name) ? sp.name! : (options[0]?.value ?? '');
 
     const shell = (body: React.ReactNode, title: string, sub: string) => (
@@ -80,13 +93,18 @@ export default async function ExecutiveReviewPage({ searchParams }: {
       </div>
     );
 
-    if (!picked) return shell(<div style={{ fontSize: 13, color: 'var(--fg-3)' }}>No {ctype === 'group' ? 'groups' : 'OEM clients'} on record.</div>, 'Account Review', '—');
+    if (!picked) return shell(
+      <div style={{ fontSize: 13, color: 'var(--fg-3)' }}>
+        No {ctype === 'group' ? 'groups' : 'OEM clients'} {clientVis ? 'among your accounts' : 'on record'}.
+      </div>, 'Account Review', '—');
 
     // ── Group of mills ──
     if (ctype === 'group') {
+      // Units are scoped too, so a viewer who can see part of a group sees that
+      // part's figures rather than the whole group's.
       const units = await q<{ id: string; code: string; legal_name: string; tcd: number | null }[]>(async () => (await risansiPool.query(
-        `SELECT id::text, code, legal_name, tcd FROM clients
-          WHERE group_name = $1 AND deleted_at IS NULL ORDER BY legal_name`, [picked])).rows, []);
+        `SELECT c.id::text, c.code, c.legal_name, c.tcd FROM clients c
+          WHERE c.group_name = $1 AND c.deleted_at IS NULL${visAnd} ORDER BY c.legal_name`, [picked])).rows, []);
       const ids = units.map(u => Number(u.id));
 
       const [foot, rev, comps] = await Promise.all([
@@ -151,7 +169,8 @@ export default async function ExecutiveReviewPage({ searchParams }: {
 
     // ── Single OEM ──
     const cl = await q<{ id: string; code: string; legal_name: string }[]>(async () => (await risansiPool.query(
-      `SELECT id::text, code, legal_name FROM clients WHERE code = $1 AND deleted_at IS NULL LIMIT 1`, [picked])).rows, []);
+      `SELECT c.id::text, c.code, c.legal_name FROM clients c
+        WHERE c.code = $1 AND c.deleted_at IS NULL${visAnd} LIMIT 1`, [picked])).rows, []);
     const c0 = cl[0];
     if (!c0) return shell(<div style={{ fontSize: 13, color: 'var(--fg-3)' }}>Client not found.</div>, 'Account Review', '—');
     const cid = Number(c0.id);
@@ -185,11 +204,23 @@ export default async function ExecutiveReviewPage({ searchParams }: {
     return shell(<OemReview d={data} />, c0.legal_name, `${c0.code} · OEM · FY ${FYS[0]} to ${FYS[FYS.length - 1]} · live data`);
   }
 
-  // TSM roster = users with tours.
-  const reps = await q<SelRep[]>(async () => (await risansiPool.query<SelRep>(
-    `SELECT DISTINCT u.id::text AS id, u.name FROM users u
-       JOIN tour_assignments ta ON ta.rep_id = u.id
-      WHERE u.role IN ('rep','manager') ORDER BY u.name`)).rows, []);
+  // TSM roster. Admins get every user who has tours; everyone else gets exactly
+  // the ids getReviewableRepIds allowed — selected by id rather than through the
+  // tour join, so a rep with no tour assignment still lands on their own
+  // (empty) review instead of a blank page.
+  const reps = await q<SelRep[]>(async () => {
+    if (allowedRepIds === null) {
+      return (await risansiPool.query<SelRep>(
+        `SELECT DISTINCT u.id::text AS id, u.name FROM users u
+           JOIN tour_assignments ta ON ta.rep_id = u.id
+          WHERE u.role IN ('rep','manager') ORDER BY u.name`)).rows;
+    }
+    if (allowedRepIds.length === 0) return [];
+    return (await risansiPool.query<SelRep>(
+      `SELECT u.id::text AS id, u.name FROM users u
+        WHERE u.id = ANY($1::int[]) AND u.role IN ('rep','manager') ORDER BY u.name`,
+      [allowedRepIds])).rows;
+  }, []);
 
   const tsm = (sp.tsm && reps.some(r => r.id === sp.tsm)) ? sp.tsm : (reps[0]?.id ?? '');
   const tsmName = reps.find(r => r.id === tsm)?.name ?? '—';
@@ -235,7 +266,26 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   // current FY shows its turnover so far — no month scoping, no toggle.
   const turnMonthFilter = '';
 
-  const tourF = tsm ? `c.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = ${Number(tsm)})` : 'FALSE';
+  // Scope every clients-keyed query to the SELECTED TSM's tours INTERSECTED with
+  // the viewer's own visibility. The intersection matters: getReviewableRepIds
+  // only needs ONE shared tour to make a rep reviewable, and that rep may work
+  // other tours the viewer has no access to — without visAnd a manager would
+  // read those tours here while seeing nothing of them anywhere else in the app
+  // (the Client 360 drill-through links below intersect correctly, so the counts
+  // would also disagree). No-op for admins (visAnd = '') and for a rep viewing
+  // themselves (their tours are already a subset of their own visibility).
+  const tourF = tsm
+    ? `(c.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = ${Number(tsm)})${visAnd})`
+    : 'FALSE';
+
+  // Attendance counts visits by rep and never touches `clients`, so tourF can't
+  // scope it — restrict it by the viewer's client scope on the visit's client.
+  // Exempt viewing yourself: your own attendance is your own activity record, and
+  // scoping it would silently drop past visits to clients that have since moved
+  // off your tour.
+  const isSelfReview  = me.id != null && String(me.id) === String(tsm);
+  const visitScope    = isSelfReview ? null : clientScopeSql(me, 'v.client_id');
+  const visitScopeAnd = visitScope ? ` AND (${visitScope})` : '';
 
   const [clients, turnover, quotation, offers, attendance, kpiRow] = await Promise.all([
     // 1. Clients Summary
@@ -286,8 +336,8 @@ export default async function ExecutiveReviewPage({ searchParams }: {
 
     // 5. Attendance — the rep's field visits, per selected month
     q(async () => (await risansiPool.query<{ mon: string; days: string; clients: string }>(
-      `SELECT to_char(visit_date,'YYYY-MM') mon, count(distinct visit_date)::text days, count(distinct client_id)::text clients
-         FROM visits WHERE rep_id = ${Number(tsm) || 0} AND ${inMonths('visit_date')}
+      `SELECT to_char(v.visit_date,'YYYY-MM') mon, count(distinct v.visit_date)::text days, count(distinct v.client_id)::text clients
+         FROM visits v WHERE v.rep_id = ${Number(tsm) || 0} AND ${inMonths('v.visit_date')}${visitScopeAnd}
         GROUP BY 1 ORDER BY 1`)).rows, []),
 
     // 6. KPIs — value metrics scope to the selected month(s); the client-count
@@ -394,6 +444,24 @@ export default async function ExecutiveReviewPage({ searchParams }: {
       },
     ],
   };
+
+  // Reached when the signed-in user has no linked rep profile at all (a manager
+  // or rep with no tours still gets their own, empty, review). Say so rather
+  // than render an unexplained page of zeros.
+  if (reps.length === 0) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <div style={{ position: 'sticky', top: 0, zIndex: 10 }}><Topbar crumbs={['Risansi', 'Executive Review']} /></div>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>
+          <h1 style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)', margin: 0 }}>Executive Review</h1>
+          <p style={{ fontSize: 13, color: 'var(--fg-3)', marginTop: 10, maxWidth: 560, lineHeight: 1.6 }}>
+            Your account isn&apos;t linked to a rep profile, so there is no review to show.
+            Ask a system admin to link it under Users &amp; Access.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const periodText  = `FY ${yy(fy)} to date`;
   const periodLabel = `${tsmName} · ${periodText}`;

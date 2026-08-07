@@ -20,6 +20,23 @@ export function ExecutiveSelector({ reps, tsm }: {
     router.push(`${pathname}?${p.toString()}`);
   };
 
+  // A rep may only review themselves, so there is nothing to pick — show the
+  // name as static text rather than a one-option dropdown. (The server scopes
+  // the roster and validates the tsm param; this is presentation only.)
+  if (reps.length <= 1) {
+    const only = reps[0];
+    return (
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+        <div>
+          <span style={LBL}>TSM</span>
+          <div style={{ ...SEL, minWidth: 180, cursor: 'default', background: 'var(--bg-sunk)', color: 'var(--fg-2)' }}>
+            {only?.name ?? '—'}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
       <label>
