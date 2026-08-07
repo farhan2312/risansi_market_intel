@@ -4,15 +4,17 @@ import { useState, useEffect, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   BUG_STATUSES, BUG_STATUS_LABELS, BUG_STATUS_HINTS, BUG_STATUS_COLORS,
-  BUG_SEVERITIES, BUG_SEVERITY_LABELS, BUG_SEVERITY_COLORS, turnaround, type BugStatus,
+  BUG_SEVERITIES, BUG_SEVERITY_LABELS, BUG_SEVERITY_COLORS,
+  BUG_TYPES, BUG_TYPE_LABELS, BUG_TYPE_COLORS, turnaround, type BugStatus,
 } from '@/lib/risansi-bugs';
-import { updateBugStatus, updateBugSeverity, updateBugResolutionNotes, deleteBug } from '@/app/actions/risansi-bugs';
+import { updateBugStatus, updateBugSeverity, updateBugType, updateBugResolutionNotes, deleteBug } from '@/app/actions/risansi-bugs';
 
 export interface BugCard {
   id: number;
   title: string;
   description: string | null;
   page_url: string | null;
+  type: string;
   severity: string;
   status: string;
   reporter_name: string;
@@ -95,6 +97,15 @@ export function BugsBoard({ initialBugs }: { initialBugs: BugCard[] }) {
     catch { setBugs(prev); setSave('error'); setTimeout(() => setSave('idle'), 2500); }
   };
 
+  const retype = async (id: number, type: string) => {
+    const prev = bugs;
+    setBugs(p => p.map(b => (b.id === id ? { ...b, type } : b)));
+    setSelected(sel => (sel && sel.id === id ? { ...sel, type } : sel));
+    setSave('saving');
+    try { await updateBugType(id, type); setSave('saved'); setTimeout(() => setSave('idle'), 1500); router.refresh(); }
+    catch { setBugs(prev); setSave('error'); setTimeout(() => setSave('idle'), 2500); }
+  };
+
   const byStatus: Record<string, BugCard[]> = {};
   for (const s of BUG_STATUSES) byStatus[s] = bugs.filter(b => b.status === s);
 
@@ -151,10 +162,15 @@ export function BugsBoard({ initialBugs }: { initialBugs: BugCard[] }) {
                       opacity: dragId === bug.id ? 0.4 : 1,
                     }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, marginBottom: 3 }}>
-                      <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: BUG_SEVERITY_COLORS[bug.severity as keyof typeof BUG_SEVERITY_COLORS] ?? 'var(--fg-3)' }}>
-                        {BUG_SEVERITY_LABELS[bug.severity as keyof typeof BUG_SEVERITY_LABELS] ?? bug.severity}
-                      </span>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 3 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                        <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: BUG_SEVERITY_COLORS[bug.severity as keyof typeof BUG_SEVERITY_COLORS] ?? 'var(--fg-3)' }}>
+                          {BUG_SEVERITY_LABELS[bug.severity as keyof typeof BUG_SEVERITY_LABELS] ?? bug.severity}
+                        </span>
+                        <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', padding: '1px 5px', borderRadius: 3, color: '#fff', background: BUG_TYPE_COLORS[bug.type as keyof typeof BUG_TYPE_COLORS] ?? 'var(--fg-3)' }}>
+                          {BUG_TYPE_LABELS[bug.type as keyof typeof BUG_TYPE_LABELS] ?? bug.type}
+                        </span>
+                      </div>
                       <span style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>#{bug.id}</span>
                     </div>
                     <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--fg)', lineHeight: 1.3, overflowWrap: 'anywhere' }}>{bug.title}</div>
@@ -177,15 +193,15 @@ export function BugsBoard({ initialBugs }: { initialBugs: BugCard[] }) {
 
       {selected && (
         <BugDetailModal key={selected.id} bug={selected} onClose={() => setSelected(null)}
-          onMove={move} onSeverity={retriage} onSaveNotes={saveNotes} onDelete={remove} />
+          onMove={move} onSeverity={retriage} onType={retype} onSaveNotes={saveNotes} onDelete={remove} />
       )}
     </div>
   );
 }
 
-function BugDetailModal({ bug, onClose, onMove, onSeverity, onSaveNotes, onDelete }: {
+function BugDetailModal({ bug, onClose, onMove, onSeverity, onType, onSaveNotes, onDelete }: {
   bug: BugCard; onClose: () => void; onMove: (id: number, s: BugStatus) => void;
-  onSeverity: (id: number, s: string) => void;
+  onSeverity: (id: number, s: string) => void; onType: (id: number, t: string) => void;
   onSaveNotes: (id: number, notes: string) => Promise<void>; onDelete: (id: number) => void;
 }) {
   const [confirmDel, setConfirmDel] = useState(false);
@@ -239,25 +255,49 @@ function BugDetailModal({ bug, onClose, onMove, onSeverity, onSaveNotes, onDelet
             </div>
           </div>
 
-          {/* Severity re-triage */}
-          <div>
-            <div style={LBL}>Severity</div>
-            <div style={{ display: 'flex', gap: 6 }}>
-              {BUG_SEVERITIES.map(s => {
-                const active = bug.severity === s;
-                const c = BUG_SEVERITY_COLORS[s];
-                return (
-                  <button key={s} type="button" onClick={() => { if (!active) onSeverity(bug.id, s); }}
-                    style={{
-                      padding: '4px 12px', fontSize: 11, fontWeight: active ? 700 : 500, fontFamily: 'inherit',
-                      borderRadius: 6, cursor: active ? 'default' : 'pointer',
-                      background: active ? c : 'var(--bg-paper)', color: active ? '#fff' : 'var(--fg-2)',
-                      border: `1px solid ${active ? c : 'var(--line-strong)'}`,
-                    }}>
-                    {BUG_SEVERITY_LABELS[s]}
-                  </button>
-                );
-              })}
+          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+            {/* Type reclassify */}
+            <div>
+              <div style={LBL}>Type</div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {BUG_TYPES.map(t => {
+                  const active = bug.type === t;
+                  const c = BUG_TYPE_COLORS[t];
+                  return (
+                    <button key={t} type="button" onClick={() => { if (!active) onType(bug.id, t); }}
+                      style={{
+                        padding: '4px 12px', fontSize: 11, fontWeight: active ? 700 : 500, fontFamily: 'inherit',
+                        borderRadius: 6, cursor: active ? 'default' : 'pointer',
+                        background: active ? c : 'var(--bg-paper)', color: active ? '#fff' : 'var(--fg-2)',
+                        border: `1px solid ${active ? c : 'var(--line-strong)'}`,
+                      }}>
+                      {BUG_TYPE_LABELS[t]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Severity re-triage */}
+            <div>
+              <div style={LBL}>Severity</div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {BUG_SEVERITIES.map(s => {
+                  const active = bug.severity === s;
+                  const c = BUG_SEVERITY_COLORS[s];
+                  return (
+                    <button key={s} type="button" onClick={() => { if (!active) onSeverity(bug.id, s); }}
+                      style={{
+                        padding: '4px 12px', fontSize: 11, fontWeight: active ? 700 : 500, fontFamily: 'inherit',
+                        borderRadius: 6, cursor: active ? 'default' : 'pointer',
+                        background: active ? c : 'var(--bg-paper)', color: active ? '#fff' : 'var(--fg-2)',
+                        border: `1px solid ${active ? c : 'var(--line-strong)'}`,
+                      }}>
+                      {BUG_SEVERITY_LABELS[s]}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
 

@@ -33,7 +33,7 @@ export default async function BugsPage({ searchParams }: {
   const [bugs, kpi] = await Promise.all([
     (async (): Promise<BugCard[]> => {
       const { rows } = await risansiPool.query(`
-        SELECT b.id, b.title, b.description, b.page_url, b.severity, b.status,
+        SELECT b.id, b.title, b.description, b.page_url, b.type, b.severity, b.status,
                b.reporter_name, b.reporter_email, b.recorded_by, b.recorded_at,
                b.resolved_by, b.resolved_at, b.resolution_notes, b.created_at,
                (s.bug_id IS NOT NULL) AS has_screenshot
@@ -43,7 +43,7 @@ export default async function BugsPage({ searchParams }: {
         ORDER BY b.created_at DESC`, vals);
       return rows.map(r => ({
         id: r.id, title: r.title, description: r.description, page_url: r.page_url,
-        severity: r.severity, status: r.status,
+        type: r.type, severity: r.severity, status: r.status,
         reporter_name: r.reporter_name, reporter_email: r.reporter_email,
         recorded_by: r.recorded_by, recorded_at: iso(r.recorded_at),
         resolved_by: r.resolved_by, resolved_at: iso(r.resolved_at),

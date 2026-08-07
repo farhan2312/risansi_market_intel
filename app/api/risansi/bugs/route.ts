@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser } from '@/lib/risansi-auth';
-import { isBugSeverity } from '@/lib/risansi-bugs';
+import { isBugSeverity, isBugType } from '@/lib/risansi-bugs';
 import { notifyBugReported } from '@/lib/risansi-notify';
 
 export const runtime = 'nodejs';
@@ -24,6 +24,8 @@ export async function POST(req: Request) {
   const pageUrl     = String(form.get('page_url') ?? '').trim();
   const severityRaw = String(form.get('severity') ?? 'medium').trim();
   const severity    = isBugSeverity(severityRaw) ? severityRaw : 'medium';
+  const typeRaw     = String(form.get('type') ?? 'bug').trim();
+  const type        = isBugType(typeRaw) ? typeRaw : 'bug';
 
   if (!title) return NextResponse.json({ error: 'Please add a short title.' }, { status: 400 });
   if (title.length > 200) return NextResponse.json({ error: 'Title is too long (max 200 chars).' }, { status: 400 });
@@ -53,10 +55,10 @@ export async function POST(req: Request) {
   const reporterEmail = u?.email || user.email;
 
   const ins = await risansiPool.query<{ id: number }>(
-    `INSERT INTO bugs (title, description, page_url, severity, reporter_id, reporter_name, reporter_email)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO bugs (title, description, page_url, type, severity, reporter_id, reporter_name, reporter_email)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING id`,
-    [title, description || null, pageUrl || null, severity, user.id, reporterName, reporterEmail],
+    [title, description || null, pageUrl || null, type, severity, user.id, reporterName, reporterEmail],
   );
   const bugId = ins.rows[0].id;
 

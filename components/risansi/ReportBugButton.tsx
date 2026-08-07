@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, type CSSProperties } from 'react';
-import { BUG_SEVERITIES, BUG_SEVERITY_LABELS, type BugSeverity } from '@/lib/risansi-bugs';
+import { BUG_SEVERITIES, BUG_SEVERITY_LABELS, BUG_TYPES, BUG_TYPE_LABELS, BUG_TYPE_COLORS, type BugSeverity, type BugType } from '@/lib/risansi-bugs';
 
 // "Report a Bug" — any signed-in user describes an issue, optionally attaches a
 // screenshot, and files it. Posts multipart to /api/risansi/bugs; the system
@@ -10,6 +10,7 @@ export function ReportBugButton() {
   const [open, setOpen]           = useState(false);
   const [title, setTitle]         = useState('');
   const [description, setDesc]    = useState('');
+  const [type, setType]           = useState<BugType>('bug');
   const [severity, setSeverity]   = useState<BugSeverity>('medium');
   const [pageUrl, setPageUrl]     = useState('');
   const [file, setFile]           = useState<File | null>(null);
@@ -33,7 +34,7 @@ export function ReportBugButton() {
   }, [file]);
 
   const reset = () => {
-    setTitle(''); setDesc(''); setSeverity('medium'); setPageUrl('');
+    setTitle(''); setDesc(''); setType('bug'); setSeverity('medium'); setPageUrl('');
     setFile(null); setError(''); setDone(false); setSubmit(false);
     if (fileRef.current) fileRef.current.value = '';
   };
@@ -56,6 +57,7 @@ export function ReportBugButton() {
       fd.set('title', title.trim());
       fd.set('description', description.trim());
       fd.set('page_url', pageUrl.trim());
+      fd.set('type', type);
       fd.set('severity', severity);
       if (file) fd.set('screenshot', file);
       const res = await fetch('/api/risansi/bugs', { method: 'POST', body: fd });
@@ -97,6 +99,25 @@ export function ReportBugButton() {
               </div>
             ) : (
               <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <Field label="Type">
+                  <div style={{ display: 'inline-flex', border: '1px solid var(--line-strong)', borderRadius: 7, overflow: 'hidden' }}>
+                    {BUG_TYPES.map((t, i) => {
+                      const on = type === t;
+                      const c = BUG_TYPE_COLORS[t];
+                      return (
+                        <button key={t} type="button" onClick={() => setType(t)}
+                          style={{
+                            padding: '6px 18px', fontSize: 13, fontFamily: 'inherit', cursor: on ? 'default' : 'pointer',
+                            border: 'none', borderLeft: i === 0 ? 'none' : '1px solid var(--line)',
+                            background: on ? c : 'transparent', color: on ? '#fff' : 'var(--fg-2)', fontWeight: on ? 600 : 500,
+                          }}>
+                          {BUG_TYPE_LABELS[t]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </Field>
+
                 <Field label="Title" required>
                   <input value={title} onChange={e => setTitle(e.target.value)} maxLength={200}
                     placeholder="Short summary of the issue" style={INP} autoFocus />

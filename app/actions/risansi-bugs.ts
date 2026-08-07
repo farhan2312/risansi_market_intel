@@ -73,6 +73,16 @@ export async function updateBugSeverity(bugId: number, severity: string) {
   return { ok: true };
 }
 
+// Reclassify a bug as Bug ↔ Feature — sysadmin only.
+export async function updateBugType(bugId: number, type: string) {
+  if (!Number.isInteger(bugId)) throw new Error('Invalid bug.');
+  if (!['bug', 'feature'].includes(type)) throw new Error('Invalid type.');
+  await requireSysadminName();
+  await risansiPool.query('UPDATE bugs SET type = $2, updated_at = now() WHERE id = $1', [bugId, type]);
+  revalidatePath('/risansi/admin/bugs');
+  return { ok: true };
+}
+
 // Delete a bug (and its screenshot, via ON DELETE CASCADE) — sysadmin only.
 export async function deleteBug(bugId: number) {
   if (!Number.isInteger(bugId)) throw new Error('Invalid bug.');

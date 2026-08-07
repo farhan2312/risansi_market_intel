@@ -34,6 +34,22 @@ export function isBugStatus(v: unknown): v is BugStatus {
   return typeof v === 'string' && (BUG_STATUSES as readonly string[]).includes(v);
 }
 
+// Bug vs feature request — set by the reporter, editable by the sysadmin.
+export const BUG_TYPES = ['bug', 'feature'] as const;
+export type BugType = typeof BUG_TYPES[number];
+
+export const BUG_TYPE_LABELS: Record<BugType, string> = {
+  bug: 'Bug', feature: 'Feature',
+};
+
+export const BUG_TYPE_COLORS: Record<BugType, string> = {
+  bug: '#C81E1E', feature: '#7C3AED',
+};
+
+export function isBugType(v: unknown): v is BugType {
+  return typeof v === 'string' && (BUG_TYPES as readonly string[]).includes(v);
+}
+
 export const BUG_SEVERITIES = ['low', 'medium', 'high'] as const;
 export type BugSeverity = typeof BUG_SEVERITIES[number];
 
