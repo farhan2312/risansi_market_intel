@@ -283,8 +283,10 @@ export function VisitReportForm({
   const [editingEqId, setEditingEqId] = useState<number | null>(null);
   // true when the competitor make isn't in COMPETITOR_MAKES (free-text entry)
   const [supplierOther, setSupplierOther] = useState(false);
+  // qty is kept as the raw typed string (like tcd/avgPumpReq below) so a cleared
+  // field and an explicit "0" don't collapse into the same state — parsed at save.
   const [newEq, setNewEq] = useState({
-    pump_type: 'PCP', supplier: '', model: '', qty: 1,
+    pump_type: 'PCP', supplier: '', model: '', qty: '1',
     application: '', condition: 'Good', condition_remark: '', is_ril: true,
     reason_for_competitor: '', competitor_activity_type: '',
     performance_feedback: '',
@@ -784,7 +786,7 @@ export function VisitReportForm({
                             pump_type: String(e.pump_type ?? 'PCP'),
                             supplier: sup,
                             model: String(e.model ?? ''),
-                            qty: Number(e.qty ?? 1),
+                            qty: String(e.qty ?? 1),
                             application: String(e.application ?? ''),
                             condition: String(e.condition ?? 'Good'),
                             condition_remark: String(e.condition_remark ?? ''),
@@ -876,11 +878,11 @@ export function VisitReportForm({
               </div>
               <div>
                 <label style={LBL}>Qty</label>
-                {/* Allow clearing the field (shown blank) so a fresh number can be
-                    typed — the old `|| 1` snapped it back to 1 on every keystroke,
-                    making it feel locked. Coerced to ≥1 at save. */}
-                <input type="number" inputMode="numeric" min={1} value={newEq.qty === 0 ? '' : newEq.qty}
-                  onChange={e => { const n = parseInt(e.target.value, 10); setNewEq(p => ({ ...p, qty: Number.isNaN(n) ? 0 : n })); }}
+                {/* Kept as a raw string (see newEq state) so the field can be cleared
+                    while typing and an explicit "0" isn't indistinguishable from
+                    empty — both used to collapse to the same blank display. */}
+                <input type="number" inputMode="numeric" min={0} value={newEq.qty}
+                  onChange={e => setNewEq(p => ({ ...p, qty: e.target.value }))}
                   style={INP} />
               </div>
               <div>
@@ -911,7 +913,11 @@ export function VisitReportForm({
             <div style={{ display: 'flex', gap: 8 }}>
               <button
                 onClick={async () => {
-                  const eqPayload = { ...newEq, qty: Math.max(1, Number(newEq.qty) || 1) };
+                  // Blank/invalid falls back to 1 (a sensible default for a new
+                  // entry); an explicit 0 is honoured rather than snapped to 1.
+                  const parsedQty = parseInt(newEq.qty, 10);
+                  const qtyNum = Number.isFinite(parsedQty) && parsedQty >= 0 ? parsedQty : 1;
+                  const eqPayload = { ...newEq, qty: qtyNum };
                   if (editingEqId != null) {
                     await updateEquipment(editingEqId, visit.id, eqPayload);
                   } else {
@@ -920,7 +926,7 @@ export function VisitReportForm({
                   setShowEqForm(false);
                   setEditingEqId(null);
                   setSupplierOther(false);
-                  setNewEq({ pump_type: 'PCP', supplier: '', model: '', qty: 1, application: '', condition: 'Good', condition_remark: '', is_ril: true, reason_for_competitor: '', competitor_activity_type: '', performance_feedback: '' });
+                  setNewEq({ pump_type: 'PCP', supplier: '', model: '', qty: '1', application: '', condition: 'Good', condition_remark: '', is_ril: true, reason_for_competitor: '', competitor_activity_type: '', performance_feedback: '' });
                 }}
                 style={{ padding: '7px 14px', background: '#0A3D8F', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}
               >
