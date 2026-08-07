@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react';
+import Link from 'next/link';
 
 // ────────────────────────────────────────────────────────────────
 // Executive Review — the monthly per-TSM review dashboards, now driven by live
@@ -8,7 +9,14 @@ import type { CSSProperties, ReactNode } from 'react';
 
 export type Row = { label: string; vals: (number | null)[]; strong?: boolean };
 export interface ExecTable { headers: string[]; rows: Row[]; moneyFrom: number }
-export interface ExecKpi { label: string; value: string; sub?: string; accent?: boolean }
+// A clickable breakdown row inside a KPI card (e.g. "Visited (≤90d) · 42"),
+// linking through to the clients list pre-filtered to match.
+export interface ExecKpiLine { label: string; value: string; color?: string; href?: string }
+export interface ExecKpi {
+  label: string; value: string; sub?: string; accent?: boolean;
+  href?: string;          // click-through for the main number
+  lines?: ExecKpiLine[];  // clickable breakdown rows below the number
+}
 export interface ExecData {
   clientsSummary:  ExecTable;
   turnoverSummary: ExecTable;
@@ -68,12 +76,34 @@ export function ExecutiveViews({ data, selector, periodLabel, note }: {
       {note && <p style={{ fontSize: 11.5, color: 'var(--fg-3)', margin: '8px 0 0', maxWidth: 900, lineHeight: 1.5 }}>{note}</p>}
 
       {/* KPI row */}
-      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${data.kpis.length}, 1fr)`, gap: 12, margin: '16px 0' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${data.kpis.length}, 1fr)`, gap: 12, margin: '16px 0', alignItems: 'start' }}>
         {data.kpis.map(k => (
           <div key={k.label} style={{ ...PANEL, padding: '13px 15px', ...(k.accent ? { borderLeft: '4px solid var(--title)' } : {}) }}>
             <div style={METRIC_LABEL}>{k.label}</div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 26, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--fg)', lineHeight: 1.1, marginTop: 4 }}>{k.value}</div>
+            {k.href ? (
+              <Link href={k.href} className="exec-kpi-link"
+                style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: 26, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--fg)', lineHeight: 1.1, marginTop: 4, textDecoration: 'none' }}>
+                {k.value}
+              </Link>
+            ) : (
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 26, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--fg)', lineHeight: 1.1, marginTop: 4 }}>{k.value}</div>
+            )}
             {k.sub && <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 3 }}>{k.sub}</div>}
+            {k.lines && k.lines.length > 0 && (
+              <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {k.lines.map(l => {
+                  const row = (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, fontSize: 11.5 }}>
+                      <span style={{ color: l.color ?? 'var(--fg-3)' }}>{l.label}</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: l.color ?? 'var(--fg)' }}>{l.value}</span>
+                    </div>
+                  );
+                  return l.href
+                    ? <Link key={l.label} href={l.href} className="exec-kpi-link" style={{ textDecoration: 'none' }}>{row}</Link>
+                    : <div key={l.label}>{row}</div>;
+                })}
+              </div>
+            )}
           </div>
         ))}
       </div>

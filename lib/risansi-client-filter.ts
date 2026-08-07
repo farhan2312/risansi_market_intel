@@ -25,6 +25,15 @@ export const REV_BUCKETS: { value: string; cond: (x: string) => string }[] = [
   { value: '₹1 Cr+',         cond: x => `${x} >= 10000000` },
 ];
 
+// Last-visit buckets keyed on clients.last_visit_date, mutually exclusive so
+// Visited + Overdue + Never always sum to the total (unlike the Field page's
+// own "Overdue" tab, which folds Never Visited into its overdue count).
+export const VISIT_BUCKETS: { value: string; label: string; cond: (x: string) => string }[] = [
+  { value: 'visited', label: 'Visited (≤90d)',  cond: x => `${x} >= CURRENT_DATE - INTERVAL '90 days'` },
+  { value: 'overdue', label: 'Overdue (90d+)',  cond: x => `${x} IS NOT NULL AND ${x} < CURRENT_DATE - INTERVAL '90 days'` },
+  { value: 'never',   label: 'Never Visited',   cond: x => `${x} IS NULL` },
+];
+
 type SP = { [key: string]: string | string[] | undefined };
 
 /**
@@ -49,6 +58,7 @@ export function buildClientFilter(
   const repFilts  = list('rep');
   const fyFilts   = list('fy');
   const revFilts  = list('rev');
+  const visitFilts = list('visit');
 
   const whereConditions: string[] = ['c.deleted_at IS NULL'];
   const params: (string | number | boolean | string[])[] = [];
@@ -76,6 +86,10 @@ export function buildClientFilter(
   if (revFilts.length) {
     const rExpr = 'COALESCE(rev.lifetime_rev, 0)';
     const conds = REV_BUCKETS.filter(b => revFilts.includes(b.value)).map(b => `(${b.cond(rExpr)})`);
+    if (conds.length) whereConditions.push(`(${conds.join(' OR ')})`);
+  }
+  if (visitFilts.length) {
+    const conds = VISIT_BUCKETS.filter(b => visitFilts.includes(b.value)).map(b => `(${b.cond('c.last_visit_date')})`);
     if (conds.length) whereConditions.push(`(${conds.join(' OR ')})`);
   }
 

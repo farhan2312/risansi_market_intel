@@ -379,3 +379,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .auth-fade { animation: none; }
 }
+
+/* Executive Review KPI cards — each number/breakdown row links through to the
+   clients list pre-filtered to match; underline on hover signals it's clickable. */
+.exec-kpi-link:hover { text-decoration: underline !important; }

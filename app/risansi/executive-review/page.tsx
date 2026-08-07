@@ -8,6 +8,7 @@ import { ExecutiveViews, type ExecData, type Row } from '@/components/risansi/Ex
 import { ExecutiveSelector, type SelRep } from '@/components/risansi/ExecutiveSelector';
 import { AccountSelector, ViewSwitch, type NameOpt } from '@/components/risansi/AccountSelector';
 import { GroupReview, OemReview, type GroupReviewData, type GroupUnit, type OemReviewData } from '@/components/risansi/AccountReview';
+import { CLIENT_STATUS_COLORS } from '@/lib/risansi-client-status';
 
 export const dynamic = 'force-dynamic';
 
@@ -193,6 +194,15 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   const tsm = (sp.tsm && reps.some(r => r.id === sp.tsm)) ? sp.tsm : (reps[0]?.id ?? '');
   const tsmName = reps.find(r => r.id === tsm)?.name ?? '—';
 
+  // KPI numbers below link through to the clients list, scoped to this same TSM
+  // (via the "rep" filter, which matches tour_assignments the same way `tourF`
+  // does) plus whatever status/visit filter the clicked number represents.
+  const clientsLink = (params: Record<string, string>): string => {
+    const p = tsmName !== '—' ? { ...params, rep: tsmName } : params;
+    const qs = new URLSearchParams(p).toString();
+    return `/risansi/clients${qs ? `?${qs}` : ''}`;
+  };
+
   // The review is scoped to the current fiscal year to date (Apr→Mar) — there is
   // no month picker any more. selMonths is every month of the current FY up to
   // now, so the month-scoped sections (revenue, quotation, offers, attendance,
@@ -280,10 +290,20 @@ export default async function ExecutiveReviewPage({ searchParams }: {
          FROM visits WHERE rep_id = ${Number(tsm) || 0} AND ${inMonths('visit_date')}
         GROUP BY 1 ORDER BY 1`)).rows, []),
 
-    // 6. KPIs — value metrics scope to the selected month(s); Total Leads and
-    //    Active Clients are current-portfolio snapshots (they don't move with
-    //    the month). Leads Visited counts leads visited within the period.
-    q(async () => (await risansiPool.query<{ total_business: string; revenue: string; leads: string; visited: string; active_clients: string }>(
+    // 6. KPIs — value metrics scope to the selected month(s); the client-count
+    //    metrics are current-portfolio snapshots (they don't move with the
+    //    month). "Visited" everywhere below means last_visit_date within the
+    //    last 90 days — the same convention as the Field page/dashboard —
+    //    rather than the FY-to-date window the value metrics use. Active-client
+    //    visited/overdue/never are mutually exclusive (sum to active_clients);
+    //    "overdue" here excludes never-visited, unlike the Field page's own
+    //    "Overdue" tab which folds them together.
+    q(async () => (await risansiPool.query<{
+      total_business: string; revenue: string; active_clients: string;
+      active_visited: string; active_overdue: string; active_never: string;
+      prospective: string; prospective_visited: string;
+      prospective_lead: string; prospective_client: string;
+    }>(
       `SELECT
          (SELECT COALESCE(round(sum(GREATEST(
                    COALESCE(o.final_value_cr*10000000, o.value_cr*10000000, 0)
@@ -292,10 +312,18 @@ export default async function ExecutiveReviewPage({ searchParams }: {
            WHERE ${tourF} AND o.stage='Won' AND ${inMonths('COALESCE(o.quote_date, o.created_at::date)')})::text AS total_business,
          (SELECT COALESCE(round(sum(r.total_value)),0) FROM client_revenue_monthly r JOIN clients c ON c.id = r.client_id
            WHERE ${tourF} AND ${inMonths('r.month')})::text AS revenue,
-         (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status IN ('PROSPECTIVE_LEAD','PROSPECTIVE_CLIENT') AND c.deleted_at IS NULL)::text AS leads,
+         (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status='ACTIVE' AND c.deleted_at IS NULL)::text AS active_clients,
+         (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status='ACTIVE' AND c.deleted_at IS NULL
+            AND c.last_visit_date >= CURRENT_DATE - INTERVAL '90 days')::text AS active_visited,
+         (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status='ACTIVE' AND c.deleted_at IS NULL
+            AND c.last_visit_date IS NOT NULL AND c.last_visit_date < CURRENT_DATE - INTERVAL '90 days')::text AS active_overdue,
+         (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status='ACTIVE' AND c.deleted_at IS NULL
+            AND c.last_visit_date IS NULL)::text AS active_never,
+         (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status IN ('PROSPECTIVE_LEAD','PROSPECTIVE_CLIENT') AND c.deleted_at IS NULL)::text AS prospective,
          (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status IN ('PROSPECTIVE_LEAD','PROSPECTIVE_CLIENT') AND c.deleted_at IS NULL
-            AND EXISTS (SELECT 1 FROM visits v WHERE v.client_id = c.id AND ${inMonths('v.visit_date')}))::text AS visited,
-         (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status='ACTIVE' AND c.deleted_at IS NULL)::text AS active_clients`)).rows[0], null),
+            AND c.last_visit_date >= CURRENT_DATE - INTERVAL '90 days')::text AS prospective_visited,
+         (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status='PROSPECTIVE_LEAD' AND c.deleted_at IS NULL)::text AS prospective_lead,
+         (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status='PROSPECTIVE_CLIENT' AND c.deleted_at IS NULL)::text AS prospective_client`)).rows[0], null),
   ]);
 
   // ── shape into ExecData ──
@@ -338,16 +366,39 @@ export default async function ExecutiveReviewPage({ searchParams }: {
     kpis: [
       { label: 'Order in Hand', value: fmtMoney(n(kpiRow?.total_business)), sub: 'won · not yet in a sales order', accent: true },
       { label: 'Revenue', value: fmtMoney(n(kpiRow?.revenue)), sub: 'invoiced · FY to date' },
-      { label: 'Active Clients', value: (kpiRow ? Number(kpiRow.active_clients) : 0).toLocaleString('en-IN') },
-      { label: 'Total Leads', value: (kpiRow ? Number(kpiRow.leads) : 0).toLocaleString('en-IN'), sub: 'prospective on tour' },
-      { label: 'Leads Visited', value: (kpiRow ? Number(kpiRow.visited) : 0).toLocaleString('en-IN') },
+      {
+        label: 'Active Clients',
+        value: (kpiRow ? Number(kpiRow.active_clients) : 0).toLocaleString('en-IN'),
+        href: clientsLink({ status: 'ACTIVE' }),
+        lines: [
+          { label: 'Visited (≤90d)', value: (kpiRow ? Number(kpiRow.active_visited) : 0).toLocaleString('en-IN'),
+            color: 'var(--pos)', href: clientsLink({ status: 'ACTIVE', visit: 'visited' }) },
+          { label: 'Overdue (90d+)', value: (kpiRow ? Number(kpiRow.active_overdue) : 0).toLocaleString('en-IN'),
+            color: 'var(--warn)', href: clientsLink({ status: 'ACTIVE', visit: 'overdue' }) },
+          { label: 'Never Visited', value: (kpiRow ? Number(kpiRow.active_never) : 0).toLocaleString('en-IN'),
+            color: 'var(--neg)', href: clientsLink({ status: 'ACTIVE', visit: 'never' }) },
+        ],
+      },
+      {
+        label: 'Prospective',
+        value: (kpiRow ? Number(kpiRow.prospective) : 0).toLocaleString('en-IN'),
+        href: clientsLink({ status: 'PROSPECTIVE_LEAD,PROSPECTIVE_CLIENT' }),
+        lines: [
+          { label: 'Visited (≤90d)', value: (kpiRow ? Number(kpiRow.prospective_visited) : 0).toLocaleString('en-IN'),
+            color: 'var(--pos)', href: clientsLink({ status: 'PROSPECTIVE_LEAD,PROSPECTIVE_CLIENT', visit: 'visited' }) },
+          { label: 'Prospective-Lead', value: (kpiRow ? Number(kpiRow.prospective_lead) : 0).toLocaleString('en-IN'),
+            color: CLIENT_STATUS_COLORS.PROSPECTIVE_LEAD[0], href: clientsLink({ status: 'PROSPECTIVE_LEAD' }) },
+          { label: 'Prospective-Client', value: (kpiRow ? Number(kpiRow.prospective_client) : 0).toLocaleString('en-IN'),
+            color: CLIENT_STATUS_COLORS.PROSPECTIVE_CLIENT[0], href: clientsLink({ status: 'PROSPECTIVE_CLIENT' }) },
+        ],
+      },
     ],
   };
 
   const periodText  = `FY ${yy(fy)} to date`;
   const periodLabel = `${tsmName} · ${periodText}`;
 
-  const note = `Live data for ${tsmName}'s current fiscal year (Apr–Mar) to date. "Order in Hand" is the value of Won opportunities not yet turned into a Sales Order; "Order Received" is the value of Won opportunities dated in the FY. "Revenue" is invoiced revenue for the FY to date. Turnover columns show each whole fiscal year to date, so the current FY reflects its turnover so far. Clients, Total Leads and Active Clients are current-portfolio counts.`;
+  const note = `Live data for ${tsmName}'s current fiscal year (Apr–Mar) to date. "Order in Hand" is the value of Won opportunities not yet turned into a Sales Order; "Order Received" is the value of Won opportunities dated in the FY. "Revenue" is invoiced revenue for the FY to date. Turnover columns show each whole fiscal year to date, so the current FY reflects its turnover so far. Clients, Prospective and Active Clients are current-portfolio counts; "Visited" on those two cards means a visit logged within the last 90 days, and every number is clickable through to a filtered client list.`;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>

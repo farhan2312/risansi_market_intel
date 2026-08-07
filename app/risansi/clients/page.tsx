@@ -5,7 +5,7 @@ import { MobileSort } from '@/components/risansi/MobileSort';
 import risansiPool from '@/lib/db-risansi';
 import { formatLastVisitShort } from '@/lib/risansi-utils';
 import { getCurrentUser, clientVisibilitySql } from '@/lib/risansi-auth';
-import { OWNERS_SUBQUERY, REV_JOIN, REV_BUCKETS, buildClientFilter } from '@/lib/risansi-client-filter';
+import { OWNERS_SUBQUERY, REV_JOIN, REV_BUCKETS, VISIT_BUCKETS, buildClientFilter } from '@/lib/risansi-client-filter';
 import { clientStatusLabel, statusDotKind, CLIENT_STATUS_FILTER_OPTIONS, CLIENT_STATUS_LABELS } from '@/lib/risansi-client-status';
 import { FilterBar } from './FilterBar';
 
@@ -48,8 +48,9 @@ export default async function ClientListPage({
   const repFilts  = typeof sp.rep      === 'string' && sp.rep      ? sp.rep.split(',').filter(Boolean)      : [];
   const fyFilts   = typeof sp.fy       === 'string' && sp.fy       ? sp.fy.split(',').filter(Boolean)       : [];
   const revFilts  = typeof sp.rev      === 'string' && sp.rev      ? sp.rev.split(',').filter(Boolean)      : [];
+  const visitFilts = typeof sp.visit   === 'string' && sp.visit    ? sp.visit.split(',').filter(Boolean)    : [];
 
-  const hasActiveFilters = !!(q_str || sugarFilt || indFilts.length || zoneFilts.length || tierFilts.length || statFilts.length || repFilts.length || fyFilts.length || revFilts.length);
+  const hasActiveFilters = !!(q_str || sugarFilt || indFilts.length || zoneFilts.length || tierFilts.length || statFilts.length || repFilts.length || fyFilts.length || revFilts.length || visitFilts.length);
   const sortCol = SORT_MAP[sortKey] ?? 'c.last_visit_date';
 
   // ── WHERE + params (shared with the Excel export so they always match) ──
@@ -82,7 +83,7 @@ export default async function ClientListPage({
   interface RepOption { rep_name: string; client_count: number; }
 
   // ── All queries in parallel ────────────────────────────────────
-  const [clients, total, industries, zones, tiers, repOptions, fyYears, revBuckets] = await Promise.all([
+  const [clients, total, industries, zones, tiers, repOptions, fyYears, revBuckets, visitBuckets] = await Promise.all([
 
     (async (): Promise<ClientRow[]> => {
       try {
@@ -216,6 +217,22 @@ export default async function ClientListPage({
         return REV_BUCKETS.map((b, i) => ({ value: b.value, label: b.value, count: Number(row[`b${i}`] ?? 0) }));
       } catch { return REV_BUCKETS.map(b => ({ value: b.value, label: b.value, count: 0 })); }
     })(),
+
+    // Last-visit bucket option counts, scoped to visible clients.
+    (async (): Promise<{ value: string; label: string; count: number }[]> => {
+      try {
+        const visForVisit = clientVisibilitySql(user, 'c');
+        const visitClause = visForVisit ? `AND (${visForVisit})` : '';
+        const selects = VISIT_BUCKETS
+          .map((b, i) => `COUNT(*) FILTER (WHERE ${b.cond('c.last_visit_date')}) AS b${i}`)
+          .join(', ');
+        const { rows } = await risansiPool.query<Record<string, string>>(
+          `SELECT ${selects} FROM clients c WHERE c.deleted_at IS NULL ${visitClause}`,
+        );
+        const row = rows[0] ?? {};
+        return VISIT_BUCKETS.map((b, i) => ({ value: b.value, label: b.label, count: Number(row[`b${i}`] ?? 0) }));
+      } catch { return VISIT_BUCKETS.map(b => ({ value: b.value, label: b.label, count: 0 })); }
+    })(),
   ]);
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
@@ -230,6 +247,7 @@ export default async function ClientListPage({
     if (repFilts.length)    base.rep      = repFilts.join(',');
     if (fyFilts.length)     base.fy       = fyFilts.join(',');
     if (revFilts.length)    base.rev      = revFilts.join(',');
+    if (visitFilts.length)  base.visit    = visitFilts.join(',');
     if (sugarFilt)          base.sugar    = sugarFilt;
     if (sortKey)            base.sort     = sortKey;
     if (orderDir === 'DESC') base.order   = 'desc';
@@ -261,6 +279,7 @@ export default async function ClientListPage({
   if (repFilts.length)  exportQs.set('rep', repFilts.join(','));
   if (fyFilts.length)   exportQs.set('fy', fyFilts.join(','));
   if (revFilts.length)  exportQs.set('rev', revFilts.join(','));
+  if (visitFilts.length) exportQs.set('visit', visitFilts.join(','));
   if (sugarFilt)        exportQs.set('sugar', sugarFilt);
   const exportHref = `/api/risansi/clients/export${exportQs.toString() ? `?${exportQs}` : ''}`;
 
@@ -317,6 +336,7 @@ export default async function ClientListPage({
             <MultiSelectFilter param="rep"      label="Rep"            options={repOptions.map(r => ({ value: r.rep_name, label: r.rep_name, count: r.client_count }))} selected={repFilts} />
             <MultiSelectFilter param="fy"       label="Customer Since" options={fyYears}         selected={fyFilts} />
             <MultiSelectFilter param="rev"      label="Revenue"        options={revBuckets}      selected={revFilts}  />
+            <MultiSelectFilter param="visit"    label="Last Visit"     options={visitBuckets}    selected={visitFilts} />
           </div>
         </div>
 
@@ -329,6 +349,7 @@ export default async function ClientListPage({
           { param: 'rep',      label: 'Rep',      values: repFilts  },
           { param: 'fy',       label: 'Customer Since', values: fyFilts },
           { param: 'rev',      label: 'Revenue',  values: revFilts },
+          { param: 'visit',    label: 'Last Visit', values: visitFilts, valueLabels: Object.fromEntries(VISIT_BUCKETS.map(b => [b.value, b.label])) },
         ]} />
 
         {/* ── Table ────────────────────────────────────────────── */}
