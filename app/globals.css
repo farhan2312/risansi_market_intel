@@ -383,3 +383,16 @@ body {
 /* Executive Review KPI cards — each number/breakdown row links through to the
    clients list pre-filtered to match; underline on hover signals it's clickable. */
 .exec-kpi-link:hover { text-decoration: underline !important; }
+/* Opportunities flow strip — the brackets that map to a real set of cards are
+   links that filter the table/board below. The hover tint is the only thing
+   distinguishing them from the three that are pure arithmetic (Revenue,
+   Best-case, Target) and stay inert, so it has to be visible without shouting. */
+.risansi-bracket-link { transition: background 0.12s ease, border-color 0.12s ease; }
+.risansi-bracket-link:hover {
+  background: var(--bg-elev) !important;
+  border-color: var(--line-strong) !important;
+}
+.risansi-bracket-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}

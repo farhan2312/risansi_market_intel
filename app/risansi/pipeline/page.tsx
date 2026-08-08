@@ -14,6 +14,9 @@ import { OpportunitiesTabs } from '@/components/risansi/OpportunitiesTabs';
 import { TextSearchFilter } from '@/components/risansi/TextSearchFilter';
 import { DateRangeFilter } from '@/components/risansi/DateRangeFilter';
 import { ForecastBar } from '@/components/risansi/ForecastBar';
+import {
+  bracketLink, soCoverageSql, isSoCoverage, SO_COVERAGE_LABELS,
+} from '@/lib/risansi-pipeline-brackets';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
@@ -110,6 +113,13 @@ export default async function PipelinePage({
   const ctypeFilts    = typeof sp.ctype        === 'string' && sp.ctype        ? sp.ctype.split(',').filter(Boolean)        : [];
   const probFilts     = typeof sp.prob         === 'string' && sp.prob         ? sp.prob.split(',').filter(Boolean)         : [];
   const valFilts      = typeof sp.val          === 'string' && sp.val          ? sp.val.split(',').filter(Boolean)          : [];
+  // Sales-Order coverage on a Won opportunity — the slice behind the two Won
+  // brackets in the flow strip, set by clicking them. Not a multi-select: the
+  // two states overlap (an opp part-covered by an SO is in both), so ORing them
+  // would just mean "every Won" and read as a filter that does nothing.
+  //   awaiting → some of the won value has no SO against it yet (ΣSO < final)
+  //   created  → an SO exists (ΣSO > 0)
+  const soFilt = isSoCoverage(sp.so) ? sp.so : '';
   // Quote tracking: free-text (quote no. / client / product) + quote-date range.
   const qname = typeof sp.qname === 'string' ? sp.qname.trim() : '';
   const qfrom = typeof sp.qfrom === 'string' ? sp.qfrom : '';
@@ -189,6 +199,9 @@ export default async function PipelinePage({
     const vsql = valueRangeSql('o.value_cr', valFilts);
     if (vsql) conds.push(vsql);
   }
+  // SO coverage. soFilt is a validated enum and the thresholds are constants, so
+  // this inlines safely and leaves every $-index untouched.
+  if (soCoverageSql(soFilt, 'o')) conds.push(soCoverageSql(soFilt, 'o'));
   // Track a quote by its number/name (also matches client & product), and by
   // when it was quoted.
   if (qname) {
@@ -267,6 +280,16 @@ export default async function PipelinePage({
   const openWhere   = `WHERE o.stage NOT IN ('Won', 'Lost', 'Dropped')${filterClause}`;
   const closedWhere = `WHERE o.stage IN ('Won', 'Lost', 'Dropped') AND o.updated_at >= NOW() - INTERVAL '12 months'${filterClause}`;
 
+  // The closed set is capped so the kanban's Won/Lost columns stay cheap on the
+  // default board. But once the user has explicitly asked for a closed stage —
+  // by picking it in the Stage filter, or by clicking a Won bracket in the flow
+  // strip — the cap turns the answer into a lie: 865 opportunities are awaiting
+  // an SO, and a 200-row table under a tile reading 865 is just wrong. Raise it
+  // for that case only.
+  const CLOSED_STAGES_SEL = ['Won', 'Lost', 'Dropped'];
+  const wantsClosed  = soFilt !== '' || stageFilts.some(s => CLOSED_STAGES_SEL.includes(s));
+  const closedLimit  = wantsClosed ? 3000 : 200;
+
   // Snapshot of just the filter params, taken before the CAN_EDIT params are
   // pushed below — reused by the stage-totals query, which has no CAN_EDIT clause.
   const filterVals = [...vals];
@@ -284,6 +307,7 @@ export default async function PipelinePage({
   if (ctypeFilts.length)    { wonC.push(`o.client_id IN (SELECT id FROM clients WHERE client_type = ANY($${wonV.length + 1}::text[]))`); wonV.push(ctypeFilts); }
   if (probFilts.length)     { wonC.push(`o.probability_code = ANY($${wonV.length + 1}::text[])`);                            wonV.push(probFilts); }
   if (valFilts.length)      { const v = valueRangeSql('o.value_cr', valFilts); if (v) wonC.push(v); }
+  if (soCoverageSql(soFilt, 'o')) { wonC.push(soCoverageSql(soFilt, 'o')); }
   const wonWhere = `WHERE ${wonC.join(' AND ')}${ownerVisAnd}`;
 
   // Per-opportunity edit permission, evaluated in SQL:
@@ -363,7 +387,7 @@ export default async function PipelinePage({
         LEFT JOIN users r ON r.id = o.rep_id
         ${closedWhere}
         ORDER BY o.updated_at DESC NULLS LAST
-        LIMIT 200
+        LIMIT ${closedLimit}
       `, vals as (string | number)[]
       );
       return rows.map((r) => {
@@ -537,8 +561,8 @@ export default async function PipelinePage({
   // The table shows the open pipeline by default. When the Stage filter selects a
   // closed stage (Won/Lost/Dropped) — which the open query structurally excludes —
   // fold in the matching closed opps so the filter actually returns rows.
-  const CLOSED_STAGE_SET = ['Won', 'Lost', 'Dropped'];
-  const tableOpps = stageFilts.some(s => CLOSED_STAGE_SET.includes(s))
+  // ...and for an SO-coverage pick, which is Won-only by definition.
+  const tableOpps = wantsClosed
     ? [...openOpps, ...closedOpps]
     : openOpps;
   // Spares are recurring, near-certain business, so they're weighted at a fixed
@@ -570,11 +594,16 @@ export default async function PipelinePage({
     ? Math.round((totalWon / (totalWon + totalLost)) * 100)
     : 0;
 
-  const anyFilter = stageFilts.length > 0 || prodTypeFilts.length > 0 || repFilts.length > 0 || indFilts.length > 0 || ctypeFilts.length > 0 || probFilts.length > 0 || valFilts.length > 0 || !!qname || !!qfrom || !!qto;
+  const anyFilter = stageFilts.length > 0 || prodTypeFilts.length > 0 || repFilts.length > 0 || indFilts.length > 0 || ctypeFilts.length > 0 || probFilts.length > 0 || valFilts.length > 0 || !!soFilt || !!qname || !!qfrom || !!qto;
+
+  // ── Clickable flow brackets ────────────────────────────────
+  // See lib/risansi-pipeline-brackets.ts for what each one selects and why the
+  // other three blocks in the strip stay inert.
+  const bracket = (k: Parameters<typeof bracketLink>[0]) => bracketLink(k, sp, stageFilts, soFilt);
 
   // Carry the active filters onto the Excel export so it matches what's on screen.
   const exportParams = new URLSearchParams();
-  for (const k of ['stage', 'product_type', 'rep', 'industry', 'ctype', 'prob', 'val', 'qname', 'qfrom', 'qto']) {
+  for (const k of ['stage', 'product_type', 'rep', 'industry', 'ctype', 'so', 'prob', 'val', 'qname', 'qfrom', 'qto']) {
     const v = sp[k];
     if (typeof v === 'string' && v) exportParams.set(k, v);
   }
@@ -653,19 +682,25 @@ export default async function PipelinePage({
                 win, not literally the same rupees moving out of the Won card. */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr auto 1fr auto 1fr auto 1fr', gap: 10, alignItems: 'center' }}>
               <ForecastBlock label="Quoted" value={quotedCr}
-                sub={quotedCount > 0 ? `${quotedCount} awaiting outcome` : 'nothing quoted'} color="var(--fg)" rate={usdRate} />
+                sub={quotedCount > 0 ? `${quotedCount} awaiting outcome` : 'nothing quoted'} color="var(--fg)" rate={usdRate}
+                {...bracket('quoted')} />
               <FlowArrow />
               <ForecastBlock label="In Negotiation" value={negotiatingCr}
-                sub={negotiatingCount > 0 ? `${negotiatingCount} in active talks` : 'none in negotiation'} color="var(--accent)" rate={usdRate} />
+                sub={negotiatingCount > 0 ? `${negotiatingCount} in active talks` : 'none in negotiation'} color="var(--accent)" rate={usdRate}
+                {...bracket('negotiating')} />
               <FlowArrow />
               {/* Amber: won business still waiting on an SO is a to-do, not a
                   resting state — raising the SO is the next action. */}
               <ForecastBlock label="Won (awaiting SO)" value={orderInHand}
-                sub="won · not yet in an SO" color="var(--warn)" rate={usdRate} />
+                sub="won · not yet in an SO" color="var(--warn)" rate={usdRate}
+                {...bracket('awaitingSo')} />
               <FlowArrow />
               <ForecastBlock label="Won (SO created)" value={orderBooked}
-                sub="SO value" color="var(--pos)" rate={usdRate} />
+                sub="SO value" color="var(--pos)" rate={usdRate}
+                {...bracket('createdSo')} />
               <FlowArrow />
+              {/* Not clickable: this is client_revenue_monthly, which carries no
+                  opportunity link — there is no set of cards to filter to. */}
               <ForecastBlock label="Revenue (Invoiced)" value={bookedYTD}
                 sub={`sales · ${fy.label}`} color="var(--fg-2)" rate={usdRate} />
             </div>
@@ -720,6 +755,8 @@ export default async function PipelinePage({
               { param: 'industry',     label: 'Industry', values: indFilts      },
               { param: 'ctype',        label: 'Client Type', values: ctypeFilts },
               { param: 'prob',         label: 'Prob',     values: probFilts     },
+              { param: 'so',           label: 'Sales Order', values: soFilt ? [soFilt] : [],
+                valueLabels: SO_COVERAGE_LABELS },
             ]} />
           </div>
         )}
@@ -729,6 +766,7 @@ export default async function PipelinePage({
             The four slots need `key`s: they're element props handed from this Server
             Component to a Client Component, and React validates them as a sibling set —
             without keys it warns "unique key prop" even though they aren't a list. */}
+        <div id="opps" style={{ scrollMarginTop: 16 }} />
         <OpportunitiesTabs
           table={
             <div key="table" style={PANEL}>
@@ -834,17 +872,19 @@ function FlowArrow() {
 }
 
 function ForecastBlock({
-  label, value, sub, color, highlight = false, rate,
+  label, value, sub, color, highlight = false, rate, href, active = false,
 }: {
   label: string; value: number; sub: string; color: string; highlight?: boolean; rate?: number;
+  /** Set when this bracket maps to a real set of opportunities — clicking it filters the board. */
+  href?: string;
+  /** True when the board is already showing exactly this bracket; the link then clears it. */
+  active?: boolean;
 }) {
-  return (
-    <div style={highlight ? {
-      padding: 12, background: 'var(--accent-soft)', borderRadius: 6,
-      border: '1px solid var(--accent-line)',
-    } : {}}>
-      <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+  const body = (
+    <>
+      <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 5 }}>
         {label}
+        {active && <span style={{ fontSize: 9, color: 'var(--accent)', letterSpacing: 0 }}>● filtered · click to clear</span>}
       </div>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 22, marginTop: 2, color, lineHeight: 1.1 }}>
         ₹{value.toFixed(1)}<span style={{ fontSize: 12, color: 'var(--fg-3)', marginLeft: 4 }}>Cr</span>
@@ -855,7 +895,33 @@ function ForecastBlock({
         </div>
       )}
       <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 2 }}>{sub}</div>
-    </div>
+    </>
+  );
+
+  const boxed: CSSProperties = highlight ? {
+    padding: 12, background: 'var(--accent-soft)', borderRadius: 6,
+    border: '1px solid var(--accent-line)',
+  } : {};
+
+  if (!href) return <div style={boxed}>{body}</div>;
+
+  return (
+    <a
+      href={href}
+      title={active ? `Showing only ${label} — click to clear` : `Show only ${label} in the table and on the board`}
+      className="risansi-bracket-link"
+      style={{
+        ...boxed,
+        display: 'block', textDecoration: 'none', color: 'inherit', cursor: 'pointer',
+        padding: highlight ? 12 : '8px 10px',
+        margin: highlight ? 0 : -2,
+        borderRadius: 6,
+        border: `1px solid ${active ? 'var(--accent)' : 'transparent'}`,
+        background: active ? 'var(--accent-soft)' : (boxed.background as string | undefined),
+      }}
+    >
+      {body}
+    </a>
   );
 }
 

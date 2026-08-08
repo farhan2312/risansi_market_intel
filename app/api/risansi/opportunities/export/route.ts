@@ -80,6 +80,10 @@ export async function GET(req: Request) {
   const ctypeFilts    = parseList(params.get('ctype'));
   const probFilts     = parseList(params.get('prob'));
   const valFilts      = parseList(params.get('val'));
+  // Sales-Order coverage on a Won opportunity — set by clicking a Won bracket on
+  // the Opportunities page. Validated to an enum so it can be inlined safely.
+  const soRaw   = params.get('so');
+  const soFilt  = soRaw === 'awaiting' || soRaw === 'created' ? soRaw : '';
   const qname = (params.get('qname') ?? '').trim();
   const qfrom = (params.get('qfrom') ?? '').trim();
   const qto   = (params.get('qto')   ?? '').trim();
@@ -96,6 +100,14 @@ export async function GET(req: Request) {
   if (ctypeFilts.length)    { conds.push(`c.client_type = ANY($${idx}::text[])`);       vals.push(ctypeFilts);    idx++; }
   if (probFilts.length)     { conds.push(`o.probability_code = ANY($${idx}::text[])`);  vals.push(probFilts);     idx++; }
   if (valFilts.length)      { const v = valueRangeSql('o.value_cr', valFilts); if (v) conds.push(v); }
+  if (soFilt) {
+    // Mirrors soSql() on the Opportunities page — both branches pin stage='Won',
+    // because SO coverage is only defined on a won deal.
+    const soSum = `COALESCE((SELECT SUM(so.so_value_cr) FROM opportunity_sales_orders so WHERE so.opportunity_id = o.id), 0)`;
+    conds.push(soFilt === 'awaiting'
+      ? `(o.stage = 'Won' AND COALESCE(o.final_value_cr, o.value_cr, 0) - ${soSum} > 0)`
+      : `(o.stage = 'Won' AND ${soSum} > 0)`);
+  }
   if (qname) { conds.push(`(o.quote_ref ILIKE $${idx} OR c.legal_name ILIKE $${idx} OR o.product ILIKE $${idx})`); vals.push(`%${qname}%`); idx++; }
   if (qfrom) { conds.push(`o.quote_date >= $${idx}`); vals.push(qfrom); idx++; }
   if (qto)   { conds.push(`o.quote_date <= $${idx}`); vals.push(qto);   idx++; }
@@ -110,6 +122,7 @@ export async function GET(req: Request) {
   if (ctypeFilts.length)    appliedFilters.push(['Client Type', ctypeFilts.join(', ')]);
   if (probFilts.length)     appliedFilters.push(['Probability code', probFilts.join(', ')]);
   if (valFilts.length)      appliedFilters.push(['Value bucket', valFilts.join(', ')]);
+  if (soFilt)               appliedFilters.push(['Sales Order', soFilt === 'awaiting' ? 'Awaiting SO' : 'SO created']);
   if (qname) appliedFilters.push(['Quote no. / name search', qname]);
   if (qfrom) appliedFilters.push(['Quote date from', qfrom]);
   if (qto)   appliedFilters.push(['Quote date to', qto]);
