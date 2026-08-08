@@ -7,6 +7,8 @@ import { PRODUCT_TYPES } from '@/lib/risansi-opportunity-fields';
 import { OfferRevisionsField } from './OfferRevisionsField';
 import { type OfferRevision } from '@/lib/risansi-offer-revisions';
 import { MoneyInput } from './MoneyInput';
+import { useFormDraft } from './useFormDraft';
+import { SaveIndicator, DraftRestoredBanner } from './SaveIndicator';
 
 // Shown when a card is dragged into the Quoted column — captures the full
 // quotation (all attributes + a dynamic list of quoted items). Cancel reverts.
@@ -63,7 +65,7 @@ export function QuotedDetailsModal({ opp, usdRate = 86, onSave, onCancel }: { op
     setLoading(true); setError('');
     const fd = new FormData(e.currentTarget);
     fd.set('items_json', JSON.stringify(items));
-    try { await saveQuotedDetails(Number(opp.id), fd); onSave(); }
+    try { await saveQuotedDetails(Number(opp.id), fd); draft.clear(); onSave(); }
     catch (err) { setError(err instanceof Error ? err.message : 'Failed to save'); setLoading(false); }
   };
 
@@ -96,6 +98,29 @@ export function QuotedDetailsModal({ opp, usdRate = 86, onSave, onCancel }: { op
       .catch(() => { if (active) setRevisions('failed'); });
     return () => { active = false; };
   }, [opp.id]);
+
+  // ── Draft ────────────────────────────────────────────────────
+  // Local, not server-side. This modal is a staging area: Cancel is supposed to
+  // put the card back where it came from, so writing fields to the opportunity
+  // as they're typed would commit a move the user hasn't agreed to. Keeping the
+  // draft locally means nothing is lost if the tab closes, and nothing is
+  // decided until Save.
+  const draft = useFormDraft<{ items: ItemRow[]; offerInr: string }>(
+    formRef, `risansi.quote.draft.${opp.id}`,
+    {
+      extra: () => ({ items, offerInr }),
+      onRestore: (e) => {
+        if (!e) return;
+        if (Array.isArray(e.items) && e.items.length) setItems(e.items);
+        if (typeof e.offerInr === 'string') setOfferInr(e.offerInr);
+      },
+      skip: ['quotation_link'],   // set by the upload, not by typing
+    },
+  );
+  // Line items and revisions live in React state, so an input event on the form
+  // won't fire for them — snapshot whenever they change.
+  const captureDraft = draft.capture;
+  useEffect(() => { captureDraft(); }, [items, captureDraft]);
 
   // ── Upload PDF + auto-fill (blanks only) ─────────────────────
   const [link, setLink]           = useState(str(opp.quotation_link));
@@ -166,13 +191,17 @@ export function QuotedDetailsModal({ opp, usdRate = 86, onSave, onCancel }: { op
               <div style={{ fontSize: 15, fontWeight: 700 }}>Quotation details</div>
               <div style={{ fontSize: 12, opacity: 0.9, marginTop: 3 }}>{opp.client_name} · {opp.product}</div>
             </div>
-            <button type="button" onClick={onCancel} aria-label="Cancel" style={{ background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', width: 28, height: 28, fontSize: 16, lineHeight: 1 }}>×</button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <SaveIndicator state={draft.state} />
+              <button type="button" onClick={onCancel} aria-label="Cancel" style={{ background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', width: 28, height: 28, fontSize: 16, lineHeight: 1 }}>×</button>
+            </div>
           </div>
           <div style={{ marginTop: 8, fontSize: 11, opacity: 0.8, fontStyle: 'italic' }}>Press × to cancel and move the card back</div>
         </div>
 
-        <form onSubmit={submit} ref={formRef}>
+        <form onSubmit={submit} ref={formRef} onInput={draft.capture} onChange={draft.capture}>
           <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {draft.restored && <DraftRestoredBanner what="quotation details" onDismiss={draft.dismissRestored} />}
             {/* Quote-level attributes, ordered: the project it's for, then the
                 quote identity, then commercials, then the PDF. Project Name /
                 Unit leads as a full-width box, matching the create form. */}

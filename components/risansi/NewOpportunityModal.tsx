@@ -9,6 +9,8 @@ import { SalesOrderList } from './SalesOrderList';
 import { parseSalesOrdersJson } from '@/lib/risansi-sales-orders';
 import { OfferRevisionsField } from './OfferRevisionsField';
 import { MoneyInput } from './MoneyInput';
+import { useFormDraft } from './useFormDraft';
+import { SaveIndicator, DraftRestoredBanner } from './SaveIndicator';
 import { parseMoneyInput } from '@/lib/risansi-money';
 import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
 import {
@@ -282,6 +284,7 @@ function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess }: {
       }
 
       const created = await createPipelineOpportunity(fd);
+      draft.clear();   // it exists on the server now
 
       // Attach the quotation PDF to the record we just created — the reason the
       // form has a second step. The opportunity is already saved, so a failed
@@ -316,6 +319,27 @@ function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess }: {
   // What's typed into each rupee field, so the USD sub-text below it can track
   // live. Display only — the form still submits the rupee input itself.
   const [moneyVals, setMoneyVals] = useState<Record<string, string>>({});
+
+  // Local draft. The wizard has no opportunity row until it submits, so there is
+  // nothing on the server to autosave into — writing partial opportunities would
+  // litter the pipeline with half-filled cards. The draft is keyed by client, so
+  // a half-entered deal comes back when the modal is reopened for that client and
+  // isn't offered on a different one.
+  const draft = useFormDraft<{ items: ItemRow[]; money: Record<string, string>; stage: CreateStage }>(
+    formRef, `risansi.newopp.draft.${client.id}`,
+    {
+      extra: () => ({ items, money: moneyVals, stage }),
+      onRestore: (e) => {
+        if (!e) return;
+        if (Array.isArray(e.items) && e.items.length) setItems(e.items);
+        if (e.money) setMoneyVals(e.money);
+        if (e.stage && (CREATE_STAGES as readonly string[]).includes(e.stage)) onStage(e.stage);
+      },
+    },
+  );
+  // State-held parts don't raise input events on the form.
+  const captureDraft = draft.capture;
+  useEffect(() => { captureDraft(); }, [items, moneyVals, stage, captureDraft]);
 
   const renderField = (f: OppFieldDef) => {
     const required = isFieldRequired(f, stage);
@@ -375,7 +399,7 @@ function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess }: {
   const gridStyle: CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, alignItems: 'start' };
 
   return (
-    <form ref={formRef} onSubmit={handleSubmit}>
+    <form ref={formRef} onSubmit={handleSubmit} onInput={draft.capture} onChange={draft.capture}>
       {/* Selected client chip */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -421,12 +445,17 @@ function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess }: {
         </div>
       )}
 
-      {/* Step indicator (only when there are two steps). */}
-      {hasStep2 && (
-        <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
-          Step {step} of 2 · {step === 1 ? 'The deal' : 'Quotation'}
-        </div>
-      )}
+      {draft.restored && <DraftRestoredBanner what="opportunity details" onDismiss={draft.dismissRestored} />}
+
+      {/* Step indicator (only when there are two steps) + the draft state. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, minHeight: 14 }}>
+        {hasStep2 && (
+          <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            Step {step} of 2 · {step === 1 ? 'The deal' : 'Quotation'}
+          </span>
+        )}
+        <span style={{ marginLeft: 'auto' }}><SaveIndicator state={draft.state} /></span>
+      </div>
 
       {/* ── Step 1 · the deal ── (kept mounted so values survive a trip to step 2) */}
       <div style={{ display: step === 1 ? 'block' : 'none' }}>
