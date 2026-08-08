@@ -28,6 +28,41 @@ function fmtInr(n: number) {
   return `₹${n.toLocaleString('en-IN')}`;
 }
 
+/**
+ * Accepted spellings per column. The first entry of each list is what the
+ * shipped template (public/revenue_upload_template.xlsx) actually uses; the
+ * rest are older or hand-rolled variants we still want to read.
+ */
+const HEADER_ALIASES = {
+  code:  ['Client Code', 'Code', 'client_code'],
+  name:  ['Client Name', 'Name', 'client_name'],
+  month: ['Month', 'month'],
+  pump:  ['Pump Value', 'Pump Value (₹)', 'Pump', 'pump_value'],
+  spare: ['Spare Value', 'Spare Value (₹)', 'Spare', 'spare_value'],
+} as const;
+
+/** Headers are matched trimmed, case-insensitive, with runs of whitespace collapsed. */
+const normHeader = (h: string) => h.replace(/\s+/g, ' ').trim().toLowerCase();
+
+function normaliseRow(r: Record<string, unknown>): Map<string, unknown> {
+  const m = new Map<string, unknown>();
+  for (const [k, v] of Object.entries(r)) {
+    const nk = normHeader(k);
+    // First non-blank wins, so a duplicated header can't blank out a real value.
+    const existing = m.get(nk);
+    if (existing === undefined || String(existing).trim() === '') m.set(nk, v);
+  }
+  return m;
+}
+
+function pick(row: Map<string, unknown>, aliases: readonly string[]): unknown {
+  for (const alias of aliases) {
+    const v = row.get(normHeader(alias));
+    if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+  }
+  return '';
+}
+
 export function RevenueUploadClient({ existingCodes }: { existingCodes: Set<string> }) {
   const [rows,    setRows]    = useState<ParsedRow[] | null>(null);
   const [file,    setFile]    = useState<File | null>(null);
@@ -47,14 +82,26 @@ export function RevenueUploadClient({ existingCodes }: { existingCodes: Set<stri
       const buf  = await f.arrayBuffer();
       const wb   = XLSX.read(buf, { type: 'array' });
       const ws   = wb.Sheets[wb.SheetNames[0]];
-      const raw  = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
+      if (!ws) { setError('That workbook has no sheets.'); return; }
+
+      const raw     = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
+      const headers = (XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, blankrows: false })[0] ?? [])
+        .map(h => String(h ?? '').trim())
+        .filter(Boolean);
+      const sawHeaders = headers.length ? ` The sheet has: ${headers.join(', ')}.` : '';
+
+      if (raw.length === 0) {
+        setError(`No data rows found in "${wb.SheetNames[0]}" — the sheet only has a header row.${sawHeaders}`);
+        return;
+      }
 
       const parsed: ParsedRow[] = raw.map(r => {
-        const code       = String(r['Code'] ?? r['code'] ?? '').trim().toUpperCase();
-        const clientName = String(r['Client Name'] ?? r['client_name'] ?? '').trim();
-        const month      = String(r['Month'] ?? r['month'] ?? '').trim();
-        const pump       = Number(r['Pump Value (₹)'] ?? r['pump_value'] ?? 0) || 0;
-        const spare      = Number(r['Spare Value (₹)'] ?? r['spare_value'] ?? 0) || 0;
+        const row        = normaliseRow(r);
+        const code       = String(pick(row, HEADER_ALIASES.code)).trim().toUpperCase();
+        const clientName = String(pick(row, HEADER_ALIASES.name)).trim();
+        const month      = String(pick(row, HEADER_ALIASES.month)).trim();
+        const pump       = Number(pick(row, HEADER_ALIASES.pump))  || 0;
+        const spare      = Number(pick(row, HEADER_ALIASES.spare)) || 0;
         const total      = pump + spare;
         const found      = existingCodes.has(code);
         return {
@@ -66,9 +113,18 @@ export function RevenueUploadClient({ existingCodes }: { existingCodes: Set<stri
           total_value: total,
           status: (found ? 'found' : 'not_found') as ParsedRow['status'],
         };
-      }).filter(r => r.client_code);
+      });
 
-      setRows(parsed);
+      const withCode = parsed.filter(r => r.client_code);
+      if (withCode.length === 0) {
+        setError(
+          `Read ${raw.length} row${raw.length !== 1 ? 's' : ''} but none had a client code, so there is nothing to import. ` +
+          `Check the column is named "Client Code" and that it is filled in.${sawHeaders}`,
+        );
+        return;
+      }
+
+      setRows(withCode);
     } catch (err) {
       setError(`Failed to parse file: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
@@ -125,7 +181,7 @@ export function RevenueUploadClient({ existingCodes }: { existingCodes: Set<stri
           ⬇ Download Template
         </a>
         <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>
-          Expected columns: Code · Client Name · Month · Pump Value (₹) · Spare Value (₹) &nbsp;·&nbsp; Month format: May-2026
+          Expected columns: Client Code · Client Name · Month · Pump Value · Spare Value &nbsp;·&nbsp; Month format: May-2026
         </span>
       </div>
 
