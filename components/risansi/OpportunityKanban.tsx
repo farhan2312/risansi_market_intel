@@ -36,7 +36,6 @@ const STAGE_COLOR: Record<string, string> = {
 const STAGE_LABEL: Record<string, string> = {
   Suspect:  'Suspect (1-2 years +)',
   Prospect: 'Prospect (6 months +)',
-  Dropped:  'Dropped (cancelled by client)',
 };
 
 // Remembers which stage columns the user chose to show, so the choice survives
