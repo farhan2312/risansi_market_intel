@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { hasRole, getManagerAssignableReps } from '@/lib/risansi-auth';
+import { hasRole, canViewClient, type RisansiRole } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 
-const VALID = ['Suspect', 'Prospect', 'Quoted', 'Negotiating', 'Won', 'Lost', 'Dropped'];
+// Every column the board renders. 'On Hold' was missing here while the board
+// showed the column, so every drag into On Hold came back 400 "Invalid stage"
+// and the card snapped straight back — for everyone, admins included.
+const VALID = ['Suspect', 'Prospect', 'Quoted', 'Negotiating', 'On Hold', 'Won', 'Lost', 'Dropped'];
 
 export async function PATCH(
   req: Request,
@@ -22,9 +25,16 @@ export async function PATCH(
     return NextResponse.json({ error: 'Invalid stage' }, { status: 400 });
   }
 
-  // Ownership — assigned rep, their tour manager, or admin/sysadmin only.
-  const oppRes = await risansiPool.query<{ rep_id: number | null; stage: string }>(
-    'SELECT rep_id, stage FROM opportunities WHERE id = $1', [id],
+  // Ownership. This MUST match two other things or the board lies to the user:
+  // the CAN_EDIT_CASE that decides whether a card is draggable at all, and
+  // userCanEditOpp, which guards the same move made through the Edit drawer.
+  // Both are tour-based — you can edit the opportunities of clients on your
+  // tour(s), or granted to you directly. This route used to check only
+  // `o.rep_id = you`, which is far narrower: 984 opportunities across 11 reps
+  // and managers were draggable in the UI and 403'd by the server, so the card
+  // just sprang back with no explanation.
+  const oppRes = await risansiPool.query<{ rep_id: number | null; stage: string; client_id: number | null }>(
+    'SELECT rep_id, stage, client_id FROM opportunities WHERE id = $1', [id],
   );
   if (!oppRes.rows[0]) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
@@ -38,16 +48,19 @@ export async function PATCH(
       { status: 422 },
     );
   }
-  const oppRepId = oppRes.rows[0].rep_id;
-  const role  = session.user.role;
-  const repId = session.user.repId;
+  const oppRepId  = oppRes.rows[0].rep_id;
+  const clientId  = oppRes.rows[0].client_id;
+  const role      = session.user.role;
+  const repId     = session.user.repId ?? null;
   let allowed = hasRole(role, 'admin');
   if (!allowed && repId != null && oppRepId != null && Number(oppRepId) === Number(repId)) {
     allowed = true;
   }
-  if (!allowed && role === 'manager' && repId != null && oppRepId != null) {
-    const assignable = await getManagerAssignableReps(repId);
-    allowed = assignable.includes(Number(oppRepId));
+  if (!allowed && clientId != null) {
+    allowed = await canViewClient(
+      { id: repId, email: session.user.email ?? null, role: role as RisansiRole },
+      Number(clientId),
+    );
   }
   if (!allowed) {
     return NextResponse.json(

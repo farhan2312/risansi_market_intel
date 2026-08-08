@@ -117,8 +117,14 @@ export function OpportunityKanban({ initialOpps, stageTotals, usdRate = 86, filt
   const handleDrop = (oppId: string, newStage: string) => {
     const current = opps.find(o => o.id === oppId);
     if (!current || current.stage === newStage) return;
-    // Ownership guard (server also enforces). Non-editable cards can't move.
-    if (current.can_edit === false) return;
+    // Ownership guard (server also enforces). This used to `return` in silence,
+    // so a card the user couldn't move simply did nothing when dropped — which
+    // is indistinguishable from a broken board. Say why.
+    if (current.can_edit === false) {
+      setNotice('You can only move opportunities for clients on your tour. Ask an admin for access to this one.');
+      setTimeout(() => setNotice(''), 5000);
+      return;
+    }
 
     // Gate: Quoted is a mandatory gateway — a card can't skip to Negotiating / Won /
     // Lost without being Quoted first (so it can never jump straight to Won/Lost).
@@ -160,14 +166,21 @@ export function OpportunityKanban({ initialOpps, stageTotals, usdRate = 86, filt
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ stage: newStage }),
       });
-      if (!res.ok) throw new Error('failed');
+      if (!res.ok) {
+        // Surface what the server actually said. A bare "failed" is why an
+        // "Invalid stage" rejection on On Hold looked like the board was broken
+        // rather than like a bug with a name.
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || `Move failed (${res.status})`);
+      }
       setSaveState('saved');
       setTimeout(() => setSaveState('idle'), 2000);
       router.refresh();
-    } catch {
+    } catch (err) {
       setOpps(prev); // revert
       setSaveState('error');
-      setTimeout(() => setSaveState('idle'), 3000);
+      setNotice(err instanceof Error ? err.message : 'Move failed');
+      setTimeout(() => { setSaveState('idle'); setNotice(''); }, 5000);
     }
   };
 
