@@ -107,6 +107,7 @@ export default async function PipelinePage({
   // literally named "all" (which returned zero results for "All Opportunities").
   const repFilts      = typeof sp.rep          === 'string' && sp.rep && sp.rep !== 'all' ? sp.rep.split(',').filter(Boolean)          : [];
   const indFilts      = typeof sp.industry     === 'string' && sp.industry     ? sp.industry.split(',').filter(Boolean)     : [];
+  const ctypeFilts    = typeof sp.ctype        === 'string' && sp.ctype        ? sp.ctype.split(',').filter(Boolean)        : [];
   const probFilts     = typeof sp.prob         === 'string' && sp.prob         ? sp.prob.split(',').filter(Boolean)         : [];
   const valFilts      = typeof sp.val          === 'string' && sp.val          ? sp.val.split(',').filter(Boolean)          : [];
   // Quote tracking: free-text (quote no. / client / product) + quote-date range.
@@ -176,6 +177,10 @@ export default async function PipelinePage({
     conds.push(`c.industry = ANY($${idx}::text[])`);
     vals.push(indFilts); idx++;
   }
+  if (ctypeFilts.length > 0) {
+    conds.push(`c.client_type = ANY($${idx}::text[])`);
+    vals.push(ctypeFilts); idx++;
+  }
   if (probFilts.length > 0) {
     conds.push(`o.probability_code = ANY($${idx}::text[])`);
     vals.push(probFilts); idx++;
@@ -228,6 +233,10 @@ export default async function PipelinePage({
     revConds.push(`c.industry = ANY($${rIdx}::text[])`);
     revVals.push(indFilts); rIdx++;
   }
+  if (ctypeFilts.length > 0) {
+    revConds.push(`c.client_type = ANY($${rIdx}::text[])`);
+    revVals.push(ctypeFilts); rIdx++;
+  }
   const revFilterClause = (revConds.length ? ` AND ${revConds.join(' AND ')}` : '') + ownerVisCIdAnd;
 
   // Win Rate and Lost-To used to interpolate only the visibility scope, never
@@ -247,6 +256,7 @@ export default async function PipelinePage({
     if (prodTypeFilts.length)   { c.push(`${a}.product_type = ANY($${v.length + 1}::text[])`);                                 v.push(prodTypeFilts); }
     if (repFilts.length)        { c.push(`${a}.client_id IN (SELECT c2.id FROM clients c2 JOIN tour_assignments ta ON ta.tour_id = c2.tour_id JOIN users u2 ON u2.id = ta.rep_id WHERE u2.name = ANY($${v.length + 1}::text[]))`);  v.push(repFilts); }
     if (indFilts.length)        { c.push(`${a}.client_id IN (SELECT id FROM clients WHERE industry = ANY($${v.length + 1}::text[]))`); v.push(indFilts); }
+    if (ctypeFilts.length)      { c.push(`${a}.client_id IN (SELECT id FROM clients WHERE client_type = ANY($${v.length + 1}::text[]))`); v.push(ctypeFilts); }
     if (probFilts.length)       { c.push(`${a}.probability_code = ANY($${v.length + 1}::text[])`);                             v.push(probFilts); }
     return { clause: c.length ? ` AND ${c.join(' AND ')}` : '', vals: v as (string | number)[] };
   };
@@ -271,6 +281,7 @@ export default async function PipelinePage({
   if (prodTypeFilts.length) { wonC.push(`o.product_type = ANY($${wonV.length + 1}::text[])`);                                wonV.push(prodTypeFilts); }
   if (repFilts.length)      { wonC.push(`o.client_id IN (SELECT c2.id FROM clients c2 JOIN tour_assignments ta ON ta.tour_id = c2.tour_id JOIN users u2 ON u2.id = ta.rep_id WHERE u2.name = ANY($${wonV.length + 1}::text[]))`); wonV.push(repFilts); }
   if (indFilts.length)      { wonC.push(`o.client_id IN (SELECT id FROM clients WHERE industry = ANY($${wonV.length + 1}::text[]))`); wonV.push(indFilts); }
+  if (ctypeFilts.length)    { wonC.push(`o.client_id IN (SELECT id FROM clients WHERE client_type = ANY($${wonV.length + 1}::text[]))`); wonV.push(ctypeFilts); }
   if (probFilts.length)     { wonC.push(`o.probability_code = ANY($${wonV.length + 1}::text[])`);                            wonV.push(probFilts); }
   if (valFilts.length)      { const v = valueRangeSql('o.value_cr', valFilts); if (v) wonC.push(v); }
   const wonWhere = `WHERE ${wonC.join(' AND ')}${ownerVisAnd}`;
@@ -292,7 +303,7 @@ export default async function PipelinePage({
           ELSE FALSE
         END AS can_edit`;
 
-  const [openOpps, closedOpps, bookedYTD, annualTarget, winLossRows, lostToRows, stageOptions, productTypeOptions, repOptions, industryOptions, wonTotal, orderInHand, orderBooked, stageTotals, usdRate] = await Promise.all([
+  const [openOpps, closedOpps, bookedYTD, annualTarget, winLossRows, lostToRows, stageOptions, productTypeOptions, repOptions, industryOptions, clientTypeOptions, wonTotal, orderInHand, orderBooked, stageTotals, usdRate] = await Promise.all([
 
     // 1. Open opportunities with filters + sort. Feeds the KPIs, the kanban (every
     //    open card must show), and the Active Opportunities table — so NO row cap
@@ -447,6 +458,17 @@ export default async function PipelinePage({
       return rows.map(r => r.industry);
     }, []),
 
+    // Client-type options, derived from the data (so legacy values like
+    // DIRECT MILL / TRADER stay filterable) and scoped to what the user can see.
+    q<string[]>(async () => {
+      const { rows } = await risansiPool.query<{ client_type: string }>(
+        `SELECT DISTINCT c.client_type FROM clients c
+          WHERE c.client_type IS NOT NULL AND btrim(c.client_type) <> ''${ownerVisCIdAnd}
+          ORDER BY c.client_type`,
+      );
+      return rows.map(r => r.client_type);
+    }, []),
+
     // 7. Won total (Cr) — the real sum of Won opportunities in scope. value_cr is
     //    already in Crores, so SUM needs no conversion. Replaces sales-Booked as
     //    the realised base for every forecast figure below.
@@ -548,11 +570,11 @@ export default async function PipelinePage({
     ? Math.round((totalWon / (totalWon + totalLost)) * 100)
     : 0;
 
-  const anyFilter = stageFilts.length > 0 || prodTypeFilts.length > 0 || repFilts.length > 0 || indFilts.length > 0 || probFilts.length > 0 || valFilts.length > 0 || !!qname || !!qfrom || !!qto;
+  const anyFilter = stageFilts.length > 0 || prodTypeFilts.length > 0 || repFilts.length > 0 || indFilts.length > 0 || ctypeFilts.length > 0 || probFilts.length > 0 || valFilts.length > 0 || !!qname || !!qfrom || !!qto;
 
   // Carry the active filters onto the Excel export so it matches what's on screen.
   const exportParams = new URLSearchParams();
-  for (const k of ['stage', 'product_type', 'rep', 'industry', 'prob', 'val', 'qname', 'qfrom', 'qto']) {
+  for (const k of ['stage', 'product_type', 'rep', 'industry', 'ctype', 'prob', 'val', 'qname', 'qfrom', 'qto']) {
     const v = sp[k];
     if (typeof v === 'string' && v) exportParams.set(k, v);
   }
@@ -683,6 +705,7 @@ export default async function PipelinePage({
           <MultiSelectFilter param="product_type" label="Product Type" options={productTypeOptions}  selected={prodTypeFilts} />
           <MultiSelectFilter param="rep"          label="Rep"          options={repOptions}          selected={repFilts}      />
           <MultiSelectFilter param="industry"     label="Industry"     options={industryOptions}     selected={indFilts}      />
+          <MultiSelectFilter param="ctype"        label="Client Type"  options={clientTypeOptions}   selected={ctypeFilts}    />
           <MultiSelectFilter param="prob"         label="Probability"  options={PROBABILITY_CODE_OPTIONS} selected={probFilts} />
           <MultiSelectFilter param="val"          label="Value"        options={VALUE_BUCKETS.map(b => b.label)} selected={valFilts} />
           <TextSearchFilter param="qname" placeholder="Quote no. / name…" />
@@ -695,6 +718,7 @@ export default async function PipelinePage({
               { param: 'product_type', label: 'Type',     values: prodTypeFilts },
               { param: 'rep',          label: 'Rep',      values: repFilts      },
               { param: 'industry',     label: 'Industry', values: indFilts      },
+              { param: 'ctype',        label: 'Client Type', values: ctypeFilts },
               { param: 'prob',         label: 'Prob',     values: probFilts     },
             ]} />
           </div>

@@ -23,6 +23,27 @@ import { normaliseIndustry } from '@/lib/risansi-utils';
 
 // ── Helper ─────────────────────────────────────────────────────
 
+/**
+ * Does a quoted line item carry ANY data the user typed?
+ *
+ * This used to test only pump_model / pump_qty / offer_value_inr /
+ * detailed_specifications, which silently discarded a row where the user had
+ * filled just the speed, the motor or gearbox price, the geared-motor detail or
+ * the USD offer — the "I added a second item and it didn't save" bug. Every
+ * field now counts, so anything typed is kept; only a wholly untouched row is
+ * dropped. Shared by createOpportunity and saveQuotedDetails so the two can't
+ * drift, and mirrored client-side in NewOpportunityModal.
+ */
+function quotedItemHasData(it: object): boolean {
+  const FIELDS = [
+    'pump_model', 'pump_qty', 'pump_speed', 'geared_motor_detail',
+    'motor_price', 'gearbox_vbelt_price', 'offer_value_inr', 'offer_value_usd',
+    'detailed_specifications',
+  ];
+  const row = (it ?? {}) as Record<string, unknown>;
+  return FIELDS.some(f => String(row[f] ?? '').trim() !== '');
+}
+
 async function requireSession() {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) redirect('/api/auth/signin');
@@ -864,7 +885,7 @@ export async function createPipelineOpportunity(formData: FormData) {
   interface ItemInput { pump_model?: unknown; pump_qty?: unknown; pump_speed?: unknown; geared_motor_detail?: unknown; motor_price?: unknown; gearbox_vbelt_price?: unknown; offer_value_inr?: unknown; offer_value_usd?: unknown; detailed_specifications?: unknown; }
   let items: ItemInput[] = [];
   try { const parsed = JSON.parse((formData.get('items_json') as string) || '[]'); if (Array.isArray(parsed)) items = parsed; } catch { /* ignore */ }
-  items = items.filter(it => iStr(it.pump_model) || iNum(it.offer_value_inr) != null || iInt(it.pump_qty) != null || iStr(it.detailed_specifications));
+  items = items.filter(quotedItemHasData);
   const itemsSum = items.reduce((a, it) => a + (iNum(it.offer_value_inr) ?? 0), 0);
   // A blank OR zero Total Offer falls back to the line-item sum. (`?? ` alone
   // would keep a literal 0, since 0 isn't nullish, and silently ignore items.)
@@ -1065,7 +1086,7 @@ export async function saveQuotedDetails(oppId: number, formData: FormData) {
   interface ItemInput { pump_model?: unknown; pump_qty?: unknown; pump_speed?: unknown; geared_motor_detail?: unknown; motor_price?: unknown; gearbox_vbelt_price?: unknown; offer_value_inr?: unknown; offer_value_usd?: unknown; detailed_specifications?: unknown; }
   let items: ItemInput[] = [];
   try { const parsed = JSON.parse((formData.get('items_json') as string) || '[]'); if (Array.isArray(parsed)) items = parsed; } catch { /* ignore */ }
-  items = items.filter(it => iStr(it.pump_model) || iNum(it.offer_value_inr) != null || iInt(it.pump_qty) != null || iStr(it.detailed_specifications));
+  items = items.filter(quotedItemHasData);
 
   const itemsSum = items.reduce((a, it) => a + (iNum(it.offer_value_inr) ?? 0), 0);
   const offerInr = n('offer_value_inr') ?? (itemsSum || null);

@@ -148,7 +148,10 @@ const EMPTY_ITEM: ItemRow = {
   pump_model: '', pump_qty: '', pump_speed: '', geared_motor_detail: '',
   motor_price: '', gearbox_vbelt_price: '', offer_value_inr: '', offer_value_usd: '', detailed_specifications: '',
 };
-const itemHasData = (it: ItemRow) => !!(it.pump_model.trim() || it.offer_value_inr.trim() || it.pump_qty.trim() || it.detailed_specifications.trim());
+// Any field the user typed into keeps the row. Testing only a handful of
+// "primary" fields silently dropped items filled in with just a speed, a motor
+// or gearbox price, or a USD offer. Mirrors quotedItemHasData on the server.
+const itemHasData = (it: ItemRow) => Object.values(it).some(v => String(v ?? '').trim() !== '');
 
 // Is a field satisfied? Mirrors the server: the Total Offer counts line items;
 // a money field of 0 is not "filled".

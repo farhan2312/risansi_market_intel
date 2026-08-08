@@ -76,6 +76,7 @@ export async function GET(req: Request) {
   const prodTypeFilts = parseList(params.get('product_type'));
   const repFilts      = params.get('rep') && params.get('rep') !== 'all' ? parseList(params.get('rep')) : [];
   const indFilts      = parseList(params.get('industry'));
+  const ctypeFilts    = parseList(params.get('ctype'));
   const probFilts     = parseList(params.get('prob'));
   const valFilts      = parseList(params.get('val'));
   const qname = (params.get('qname') ?? '').trim();
@@ -91,6 +92,7 @@ export async function GET(req: Request) {
   if (prodTypeFilts.length) { conds.push(`o.product_type = ANY($${idx}::text[])`);     vals.push(prodTypeFilts); idx++; }
   if (repFilts.length)      { conds.push(`EXISTS (SELECT 1 FROM tour_assignments ta JOIN users u2 ON u2.id = ta.rep_id WHERE ta.tour_id = c.tour_id AND u2.name = ANY($${idx}::text[]))`); vals.push(repFilts); idx++; }
   if (indFilts.length)      { conds.push(`c.industry = ANY($${idx}::text[])`);          vals.push(indFilts);      idx++; }
+  if (ctypeFilts.length)    { conds.push(`c.client_type = ANY($${idx}::text[])`);       vals.push(ctypeFilts);    idx++; }
   if (probFilts.length)     { conds.push(`o.probability_code = ANY($${idx}::text[])`);  vals.push(probFilts);     idx++; }
   if (valFilts.length)      { const v = valueRangeSql('o.value_cr', valFilts); if (v) conds.push(v); }
   if (qname) { conds.push(`(o.quote_ref ILIKE $${idx} OR c.legal_name ILIKE $${idx} OR o.product ILIKE $${idx})`); vals.push(`%${qname}%`); idx++; }
@@ -104,6 +106,7 @@ export async function GET(req: Request) {
   if (prodTypeFilts.length) appliedFilters.push(['Product Type', prodTypeFilts.join(', ')]);
   if (repFilts.length)      appliedFilters.push(['Rep / Tour', repFilts.join(', ')]);
   if (indFilts.length)      appliedFilters.push(['Industry', indFilts.join(', ')]);
+  if (ctypeFilts.length)    appliedFilters.push(['Client Type', ctypeFilts.join(', ')]);
   if (probFilts.length)     appliedFilters.push(['Probability code', probFilts.join(', ')]);
   if (valFilts.length)      appliedFilters.push(['Value bucket', valFilts.join(', ')]);
   if (qname) appliedFilters.push(['Quote no. / name search', qname]);
