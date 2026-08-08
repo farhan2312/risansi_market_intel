@@ -424,11 +424,6 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
             </div>
 
             <div>
-              <label style={LABEL_STYLE}>Negotiation Notes</label>
-              <textarea name="negotiation_notes" rows={3} defaultValue={opp.negotiation_notes ?? ''} style={{ ...INPUT_STYLE, resize: 'vertical' }} />
-            </div>
-
-            <div>
               <label style={LABEL_STYLE}>Notes</label>
               <textarea name="notes" rows={3} defaultValue={opp.notes ?? ''} style={{ ...INPUT_STYLE, resize: 'vertical' }} />
             </div>

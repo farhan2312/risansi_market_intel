@@ -84,7 +84,10 @@ export const OPP_FIELDS: OppFieldDef[] = [
     'No decision — Deferred', 'Other',
   ] },
 
-  { name: 'negotiation_notes', label: 'Negotiation Notes', kind: 'textarea', step: 1, visibleFrom: 3, full: true },
+  // Retired from the forms 2026-08 (negotiation_notes, client_status_at_quote,
+  // qtn_prepared_by, qtr, location). The COLUMNS stay — historic values are still
+  // read by the Excel export and shown read-only on the quotation summary — they
+  // are simply no longer asked for on any form.
   { name: 'notes',        label: 'Notes', kind: 'textarea', step: 1, visibleFrom: 0, full: true, placeholder: 'Key context, contacts involved, next steps…' },
 
   // ── Step 2 · the quotation ────────────────────────────────────
@@ -93,10 +96,6 @@ export const OPP_FIELDS: OppFieldDef[] = [
   { name: 'enquiry_no',   label: 'Enquiry No.',           kind: 'text',   step: 2, visibleFrom: 2, requiredAt: QUOTE_REQ, placeholder: 'RIL/EN/…' },
   { name: 'enquiry_date', label: 'Enquiry Date',          kind: 'date',   step: 2, visibleFrom: 2 },
   { name: 'market',       label: 'Market',                kind: 'select', step: 2, visibleFrom: 2, requiredAt: QUOTE_REQ, options: ['DOMESTIC', 'EXPORT'] },
-  { name: 'client_status_at_quote', label: 'Client Status', kind: 'select', step: 2, visibleFrom: 2, options: ['NEW', 'EXISTING'] },
-  { name: 'qtn_prepared_by', label: 'Qtn. Prepared By',   kind: 'text',   step: 2, visibleFrom: 2 },
-  { name: 'qtr',          label: 'Quarter',               kind: 'select', step: 2, visibleFrom: 2, options: ['Q1', 'Q2', 'Q3', 'Q4'] },
-  { name: 'location',     label: 'Location',              kind: 'text',   step: 2, visibleFrom: 2 },
   { name: 'offer_value_inr', label: 'Total Offer (₹)',    kind: 'number', step: 2, visibleFrom: 2, requiredAt: QUOTE_REQ, help: 'Auto-sums line items if left blank' },
   { name: 'offer_value_usd', label: 'Total Offer (USD)',  kind: 'number', step: 2, visibleFrom: 2 },
   { name: 'revised_offer_value_inr', label: 'Revised Offer (₹)',  kind: 'number', step: 2, visibleFrom: 2 },

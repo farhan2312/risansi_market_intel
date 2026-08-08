@@ -629,15 +629,20 @@ export default async function PipelinePage({
                 NB: Revenue (Invoiced) is client-level monthly revenue, which
                 carries no opportunity link — it's the actuals that land after a
                 win, not literally the same rupees moving out of the Won card. */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr auto 1fr auto 1fr', gap: 12, alignItems: 'center' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr auto 1fr auto 1fr auto 1fr', gap: 10, alignItems: 'center' }}>
               <ForecastBlock label="Quoted" value={quotedCr}
                 sub={quotedCount > 0 ? `${quotedCount} awaiting outcome` : 'nothing quoted'} color="var(--fg)" rate={usdRate} />
               <FlowArrow />
               <ForecastBlock label="In Negotiation" value={negotiatingCr}
                 sub={negotiatingCount > 0 ? `${negotiatingCount} in active talks` : 'none in negotiation'} color="var(--accent)" rate={usdRate} />
               <FlowArrow />
+              {/* Amber: won business still waiting on an SO is a to-do, not a
+                  resting state — raising the SO is the next action. */}
+              <ForecastBlock label="Won (awaiting SO)" value={orderInHand}
+                sub="won · not yet in an SO" color="var(--warn)" rate={usdRate} />
+              <FlowArrow />
               <ForecastBlock label="Won (SO created)" value={orderBooked}
-                sub={`SO value${orderInHand > 0 ? ` · ${fmtCr(orderInHand)} won, awaiting SO` : ''}`} color="var(--pos)" rate={usdRate} />
+                sub="SO value" color="var(--pos)" rate={usdRate} />
               <FlowArrow />
               <ForecastBlock label="Revenue (Invoiced)" value={bookedYTD}
                 sub={`sales · ${fy.label}`} color="var(--fg-2)" rate={usdRate} />
