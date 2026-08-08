@@ -17,6 +17,7 @@ import { parseSalesOrdersJson, inrToCr, type SoInput, type SalesOrder } from '@/
 import { parseOfferRevisionsJson, type OfferRevisionInput } from '@/lib/risansi-offer-revisions';
 import { poInrToCr, type PurchaseOrder } from '@/lib/risansi-purchase-orders';
 import { notifyVisitPlanned } from '@/lib/risansi-email';
+import { pushInApp } from '@/lib/risansi-inapp';
 import { notifyCheckIn, notifyOppClosed, notifySalesOrder, notifyNewLead, notifyQuotationIssued } from '@/lib/risansi-notify';
 import { requiredFieldNames, labelsFor, CREATE_STAGES, STAGE_PROB, isDropReason, type CreateStage } from '@/lib/risansi-opportunity-fields';
 import { pctForProbabilityCode } from '@/lib/risansi-probability-codes';
@@ -724,23 +725,35 @@ async function notifyVisitPlan(opts: {
 
     if (plannerIsRep) {
       if (client.tour_id == null) return;
-      const mgrs = (await risansiPool.query<{ name: string | null; email: string | null }>(
-        `SELECT u.name, u.email FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
+      const mgrs = (await risansiPool.query<{ id: number; name: string | null; email: string | null }>(
+        `SELECT u.id, u.name, u.email FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
           WHERE ta.tour_id = $1 AND ta.role = 'manager'`, [client.tour_id])).rows;
+      const inAppMgrs: number[] = [];
       for (const m of mgrs) {
         if (!m.email || m.email.toLowerCase() === plannerEmail.toLowerCase()) continue;
+        inAppMgrs.push(m.id);
         await notifyVisitPlanned({
           to: m.email, toName: m.name, plannedBy,
           clientName: client.legal_name, visitDate, purpose,
           repName: rep?.name || plannedBy, audience: 'manager',
         });
       }
+      await pushInApp(inAppMgrs, {
+        kind: 'visit_planned', section: 'Visit Planner', actor: plannerEmail,
+        title: `${rep?.name || plannedBy} planned a visit — ${client.legal_name ?? 'client'}`,
+        link: '/risansi/field', entityType: 'client', entityId: String(clientId),
+      });
     } else {
       if (!rep?.email || rep.email.toLowerCase() === plannerEmail.toLowerCase()) return;
       await notifyVisitPlanned({
         to: rep.email, toName: rep.name, plannedBy,
         clientName: client.legal_name, visitDate, purpose,
         repName: rep.name, audience: 'rep',
+      });
+      if (repId != null) await pushInApp([repId], {
+        kind: 'visit_planned', section: 'Visit Planner', actor: plannerEmail,
+        title: `A visit was planned for you — ${client.legal_name ?? 'client'}`,
+        link: '/risansi/field', entityType: 'client', entityId: String(clientId),
       });
     }
   } catch (e) {

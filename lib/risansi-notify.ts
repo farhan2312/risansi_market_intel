@@ -9,6 +9,7 @@
 
 import risansiPool from '@/lib/db-risansi';
 import { sendNotification, notifyAdminEscalation } from '@/lib/risansi-email';
+import { pushInApp } from '@/lib/risansi-inapp';
 
 const BRAND = '#0A3D8F';
 const RED   = '#B91C1C';
@@ -16,16 +17,16 @@ const GREEN = '#0E7C57';
 
 // ── shared lookups ──────────────────────────────────────────────
 
-async function sysadmins(): Promise<{ name: string | null; email: string }[]> {
-  const { rows } = await risansiPool.query<{ name: string | null; email: string }>(
-    `SELECT name, email FROM users WHERE role = 'sysadmin' AND is_active = TRUE AND email IS NOT NULL AND email <> ''`);
+async function sysadmins(): Promise<{ id: number; name: string | null; email: string }[]> {
+  const { rows } = await risansiPool.query<{ id: number; name: string | null; email: string }>(
+    `SELECT id, name, email FROM users WHERE role = 'sysadmin' AND is_active = TRUE AND email IS NOT NULL AND email <> ''`);
   return rows;
 }
 
 /** Manager(s) on a client's tour, with email. */
-async function tourManagers(clientId: number): Promise<{ name: string | null; email: string }[]> {
-  const { rows } = await risansiPool.query<{ name: string | null; email: string }>(
-    `SELECT u.name, u.email FROM tour_assignments ta
+async function tourManagers(clientId: number): Promise<{ id: number; name: string | null; email: string }[]> {
+  const { rows } = await risansiPool.query<{ id: number; name: string | null; email: string }>(
+    `SELECT u.id, u.name, u.email FROM tour_assignments ta
        JOIN users u ON u.id = ta.rep_id
       WHERE ta.role = 'manager' AND u.is_active = TRUE AND u.email IS NOT NULL AND u.email <> ''
         AND ta.tour_id = (SELECT tour_id FROM clients WHERE id = $1)`, [clientId]);
@@ -211,8 +212,22 @@ export async function runWeeklyManagerDigest(): Promise<number> {
 async function clientName(clientId: number): Promise<string | null> {
   return (await risansiPool.query<{ legal_name: string | null }>('SELECT legal_name FROM clients WHERE id = $1', [clientId])).rows[0]?.legal_name ?? null;
 }
-async function userById(id: number): Promise<{ name: string | null; email: string | null } | null> {
-  return (await risansiPool.query<{ name: string | null; email: string | null }>('SELECT name, email FROM users WHERE id = $1', [id])).rows[0] ?? null;
+async function userById(id: number): Promise<{ id: number; name: string | null; email: string | null } | null> {
+  return (await risansiPool.query<{ id: number; name: string | null; email: string | null }>('SELECT id, name, email FROM users WHERE id = $1', [id])).rows[0] ?? null;
+}
+
+// The in-system user ids to give an in-app row: distinct, skipping the actor
+// (no self-notify) and anyone without an account (external handlers).
+function inAppIds(list: { email: string | null; id: number | null | undefined }[], actorEmail: string): number[] {
+  const seen = new Set<string>(); const out: number[] = [];
+  const actor = actorEmail.trim().toLowerCase();
+  for (const r of list) {
+    const e = (r.email || '').trim().toLowerCase();
+    if (!e || e === actor || seen.has(e)) continue;
+    seen.add(e);
+    if (r.id != null) out.push(r.id);
+  }
+  return out;
 }
 async function nameForEmail(email: string): Promise<string | null> {
   return (await risansiPool.query<{ name: string | null }>('SELECT name FROM users WHERE lower(email) = lower($1)', [email])).rows[0]?.name ?? null;
@@ -233,6 +248,11 @@ export async function notifyCheckIn(clientId: number, repId: number | null, acto
         ctaLabel: 'Open Field', ctaPath: '/risansi/field',
       });
     }
+    await pushInApp(inAppIds(mgrs, actorEmail), {
+      kind: 'check_in', section: 'Field', actor: actorEmail,
+      title: `${repName} checked in at ${cn ?? 'a client'}`, link: '/risansi/field',
+      entityType: 'client', entityId: String(clientId),
+    });
   } catch (e) { console.error('[notify] check-in failed', e); }
 }
 
@@ -251,6 +271,11 @@ export async function notifyVisitSubmitted(clientId: number, repName: string | n
         ctaLabel: 'Open Field', ctaPath: '/risansi/field',
       });
     }
+    await pushInApp(inAppIds(mgrs, actorEmail), {
+      kind: 'visit_submitted', section: 'Visit Reports', actor: actorEmail,
+      title: `${who} submitted a visit report — ${cn ?? 'client'}`, link: '/risansi/field',
+      entityType: 'client', entityId: String(clientId),
+    });
   } catch (e) { console.error('[notify] visit submitted failed', e); }
 }
 
@@ -259,12 +284,12 @@ export async function notifyComplaintClosed(complaintId: number, actorEmail: str
   try {
     const c = (await risansiPool.query<{
       complaint_no: string; status: string; details: string; client_id: number | null;
-      assigned_name: string | null; assigned_email: string | null; ext_email: string | null;
-      raiser_name: string | null; raiser_email: string | null; client_name: string | null;
+      assigned_id: number | null; assigned_name: string | null; assigned_email: string | null; ext_email: string | null;
+      raiser_id: number | null; raiser_name: string | null; raiser_email: string | null; client_name: string | null;
     }>(
       `SELECT co.complaint_no, co.status, co.details, co.client_id,
-              au.name AS assigned_name, au.email AS assigned_email, co.assigned_to_external_email AS ext_email,
-              ru.name AS raiser_name, COALESCE(ru.email, co.created_by) AS raiser_email, cl.legal_name AS client_name
+              au.id AS assigned_id, au.name AS assigned_name, au.email AS assigned_email, co.assigned_to_external_email AS ext_email,
+              ru.id AS raiser_id, ru.name AS raiser_name, COALESCE(ru.email, co.created_by) AS raiser_email, cl.legal_name AS client_name
          FROM complaints co
          LEFT JOIN users au ON au.id = co.assigned_to_user
          LEFT JOIN users ru ON ru.id = co.reported_by_user
@@ -285,6 +310,14 @@ export async function notifyComplaintClosed(complaintId: number, actorEmail: str
         ctaLabel: 'Open the Complaints board', ctaPath: '/risansi/complaints',
       });
     }
+    await pushInApp(inAppIds([
+      { email: c.assigned_email, id: c.assigned_id },
+      { email: c.raiser_email, id: c.raiser_id },
+    ], actorEmail), {
+      kind: 'complaint_closed', section: 'Complaints', actor: actorEmail,
+      title: `Complaint ${c.complaint_no} marked ${c.status}`, body: c.details,
+      link: '/risansi/complaints', entityType: 'complaint', entityId: String(complaintId),
+    });
   } catch (e) { console.error('[notify] complaint closed failed', e); }
 }
 
@@ -293,12 +326,12 @@ export async function notifyComplaintUpdate(complaintId: number, actorEmail: str
   try {
     const c = (await risansiPool.query<{
       complaint_no: string; client_id: number | null;
-      assigned_name: string | null; assigned_email: string | null; ext_email: string | null;
-      raiser_name: string | null; raiser_email: string | null; client_name: string | null;
+      assigned_id: number | null; assigned_name: string | null; assigned_email: string | null; ext_email: string | null;
+      raiser_id: number | null; raiser_name: string | null; raiser_email: string | null; client_name: string | null;
     }>(
       `SELECT co.complaint_no, co.client_id,
-              au.name AS assigned_name, au.email AS assigned_email, co.assigned_to_external_email AS ext_email,
-              ru.name AS raiser_name, COALESCE(ru.email, co.created_by) AS raiser_email, cl.legal_name AS client_name
+              au.id AS assigned_id, au.name AS assigned_name, au.email AS assigned_email, co.assigned_to_external_email AS ext_email,
+              ru.id AS raiser_id, ru.name AS raiser_name, COALESCE(ru.email, co.created_by) AS raiser_email, cl.legal_name AS client_name
          FROM complaints co
          LEFT JOIN users au ON au.id = co.assigned_to_user
          LEFT JOIN users ru ON ru.id = co.reported_by_user
@@ -319,6 +352,14 @@ export async function notifyComplaintUpdate(complaintId: number, actorEmail: str
         ctaLabel: 'Open the Complaints board', ctaPath: '/risansi/complaints',
       });
     }
+    await pushInApp(inAppIds([
+      { email: c.assigned_email || c.ext_email, id: c.assigned_id },
+      { email: c.raiser_email, id: c.raiser_id },
+    ], actorEmail), {
+      kind: 'complaint_update', section: 'Complaints', actor: actorEmail,
+      title: `New update on complaint ${c.complaint_no}`, body: updateBody,
+      link: '/risansi/complaints', entityType: 'complaint', entityId: String(complaintId),
+    });
   } catch (e) { console.error('[notify] complaint update failed', e); }
 }
 
@@ -345,6 +386,11 @@ export async function notifyOppClosed(oppId: number, actorEmail: string, stage: 
         ctaLabel: 'Open the pipeline', ctaPath: '/risansi/pipeline',
       });
     }
+    await pushInApp(inAppIds([...mgrs, { email: rep?.email ?? null, id: rep?.id }], actorEmail), {
+      kind: stage === 'Won' ? 'opp_won' : 'opp_lost', section: 'Pipeline', actor: actorEmail,
+      title: `Opportunity ${stage} — ${cn ?? 'client'}`, body: o.product || null,
+      link: '/risansi/pipeline', entityType: 'opportunity', entityId: String(oppId),
+    });
   } catch (e) { console.error('[notify] opp closed failed', e); }
 }
 
@@ -366,6 +412,11 @@ export async function notifySalesOrder(oppId: number, actorEmail: string, soNumb
         ctaLabel: 'Open the pipeline', ctaPath: '/risansi/pipeline',
       });
     }
+    await pushInApp(inAppIds(mgrs, actorEmail), {
+      kind: 'sales_order', section: 'Order Booked', actor: actorEmail,
+      title: `Sales order ${soNumber} recorded — ${cn ?? 'client'}`, body: o.product || null,
+      link: '/risansi/pipeline', entityType: 'opportunity', entityId: String(oppId),
+    });
   } catch (e) { console.error('[notify] sales order failed', e); }
 }
 
@@ -387,6 +438,11 @@ export async function notifyQuotationIssued(oppId: number, actorEmail: string) {
         ctaLabel: 'Open the pipeline', ctaPath: '/risansi/pipeline',
       });
     }
+    await pushInApp(inAppIds(mgrs, actorEmail), {
+      kind: 'quotation_issued', section: 'Pipeline', actor: actorEmail,
+      title: `Quotation issued — ${cn ?? 'client'}`, body: o.product || null,
+      link: '/risansi/pipeline', entityType: 'opportunity', entityId: String(oppId),
+    });
   } catch (e) { console.error('[notify] quotation issued failed', e); }
 }
 
@@ -405,6 +461,11 @@ export async function notifyNewLead(clientId: number, creatorEmail: string) {
         ctaLabel: 'Open Clients', ctaPath: '/risansi/clients',
       });
     }
+    await pushInApp(inAppIds(mgrs, creatorEmail), {
+      kind: 'new_lead', section: 'Clients', actor: creatorEmail,
+      title: `New lead added — ${cn ?? 'client'}`, link: `/risansi/clients/${clientId}`,
+      entityType: 'client', entityId: String(clientId),
+    });
   } catch (e) { console.error('[notify] new lead failed', e); }
 }
 
@@ -420,6 +481,11 @@ export async function notifySpecialAccess(clientId: number, repId: number, grant
       intro: `${by} granted you direct access to ${cn ?? 'a client'}. You can now log visits and opportunities for them.`,
       meta: [['Client', cn ?? '—'], ['Granted by', by]],
       ctaLabel: 'Open the client', ctaPath: '/risansi/clients',
+    });
+    await pushInApp([repId], {
+      kind: 'special_access', section: 'Client Access', actor: grantorEmail,
+      title: `You've been given access to ${cn ?? 'a client'}`, link: `/risansi/clients/${clientId}`,
+      entityType: 'client', entityId: String(clientId),
     });
   } catch (e) { console.error('[notify] special access failed', e); }
 }
@@ -441,6 +507,11 @@ export async function notifyBugReported(a: { title: string; severity?: string | 
         footer: 'You are receiving this as a system administrator.',
       });
     }
+    await pushInApp(inAppIds(admins, a.reporterEmail || ''), {
+      kind: 'bug_reported', section: 'Bugs', actor: a.reporterEmail || null,
+      title: `New bug reported: ${a.title}`, body: a.severity ? `Severity: ${a.severity}` : null,
+      link: '/risansi/bugs', entityType: 'bug',
+    });
   } catch (e) { console.error('[notify] bug reported failed', e); }
 }
 

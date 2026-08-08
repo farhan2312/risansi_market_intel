@@ -6,6 +6,7 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, canViewClient } from '@/lib/risansi-auth';
 import { notifyActionAssigned } from '@/lib/risansi-email';
+import { pushInApp } from '@/lib/risansi-inapp';
 
 async function requireEmail(): Promise<string> {
   const session = await getServerSession(authOptions);
@@ -53,6 +54,14 @@ async function notifyActionRecipient(opts: {
       dueDate: opts.dueDate,
       priority: opts.priority,
     });
+    // In-app row for an in-system assignee (external handlers get email only).
+    if (opts.assignedToRep) {
+      await pushInApp([opts.assignedToRep], {
+        kind: 'action_assigned', section: 'Action Registry', actor: opts.creatorEmail,
+        title: `New action: ${opts.title}`, body: opts.description ?? null,
+        link: '/risansi/registry', entityType: 'client', entityId: String(opts.clientId),
+      });
+    }
   } catch (e) {
     console.error('[addTask] assignee notification failed', e);
   }

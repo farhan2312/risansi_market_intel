@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, hasRole, canViewClient, type CurrentUser } from '@/lib/risansi-auth';
 import { notifyComplaintRaised } from '@/lib/risansi-email';
+import { pushInApp } from '@/lib/risansi-inapp';
 import { notifyComplaintClosed, notifyComplaintUpdate } from '@/lib/risansi-notify';
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -41,6 +42,13 @@ async function notifyComplaintRecipient(opts: {
       dueDate: opts.dueDate,
       channel: opts.channel,
     });
+    if (opts.assignedUser) {
+      await pushInApp([opts.assignedUser], {
+        kind: 'complaint_raised', section: 'Complaints', actor: opts.creatorEmail,
+        title: `Complaint escalated to you: ${opts.complaintNo}`, body: opts.details,
+        link: '/risansi/complaints', entityType: 'complaint',
+      });
+    }
   } catch (e) {
     console.error('[complaint] recipient notification failed', e);
   }

@@ -10,6 +10,7 @@ import { canEditVisitReport } from '@/lib/risansi-auth';
 import { pctForProbabilityCode } from '@/lib/risansi-probability-codes';
 import { isEpcOem } from '@/lib/risansi-client-types';
 import { notifyExpansionTagged } from '@/lib/risansi-email';
+import { pushInApp } from '@/lib/risansi-inapp';
 import { notifyCheckIn, notifyVisitSubmitted } from '@/lib/risansi-notify';
 
 // A session's role, for the visit edit gate.
@@ -888,6 +889,14 @@ export async function submitVisit(visitId: string) {
           product: exp.product, stage: exp.stage,
           valueInr: exp.value_cr ? Math.round(parseFloat(exp.value_cr) * 10_000_000) : null,
           notes: exp.notes,
+        });
+      }
+      if (exp.tsm_user_id) {
+        await pushInApp([exp.tsm_user_id], {
+          kind: 'expansion_tagged', section: 'Expansion', actor: session.user.email,
+          title: `You were tagged on an expansion opportunity — ${visit.legal_name ?? 'client'}`,
+          body: exp.product ?? null, link: '/risansi/pipeline',
+          entityType: 'opportunity', entityId: String(exp.id),
         });
       }
       await risansiPool.query('UPDATE opportunities SET tsm_notified_at = NOW() WHERE id = $1', [exp.id]);

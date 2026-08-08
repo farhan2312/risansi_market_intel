@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Bell, ChevronRight, Plus } from 'lucide-react';
+import { ChevronRight, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ReportBugButton } from '@/components/risansi/ReportBugButton';
+import { NotificationBell } from '@/components/risansi/NotificationBell';
 
 // Honest "synced" label: data is fetched when the page renders, so this counts
 // up from mount instead of claiming a fixed "2s ago" forever.
@@ -63,10 +64,8 @@ export function Topbar({ crumbs, primaryAction, primaryActionHref }: TopbarProps
       {/* Report a bug — available from the title bar on every page */}
       <ReportBugButton />
 
-      {/* Notifications — not wired up yet; marked so it doesn't read as a dead control */}
-      <Button variant="ghost" size="icon-sm" aria-label="Notifications" title="Notifications — coming soon" disabled>
-        <Bell />
-      </Button>
+      {/* Notifications — the live in-app feed (migration 0047 + risansi-inapp). */}
+      <NotificationBell />
 
       {/* Primary action */}
       {primaryAction && primaryActionHref && (
