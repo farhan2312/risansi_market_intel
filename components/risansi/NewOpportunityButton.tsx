@@ -5,14 +5,14 @@ import { NewOpportunityModal } from './NewOpportunityModal';
 
 // Takes no session props: ownership is resolved server-side from the client's
 // tour, so the modal no longer varies by who is looking at it.
-export function NewOpportunityButton() {
+export function NewOpportunityButton({ usdRate }: { usdRate?: number }) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <button onClick={() => setOpen(true)} style={TRIGGER_BTN}>
         New Opportunity
       </button>
-      <NewOpportunityModal open={open} onClose={() => setOpen(false)} />
+      <NewOpportunityModal open={open} onClose={() => setOpen(false)} usdRate={usdRate} />
     </>
   );
 }

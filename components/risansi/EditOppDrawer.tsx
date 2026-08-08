@@ -2,6 +2,8 @@
 
 import { useState, useEffect, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
+import { OfferRevisionsList } from './OfferRevisionsField';
+import type { OfferRevision } from '@/lib/risansi-offer-revisions';
 import { updateOpportunity, deleteOpportunity } from '@/app/actions/risansi';
 import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
 import { DROP_REASONS } from '@/lib/risansi-opportunity-fields';
@@ -48,7 +50,7 @@ export interface EditableOpp {
 }
 
 interface QItem { id: number; pump_model: string | null; pump_qty: number | null; pump_speed: string | null; geared_motor_detail: string | null; motor_price: number | null; gearbox_vbelt_price: number | null; offer_value_inr: number | null; offer_value_usd: number | null; detailed_specifications: string | null; }
-interface QMeta { market?: string | null; ril_rep?: string | null; qtn_prepared_by?: string | null; client_status_at_quote?: string | null; unit_project?: string | null; location?: string | null; qtr?: string | null; probability_code?: string | null; enquiry_no?: string | null; enquiry_date?: string | null; revised_offer_date?: string | null; revised_offer_value_inr?: number | null; quotation_link?: string | null; }
+interface QMeta { market?: string | null; ril_rep?: string | null; qtn_prepared_by?: string | null; client_status_at_quote?: string | null; unit_project?: string | null; location?: string | null; qtr?: string | null; probability_code?: string | null; enquiry_no?: string | null; enquiry_date?: string | null; revised_offer_date?: string | null; revised_offer_value_inr?: number | null; offer_value_inr?: number | null; quotation_link?: string | null; }
 
 const STAGE_COLORS: Record<string, string> = {
   Suspect:     '#6B7FA3',
@@ -61,13 +63,14 @@ const STAGE_COLORS: Record<string, string> = {
   Dropped:     '#64748B',
 };
 
-export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableOpp; onClose: () => void; canEdit?: boolean }) {
+export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: { opp: EditableOpp; onClose: () => void; canEdit?: boolean; usdRate?: number }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
   const [stage, setStage]     = useState(opp.stage);
   const [quoteItems, setQuoteItems] = useState<QItem[]>([]);
   const [quoteMeta, setQuoteMeta]   = useState<QMeta | null>(null);
+  const [revisions, setRevisions]   = useState<OfferRevision[]>([]);
   // Seeded SYNCHRONOUSLY from the opp row (it carries unit_project via SELECT
   // o.*). Seeding from the async quote-meta fetch instead would let an early
   // save write a blank over the stored value before the fetch resolved.
@@ -85,7 +88,7 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
     let active = true;
     fetch(`/api/risansi/opportunities/${opp.id}/items`)
       .then(r => (r.ok ? r.json() : { items: [], meta: null }))
-      .then(d => { if (active) { setQuoteItems(d.items ?? []); setQuoteMeta(d.meta ?? null); } })
+      .then(d => { if (active) { setQuoteItems(d.items ?? []); setQuoteMeta(d.meta ?? null); setRevisions(Array.isArray(d.revisions) ? d.revisions : []); } })
       .catch(() => {});
     return () => { active = false; };
   }, [opp.id]);
@@ -240,7 +243,7 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
                 {(QUOTED_PLUS.includes(opp.stage) || opp.quotation_link) && (
                   <QuotationPdfManager oppId={Number(opp.id)} initialLink={opp.quotation_link ?? null} canEdit={canEdit} />
                 )}
-                <QuotedItemsSection items={quoteItems} meta={quoteMeta} />
+                <QuotedItemsSection items={quoteItems} meta={quoteMeta} revisions={revisions} usdRate={usdRate} />
               </>
             ) : (
               <>
@@ -266,7 +269,7 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
                 {(QUOTED_PLUS.includes(opp.stage) || opp.quotation_link) && (
                   <QuotationPdfManager oppId={Number(opp.id)} initialLink={opp.quotation_link ?? null} canEdit={canEdit} />
                 )}
-                <QuotedItemsSection items={quoteItems} meta={quoteMeta} />
+                <QuotedItemsSection items={quoteItems} meta={quoteMeta} revisions={revisions} usdRate={usdRate} />
               </>
             )}
           </div>
@@ -428,7 +431,7 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
               <textarea name="notes" rows={3} defaultValue={opp.notes ?? ''} style={{ ...INPUT_STYLE, resize: 'vertical' }} />
             </div>
 
-            <QuotedItemsSection items={quoteItems} meta={quoteMeta} />
+            <QuotedItemsSection items={quoteItems} meta={quoteMeta} revisions={revisions} usdRate={usdRate} />
 
             {error && (
               <div style={{ padding: '8px 12px', background: '#FDE8E8', border: '1px solid #F87171', borderLeft: '3px solid #E02424', borderRadius: 5, color: '#9B1C1C', fontSize: 12 }}>
@@ -488,7 +491,7 @@ function DetailGrid({ rows }: { rows: [string, string][] }) {
   );
 }
 
-function QuotedItemsSection({ items, meta }: { items: QItem[]; meta: QMeta | null }) {
+function QuotedItemsSection({ items, meta, revisions, usdRate }: { items: QItem[]; meta: QMeta | null; revisions: OfferRevision[]; usdRate: number }) {
   const inr = (v: number | null | undefined) => v != null ? '₹' + Math.round(v).toLocaleString('en-IN') : null;
   const facts: [string, string][] = [];
   if (meta) {
@@ -497,10 +500,11 @@ function QuotedItemsSection({ items, meta }: { items: QItem[]; meta: QMeta | nul
     add('Prepared By', meta.qtn_prepared_by); add('Client Status', meta.client_status_at_quote);
     add('Enquiry No', meta.enquiry_no); add('Enquiry Date', meta.enquiry_date);
     add('Location', meta.location);
-    add('Probability', meta.probability_code); add('Revised Offer Date', meta.revised_offer_date);
-    const rev = inr(meta.revised_offer_value_inr); if (rev) add('Revised Offer', rev);
+    add('Probability', meta.probability_code);
+    // The revised offer used to be two flat facts here. It's a history now —
+    // rendered below as a list so every re-price is visible, not just the last.
   }
-  if (!items.length && !facts.length) return null;
+  if (!items.length && !facts.length && !revisions.length) return null;
   return (
     <div style={{ marginTop: 4, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
       <div style={{ ...LABEL_STYLE, marginBottom: 8 }}>Quotation Details</div>
@@ -512,6 +516,12 @@ function QuotedItemsSection({ items, meta }: { items: QItem[]; meta: QMeta | nul
               <div style={{ fontSize: 12.5, color: 'var(--fg)', marginTop: 1 }}>{v}</div>
             </div>
           ))}
+        </div>
+      )}
+      {revisions.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--fg-3)', margin: '4px 0 6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Revised Offers ({revisions.length})</div>
+          <OfferRevisionsList revisions={revisions} baseOfferInr={meta?.offer_value_inr ?? null} usdRate={usdRate} compact />
         </div>
       )}
       {meta?.quotation_link && <a href={meta.quotation_link} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: '#1A5CB8', textDecoration: 'none' }}>Open quotation ↗</a>}

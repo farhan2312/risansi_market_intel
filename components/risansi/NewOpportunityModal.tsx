@@ -7,6 +7,8 @@ import { TourAssignPicker } from './TourAssignPicker';
 import { MonthYearSelect } from './MonthYearSelect';
 import { SalesOrderList } from './SalesOrderList';
 import { parseSalesOrdersJson } from '@/lib/risansi-sales-orders';
+import { OfferRevisionsField } from './OfferRevisionsField';
+import { fmtUsdFromInr } from '@/lib/risansi-offer-revisions';
 import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
 import {
   CREATE_STAGES, STAGE_HINT,
@@ -32,10 +34,12 @@ export interface NewOpportunityModalProps {
   clientCode?: string;
   clientIndustry?: string | null;
   clientOwnerName?: string | null;
+  /** ₹ per $1 from the settings page — drives the USD sub-text on money fields. */
+  usdRate?: number;
 }
 
 export function NewOpportunityModal(props: NewOpportunityModalProps) {
-  const { open, onClose, lockClient } = props;
+  const { open, onClose, lockClient, usdRate = 86 } = props;
 
   const lockedClient: ClientResult | null = lockClient && props.clientId
     ? {
@@ -128,6 +132,7 @@ export function NewOpportunityModal(props: NewOpportunityModalProps) {
           ) : (
             <NewOppForm
               client={selected}
+              usdRate={usdRate}
               lockClient={!!lockClient}
               onBack={() => setSelected(null)}
               onSuccess={reset}
@@ -166,9 +171,10 @@ function fieldFilled(fd: FormData, name: string, itemsOfferSum: number): boolean
   return true;
 }
 
-function NewOppForm({ client, lockClient, onBack, onSuccess }: {
+function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess }: {
   client: ClientResult;
   lockClient: boolean;
+  usdRate: number;
   onBack: () => void;
   onSuccess: () => void;
 }) {
@@ -306,6 +312,10 @@ function NewOppForm({ client, lockClient, onBack, onSuccess }: {
     }
   };
 
+  // What's typed into each rupee field, so the USD sub-text below it can track
+  // live. Display only — the form still submits the rupee input itself.
+  const [moneyVals, setMoneyVals] = useState<Record<string, string>>({});
+
   const renderField = (f: OppFieldDef) => {
     const required = isFieldRequired(f, stage);
     // Native `required` only on the CURRENT step (a hidden required field would
@@ -340,15 +350,26 @@ function NewOppForm({ client, lockClient, onBack, onSuccess }: {
       control = <MonthYearSelect name={f.name} />;
     } else if (f.kind === 'inr' || f.kind === 'number' || f.kind === 'usd') {
       control = <input name={f.name} type="number" step={f.kind === 'inr' ? '1' : '0.01'} min="0"
-        inputMode="numeric" required={htmlRequired} placeholder={f.placeholder} style={{ ...INP, ...reqStyle }} />;
+        inputMode="numeric" required={htmlRequired} placeholder={f.placeholder}
+        onChange={e => setMoneyVals(p => ({ ...p, [f.name]: e.target.value }))}
+        style={{ ...INP, ...reqStyle }} />;
     } else {
       control = <input name={f.name} type="text" required={htmlRequired} placeholder={f.placeholder} style={{ ...INP, ...reqStyle }} />;
     }
+
+    // USD is never entered — it's derived from the settings rate and shown here.
+    const isRupees = f.name.endsWith('_inr');
+    const typed    = moneyVals[f.name] ?? '';
 
     return (
       <div key={f.name} style={f.full ? { gridColumn: '1 / -1' } : undefined}>
         {label}
         {control}
+        {isRupees && (
+          <div style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', marginTop: 3 }}>
+            {typed.trim() ? `≈ ${fmtUsdFromInr(parseFloat(typed), usdRate)}` : `at ₹${usdRate}/$`}
+          </div>
+        )}
         {f.help && <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3 }}>{f.help}</div>}
       </div>
     );
@@ -456,6 +477,16 @@ function NewOppForm({ client, lockClient, onBack, onSuccess }: {
       {hasStep2 && (
         <div style={{ display: step === 2 ? 'block' : 'none' }}>
           <div style={gridStyle}>{step2Fields.map(renderField)}</div>
+
+          {/* Revised offers — a timestamped history, not a single field. Usually
+              empty at create time, but a quote being back-filled may already
+              have been re-priced. */}
+          <div style={{ marginTop: 16 }}>
+            <OfferRevisionsField
+              baseOfferInr={moneyVals.offer_value_inr ? parseFloat(moneyVals.offer_value_inr) : null}
+              usdRate={usdRate}
+            />
+          </div>
 
           {/* Line items */}
           <div style={{ marginTop: 16 }}>

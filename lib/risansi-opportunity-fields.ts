@@ -96,11 +96,12 @@ export const OPP_FIELDS: OppFieldDef[] = [
   { name: 'enquiry_no',   label: 'Enquiry No.',           kind: 'text',   step: 2, visibleFrom: 2, requiredAt: QUOTE_REQ, placeholder: 'RIL/EN/…' },
   { name: 'enquiry_date', label: 'Enquiry Date',          kind: 'date',   step: 2, visibleFrom: 2 },
   { name: 'market',       label: 'Market',                kind: 'select', step: 2, visibleFrom: 2, requiredAt: QUOTE_REQ, options: ['DOMESTIC', 'EXPORT'] },
+  // USD is never typed — it's derived from the settings rate and rendered as
+  // sub-text under the rupee figure, so there is only one number to keep right.
+  // The single Revised Offer / Revised Offer Date pair is gone too: a quote gets
+  // re-priced more than once, so revisions are their own timestamped list
+  // (OfferRevisionsField → opportunity_offer_revisions, migration 0041).
   { name: 'offer_value_inr', label: 'Total Offer (₹)',    kind: 'number', step: 2, visibleFrom: 2, requiredAt: QUOTE_REQ, help: 'Auto-sums line items if left blank' },
-  { name: 'offer_value_usd', label: 'Total Offer (USD)',  kind: 'number', step: 2, visibleFrom: 2 },
-  { name: 'revised_offer_value_inr', label: 'Revised Offer (₹)',  kind: 'number', step: 2, visibleFrom: 2 },
-  { name: 'revised_offer_value_usd', label: 'Revised Offer (USD)', kind: 'number', step: 2, visibleFrom: 2 },
-  { name: 'revised_offer_date', label: 'Revised Offer Date', kind: 'date', step: 2, visibleFrom: 2 },
 ];
 
 /** Fixed competitor fallbacks appended after the live competitors list. */

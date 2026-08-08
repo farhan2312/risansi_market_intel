@@ -14,6 +14,7 @@ import {
 } from '@/lib/risansi-client-status';
 import { resolveClientPrimaryRep } from '@/lib/risansi-client-rep';
 import { parseSalesOrdersJson, inrToCr, type SoInput, type SalesOrder } from '@/lib/risansi-sales-orders';
+import { parseOfferRevisionsJson, type OfferRevisionInput } from '@/lib/risansi-offer-revisions';
 import { poInrToCr, type PurchaseOrder } from '@/lib/risansi-purchase-orders';
 import { notifyVisitPlanned } from '@/lib/risansi-email';
 import { notifyCheckIn, notifyOppClosed, notifySalesOrder, notifyNewLead, notifyQuotationIssued } from '@/lib/risansi-notify';
@@ -42,6 +43,46 @@ function quotedItemHasData(it: object): boolean {
   ];
   const row = (it ?? {}) as Record<string, unknown>;
   return FIELDS.some(f => String(row[f] ?? '').trim() !== '');
+}
+
+/**
+ * Replace an opportunity's revised-offer history with `rows`, and re-point the
+ * two legacy mirror columns at the newest revision.
+ *
+ * opportunities.revised_offer_value_inr / revised_offer_date used to BE the
+ * revised offer; they are now a denormalised copy of the last row here, so the
+ * Excel export, the opportunity drawer and the quote summary keep reading one
+ * column instead of joining. Nothing else may write them. Delete + re-insert
+ * runs in a transaction so a failed insert can't leave a quote with no history
+ * at all. revised_offer_value_usd is deliberately left alone — USD comes from
+ * the settings rate now, and clearing it would throw away hand-typed figures.
+ *
+ * Only call this when the caller actually submitted a revision list; an empty
+ * array from a form that HAS the field means "the user removed them all".
+ */
+async function syncOfferRevisions(
+  oppId: number, rows: OfferRevisionInput[], actor: string | null,
+): Promise<void> {
+  const latest = rows.length ? rows[rows.length - 1] : null;
+  const client = await risansiPool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM opportunity_offer_revisions WHERE opportunity_id = $1', [oppId]);
+    for (const r of rows) {
+      await client.query(
+        `INSERT INTO opportunity_offer_revisions (opportunity_id, value_inr, revised_on, note, created_by)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [oppId, r.value_inr, r.revised_on, r.note, actor],
+      );
+    }
+    await client.query(
+      `UPDATE opportunities
+          SET revised_offer_value_inr = $1, revised_offer_date = $2, updated_at = NOW()
+        WHERE id = $3`,
+      [latest?.value_inr ?? null, latest?.revised_on ?? null, oppId],
+    );
+    await client.query('COMMIT');
+  } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
 }
 
 async function requireSession() {
@@ -907,6 +948,12 @@ export async function createPipelineOpportunity(formData: FormData) {
     throw new Error(`Fill the required field${missing.length > 1 ? 's' : ''} for the ${stage} stage: ${labelsFor(missing).join(', ')}.`);
   }
 
+  // Revised-offer history, if the quotation step captured any.
+  const revParsed = parseOfferRevisionsJson(formData.get('offer_revisions_json'));
+  if (revParsed.error) throw new Error(revParsed.error);
+  const revRows   = revParsed.rows;
+  const latestRev = revRows.length ? revRows[revRows.length - 1] : null;
+
   // A Won created directly needs at least one Sales Order (number + date + value).
   let soRows: SoInput[] = [];
   if (stage === 'Won') {
@@ -969,9 +1016,10 @@ export async function createPipelineOpportunity(formData: FormData) {
     probability_code: s('probability_code'), ril_rep: s('ril_rep'),
     qtn_prepared_by: s('qtn_prepared_by'), client_status_at_quote: s('client_status_at_quote'),
     qtr: s('qtr'), unit_project: s('unit_project'), location: s('location'),
-    revised_offer_value_inr: nRaw('revised_offer_value_inr'),
-    revised_offer_value_usd: nRaw('revised_offer_value_usd'),
-    revised_offer_date: s('revised_offer_date'),
+    // The mirror columns are set by syncOfferRevisions once the row exists —
+    // seeded here so a create that carries revisions writes them in one insert.
+    revised_offer_value_inr: latestRev?.value_inr ?? null,
+    revised_offer_date: latestRev?.revised_on ?? null,
     negotiation_notes: s('negotiation_notes'),
     po_number: s('po_number'), final_value_cr: crOf('final_value_inr'),
     lost_to_competitor: s('lost_to_competitor'), lost_reason: s('lost_reason'),
@@ -1010,6 +1058,11 @@ export async function createPipelineOpportunity(formData: FormData) {
   } else {
     const { rows: oppRows } = await risansiPool.query<{ id: string }>(insertSql, insertVals);
     newOppId = oppRows[0]?.id ?? null;
+  }
+
+  // Revised-offer history, if the quotation step captured any.
+  if (newOppId && revRows.length) {
+    await syncOfferRevisions(Number(newOppId), revRows, user.email ?? null);
   }
 
   // Quoted line items, if any were entered.
@@ -1096,39 +1149,51 @@ export async function saveQuotedDetails(oppId: number, formData: FormData) {
   // leaves the existing % intact — same rule as create/update).
   const probPct  = pctForProbabilityCode(s('probability_code'));
 
+  // Revised offers are a list now, not a field. Parse before the UPDATE so a
+  // malformed row aborts the save instead of half-applying it.
+  const revParsed = parseOfferRevisionsJson(formData.get('offer_revisions_json'));
+  if (revParsed.error) throw new Error(revParsed.error);
+
   await risansiPool.query(
     `UPDATE opportunities SET
        stage = 'Quoted',
        quote_ref = $1, quote_date = $2, enquiry_no = $3, enquiry_date = $4,
-       revised_offer_date = $5, quotation_link = $6,
-       offer_value_inr = $7, offer_value_usd = $8,
-       revised_offer_value_inr = $9, revised_offer_value_usd = $10,
+       quotation_link = $5,
+       offer_value_inr = $6,
        -- qtn_prepared_by / client_status_at_quote / location / qtr are no longer
        -- asked for on any form, so the modal submits nothing for them. COALESCE
        -- keeps whatever a legacy record already holds instead of blanking it on
-       -- the next save.
-       market = $11, ril_rep = COALESCE($12, ril_rep),
-       qtn_prepared_by = COALESCE($13, qtn_prepared_by),
-       client_status_at_quote = COALESCE($14, client_status_at_quote),
-       unit_project = $15,
-       location = COALESCE($16, location),
-       qtr = COALESCE($17, qtr),
-       probability_code = $18,
-       product_type    = COALESCE($19, product_type),
-       value_cr        = COALESCE($20, value_cr),
-       notes           = COALESCE($21, notes),
-       pump_model = $22, pump_qty = $23,
-       probability = COALESCE($24, probability),
+       -- the next save. offer_value_usd is the same story: USD is derived from
+       -- the settings rate for display and no longer entered, but 80-odd rows
+       -- carry a hand-typed figure worth keeping.
+       offer_value_usd = COALESCE($7, offer_value_usd),
+       market = $8, ril_rep = COALESCE($9, ril_rep),
+       qtn_prepared_by = COALESCE($10, qtn_prepared_by),
+       client_status_at_quote = COALESCE($11, client_status_at_quote),
+       unit_project = $12,
+       location = COALESCE($13, location),
+       qtr = COALESCE($14, qtr),
+       probability_code = $15,
+       product_type    = COALESCE($16, product_type),
+       value_cr        = COALESCE($17, value_cr),
+       notes           = COALESCE($18, notes),
+       pump_model = $19, pump_qty = $20,
+       probability = COALESCE($21, probability),
        updated_at = NOW()
-     WHERE id = $25`,
+     WHERE id = $22`,
     [s('quote_ref'), s('quote_date'), s('enquiry_no'), s('enquiry_date'),
-     s('revised_offer_date'), s('quotation_link'),
-     offerInr, n('offer_value_usd'), n('revised_offer_value_inr'), n('revised_offer_value_usd'),
+     s('quotation_link'), offerInr, n('offer_value_usd'),
      s('market'), s('ril_rep'), s('qtn_prepared_by'), s('client_status_at_quote'),
      s('unit_project'), s('location'), s('qtr'), s('probability_code'),
      s('product_type'), valueCr, s('notes'),
      iStr(first.pump_model) ?? s('pump_model'), iInt(first.pump_qty) ?? i('pump_qty'), probPct, oppId],
   );
+
+  // revised_offer_date / revised_offer_value_inr are written by this call, from
+  // the newest revision — see syncOfferRevisions.
+  if (formData.get('offer_revisions_json') !== null) {
+    await syncOfferRevisions(oppId, revParsed.rows, user.email ?? null);
+  }
 
   // Replace the opportunity's quoted items.
   await risansiPool.query('DELETE FROM opportunity_items WHERE opportunity_id = $1', [oppId]);

@@ -43,8 +43,10 @@ const STAGE_LABEL: Record<string, string> = {
 // the server navigations that remount this board (e.g. changing a filter).
 const COLS_KEY = 'risansi.kanban.cols';
 
-export function OpportunityKanban({ initialOpps, stageTotals }: {
+export function OpportunityKanban({ initialOpps, stageTotals, usdRate = 86 }: {
   initialOpps: KanbanOpp[];
+  /** ₹ per $1 from the settings page — drives the USD sub-text on money fields. */
+  usdRate?: number;
   /** True per-stage count + value (uncapped), for honest column headers. The
    *  closed columns load at most 200 cards, so their own card sums undercount. */
   stageTotals?: Record<string, { count: number; valueCr: number }>;
@@ -432,7 +434,7 @@ export function OpportunityKanban({ initialOpps, stageTotals }: {
         })}
       </div>
 
-      {editOpp && <EditOppDrawer opp={editOpp} canEdit={editOpp.can_edit !== false} onClose={() => setEditOpp(null)} />}
+      {editOpp && <EditOppDrawer opp={editOpp} canEdit={editOpp.can_edit !== false} usdRate={usdRate} onClose={() => setEditOpp(null)} />}
 
       {completion && (
         <OppCompletionModal
@@ -446,6 +448,7 @@ export function OpportunityKanban({ initialOpps, stageTotals }: {
       {quotedFor && (
         <QuotedDetailsModal
           opp={quotedFor.opp}
+          usdRate={usdRate}
           onSave={handleQuotedSave}
           onCancel={handleQuotedCancel}
         />

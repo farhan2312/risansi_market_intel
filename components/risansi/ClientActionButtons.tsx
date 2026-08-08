@@ -31,6 +31,8 @@ export function EditDrawerTrigger({ label = '✎', style }: { label?: string; st
 
 interface Props {
   clientId:    string;
+  /** ₹ per $1 from the settings page — drives the USD sub-text on money fields. */
+  usdRate?:    number;
   clientName:  string;
   clientCode:  string;
   industry:    string;
@@ -52,7 +54,7 @@ interface Props {
 
 export function ClientActionButtons({
   clientId, clientName, clientCode, industry, repId, repName, ownerName, reps, clientData, contacts, canEdit = false,
-  currentUserName, currentUserRepId, currentUserRole,
+  currentUserName, currentUserRepId, currentUserRole, usdRate,
 }: Props) {
   const [isVisitOpen, setIsVisitOpen] = useState(false);
   const [isOppOpen,  setIsOppOpen]  = useState(false);
@@ -120,6 +122,7 @@ export function ClientActionButtons({
       <NewOpportunityModal
         open={isOppOpen}
         onClose={() => setIsOppOpen(false)}
+        usdRate={usdRate}
         lockClient
         clientId={clientId}
         clientName={clientName}

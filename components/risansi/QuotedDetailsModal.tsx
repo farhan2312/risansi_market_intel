@@ -1,8 +1,10 @@
 'use client';
 
-import { useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { saveQuotedDetails } from '@/app/actions/risansi';
 import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
+import { OfferRevisionsField } from './OfferRevisionsField';
+import { fmtUsdFromInr, type OfferRevision } from '@/lib/risansi-offer-revisions';
 
 // Shown when a card is dragged into the Quoted column — captures the full
 // quotation (all attributes + a dynamic list of quoted items). Cancel reverts.
@@ -43,7 +45,7 @@ interface ParsedQuoteResponse {
   items?: Partial<QuotedItem>[];
 }
 
-export function QuotedDetailsModal({ opp, onSave, onCancel }: { opp: QuotedOpp; onSave: () => void; onCancel: () => void }) {
+export function QuotedDetailsModal({ opp, usdRate = 86, onSave, onCancel }: { opp: QuotedOpp; usdRate?: number; onSave: () => void; onCancel: () => void }) {
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
   const [items, setItems]     = useState<ItemRow[]>(() => {
@@ -66,8 +68,35 @@ export function QuotedDetailsModal({ opp, onSave, onCancel }: { opp: QuotedOpp; 
 
   const offerInrDefault = opp.offer_value_inr != null ? String(opp.offer_value_inr) : (opp.value_cr != null ? String(Math.round(opp.value_cr * 10_000_000)) : '');
 
-  // ── Upload PDF + auto-fill (blanks only) ─────────────────────
   const formRef = useRef<HTMLFormElement>(null);
+
+  // Mirrored in state purely so the USD sub-text tracks what's typed. The input
+  // stays uncontrolled (defaultValue) because the PDF auto-fill writes to the
+  // DOM node directly — hence syncOfferFromDom after a fill.
+  const [offerInr, setOfferInr] = useState(offerInrDefault);
+  const syncOfferFromDom = () => {
+    const el = formRef.current?.elements.namedItem('offer_value_inr') as HTMLInputElement | null;
+    if (el) setOfferInr(el.value);
+  };
+
+  // Existing revised offers. The board only carries the card's summary fields,
+  // so the history comes from the same endpoint the drawer reads.
+  //
+  // The editor is held back until the fetch resolves, and a FAILED fetch keeps
+  // it hidden rather than showing an empty list: an empty editor submits an
+  // empty offer_revisions_json, which the server reads as "the user deleted
+  // them all" and would wipe a history the request simply never saw.
+  const [revisions, setRevisions] = useState<OfferRevision[] | 'loading' | 'failed'>('loading');
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/risansi/opportunities/${opp.id}/items`)
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then(d => { if (active) setRevisions(Array.isArray(d.revisions) ? d.revisions : []); })
+      .catch(() => { if (active) setRevisions('failed'); });
+    return () => { active = false; };
+  }, [opp.id]);
+
+  // ── Upload PDF + auto-fill (blanks only) ─────────────────────
   const [link, setLink]           = useState(str(opp.quotation_link));
   const [fileName, setFileName]   = useState('');
   const [uploading, setUploading] = useState(false);
@@ -81,7 +110,7 @@ export function QuotedDetailsModal({ opp, onSave, onCancel }: { opp: QuotedOpp; 
     quote_ref: str(opp.quote_ref), quote_date: str(opp.quote_date), enquiry_no: str(opp.enquiry_no),
     enquiry_date: str(opp.enquiry_date), qtr: str(opp.qtr), product_type: opp.product_type ?? 'PCP',
     market: str(opp.market), ril_rep: str(opp.ril_rep),
-    offer_value_inr: offerInrDefault, offer_value_usd: opp.offer_value_usd != null ? String(opp.offer_value_usd) : '',
+    offer_value_inr: offerInrDefault,
   };
   const fillEmpty = (name: string, val: unknown): boolean => {
     if (val == null || val === '') return false;
@@ -107,10 +136,12 @@ export function QuotedDetailsModal({ opp, onSave, onCancel }: { opp: QuotedOpp; 
       setLink(data.link || ''); setFileName(data.fileName || f.name);
 
       const meta = data.meta || {};
-      // 'qtr' dropped with the Quarter field — there is no input to fill.
-      const keys = ['quote_ref', 'quote_date', 'enquiry_no', 'enquiry_date', 'product_type', 'market', 'offer_value_inr', 'offer_value_usd'];
+      // 'qtr' dropped with the Quarter field and 'offer_value_usd' with the USD
+      // input — there is no longer an element to fill for either.
+      const keys = ['quote_ref', 'quote_date', 'enquiry_no', 'enquiry_date', 'product_type', 'market', 'offer_value_inr'];
       let filled = 0;
       for (const k of keys) if (fillEmpty(k, meta[k])) filled++;
+      syncOfferFromDom();   // fillEmpty writes the DOM directly; onChange never fires
 
       const pItems = Array.isArray(data.items) ? data.items : [];
       let filledItems = 0;
@@ -166,11 +197,16 @@ export function QuotedDetailsModal({ opp, onSave, onCancel }: { opp: QuotedOpp; 
                   )}
                 </select>
               </Field>
-              <Field label="Total Offer (₹)"><input name="offer_value_inr" type="number" step="0.01" min="0" defaultValue={offerInrDefault} placeholder="auto-sums items if blank" style={INP} /></Field>
-              <Field label="Total Offer (USD)"><input name="offer_value_usd" type="number" step="0.01" min="0" defaultValue={opp.offer_value_usd != null ? String(opp.offer_value_usd) : ''} style={INP} /></Field>
-              <Field label="Revised Offer (₹)"><input name="revised_offer_value_inr" type="number" step="0.01" min="0" defaultValue={opp.revised_offer_value_inr != null ? String(opp.revised_offer_value_inr) : ''} style={INP} /></Field>
-              <Field label="Revised Offer (USD)"><input name="revised_offer_value_usd" type="number" step="0.01" min="0" defaultValue={opp.revised_offer_value_usd != null ? String(opp.revised_offer_value_usd) : ''} style={INP} /></Field>
-              <Field label="Revised Offer Date"><input name="revised_offer_date" type="date" defaultValue={opp.revised_offer_date ?? ''} style={INP} /></Field>
+              <Field label="Total Offer (₹)">
+                <input
+                  name="offer_value_inr" type="number" step="0.01" min="0"
+                  defaultValue={offerInrDefault} placeholder="auto-sums items if blank"
+                  onChange={e => setOfferInr(e.target.value)} style={INP}
+                />
+                <div style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', marginTop: 3 }}>
+                  {offerInr.trim() ? `≈ ${fmtUsdFromInr(parseFloat(offerInr), usdRate)}` : `at ₹${usdRate}/$`}
+                </div>
+              </Field>
               <div style={{ gridColumn: '1 / -1' }}>
                 <label style={LABEL}>Quotation PDF</label>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -185,6 +221,25 @@ export function QuotedDetailsModal({ opp, onSave, onCancel }: { opp: QuotedOpp; 
                 <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 5 }}>Upload the quote PDF to store it and auto-fill any blank fields below. It never overwrites what you&apos;ve already typed.</div>
               </div>
             </div>
+
+            {/* Revised offers — a timestamped history, not a single field. */}
+            {revisions === 'loading' ? (
+              <div style={{ fontSize: 11, color: 'var(--fg-3)' }}>Loading revised offers…</div>
+            ) : revisions === 'failed' ? (
+              <div style={{
+                fontSize: 11, color: 'var(--warn-strong, #92400E)', padding: '8px 11px',
+                background: 'var(--warn-soft, #FEF3C7)', border: '1px solid var(--warn, #F59E0B)', borderRadius: 6,
+              }}>
+                Couldn&apos;t load the revised-offer history, so it isn&apos;t editable here. Saving will
+                leave it exactly as it is — reopen the card to try again.
+              </div>
+            ) : (
+              <OfferRevisionsField
+                initial={revisions}
+                baseOfferInr={offerInr.trim() ? parseFloat(offerInr) : null}
+                usdRate={usdRate}
+              />
+            )}
 
             {/* Dynamic quoted items */}
             <div>

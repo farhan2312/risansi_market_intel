@@ -53,6 +53,7 @@ interface Row {
   qtr: string | null; location: string | null;
   offer_value_inr: number | null; offer_value_usd: number | null;
   revised_offer_value_inr: number | null; revised_offer_value_usd: number | null; revised_offer_date: string | null;
+  offer_revision_history: string | null;
   ril_rep: string | null; pump_model: string | null; pump_qty: number | null;
   negotiation_notes: string | null; notes: string | null;
   final_value_cr: number | null; po_number: string | null;
@@ -133,6 +134,15 @@ export async function GET(req: Request) {
               o.offer_value_inr::float8 AS offer_value_inr, o.offer_value_usd::float8 AS offer_value_usd,
               o.revised_offer_value_inr::float8 AS revised_offer_value_inr, o.revised_offer_value_usd::float8 AS revised_offer_value_usd,
               o.revised_offer_date::text AS revised_offer_date,
+              -- The full re-pricing history, flattened to one cell. The three
+              -- Revised Offer columns above stay as the LATEST revision, so
+              -- existing re-ingest and pivots keep reading what they always did.
+              (SELECT string_agg(to_char(r.revised_on, 'YYYY-MM-DD') || ': ' ||
+                                 to_char(r.value_inr, 'FM9999999999990') ||
+                                 CASE WHEN r.note IS NULL OR btrim(r.note) = '' THEN '' ELSE ' (' || r.note || ')' END,
+                                 ' | ' ORDER BY r.revised_on, r.id)
+                 FROM opportunity_offer_revisions r
+                WHERE r.opportunity_id = o.id) AS offer_revision_history,
               o.ril_rep, o.pump_model, o.pump_qty,
               o.negotiation_notes, o.notes,
               o.final_value_cr::float8 AS final_value_cr, o.po_number,
@@ -198,6 +208,7 @@ export async function GET(req: Request) {
     { h: 'Revised Offer (₹)', w: 15, f: r => (r.revised_offer_value_inr ?? ''), fmt: '#,##0', num: true },
     { h: 'Revised Offer (USD)', w: 15, f: r => (r.revised_offer_value_usd ?? ''), num: true },
     { h: 'Revised Offer Date', w: 15, f: r => r.revised_offer_date ?? '', date: true },
+    { h: 'Offer Revision History', w: 42, f: r => r.offer_revision_history ?? '' },
     { h: 'RIL Rep', w: 14, f: r => r.ril_rep ?? '' },
     { h: 'Pump Model', w: 22, f: r => r.pump_model ?? '' },
     { h: 'Pump Qty', w: 10, f: r => (r.pump_qty ?? ''), num: true },

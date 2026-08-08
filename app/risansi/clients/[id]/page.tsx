@@ -9,6 +9,8 @@ import { clientStatusLabel, statusDotKind } from '@/lib/risansi-client-status';
 import risansiPool from '@/lib/db-risansi';
 import { fyShortLabel, formatRev, formatLastVisit, fmtUsdFromCr } from '@/lib/risansi-utils';
 import { getUsdRate } from '@/lib/risansi-settings';
+import { OfferRevisionsList } from '@/components/risansi/OfferRevisionsField';
+import type { OfferRevision } from '@/lib/risansi-offer-revisions';
 import { hasRole, getCurrentUser, canViewClient } from '@/lib/risansi-auth';
 import { ClientActionButtons, PipelineOppBtn } from '@/components/risansi/ClientActionButtons';
 import { AddContactButton } from '@/components/risansi/AddContactButton';
@@ -149,6 +151,9 @@ interface Opportunity {
   expected_close_date: string | null;
   final_value_cr?: string | null; so_sum_cr?: number;
   quotation_link?: string | null; quote_ref?: string | null;
+  offer_value_inr?: number | null;
+  /** Every re-price of this quote, oldest first. See migration 0041. */
+  revisions?: OfferRevision[] | null;
 }
 
 interface ActivityEntry {
@@ -363,10 +368,21 @@ export default async function ClientProfilePage({
         expected_close_date: string | null;
         final_value_cr: string | null; so_sum_cr: number;
         quotation_link: string | null; quote_ref: string | null;
+        offer_value_inr: number | null; revisions: OfferRevision[] | null;
       }>(
         `SELECT id, product, stage, value_cr::text, probability, expected_close_date,
                 final_value_cr::text, quotation_link, quote_ref,
-                (SELECT COALESCE(SUM(so.so_value_cr), 0) FROM opportunity_sales_orders so WHERE so.opportunity_id = opportunities.id)::float8 AS so_sum_cr
+                offer_value_inr::float8 AS offer_value_inr,
+                (SELECT COALESCE(SUM(so.so_value_cr), 0) FROM opportunity_sales_orders so WHERE so.opportunity_id = opportunities.id)::float8 AS so_sum_cr,
+                -- Revised-offer history, oldest first, as JSON so one query
+                -- serves the whole list without a fan-out join.
+                (SELECT COALESCE(json_agg(json_build_object(
+                          'id', r.id, 'value_inr', r.value_inr::float8,
+                          'revised_on', r.revised_on::text, 'note', r.note,
+                          'created_by', r.created_by, 'created_at', r.created_at::text
+                        ) ORDER BY r.revised_on, r.id), '[]'::json)
+                   FROM opportunity_offer_revisions r
+                  WHERE r.opportunity_id = opportunities.id) AS revisions
          FROM opportunities
          WHERE client_id = $1
          ORDER BY CASE
@@ -690,6 +706,7 @@ export default async function ClientProfilePage({
           )}
           <ClientActionButtons
             clientId={client.id}
+            usdRate={usdRate}
             clientName={client.legal_name}
             clientCode={client.code}
             industry={client.industry ?? ''}
@@ -1399,7 +1416,31 @@ export default async function ClientProfilePage({
                           {o.expected_close_date && (
                             <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>· {o.expected_close_date}</span>
                           )}
+                          {o.revisions && o.revisions.length > 0 && (
+                            <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600 }}>
+                              · re-priced {o.revisions.length}×
+                            </span>
+                          )}
                         </div>
+
+                        {/* Revised-offer history — every re-price of this quote,
+                            oldest first, so the movement is readable at a glance. */}
+                        {o.revisions && o.revisions.length > 0 && (
+                          <div style={{
+                            marginTop: 7, paddingTop: 7, paddingLeft: 9,
+                            borderTop: '1px solid var(--line)', borderLeft: '2px solid var(--accent-line)',
+                          }}>
+                            <div style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
+                              Offer history
+                            </div>
+                            <OfferRevisionsList
+                              revisions={o.revisions}
+                              baseOfferInr={o.offer_value_inr ?? null}
+                              usdRate={usdRate}
+                              compact
+                            />
+                          </div>
+                        )}
                       </div>
                       <div style={{ flexShrink: 0, marginLeft: 8, textAlign: 'right' }}>
                         {o.quotation_link ? (

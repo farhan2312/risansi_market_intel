@@ -612,7 +612,7 @@ export default async function PipelinePage({
             >
               ⇩ Export Excel
             </a>
-            <NewOpportunityButton />
+            <NewOpportunityButton usdRate={usdRate} />
           </div>
         </div>
 
@@ -741,7 +741,7 @@ export default async function PipelinePage({
               <ActiveOppsTable opps={tableOpps} usdRate={usdRate} />
             </div>
           }
-          kanban={<OpportunityKanban key="kanban" initialOpps={[...openOpps, ...closedOpps]} stageTotals={stageTotals} />}
+          kanban={<OpportunityKanban key="kanban" initialOpps={[...openOpps, ...closedOpps]} stageTotals={stageTotals} usdRate={usdRate} />}
           winRate={
             <div key="winRate" style={PANEL}>
               <div style={PANEL_H}>
