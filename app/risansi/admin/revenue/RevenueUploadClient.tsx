@@ -49,12 +49,30 @@ export function RevenueUploadClient({ existingCodes }: { existingCodes: Set<stri
       const ws   = wb.Sheets[wb.SheetNames[0]];
       const raw  = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
 
+      // Header matching is normalised, not exact.
+      //
+      // It used to be exact, and the template shipped from this very page has
+      // headers that don't match: it says "Client Code" and "Pump Value" while
+      // the parser looked for "Code" and "Pump Value (₹)". So anyone who
+      // downloaded the template, filled it in and uploaded it had every row
+      // silently dropped by the .filter() below, and saw "0 valid rows" with no
+      // explanation. Fold case, strip spaces, punctuation and the currency
+      // suffix, then match on aliases.
+      const norm = (k: string) => k.toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9]/g, '');
+      const pick = (row: Record<string, unknown>, aliases: string[]): string => {
+        for (const [k, v] of Object.entries(row)) {
+          if (aliases.includes(norm(k))) return String(v ?? '').trim();
+        }
+        return '';
+      };
+      const money = (v: string) => Number(v.replace(/[₹,\s]/g, '')) || 0;
+
       const parsed: ParsedRow[] = raw.map(r => {
-        const code       = String(r['Code'] ?? r['code'] ?? '').trim().toUpperCase();
-        const clientName = String(r['Client Name'] ?? r['client_name'] ?? '').trim();
-        const month      = String(r['Month'] ?? r['month'] ?? '').trim();
-        const pump       = Number(r['Pump Value (₹)'] ?? r['pump_value'] ?? 0) || 0;
-        const spare      = Number(r['Spare Value (₹)'] ?? r['spare_value'] ?? 0) || 0;
+        const code       = pick(r, ['code', 'clientcode']).toUpperCase();
+        const clientName = pick(r, ['clientname', 'client', 'name']);
+        const month      = pick(r, ['month', 'period']);
+        const pump       = money(pick(r, ['pumpvalue', 'pump']));
+        const spare      = money(pick(r, ['sparevalue', 'spare', 'spares']));
         const total      = pump + spare;
         const found      = existingCodes.has(code);
         return {
@@ -67,6 +85,18 @@ export function RevenueUploadClient({ existingCodes }: { existingCodes: Set<stri
           status: (found ? 'found' : 'not_found') as ParsedRow['status'],
         };
       }).filter(r => r.client_code);
+
+      // Silence is what hid the header bug for so long: rows vanished into the
+      // filter and the page just showed nothing. If the file had data but not
+      // one client code came out of it, say which columns were actually found.
+      if (parsed.length === 0 && raw.length > 0) {
+        const seen = Object.keys(raw[0] ?? {}).join(' · ') || '(none)';
+        setError(
+          `Read ${raw.length} row${raw.length === 1 ? '' : 's'} but couldn't find a client code in any of them. ` +
+          `Columns in your file: ${seen}. A "Client Code" (or "Code") column is required.`,
+        );
+        return;
+      }
 
       setRows(parsed);
     } catch (err) {
@@ -125,7 +155,7 @@ export function RevenueUploadClient({ existingCodes }: { existingCodes: Set<stri
           ⬇ Download Template
         </a>
         <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>
-          Expected columns: Code · Client Name · Month · Pump Value (₹) · Spare Value (₹) &nbsp;·&nbsp; Month format: May-2026
+          Expected columns: Client Code · Client Name · Month · Pump Value · Spare Value &nbsp;·&nbsp; Month format: May-2026
         </span>
       </div>
 

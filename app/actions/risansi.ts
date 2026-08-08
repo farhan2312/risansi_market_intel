@@ -76,11 +76,24 @@ async function syncOfferRevisions(
         [oppId, r.value_inr, r.revised_on, r.note, actor],
       );
     }
+    // The newest revision IS the current price, so it drives value_cr too — a
+    // quote cut from 10,00,000 to 8,50,000 must forecast at 8,50,000, not at
+    // what was first asked. When the last revision is removed the value falls
+    // back to the original offer rather than being left stranded at a figure
+    // that no longer exists anywhere.
+    //
+    // final_value_cr is untouched: on a Won deal that is the booked amount, a
+    // different fact from what the quote currently says.
     await client.query(
       `UPDATE opportunities
-          SET revised_offer_value_inr = $1, revised_offer_date = $2, updated_at = NOW()
-        WHERE id = $3`,
-      [latest?.value_inr ?? null, latest?.revised_on ?? null, oppId],
+          SET revised_offer_value_inr = $1,
+              revised_offer_date      = $2,
+              value_cr = COALESCE($3::numeric / 10000000.0,
+                                  offer_value_inr / 10000000.0,
+                                  value_cr),
+              updated_at = NOW()
+        WHERE id = $4`,
+      [latest?.value_inr ?? null, latest?.revised_on ?? null, latest?.value_inr ?? null, oppId],
     );
     await client.query('COMMIT');
   } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
