@@ -208,3 +208,92 @@ export async function deleteClientPump(id: number, clientId: number): Promise<vo
   await risansiPool.query(`DELETE FROM client_pumps WHERE id = $1 AND client_id = $2`, [id, clientId]);
   revalidatePath(`/risansi/clients/${clientId}`);
 }
+
+// ── Batch entry ────────────────────────────────────────────────
+
+/**
+ * One order of identical pumps: the attributes they share, and one row of
+ * identity fields per physical pump.
+ *
+ * Reps were entering six pumps by filling the same seven-field form six times,
+ * re-typing model, liquid, capacity and head each round. Those four belong to
+ * the order; serial, SO and EC belong to the individual pump. Splitting them
+ * that way is what the quantity box makes possible — pick 6 and you get 18
+ * boxes, three per pump.
+ */
+export interface PumpBatchInput {
+  clientId: number;
+  /** Existing batch being edited; omit to start a new one. */
+  batchId?: string | null;
+  model:    string;
+  liquid:   string;
+  capacity: string;
+  head:     string;
+  /** One entry per physical pump. `id` set = an existing row being updated. */
+  pumps: { id?: number | null; sr_no: string; so_no: string; ec_no: string }[];
+}
+
+export async function saveClientPumpBatch(
+  input: PumpBatchInput,
+): Promise<{ batchId: string; saved: number }> {
+  const user = await getCurrentUser();
+  if (!(await canViewClient(user, input.clientId))) throw new Error('Unauthorized');
+  const email = user.email ?? null;
+
+  const shared = [t(input.model), t(input.liquid), t(input.capacity), t(input.head)] as const;
+  if (!shared[0] && !input.pumps.some(p => t(p.sr_no))) {
+    throw new Error('Enter at least a model or one serial number.');
+  }
+
+  // A batch of one is still a batch — it keeps its id so a later edit can grow
+  // it into several pumps without the original row detaching from the group.
+  const batchId = input.batchId
+    ?? (await risansiPool.query<{ id: string }>('SELECT gen_random_uuid() AS id')).rows[0].id;
+
+  const code = (await risansiPool.query<{ code: string }>(
+    'SELECT code FROM clients WHERE id = $1', [input.clientId])).rows[0]?.code ?? null;
+
+  const client = await risansiPool.connect();
+  let saved = 0;
+  try {
+    await client.query('BEGIN');
+    for (const p of input.pumps) {
+      // A wholly blank pump row is a box the user never filled — skip it rather
+      // than writing a phantom pump with nothing but a model on it.
+      if (!t(p.sr_no) && !t(p.so_no) && !t(p.ec_no) && !p.id) continue;
+
+      if (p.id) {
+        await client.query(
+          `UPDATE client_pumps SET
+             pump_model_plate = $2, liquid = $3, capacity = $4, head = $5,
+             pump_sl_no = $6, so_number = $7, ec_number = $8,
+             batch_id = $9, entered_by = $10, entered_at = NOW()
+           WHERE id = $1 AND client_id = $11`,
+          [p.id, ...shared, t(p.sr_no), t(p.so_no), t(p.ec_no), batchId, email, input.clientId],
+        );
+      } else {
+        await client.query(
+          `INSERT INTO client_pumps
+             (client_id, client_code, pump_model_plate, liquid, capacity, head,
+              pump_sl_no, so_number, ec_number, quantity, batch_id, source,
+              entered_by, entered_at, created_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,1,$10,'visit',$11,NOW(),NOW())
+           ON CONFLICT (client_id, pump_sl_no)
+             WHERE pump_sl_no IS NOT NULL AND pump_sl_no <> ''
+           DO UPDATE SET
+             pump_model_plate = EXCLUDED.pump_model_plate, liquid = EXCLUDED.liquid,
+             capacity = EXCLUDED.capacity, head = EXCLUDED.head,
+             so_number = EXCLUDED.so_number, ec_number = EXCLUDED.ec_number,
+             batch_id = EXCLUDED.batch_id, entered_by = EXCLUDED.entered_by,
+             entered_at = NOW()`,
+          [input.clientId, code, ...shared, t(p.sr_no), t(p.so_no), t(p.ec_no), batchId, email],
+        );
+      }
+      saved++;
+    }
+    await client.query('COMMIT');
+  } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
+
+  revalidatePath(`/risansi/clients/${input.clientId}`);
+  return { batchId, saved };
+}

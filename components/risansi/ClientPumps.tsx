@@ -2,7 +2,8 @@
 
 import { useState, useMemo, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
-import { saveClientPump, deleteClientPump } from '@/app/actions/risansi-pumps';
+import { deleteClientPump } from '@/app/actions/risansi-pumps';
+import { PumpBatchForm, blankPumpBatch, type PumpBatchValue } from './PumpBatchForm';
 
 export interface PumpRow {
   id: number;
@@ -15,18 +16,25 @@ export interface PumpRow {
   liquid: string | null;
   capacity: string | null;
   head: string | null;
+  batch_id?: string | null;
 }
 
 const norm = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-// Add/edit draft — the exact fields the visit-form pump editor captures, so a
-// pump can be recorded straight from Client 360 without opening a visit.
-type Draft = { id: number | null; model: string; sr_no: string; ec_no: string; so_no: string; liquid: string; capacity: string; head: string };
-const blankDraft = (): Draft => ({ id: null, model: '', sr_no: '', ec_no: '', so_no: '', liquid: '', capacity: '', head: '' });
-const toDraft = (p: PumpRow): Draft => ({
-  id: p.id, model: p.pump_model_plate ?? '', sr_no: p.pump_sl_no ?? '', ec_no: p.ec_number ?? '',
-  so_no: p.so_number ?? '', liquid: p.liquid ?? '', capacity: p.capacity ?? '', head: p.head ?? '',
-});
+// Add/edit uses the SAME batch form as the visit report, so recording pumps from
+// Client 360 and from a visit are the same interaction. A row saved before
+// batches existed opens as a batch of one.
+const toBatch = (p: PumpRow, all: PumpRow[]): PumpBatchValue => {
+  const group = p.batch_id ? all.filter(x => x.batch_id === p.batch_id) : [p];
+  return {
+    batchId: p.batch_id ?? null,
+    model: p.pump_model_plate ?? '', liquid: p.liquid ?? '',
+    capacity: p.capacity ?? '', head: p.head ?? '',
+    pumps: group.map(x => ({
+      id: x.id, sr_no: x.pump_sl_no ?? '', so_no: x.so_number ?? '', ec_no: x.ec_number ?? '',
+    })),
+  };
+};
 
 // RIL pump detail for one client + the installed-base discrepancy. Editable in
 // place — the "+ Add Pump" button and per-row Edit/Delete write straight to
@@ -36,7 +44,7 @@ export function ClientPumps({ pumps, installedRil, clientName, clientId }: {
 }) {
   const router = useRouter();
   const [q, setQ] = useState('');
-  const [draft, setDraft] = useState<Draft | null>(null);
+  const [draft, setDraft] = useState<PumpBatchValue | null>(null);
   const [busy, setBusy]   = useState(false);
   const [err, setErr]     = useState('');
   const clientKey = norm(clientName);
@@ -57,29 +65,6 @@ export function ClientPumps({ pumps, installedRil, clientName, clientId }: {
       [p.pump_model_plate, p.pump_sl_no, p.supplier, p.ec_number, p.so_number, p.liquid]
         .some(v => (v ?? '').toLowerCase().includes(s)));
   }, [pumps, q]);
-
-  const save = async () => {
-    if (!draft) return;
-    if (!draft.model.trim() && !draft.sr_no.trim()) { setErr('Enter at least a model or serial number.'); return; }
-    // Warn before adding a second serial-less pump of the same model (a plant
-    // may genuinely have two identical pumps, so confirm rather than block).
-    if (draft.id === null && !draft.sr_no.trim()) {
-      const m = draft.model.trim().toLowerCase();
-      const dup = pumps.some(p => !(p.pump_sl_no ?? '').trim() && (p.pump_model_plate ?? '').trim().toLowerCase() === m);
-      if (dup && !window.confirm(`A "${draft.model.trim()}" with no serial number is already on record for this client. Add another anyway?`)) return;
-    }
-    setBusy(true); setErr('');
-    try {
-      await saveClientPump({
-        id: draft.id, clientId,
-        model: draft.model, sr_no: draft.sr_no, ec_no: draft.ec_no, so_no: draft.so_no,
-        liquid: draft.liquid, capacity: draft.capacity, head: draft.head,
-      });
-      setDraft(null);
-      router.refresh();
-    } catch (e) { setErr(e instanceof Error ? e.message : 'Save failed'); }
-    finally { setBusy(false); }
-  };
 
   const remove = async (id: number) => {
     if (!window.confirm('Delete this pump record?')) return;
@@ -106,7 +91,7 @@ export function ClientPumps({ pumps, installedRil, clientName, clientId }: {
           {detailPumps} pump{detailPumps !== 1 ? 's' : ''}
         </span>
         {draft === null && (
-          <button type="button" onClick={() => { setErr(''); setDraft(blankDraft()); }} style={BTN_ADD}>+ Add Pump</button>
+          <button type="button" onClick={() => { setErr(''); setDraft(blankPumpBatch()); }} style={BTN_ADD}>+ Add Pump</button>
         )}
       </div>
 
@@ -124,28 +109,16 @@ export function ClientPumps({ pumps, installedRil, clientName, clientId }: {
 
       {err && <div style={ERR}>{err}</div>}
 
-      {/* Add / edit form — same fields as the visit report's pump editor. */}
+      {/* Add / edit — the SAME batch form the visit report uses, so recording a
+          pump from here and from a visit are one interaction, not two. */}
       {draft !== null && (
-        <div style={EDIT_CARD}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--fg-2)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
-            {draft.id ? 'Edit pump' : 'Add pump'}
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 8 }}>
-            <PumpField label="Model (as per plate)" value={draft.model} onChange={v => setDraft({ ...draft, model: v })} />
-            <PumpField label="Serial (SR No)" value={draft.sr_no} onChange={v => setDraft({ ...draft, sr_no: v })} />
-            <PumpField label="EC No" value={draft.ec_no} onChange={v => setDraft({ ...draft, ec_no: v })} />
-            <PumpField label="SO No" value={draft.so_no} onChange={v => setDraft({ ...draft, so_no: v })} />
-            <PumpField label="Liquid" value={draft.liquid} onChange={v => setDraft({ ...draft, liquid: v })} />
-            <PumpField label="Capacity" value={draft.capacity} onChange={v => setDraft({ ...draft, capacity: v })} />
-            <PumpField label="Head" value={draft.head} onChange={v => setDraft({ ...draft, head: v })} />
-          </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 10, justifyContent: 'flex-end' }}>
-            <button type="button" onClick={() => { setDraft(null); setErr(''); }} disabled={busy} style={BTN_GHOST}>Cancel</button>
-            <button type="button" onClick={save} disabled={busy} style={BTN_PRIMARY}>
-              {busy ? 'Saving…' : draft.id ? 'Update Pump' : 'Add Pump'}
-            </button>
-          </div>
-        </div>
+        <PumpBatchForm
+          clientId={clientId}
+          initial={draft}
+          onSaved={() => { setDraft(null); router.refresh(); }}
+          onCancel={() => { setDraft(null); setErr(''); }}
+          onDeleteRow={async (id) => { await deleteClientPump(id, clientId); router.refresh(); }}
+        />
       )}
 
       {pumps.length === 0 ? (
@@ -171,7 +144,7 @@ export function ClientPumps({ pumps, installedRil, clientName, clientId }: {
                   </span>
                   {p.quantity > 1 && <span style={QTY}>×{p.quantity}</span>}
                   <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-                    <button type="button" onClick={() => { setErr(''); setDraft(toDraft(p)); }} disabled={busy} style={MINI}>Edit</button>
+                    <button type="button" onClick={() => { setErr(''); setDraft(toBatch(p, pumps)); }} disabled={busy} style={MINI}>Edit</button>
                     <button type="button" onClick={() => remove(p.id)} disabled={busy} style={{ ...MINI, color: '#DC2626', borderColor: 'rgba(220,38,38,0.4)' }}>Delete</button>
                   </div>
                 </div>
@@ -207,14 +180,6 @@ function KV({ k, v, mono, span }: { k: string; v: string | null; mono?: boolean;
   );
 }
 
-function PumpField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
-  return (
-    <label style={{ display: 'block' }}>
-      <span style={{ fontSize: 9.5, fontWeight: 600, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</span>
-      <input value={value} onChange={e => onChange(e.target.value)} style={INP} />
-    </label>
-  );
-}
 
 const PANEL: CSSProperties = { background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', overflow: 'hidden' };
 const PANEL_H: CSSProperties = { padding: '12px 14px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 };
@@ -230,10 +195,6 @@ const SEARCH: CSSProperties = { width: '100%', padding: '7px 10px', fontSize: 12
 const CARD: CSSProperties = { border: '1px solid var(--line)', borderRadius: 8, padding: '10px 12px', background: 'var(--bg-elev)' };
 const QTY: CSSProperties = { fontSize: 10.5, fontWeight: 700, color: '#0A3D8F', background: 'var(--accent-soft, #EBF1FB)', padding: '1px 7px', borderRadius: 999 };
 const KV_GRID: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(148px, 1fr))', gap: '8px 14px' };
-const INP: CSSProperties = { width: '100%', marginTop: 3, padding: '7px 9px', fontSize: 13, fontFamily: 'inherit', background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', borderRadius: 6, color: 'var(--fg)', outline: 'none', boxSizing: 'border-box' };
-const EDIT_CARD: CSSProperties = { border: '1px solid var(--accent-line, #BBD)', background: 'var(--bg-elev)', borderRadius: 8, padding: 12, margin: '12px 14px 0' };
 const MINI: CSSProperties = { padding: '4px 9px', fontSize: 11, fontWeight: 500, background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', color: 'var(--fg-2)', borderRadius: 5, cursor: 'pointer', fontFamily: 'inherit' };
 const BTN_ADD: CSSProperties = { padding: '5px 11px', fontSize: 12, fontWeight: 600, background: 'var(--accent-soft, #EBF1FB)', color: '#0A3D8F', border: '1px solid var(--accent-line, #BBD)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' };
-const BTN_PRIMARY: CSSProperties = { padding: '7px 14px', fontSize: 12, fontWeight: 600, background: '#0A3D8F', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' };
-const BTN_GHOST: CSSProperties = { padding: '7px 13px', fontSize: 12, fontWeight: 500, background: 'var(--bg-paper)', color: 'var(--fg-2)', border: '1px solid var(--line-strong)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' };
 const ERR: CSSProperties = { padding: '7px 11px', background: '#FEE2E2', border: '1px solid rgba(220,38,38,0.2)', borderRadius: 6, fontSize: 12, color: '#9B1C1C', margin: '10px 14px 0' };

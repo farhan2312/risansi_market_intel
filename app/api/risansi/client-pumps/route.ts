@@ -14,7 +14,7 @@ export async function GET(req: Request) {
   }
 
   const { rows } = await risansiPool.query(
-    `SELECT id, pump_model_plate, pump_sl_no, ec_number, so_number, liquid, capacity, head
+    `SELECT id, pump_model_plate, pump_sl_no, ec_number, so_number, liquid, capacity, head, batch_id::text AS batch_id
      FROM client_pumps WHERE client_id = $1 ORDER BY id`,
     [clientId],
   );
