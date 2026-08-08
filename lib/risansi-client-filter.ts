@@ -1,4 +1,5 @@
 import { clientVisibilitySql, type CurrentUser } from './risansi-auth';
+import { PROSPECTIVE_STATUSES } from './risansi-client-status';
 
 // Shared filter logic for the Client 360 list. The list page and the Excel
 // export both build their WHERE from buildClientFilter() so the export always
@@ -56,6 +57,7 @@ export function buildClientFilter(
   const tierFilts  = list('tier');
   const ctypeFilts = list('ctype');
   const statFilts  = list('status').map(s => s.toUpperCase());
+  const tab        = str('tab');
   const repFilts  = list('rep');
   const fyFilts   = list('fy');
   const revFilts  = list('rev');
@@ -74,7 +76,16 @@ export function buildClientFilter(
   if (zoneFilts.length) whereConditions.push(`tr.zone = ANY($${params.push(zoneFilts)}::text[])`);
   if (tierFilts.length) whereConditions.push(`c.tier = ANY($${params.push(tierFilts)}::text[])`);
   if (ctypeFilts.length) whereConditions.push(`c.client_type = ANY($${params.push(ctypeFilts)}::text[])`);
-  if (statFilts.length) whereConditions.push(`UPPER(c.status) = ANY($${params.push(statFilts)}::text[])`);
+  // The Prospectives tab constrains the list to the two prospective statuses.
+  // Any Status pick INTERSECTS with that (so you can narrow to just leads or
+  // just enquiry-stage clients); a pick that falls outside — e.g. a stale
+  // ?status=ACTIVE left in the URL — is ignored rather than yielding zero rows.
+  const effStatus = tab === 'prospective'
+    ? (statFilts.filter(s => (PROSPECTIVE_STATUSES as readonly string[]).includes(s)).length
+        ? statFilts.filter(s => (PROSPECTIVE_STATUSES as readonly string[]).includes(s))
+        : [...PROSPECTIVE_STATUSES])
+    : statFilts;
+  if (effStatus.length) whereConditions.push(`UPPER(c.status) = ANY($${params.push(effStatus)}::text[])`);
   if (repFilts.length) {
     const rIdx = params.push(repFilts);
     whereConditions.push(

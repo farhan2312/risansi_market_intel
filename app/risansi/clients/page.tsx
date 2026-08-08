@@ -6,7 +6,7 @@ import risansiPool from '@/lib/db-risansi';
 import { formatLastVisitShort } from '@/lib/risansi-utils';
 import { getCurrentUser, clientVisibilitySql } from '@/lib/risansi-auth';
 import { OWNERS_SUBQUERY, REV_JOIN, REV_BUCKETS, VISIT_BUCKETS, buildClientFilter } from '@/lib/risansi-client-filter';
-import { clientStatusLabel, statusDotKind, CLIENT_STATUS_FILTER_OPTIONS, CLIENT_STATUS_LABELS } from '@/lib/risansi-client-status';
+import { clientStatusLabel, statusDotKind, CLIENT_STATUS_FILTER_OPTIONS, CLIENT_STATUS_LABELS, PROSPECTIVE_STATUSES } from '@/lib/risansi-client-status';
 import { FilterBar } from './FilterBar';
 
 const PAGE_SIZE = 50;
@@ -32,6 +32,9 @@ export default async function ClientListPage({
 
   const user = await getCurrentUser();
 
+  // Tab — 'all' (default) or 'prospective'. The tab's status constraint lives in
+  // buildClientFilter, so the list, the counts and the Excel export all agree.
+  const tab       = sp.tab === 'prospective' ? 'prospective' : 'all';
   const q_str     = typeof sp.q        === 'string' ? sp.q.trim()        : '';
   const sugarFilt = typeof sp.sugar    === 'string' ? sp.sugar.trim()    : '';
   const sortKey   = typeof sp.sort     === 'string' ? sp.sort            : 'last_visit';
@@ -57,6 +60,10 @@ export default async function ClientListPage({
   // ── WHERE + params (shared with the Excel export so they always match) ──
   const { whereClause, params } = buildClientFilter(sp, user);
   const countParams = [...params]; // snapshot before limit/offset are pushed
+
+  // Tab counts share every OTHER filter but not the tab's own status constraint,
+  // so each label reads "how many rows would this tab show right now".
+  const { whereClause: tabWhere, params: tabParams } = buildClientFilter({ ...sp, tab: undefined }, user);
 
   const limIdx = params.length + 1;
   const offIdx = params.length + 2;
@@ -84,7 +91,7 @@ export default async function ClientListPage({
   interface RepOption { rep_name: string; client_count: number; }
 
   // ── All queries in parallel ────────────────────────────────────
-  const [clients, total, industries, zones, tiers, clientTypes, repOptions, fyYears, revBuckets, visitBuckets] = await Promise.all([
+  const [clients, total, tabCounts, industries, zones, tiers, clientTypes, repOptions, fyYears, revBuckets, visitBuckets] = await Promise.all([
 
     (async (): Promise<ClientRow[]> => {
       try {
@@ -128,6 +135,27 @@ export default async function ClientListPage({
       } catch (err) {
         console.error('[clients/page] count query failed:', err);
         return 0;
+      }
+    })(),
+
+    // Per-tab counts under the current non-tab filters (one pass, two FILTERs).
+    (async (): Promise<{ all: number; prospective: number }> => {
+      try {
+        const { rows } = await risansiPool.query<{ all_n: string; prosp_n: string }>(
+          `SELECT COUNT(DISTINCT c.id)::text AS all_n,
+                  COUNT(DISTINCT c.id) FILTER (
+                    WHERE UPPER(c.status) IN ('PROSPECTIVE_LEAD','PROSPECTIVE_CLIENT')
+                  )::text AS prosp_n
+           FROM clients c
+           LEFT JOIN tour_routes tr ON tr.id = c.tour_id
+           ${REV_JOIN}
+           WHERE ${tabWhere}`,
+          tabParams as (string | number)[],
+        );
+        return { all: Number(rows[0]?.all_n ?? 0), prospective: Number(rows[0]?.prosp_n ?? 0) };
+      } catch (err) {
+        console.error('[clients/page] tab count query failed:', err);
+        return { all: 0, prospective: 0 };
       }
     })(),
 
@@ -258,6 +286,7 @@ export default async function ClientListPage({
 
   function buildUrl(overrides: Record<string, string | number | undefined>): string {
     const base: Record<string, string> = {};
+    if (tab !== 'all')      base.tab      = tab;
     if (q_str)              base.q        = q_str;
     if (indFilts.length)    base.industry = indFilts.join(',');
     if (zoneFilts.length)   base.zone     = zoneFilts.join(',');
@@ -289,8 +318,15 @@ export default async function ClientListPage({
   const curSort = sortKey;
   const curDir  = orderDir === 'DESC' ? 'desc' : 'asc';
 
+  // Switching tab keeps every other filter but clears `status` (the tab defines
+  // the status scope, so carrying a pick across would silently narrow the other
+  // tab) and `page` (the new result set has its own pagination).
+  const tabHref = (id: 'all' | 'prospective') =>
+    buildUrl({ tab: id === 'all' ? undefined : id, status: undefined, page: 1 });
+
   // Export link — carries the current filters so the .xlsx matches this view.
   const exportQs = new URLSearchParams();
+  if (tab !== 'all')    exportQs.set('tab', tab);
   if (q_str)            exportQs.set('q', q_str);
   if (indFilts.length)  exportQs.set('industry', indFilts.join(','));
   if (zoneFilts.length) exportQs.set('zone', zoneFilts.join(','));
@@ -320,7 +356,7 @@ export default async function ClientListPage({
               Clients
             </div>
             <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>
-              Client master · {total.toLocaleString('en-IN')} records
+              {tab === 'prospective' ? 'Prospective leads & clients' : 'Client master'} · {total.toLocaleString('en-IN')} records
             </div>
           </div>
           <a
@@ -335,6 +371,28 @@ export default async function ClientListPage({
           >
             ⭳ Export{hasActiveFilters ? ' (filtered)' : ''} · {total.toLocaleString('en-IN')}
           </a>
+        </div>
+
+        {/* ── Tabs ─────────────────────────────────────────────── */}
+        <div className="field-tabs" style={{
+          display: 'flex', gap: 2, marginBottom: 12, borderBottom: '1px solid var(--line)',
+          overflowX: 'auto', scrollSnapType: 'x proximity',
+        }}>
+          {([
+            { id: 'all' as const,         label: 'All Clients',  n: tabCounts.all },
+            { id: 'prospective' as const, label: 'Prospectives', n: tabCounts.prospective },
+          ]).map(t => (
+            <a key={t.id} href={tabHref(t.id)} aria-current={tab === t.id} style={{
+              display: 'block', padding: '8px 16px', fontSize: 13,
+              fontWeight: tab === t.id ? 600 : 400,
+              color: tab === t.id ? 'var(--accent)' : 'var(--fg-3)',
+              textDecoration: 'none', flexShrink: 0, whiteSpace: 'nowrap', scrollSnapAlign: 'center',
+              borderBottom: tab === t.id ? '2px solid var(--accent)' : '2px solid transparent',
+              marginBottom: -1, transition: 'color 0.1s',
+            }}>
+              {t.label} ({t.n.toLocaleString('en-IN')})
+            </a>
+          ))}
         </div>
 
         {/* ── Filter toolbar (search + filters, grouped) ────────── */}
@@ -354,7 +412,14 @@ export default async function ClientListPage({
             <MultiSelectFilter param="zone"     label="Zone"           options={zones}           selected={zoneFilts} />
             <MultiSelectFilter param="tier"     label="Tier"           options={tiers}           selected={tierFilts} />
             <MultiSelectFilter param="ctype"    label="Client Type"    options={clientTypes}     selected={ctypeFilts} />
-            <MultiSelectFilter param="status"   label="Status"         options={CLIENT_STATUS_FILTER_OPTIONS} selected={statFilts} />
+            {/* On the Prospectives tab the Status filter narrows WITHIN the tab
+                (Lead vs Client), so it only offers those two — picking neither
+                shows both. buildClientFilter enforces the same intersection. */}
+            <MultiSelectFilter param="status"   label="Status"
+              options={tab === 'prospective'
+                ? CLIENT_STATUS_FILTER_OPTIONS.filter(o => (PROSPECTIVE_STATUSES as readonly string[]).includes(o.value))
+                : CLIENT_STATUS_FILTER_OPTIONS}
+              selected={statFilts} />
             <MultiSelectFilter param="rep"      label="Rep"            options={repOptions.map(r => ({ value: r.rep_name, label: r.rep_name, count: r.client_count }))} selected={repFilts} />
             <MultiSelectFilter param="fy"       label="Customer Since" options={fyYears}         selected={fyFilts} />
             <MultiSelectFilter param="rev"      label="Revenue"        options={revBuckets}      selected={revFilts}  />
