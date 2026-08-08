@@ -1,12 +1,12 @@
 import type { CSSProperties } from 'react';
 import Link from 'next/link';
-import { Topbar, Tag, StatusDot, MultiSelectFilter, ActiveFilterBar, SortableTH } from '@/components/risansi';
+import { Topbar, Tag, StatusDot, MultiSelectFilter, ActiveFilterBar, SortableTH, Donut } from '@/components/risansi';
 import { MobileSort } from '@/components/risansi/MobileSort';
 import risansiPool from '@/lib/db-risansi';
-import { formatLastVisitShort } from '@/lib/risansi-utils';
+import { formatLastVisitShort, formatRev } from '@/lib/risansi-utils';
 import { getCurrentUser, clientVisibilitySql } from '@/lib/risansi-auth';
 import { OWNERS_SUBQUERY, REV_JOIN, REV_BUCKETS, VISIT_BUCKETS, buildClientFilter } from '@/lib/risansi-client-filter';
-import { clientStatusLabel, statusDotKind, CLIENT_STATUS_FILTER_OPTIONS, CLIENT_STATUS_LABELS, PROSPECTIVE_STATUSES } from '@/lib/risansi-client-status';
+import { clientStatusLabel, statusDotKind, CLIENT_STATUS_FILTER_OPTIONS, CLIENT_STATUS_LABELS, CLIENT_STATUS_COLORS, PROSPECTIVE_STATUSES } from '@/lib/risansi-client-status';
 import { FilterBar } from './FilterBar';
 
 const PAGE_SIZE = 50;
@@ -65,6 +65,11 @@ export default async function ClientListPage({
   // so each label reads "how many rows would this tab show right now".
   const { whereClause: tabWhere, params: tabParams } = buildClientFilter({ ...sp, tab: undefined }, user);
 
+  // Prospective summary stats use the tab scope + every other filter but NOT the
+  // in-tab status pick — faceted-search behaviour, so drilling into "Leads"
+  // doesn't collapse the split donut to a single 100% segment.
+  const { whereClause: statsWhere, params: statsParams } = buildClientFilter({ ...sp, status: undefined }, user);
+
   const limIdx = params.length + 1;
   const offIdx = params.length + 2;
   const mainParams = [...params, limit, offset];
@@ -90,8 +95,14 @@ export default async function ClientListPage({
 
   interface RepOption { rep_name: string; client_count: number; }
 
+  interface ProspStats {
+    total: number; leads: number; pclients: number;
+    visited: number; overdue: number; neverVisited: number;
+    inPlay: number; openValue: number;   // openValue in rupees
+  }
+
   // ── All queries in parallel ────────────────────────────────────
-  const [clients, total, tabCounts, industries, zones, tiers, clientTypes, repOptions, fyYears, revBuckets, visitBuckets] = await Promise.all([
+  const [clients, total, tabCounts, prospStats, industries, zones, tiers, clientTypes, repOptions, fyYears, revBuckets, visitBuckets] = await Promise.all([
 
     (async (): Promise<ClientRow[]> => {
       try {
@@ -156,6 +167,46 @@ export default async function ClientListPage({
       } catch (err) {
         console.error('[clients/page] tab count query failed:', err);
         return { all: 0, prospective: 0 };
+      }
+    })(),
+
+    // Prospectives-tab summary. One pass; skipped entirely on the All tab.
+    // Neither join fans out (tour_routes is 1:1 on tour_id, REV_JOIN is grouped
+    // per client), so the correlated open-value SUM can't double-count.
+    (async (): Promise<ProspStats | null> => {
+      if (tab !== 'prospective') return null;
+      try {
+        const { rows } = await risansiPool.query<Record<string, string>>(
+          `SELECT
+             COUNT(DISTINCT c.id)::text AS total,
+             COUNT(DISTINCT c.id) FILTER (WHERE UPPER(c.status) = 'PROSPECTIVE_LEAD')::text   AS leads,
+             COUNT(DISTINCT c.id) FILTER (WHERE UPPER(c.status) = 'PROSPECTIVE_CLIENT')::text AS pclients,
+             COUNT(DISTINCT c.id) FILTER (WHERE c.last_visit_date >= CURRENT_DATE - INTERVAL '90 days')::text AS visited,
+             COUNT(DISTINCT c.id) FILTER (WHERE c.last_visit_date IS NOT NULL
+               AND c.last_visit_date < CURRENT_DATE - INTERVAL '90 days')::text AS overdue,
+             COUNT(DISTINCT c.id) FILTER (WHERE c.last_visit_date IS NULL)::text AS never_visited,
+             COUNT(DISTINCT c.id) FILTER (WHERE EXISTS (
+               SELECT 1 FROM opportunities o
+                WHERE o.client_id = c.id AND o.stage NOT IN ('Won','Lost','Dropped')))::text AS in_play,
+             COALESCE(SUM((SELECT COALESCE(SUM(COALESCE(o.offer_value_inr, o.value_cr * 10000000, 0)), 0)
+                             FROM opportunities o
+                            WHERE o.client_id = c.id AND o.stage NOT IN ('Won','Lost','Dropped'))), 0)::text AS open_value
+           FROM clients c
+           LEFT JOIN tour_routes tr ON tr.id = c.tour_id
+           ${REV_JOIN}
+           WHERE ${statsWhere}`,
+          statsParams as (string | number)[],
+        );
+        const r = rows[0] ?? {};
+        const n = (k: string) => Number(r[k] ?? 0);
+        return {
+          total: n('total'), leads: n('leads'), pclients: n('pclients'),
+          visited: n('visited'), overdue: n('overdue'), neverVisited: n('never_visited'),
+          inPlay: n('in_play'), openValue: n('open_value'),
+        };
+      } catch (err) {
+        console.error('[clients/page] prospective stats query failed:', err);
+        return null;
       }
     })(),
 
@@ -394,6 +445,109 @@ export default async function ClientListPage({
             </a>
           ))}
         </div>
+
+        {/* ── Prospectives summary ─────────────────────────────── */}
+        {tab === 'prospective' && prospStats && prospStats.total > 0 && (() => {
+          const s   = prospStats;
+          const pct = (n: number) => s.total ? Math.round((n / s.total) * 100) : 0;
+          const leadColor   = CLIENT_STATUS_COLORS.PROSPECTIVE_LEAD[0];
+          const clientColor = CLIENT_STATUS_COLORS.PROSPECTIVE_CLIENT[0];
+
+          // Each tile/segment links to the list filtered to match it. Status links
+          // toggle: clicking the one already applied clears it.
+          const statusHref = (v: string) =>
+            buildUrl({ status: statFilts.length === 1 && statFilts[0] === v ? undefined : v, page: 1 });
+          const visitHref = (v: string) =>
+            buildUrl({ visit: visitFilts.length === 1 && visitFilts[0] === v ? undefined : v, page: 1 });
+
+          const Tile = ({ label, value, sub, color, href }: {
+            label: string; value: string; sub: string; color?: string; href?: string;
+          }) => {
+            const body = (
+              <>
+                <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.10em', color: 'var(--fg-3)', fontWeight: 600 }}>{label}</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 27, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1.05, marginTop: 5, color: color ?? 'var(--fg)' }}>{value}</div>
+                <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 3 }}>{sub}</div>
+              </>
+            );
+            const style: CSSProperties = {
+              background: 'var(--bg-paper)', border: '1px solid var(--line)',
+              borderRadius: 'var(--radius)', padding: '13px 15px', display: 'block',
+              textDecoration: 'none', ...(color ? { borderLeft: `3px solid ${color}` } : {}),
+            };
+            return href
+              ? <Link href={href} className="exec-kpi-link" style={style}>{body}</Link>
+              : <div style={style}>{body}</div>;
+          };
+
+          // Donut + clickable legend, shared by both charts.
+          const Chart = ({ title, note, slices }: {
+            title: string; note: string;
+            slices: { name: string; n: number; color: string; href: string }[];
+          }) => (
+            <div style={{ background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', padding: '13px 15px' }}>
+              <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.10em', color: 'var(--fg-3)', fontWeight: 600 }}>{title}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginTop: 10, flexWrap: 'wrap' }}>
+                <Donut
+                  size={112} thick={17}
+                  data={slices.filter(x => x.n > 0).map(x => ({ pct: x.n, color: x.color, name: x.name }))}
+                  center={<>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 19, fontWeight: 700, color: 'var(--fg)', lineHeight: 1 }}>
+                      {s.total.toLocaleString('en-IN')}
+                    </div>
+                    <div style={{ fontSize: 9, color: 'var(--fg-3)', marginTop: 2 }}>total</div>
+                  </>}
+                />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1, minWidth: 150 }}>
+                  {slices.map(x => (
+                    <Link key={x.name} href={x.href} className="exec-kpi-link"
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, textDecoration: 'none', color: 'var(--fg)' }}>
+                      <span style={{ width: 9, height: 9, borderRadius: 2, background: x.color, flexShrink: 0 }} />
+                      <span style={{ color: 'var(--fg-2)', flex: 1 }}>{x.name}</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{x.n.toLocaleString('en-IN')}</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg-3)', width: 34, textAlign: 'right' }}>{pct(x.n)}%</span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 10, lineHeight: 1.5 }}>{note}</div>
+            </div>
+          );
+
+          return (
+            <div style={{ marginBottom: 14 }}>
+              <div className="r-grid-4" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 12 }}>
+                <Tile label="Total Prospectives" value={s.total.toLocaleString('en-IN')}
+                  sub={`${s.leads.toLocaleString('en-IN')} leads · ${s.pclients.toLocaleString('en-IN')} clients`}
+                  href={statFilts.length ? buildUrl({ status: undefined, page: 1 }) : undefined} />
+                <Tile label="Visited (≤90d)" value={s.visited.toLocaleString('en-IN')}
+                  sub={`${pct(s.visited)}% of prospects`} color="var(--pos)" href={visitHref('visited')} />
+                <Tile label="Never Visited" value={s.neverVisited.toLocaleString('en-IN')}
+                  sub={`${pct(s.neverVisited)}% — no visit on record`} color="var(--neg)" href={visitHref('never')} />
+                <Tile label="In Play" value={s.inPlay.toLocaleString('en-IN')}
+                  sub={`${formatRev(s.openValue)} in open opportunities`} color="var(--accent)" />
+              </div>
+
+              <div className="r-grid-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
+                <Chart
+                  title="Lead vs Client"
+                  note="A Prospective-Lead is an unqualified lead on an auto LEAD_ code; a Prospective-Client has an enquiry and a real ERP code."
+                  slices={[
+                    { name: 'Prospective-Client', n: s.pclients, color: clientColor, href: statusHref('PROSPECTIVE_CLIENT') },
+                    { name: 'Prospective-Lead',   n: s.leads,    color: leadColor,   href: statusHref('PROSPECTIVE_LEAD') },
+                  ]} />
+                <Chart
+                  title="Visit Coverage"
+                  note="Based on each client's last recorded visit. Visited means within the last 90 days — the same definition the Field page and Executive Review use."
+                  slices={[
+                    { name: 'Visited (≤90d)', n: s.visited,      color: '#0E9F6E', href: visitHref('visited') },
+                    { name: 'Overdue (90d+)', n: s.overdue,      color: '#D97706', href: visitHref('overdue') },
+                    { name: 'Never visited',  n: s.neverVisited, color: '#E02424', href: visitHref('never') },
+                  ]} />
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ── Filter toolbar (search + filters, grouped) ────────── */}
         <div style={{
