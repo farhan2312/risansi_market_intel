@@ -21,7 +21,7 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "Sales Portal | RIL",
+  title: "Risansi Sales Portal | RIL",
   description: "Sales intelligence, competitive positioning, and revenue analytics for the Risansi field team.",
   icons: {
     icon: [
