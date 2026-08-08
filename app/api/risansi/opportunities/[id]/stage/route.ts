@@ -61,13 +61,21 @@ export async function PATCH(
       `UPDATE opportunities SET stage = $1, updated_at = NOW() WHERE id = $2`,
       [stage, id],
     );
+    // from_stage was hardcoded NULL here, which threw away the only thing that
+    // makes a transition a transition — and the whole INSERT was swallowed
+    // because the table didn't exist (migration 0042). Both fixed: the previous
+    // stage is already in hand from the ownership check above, and a failure now
+    // gets logged instead of vanishing.
     try {
       await risansiPool.query(
         `INSERT INTO opportunity_stage_log (opportunity_id, from_stage, to_stage, notes, changed_by)
-         VALUES ($1, NULL, $2, 'Drag-and-drop on Opportunities board', $3)`,
-        [id, stage, session.user.email],
+         VALUES ($1, $2, $3, 'Drag-and-drop on Opportunities board', $4)`,
+        [id, oppRes.rows[0].stage, stage, session.user.email],
       );
-    } catch { /* log table optional */ }
+    } catch (logErr) {
+      // Never fail the move over its audit row — but say so.
+      console.error('opportunity_stage_log insert failed:', logErr);
+    }
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error('Stage update error:', err);

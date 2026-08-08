@@ -546,7 +546,7 @@ export async function updateClient(clientId: number, formData: FormData): Promis
          VALUES ($1, $2, $3, $4, $5)`,
         [clientId, currentStatus, newStatus, 'Updated via edit form', email],
       );
-    } catch { /* table may not exist */ }
+    } catch (e) { console.error('opportunity_stage_log insert failed:', e); }
   }
 
   // Describe what actually changed, so the activity feed is informative. This
@@ -831,7 +831,7 @@ export async function createOpportunity(clientId: string, formData: FormData) {
          VALUES ($1, NULL, $2, 'Created via client page', $3)`,
         [newId, stage, session.user.email],
       );
-    } catch { /* table may not exist */ }
+    } catch (e) { console.error('opportunity_stage_log insert failed:', e); }
   }
 
   await logActivity('client', clientId, `created opportunity: ${product} · ${stage}${valueCr ? ` · ₹${valueCr} Cr` : ''}`, session.user.email);
@@ -1087,7 +1087,7 @@ export async function createPipelineOpportunity(formData: FormData) {
          VALUES ($1, NULL, $2, 'Created via pipeline', $3)`,
         [newOppId, stage, user.email],
       );
-    } catch { /* table may not exist */ }
+    } catch (e) { console.error('opportunity_stage_log insert failed:', e); }
 
     // Notify on a create that lands straight in a notable stage.
     if (stage === 'Won' || stage === 'Lost') {
@@ -1215,7 +1215,7 @@ export async function saveQuotedDetails(oppId: number, formData: FormData) {
        VALUES ($1, $2, 'Quoted', 'Quoted via board', $3)`,
       [oppId, rows[0].stage, user.email],
     );
-  } catch { /* log table optional */ }
+  } catch (e) { console.error('opportunity_stage_log insert failed:', e); }
 
   await logActivity('opportunity', String(oppId), `moved to Quoted${s('quote_ref') ? ` · ${s('quote_ref')}` : ''}`, user.email!);
   revalidatePath('/risansi/pipeline');
@@ -1845,7 +1845,7 @@ export async function submitOpportunity(formData: FormData) {
          VALUES ($1, NULL, $2, 'Opportunity created', $3)`,
         [newId, stage, user.email],
       );
-    } catch { /* table may not exist */ }
+    } catch (e) { console.error('opportunity_stage_log insert failed:', e); }
   }
 
   const desc = `${product} · ${stage}${valueInr > 0 ? ` · ₹${valueInr.toLocaleString('en-IN')}` : ''}`;
@@ -2020,7 +2020,7 @@ export async function convertLeadToClient(clientId: number, erpCode: string): Pr
        VALUES ($1, $2, $3, $4, $5)`,
       [clientId, cur.status, 'PROSPECTIVE_CLIENT', `Converted lead to client (${oldCode} → ${newCode})`, email],
     );
-  } catch { /* table may not exist */ }
+  } catch (e) { console.error('opportunity_stage_log insert failed:', e); }
 
   await logActivity('client', String(clientId), `converted lead ${oldCode} → client ${newCode} · ${cur.legal_name}`, email);
   revalidatePath('/risansi/clients');

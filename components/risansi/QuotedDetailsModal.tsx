@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { saveQuotedDetails } from '@/app/actions/risansi';
 import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
+import { PRODUCT_TYPES } from '@/lib/risansi-opportunity-fields';
 import { OfferRevisionsField } from './OfferRevisionsField';
 import { fmtUsdFromInr, type OfferRevision } from '@/lib/risansi-offer-revisions';
 
@@ -26,7 +27,6 @@ export interface QuotedOpp {
   items?: QuotedItem[];
 }
 
-const PRODUCT_TYPES = ['PCP', 'MMP', 'SPARE', 'OBL'];
 const QUOTED = '#c69347';
 
 type ItemRow = { pump_model: string; pump_qty: string; pump_speed: string; geared_motor_detail: string; motor_price: string; gearbox_vbelt_price: string; offer_value_inr: string; offer_value_usd: string; detailed_specifications: string };

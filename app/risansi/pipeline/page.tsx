@@ -14,6 +14,7 @@ import { OpportunitiesTabs } from '@/components/risansi/OpportunitiesTabs';
 import { TextSearchFilter } from '@/components/risansi/TextSearchFilter';
 import { DateRangeFilter } from '@/components/risansi/DateRangeFilter';
 import { ForecastBar } from '@/components/risansi/ForecastBar';
+import { oppFilterQuery } from '@/lib/risansi-opp-filters';
 import {
   bracketLink, soCoverageSql, isSoCoverage, SO_COVERAGE_LABELS,
 } from '@/lib/risansi-pipeline-brackets';
@@ -779,7 +780,7 @@ export default async function PipelinePage({
               <ActiveOppsTable opps={tableOpps} usdRate={usdRate} />
             </div>
           }
-          kanban={<OpportunityKanban key="kanban" initialOpps={[...openOpps, ...closedOpps]} stageTotals={stageTotals} usdRate={usdRate} />}
+          kanban={<OpportunityKanban key="kanban" initialOpps={[...openOpps, ...closedOpps]} stageTotals={stageTotals} usdRate={usdRate} filterQuery={oppFilterQuery(sp, ["stage"]).toString()} />}
           winRate={
             <div key="winRate" style={PANEL}>
               <div style={PANEL_H}>

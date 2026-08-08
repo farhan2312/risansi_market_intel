@@ -6,6 +6,7 @@ import { fmtCr } from '@/lib/risansi-utils';
 import { EditOppDrawer, type EditableOpp } from './EditOppDrawer';
 import { OppCompletionModal } from './OppCompletionModal';
 import { QuotedDetailsModal } from './QuotedDetailsModal';
+import { stageHref } from '@/lib/risansi-stage-dashboard';
 
 export interface KanbanOpp extends EditableOpp {
   value_cr:   number;
@@ -42,10 +43,12 @@ const STAGE_LABEL: Record<string, string> = {
 // the server navigations that remount this board (e.g. changing a filter).
 const COLS_KEY = 'risansi.kanban.cols';
 
-export function OpportunityKanban({ initialOpps, stageTotals, usdRate = 86 }: {
+export function OpportunityKanban({ initialOpps, stageTotals, usdRate = 86, filterQuery = '' }: {
   initialOpps: KanbanOpp[];
   /** ₹ per $1 from the settings page — drives the USD sub-text on money fields. */
   usdRate?: number;
+  /** The board's active filters, serialised, so a stage page opens with the same scope. */
+  filterQuery?: string;
   /** True per-stage count + value (uncapped), for honest column headers. The
    *  closed columns load at most 200 cards, so their own card sums undercount. */
   stageTotals?: Record<string, { count: number; valueCr: number }>;
@@ -316,9 +319,22 @@ export function OpportunityKanban({ initialOpps, stageTotals, usdRate = 86 }: {
             >
               <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--line)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: 11, fontWeight: 500, color, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  {/* The column title opens that stage's dashboard — its KPIs,
+                      charts and the full list — carrying the board's filters. */}
+                  <a
+                    href={stageHref(stage, new URLSearchParams(filterQuery))}
+                    className="risansi-bracket-link"
+                    title={`Open the ${stage} dashboard`}
+                    style={{
+                      fontSize: 11, fontWeight: 500, color, textTransform: 'uppercase',
+                      letterSpacing: '0.06em', textDecoration: 'none', display: 'inline-flex',
+                      alignItems: 'center', gap: 4, padding: '2px 5px', margin: '-2px -5px',
+                      borderRadius: 4, border: '1px solid transparent',
+                    }}
+                  >
                     {STAGE_LABEL[stage] ?? stage}
-                  </span>
+                    <span aria-hidden style={{ fontSize: 9, opacity: 0.65 }}>▸</span>
+                  </a>
                   <span style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
                     {q ? `${filtered.length}/${items.length}` : (truncated ? `${items.length} of ${trueCount}` : trueCount)}
                   </span>

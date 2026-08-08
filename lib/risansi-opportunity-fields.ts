@@ -13,6 +13,15 @@
 //     quotation (its attributes, line items and PDF). A stage with no quote
 //     block — Suspect, Prospect — has no step 2 and submits from step 1.
 
+/**
+ * The product categories an opportunity can carry — ONE list, because two used
+ * to exist. The create wizard read this file while QuotedDetailsModal had its
+ * own hardcoded array spelling spares 'SPARE', so 975 rows ended up split
+ * across 'SPARE' and 'Spares' and every product-mix chart double-counted them.
+ * Migration 0043 folded them together; both forms now render from here.
+ */
+export const PRODUCT_TYPES = ['PCP', 'MMP', 'Spares', 'OBL', 'Service', 'Other'] as const;
+
 export const CREATE_STAGES = ['Suspect', 'Prospect', 'Quoted', 'Negotiating', 'Won', 'Lost'] as const;
 export type CreateStage = typeof CREATE_STAGES[number];
 
@@ -69,7 +78,7 @@ export const OPP_FIELDS: OppFieldDef[] = [
   // ── Step 1 · the deal ─────────────────────────────────────────
   { name: 'product',      label: 'Product / Description', kind: 'text',   step: 1, visibleFrom: 0, requiredAt: ALL_LINEAR, placeholder: 'e.g. PCP × 3 MX-80 · Spent Wash', full: true },
   { name: 'unit_project', label: 'Project Name / Unit',   kind: 'text',   step: 1, visibleFrom: 0, placeholder: 'e.g. Balrampur Chini — Unit 2, Spent Wash', full: true },
-  { name: 'product_type', label: 'Product Type',          kind: 'select', step: 1, visibleFrom: 0, requiredAt: ALL_LINEAR, options: ['PCP', 'MMP', 'Spares', 'Service', 'Other'] },
+  { name: 'product_type', label: 'Product Type',          kind: 'select', step: 1, visibleFrom: 0, requiredAt: ALL_LINEAR, options: [...PRODUCT_TYPES] },
   { name: 'value_inr',    label: 'Value (₹)',             kind: 'inr',    step: 1, visibleFrom: 0, requiredAt: FROM_PROSPECT, placeholder: 'e.g. 2500000', help: 'Full amount in rupees' },
   { name: 'probability_code', label: 'Probability',       kind: 'prob_code', step: 1, visibleFrom: 0, help: 'RIL likelihood code' },
   { name: 'eta_text',     label: 'Expected Close',        kind: 'month',  step: 1, visibleFrom: 1 },
