@@ -530,6 +530,13 @@ export default async function PipelinePage({
   // Won opportunities are the realised base for every forecast figure — the
   // sales-Booked tile stays for reference but no longer drives the maths.
   const wonCount     = stageTotals.Won?.count ?? 0;
+  // Flow brackets — a snapshot of what sits at each stage right now, taken from
+  // the same per-stage totals the kanban headers use (filter-responsive, and
+  // uncapped for open stages).
+  const quotedCr        = stageTotals.Quoted?.valueCr ?? 0;
+  const quotedCount     = stageTotals.Quoted?.count ?? 0;
+  const negotiatingCr    = stageTotals.Negotiating?.valueCr ?? 0;
+  const negotiatingCount = stageTotals.Negotiating?.count ?? 0;
   const bestCase     = wonTotal + openTotal;
   const probabilityWeighted = wonTotal + weightedOpen;
   const target       = annualTarget > 0 ? annualTarget : 32;
@@ -615,14 +622,29 @@ export default async function PipelinePage({
         {/* Forecast strip */}
         <div style={{ ...PANEL, marginBottom: 14 }}>
           <div style={{ padding: 16 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 1fr 1fr 2fr', gap: 16, alignItems: 'center' }}>
-              <ForecastBlock label="Booked (Invoiced)" value={bookedYTD} sub={`sales · ${fy.label}`} color="var(--fg-2)" rate={usdRate} />
-              <ForecastBlock label="Won" value={wonTotal}
-                sub={wonCount > 0 ? `${wonCount} won opportunit${wonCount === 1 ? 'y' : 'ies'}` : 'no wins yet'} color="var(--pos)" rate={usdRate} />
-              <ForecastBlock label="Order Booked" value={orderBooked}
-                sub="won · SO created" color="var(--pos)" rate={usdRate} />
-              <ForecastBlock label="Order in Hand" value={orderInHand}
-                sub="won · not yet in an SO" color="var(--accent)" rate={usdRate} />
+            {/* Row 1 — the flow. Each bracket is a SNAPSHOT of what sits there
+                right now, so value leaves a bracket as an opportunity moves on
+                and no two brackets double-count. Quoted/Negotiating come from
+                the same per-stage totals the kanban headers use.
+                NB: Revenue (Invoiced) is client-level monthly revenue, which
+                carries no opportunity link — it's the actuals that land after a
+                win, not literally the same rupees moving out of the Won card. */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr auto 1fr auto 1fr', gap: 12, alignItems: 'center' }}>
+              <ForecastBlock label="Quoted" value={quotedCr}
+                sub={quotedCount > 0 ? `${quotedCount} awaiting outcome` : 'nothing quoted'} color="var(--fg)" rate={usdRate} />
+              <FlowArrow />
+              <ForecastBlock label="In Negotiation" value={negotiatingCr}
+                sub={negotiatingCount > 0 ? `${negotiatingCount} in active talks` : 'none in negotiation'} color="var(--accent)" rate={usdRate} />
+              <FlowArrow />
+              <ForecastBlock label="Won (SO created)" value={orderBooked}
+                sub={`SO value${orderInHand > 0 ? ` · ${fmtCr(orderInHand)} won, awaiting SO` : ''}`} color="var(--pos)" rate={usdRate} />
+              <FlowArrow />
+              <ForecastBlock label="Revenue (Invoiced)" value={bookedYTD}
+                sub={`sales · ${fy.label}`} color="var(--fg-2)" rate={usdRate} />
+            </div>
+
+            {/* Row 2 — forecast, unchanged. */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 2fr', gap: 16, alignItems: 'center', marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--line)' }}>
               <ForecastBlock label="Best-case (100% pipe)" value={bestCase}
                 sub={`${fmtCr(wonTotal)} won + ${fmtCr(openTotal)} open`} color="var(--fg)" rate={usdRate} />
               <ForecastBlock label="Probability-weighted" value={probabilityWeighted}
@@ -768,6 +790,19 @@ export default async function PipelinePage({
 }
 
 // ── Sub-components ─────────────────────────────────────────────
+
+// Separator between the flow brackets — signals that value MOVES from one
+// bracket to the next rather than the cards being independent totals.
+function FlowArrow() {
+  return (
+    <div aria-hidden style={{
+      fontSize: 15, color: 'var(--fg-4, var(--fg-3))', lineHeight: 1,
+      padding: '0 2px', userSelect: 'none',
+    }}>
+      →
+    </div>
+  );
+}
 
 function ForecastBlock({
   label, value, sub, color, highlight = false, rate,
