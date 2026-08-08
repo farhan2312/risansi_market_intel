@@ -348,6 +348,22 @@ export async function saveVisitField(
     );
   }
 
+  // Next Visit Recommendation edited AFTER the report was submitted: move the
+  // planned visit that was raised from it. Only for corrections — before submit
+  // the rep is still drafting, and every keystroke on that date field would
+  // otherwise shuffle a visit around the calendar. Never fails the save.
+  if (isCorrection && visit.client_id && 'next_visit_recommendation' in visitFields) {
+    try {
+      const rec = visitFields.next_visit_recommendation;
+      await syncPlannedFollowUpVisit(
+        visitId, Number(visit.client_id), visit.rep_id,
+        rec ? String(rec) : null, session.user.email,
+      );
+    } catch (e) {
+      console.error('planned follow-up reschedule failed for visit', visitId, e);
+    }
+  }
+
   // Corrections to an already-submitted report are auditable against the client;
   // ordinary pre-submission drafting is not logged (it would drown the feed).
   if (isCorrection && visit?.client_id) {
@@ -617,6 +633,95 @@ export async function deleteEquipment(equipmentId: string | number, visitId: str
 
 // ── Submit (close) visit ───────────────────────────────────────
 
+/**
+ * Raise (or reschedule) the Planned visit a report's "Next Visit Recommendation"
+ * asks for. (Called from saveVisitField above as well as submitVisit below —
+ * a function declaration, so it hoists.)
+ *
+ * Rules, as agreed:
+ *   • only a FUTURE date creates anything — a recommendation already in the past
+ *     is a record of intent, not a plan, and back-dating the calendar helps
+ *     nobody;
+ *   • the planned visit belongs to the rep who filed the report;
+ *   • changing the recommendation MOVES the same planned visit (found via
+ *     planned_from_visit_id, migration 0044) rather than adding a second one;
+ *   • nothing is ever auto-deleted. Clearing the date leaves the planned visit
+ *     standing for the rep to cancel deliberately — the calendar is something
+ *     people organise their week around, so it is not ours to silently empty.
+ *
+ * Also refuses to act once the planned visit has been started: if the rep has
+ * already checked in or closed it, moving its date under them would rewrite
+ * history. Returns the planned visit id, or null when nothing was done.
+ */
+async function syncPlannedFollowUpVisit(
+  sourceVisitId: string | number,
+  clientId: number,
+  repId: number | null,
+  recommendation: string | null | undefined,
+  actorEmail: string,
+): Promise<{ id: number; action: 'created' | 'moved' } | null> {
+  if (!recommendation) return null;
+  if (!/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(recommendation)) return null;
+  if (repId == null) return null;
+
+  const existing = (await risansiPool.query<{ id: number; visit_date: string; check_in_time: string | null; submitted_at: string | null }>(
+    `SELECT id, visit_date::text AS visit_date, check_in_time, submitted_at
+       FROM visits WHERE planned_from_visit_id = $1`,
+    [sourceVisitId],
+  )).rows[0];
+
+  if (existing) {
+    // Started or closed — leave it alone.
+    if (existing.check_in_time || existing.submitted_at) return null;
+    if (existing.visit_date === recommendation) return null;
+    await risansiPool.query(
+      `UPDATE visits SET visit_date = $1, updated_at = NOW() WHERE id = $2`,
+      [recommendation, existing.id],
+    );
+    return { id: existing.id, action: 'moved' };
+  }
+
+  // Only future dates raise a new plan.
+  const future = (await risansiPool.query<{ ok: boolean }>(
+    `SELECT ($1::date > CURRENT_DATE) AS ok`, [recommendation],
+  )).rows[0]?.ok;
+  if (!future) return null;
+
+  // Don't stack a duplicate on top of a plan the rep already made by hand for
+  // the same client and day.
+  const clash = (await risansiPool.query<{ id: number }>(
+    `SELECT id FROM visits
+      WHERE client_id = $1 AND visit_date = $2::date AND rep_id = $3
+        AND submitted_at IS NULL
+      LIMIT 1`,
+    [clientId, recommendation, repId],
+  )).rows[0];
+  if (clash) {
+    await risansiPool.query(
+      `UPDATE visits SET planned_from_visit_id = $1 WHERE id = $2 AND planned_from_visit_id IS NULL`,
+      [sourceVisitId, clash.id],
+    );
+    return null;
+  }
+
+  const { rows } = await risansiPool.query<{ id: number }>(
+    `INSERT INTO visits (client_id, rep_id, visit_date, is_planned, status,
+                         purpose, planned_from_visit_id, created_at, updated_at)
+     VALUES ($1, $2, $3::date, TRUE, 'Planned', $4, $5, NOW(), NOW())
+     RETURNING id`,
+    [clientId, repId, recommendation, 'Follow-up visit', sourceVisitId],
+  );
+  const newId = rows[0]?.id;
+  if (newId) {
+    await recordAudit({
+      action: 'create', entityType: 'visit', entityId: String(newId),
+      summary: `Planned follow-up visit auto-created from the next-visit date on report #${sourceVisitId}`,
+      actorEmail,
+    });
+  }
+  return newId ? { id: newId, action: 'created' } : null;
+}
+
 export async function submitVisit(visitId: string) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) throw new Error('Unauthorized');
@@ -717,6 +822,21 @@ export async function submitVisit(visitId: string) {
         session.user.email,
       ],
     );
+  }
+
+  // 4b. Next Visit Recommendation -> a Planned visit on that date, owned by the
+  //     rep who filed this report. Never fails the submit: a follow-up that
+  //     can't be raised must not cost the rep the report they just closed.
+  try {
+    await syncPlannedFollowUpVisit(
+      visitId, Number(visit.client_id), repId,
+      visit.next_visit_recommendation
+        ? new Date(visit.next_visit_recommendation).toISOString().slice(0, 10)
+        : null,
+      session.user.email,
+    );
+  } catch (e) {
+    console.error('planned follow-up visit failed for visit', visitId, e);
   }
 
   // 5. Update client last_visit_date
