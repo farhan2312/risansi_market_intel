@@ -5,7 +5,8 @@ import { saveQuotedDetails } from '@/app/actions/risansi';
 import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
 import { PRODUCT_TYPES } from '@/lib/risansi-opportunity-fields';
 import { OfferRevisionsField } from './OfferRevisionsField';
-import { fmtUsdFromInr, type OfferRevision } from '@/lib/risansi-offer-revisions';
+import { type OfferRevision } from '@/lib/risansi-offer-revisions';
+import { MoneyInput } from './MoneyInput';
 
 // Shown when a card is dragged into the Quoted column — captures the full
 // quotation (all attributes + a dynamic list of quoted items). Cancel reverts.
@@ -198,14 +199,10 @@ export function QuotedDetailsModal({ opp, usdRate = 86, onSave, onCancel }: { op
                 </select>
               </Field>
               <Field label="Total Offer (₹)">
-                <input
-                  name="offer_value_inr" type="number" step="0.01" min="0"
-                  defaultValue={offerInrDefault} placeholder="auto-sums items if blank"
-                  onChange={e => setOfferInr(e.target.value)} style={INP}
+                <MoneyInput
+                  name="offer_value_inr" value={offerInr} onChange={setOfferInr}
+                  placeholder="auto-sums items if blank" usdRate={usdRate} style={INP}
                 />
-                <div style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', marginTop: 3 }}>
-                  {offerInr.trim() ? `≈ ${fmtUsdFromInr(parseFloat(offerInr), usdRate)}` : `at ₹${usdRate}/$`}
-                </div>
               </Field>
               <div style={{ gridColumn: '1 / -1' }}>
                 <label style={LABEL}>Quotation PDF</label>

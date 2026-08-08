@@ -8,7 +8,8 @@ import { MonthYearSelect } from './MonthYearSelect';
 import { SalesOrderList } from './SalesOrderList';
 import { parseSalesOrdersJson } from '@/lib/risansi-sales-orders';
 import { OfferRevisionsField } from './OfferRevisionsField';
-import { fmtUsdFromInr } from '@/lib/risansi-offer-revisions';
+import { MoneyInput } from './MoneyInput';
+import { parseMoneyInput } from '@/lib/risansi-money';
 import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
 import {
   CREATE_STAGES, STAGE_HINT,
@@ -349,28 +350,24 @@ function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess }: {
     } else if (f.kind === 'month') {
       control = <MonthYearSelect name={f.name} />;
     } else if (f.kind === 'inr' || f.kind === 'number' || f.kind === 'usd') {
-      control = <input name={f.name} type="number" step={f.kind === 'inr' ? '1' : '0.01'} min="0"
-        inputMode="numeric" required={htmlRequired} placeholder={f.placeholder}
-        onChange={e => setMoneyVals(p => ({ ...p, [f.name]: e.target.value }))}
-        style={{ ...INP, ...reqStyle }} />;
+      // Never type="number": it discards 1,50,000 on blur. See MoneyInput.
+      control = <MoneyInput name={f.name} required={htmlRequired} placeholder={f.placeholder}
+        value={moneyVals[f.name] ?? ''}
+        onChange={v => setMoneyVals(p => ({ ...p, [f.name]: v }))}
+        usdRate={f.name.endsWith('_inr') ? usdRate : undefined}
+        help={f.help} style={{ ...INP, ...reqStyle }} />;
     } else {
       control = <input name={f.name} type="text" required={htmlRequired} placeholder={f.placeholder} style={{ ...INP, ...reqStyle }} />;
     }
 
-    // USD is never entered — it's derived from the settings rate and shown here.
-    const isRupees = f.name.endsWith('_inr');
-    const typed    = moneyVals[f.name] ?? '';
+    const isMoney = f.kind === 'inr' || f.kind === 'number' || f.kind === 'usd';
 
     return (
       <div key={f.name} style={f.full ? { gridColumn: '1 / -1' } : undefined}>
         {label}
         {control}
-        {isRupees && (
-          <div style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', marginTop: 3 }}>
-            {typed.trim() ? `≈ ${fmtUsdFromInr(parseFloat(typed), usdRate)}` : `at ₹${usdRate}/$`}
-          </div>
-        )}
-        {f.help && <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3 }}>{f.help}</div>}
+        {/* MoneyInput renders its own echo line, which carries the help text. */}
+        {!isMoney && f.help && <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3 }}>{f.help}</div>}
       </div>
     );
   };
@@ -483,7 +480,7 @@ function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess }: {
               have been re-priced. */}
           <div style={{ marginTop: 16 }}>
             <OfferRevisionsField
-              baseOfferInr={moneyVals.offer_value_inr ? parseFloat(moneyVals.offer_value_inr) : null}
+              baseOfferInr={parseMoneyInput(moneyVals.offer_value_inr)}
               usdRate={usdRate}
             />
           </div>

@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, type CSSProperties } from 'react';
+import { MoneyInput } from './MoneyInput';
+import { parseMoneyInput } from '@/lib/risansi-money';
 import {
   blankOfferRevision, fmtUsdFromInr, revisionDeltaPct,
   type OfferRevision, type OfferRevisionRow,
@@ -41,7 +43,7 @@ export function OfferRevisionsField({
   // the original offer — that's the movement a rep actually cares about.
   const prevOf = (idx: number): number | null => {
     for (let i = idx - 1; i >= 0; i--) {
-      const v = parseFloat(rows[i].value_inr);
+      const v = parseMoneyInput(rows[i].value_inr) ?? NaN;
       if (Number.isFinite(v) && v > 0) return v;
     }
     return baseOfferInr ?? null;
@@ -49,7 +51,7 @@ export function OfferRevisionsField({
 
   const latest = (() => {
     for (let i = rows.length - 1; i >= 0; i--) {
-      const v = parseFloat(rows[i].value_inr);
+      const v = parseMoneyInput(rows[i].value_inr) ?? NaN;
       if (Number.isFinite(v) && v > 0) return v;
     }
     return null;
@@ -80,7 +82,7 @@ export function OfferRevisionsField({
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {rows.map((r, idx) => {
-            const val   = parseFloat(r.value_inr);
+            const val   = parseMoneyInput(r.value_inr) ?? NaN;
             const hasV  = Number.isFinite(val) && val > 0;
             const delta = hasV ? revisionDeltaPct(prevOf(idx), val) : null;
             const up    = (delta ?? 0) > 0;
@@ -104,14 +106,10 @@ export function OfferRevisionsField({
                 <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr 2fr', gap: 8 }}>
                   <div>
                     <label style={SUBLBL}>Revised Amount (₹)</label>
-                    <input
-                      type="number" step="0.01" min="0" inputMode="decimal"
-                      value={r.value_inr} onChange={e => set(idx, 'value_inr', e.target.value)}
-                      placeholder="e.g. 850000" style={INP}
+                    <MoneyInput
+                      value={r.value_inr} onChange={v => set(idx, 'value_inr', v)}
+                      placeholder="e.g. 850000" usdRate={usdRate} style={INP}
                     />
-                    <div style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', marginTop: 3 }}>
-                      {hasV ? `≈ ${fmtUsdFromInr(val, usdRate)}` : `at ₹${usdRate}/$`}
-                    </div>
                   </div>
                   <div>
                     <label style={SUBLBL}>Revised On</label>

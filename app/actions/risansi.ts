@@ -21,6 +21,7 @@ import { notifyCheckIn, notifyOppClosed, notifySalesOrder, notifyNewLead, notify
 import { requiredFieldNames, labelsFor, CREATE_STAGES, STAGE_PROB, isDropReason, type CreateStage } from '@/lib/risansi-opportunity-fields';
 import { pctForProbabilityCode } from '@/lib/risansi-probability-codes';
 import { normaliseIndustry } from '@/lib/risansi-utils';
+import { parseMoneyInput, parsePositiveMoney, moneyToCr } from '@/lib/risansi-money';
 
 // ── Helper ─────────────────────────────────────────────────────
 
@@ -780,7 +781,7 @@ export async function createOpportunity(clientId: string, formData: FormData) {
   // Won requires a Sales Order — only the pipeline create/complete flow captures
   // it, so this legacy quick-create can't mint a Won directly.
   if (stage === 'Won') throw new Error('Mark an opportunity Won from the Opportunities pipeline (a Sales Order is required).');
-  const valueCr  = parseFloat((formData.get('estimated_value') as string | null) ?? '') || null;
+  const valueCr  = parseMoneyInput(formData.get('estimated_value'));
   const prob     = formData.get('probability') ? parseInt(formData.get('probability') as string) : null;
   const eta      = (formData.get('eta_text') as string | null)?.trim() ||
                    (formData.get('expected_close') as string | null)?.trim() || null;
@@ -916,8 +917,10 @@ export async function createPipelineOpportunity(formData: FormData) {
   // Field readers. `s` → trimmed string or null; `nRaw` → any finite number;
   // `nInr`/`crOf` turn a rupee input into Crores (₹1,00,00,000 = 1 Cr).
   const s    = (k: string) => { const v = (formData.get(k) as string | null)?.trim(); return v ? v : null; };
-  const nRaw = (k: string) => { const f = parseFloat((formData.get(k) as string | null) ?? ''); return Number.isFinite(f) ? f : null; };
-  const crOf = (k: string) => { const f = parseFloat((formData.get(k) as string | null) ?? ''); return Number.isFinite(f) && f > 0 ? f / 10_000_000 : null; };
+  // parseMoneyInput, not parseFloat: amounts are typed 1,50,000 here and
+  // parseFloat('1,50,000') is 1 — five opportunities were saved as Rs 1 that way.
+  const nRaw = (k: string) => parseMoneyInput(formData.get(k));
+  const crOf = (k: string) => moneyToCr(formData.get(k));
   // Item helpers (values arrive inside items_json, mirroring saveQuotedDetails).
   const iStr = (v: unknown) => { const t = String(v ?? '').trim(); return t ? t : null; };
   const iNum = (v: unknown) => { const f = parseFloat(String(v ?? '').replace(/[^0-9.\-]/g, '')); return Number.isFinite(f) ? f : null; };
@@ -940,7 +943,7 @@ export async function createPipelineOpportunity(formData: FormData) {
     if (name === 'offer_value_inr') return offerInr != null && offerInr > 0;
     const v = formData.get(name);
     if (v == null || String(v).trim() === '') return false;
-    if (name === 'value_inr' || name === 'final_value_inr') return parseFloat(String(v)) > 0;
+    if (name === 'value_inr' || name === 'final_value_inr') return (parsePositiveMoney(v) ?? 0) > 0;
     return true;
   };
   const missing = requiredFieldNames(stage).filter(n => !filled(n));
@@ -1129,7 +1132,7 @@ export async function saveQuotedDetails(oppId: number, formData: FormData) {
   }
 
   const s = (k: string) => { const v = (formData.get(k) as string | null)?.trim(); return v ? v : null; };
-  const n = (k: string) => { const v = formData.get(k) as string | null; const f = v ? parseFloat(v) : NaN; return Number.isFinite(f) ? f : null; };
+  const n = (k: string) => parseMoneyInput(formData.get(k));   // comma-safe: see lib/risansi-money
   const i = (k: string) => { const v = formData.get(k) as string | null; const p = v ? parseInt(v, 10) : NaN; return Number.isFinite(p) ? p : null; };
   // Item helpers (values arrive inside items_json).
   const iStr = (v: unknown) => { const t = String(v ?? '').trim(); return t ? t : null; };
@@ -1280,8 +1283,8 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
     throw new Error('Select a reason for dropping this opportunity.');
   }
 
-  const valueInr = parseFloat((formData.get('value_inr')       as string | null) ?? '0');
-  const finalInr = parseFloat((formData.get('final_value_inr') as string | null) ?? '0');
+  const valueInr = parseMoneyInput(formData.get('value_inr'))       ?? NaN;
+  const finalInr = parseMoneyInput(formData.get('final_value_inr')) ?? NaN;
   // Probability is entered as the RIL code (1–4); the numeric % is derived from
   // it. When the form omits the field entirely (e.g. OppCompletionModal marking
   // Won), both are left untouched — see the preserve guard below.
@@ -1789,7 +1792,7 @@ export async function submitOpportunity(formData: FormData) {
   const stage       = (formData.get('stage')         as string | null)?.trim() ?? 'Suspect';
   // Won requires a Sales Order (captured only by the pipeline create/complete flow).
   if (stage === 'Won') throw new Error('Mark an opportunity Won from the Opportunities pipeline (a Sales Order is required).');
-  const valueInr    = parseFloat((formData.get('value_inr') as string | null) ?? '0') || 0;
+  const valueInr    = parseMoneyInput(formData.get('value_inr')) ?? 0;
   const valueCr     = valueInr > 0 ? valueInr / 10_000_000 : null;  // Rupees → Crores
   const probability = parseInt((formData.get('probability') as string | null) ?? '0', 10) || null;
   const etaText     = (formData.get('eta_text')      as string | null)?.trim() || null;
