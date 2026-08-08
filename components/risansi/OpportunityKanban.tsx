@@ -56,7 +56,7 @@ export function OpportunityKanban({ initialOpps, stageTotals }: {
   const [overStage, setOverStage] = useState<string | null>(null);
   const [editOpp, setEditOpp]     = useState<KanbanOpp | null>(null);
   const [completion, setCompletion] = useState<{
-    opp: KanbanOpp; stage: 'Won' | 'Lost'; previousStage: string;
+    opp: KanbanOpp; stage: 'Won' | 'Lost' | 'Dropped'; previousStage: string;
   } | null>(null);
   const [quotedFor, setQuotedFor] = useState<{ opp: KanbanOpp; previousStage: string } | null>(null);
   const [notice, setNotice]       = useState('');
@@ -132,8 +132,9 @@ export function OpportunityKanban({ initialOpps, stageTotals }: {
       return;
     }
 
-    // Moving to Won/Lost needs completion details — open modal, don't save yet
-    if (newStage === 'Won' || newStage === 'Lost') {
+    // Won/Lost/Dropped each need completion details (final value + SOs, the
+    // competitor + lost reason, or the drop reason) — open the modal, don't save yet.
+    if (newStage === 'Won' || newStage === 'Lost' || newStage === 'Dropped') {
       const previousStage = current.stage;
       // Optimistic: move the card into the column visually
       setOpps(p => p.map(o => (o.id === oppId ? { ...o, stage: newStage } : o)));

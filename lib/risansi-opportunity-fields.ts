@@ -107,6 +107,26 @@ export const OPP_FIELDS: OppFieldDef[] = [
 /** Fixed competitor fallbacks appended after the live competitors list. */
 export const LOST_COMPETITOR_TAIL = ['Price — No specific competitor', 'OEM Tied', 'Budget Cancelled', 'Other'];
 
+/**
+ * Why an opportunity was Dropped, asked whenever the stage moves to Dropped
+ * (the kanban completion modal and the Edit drawer both use this list, and
+ * updateOpportunity validates against it). Distinct from lost_reason: Lost is
+ * "we competed and didn't win", Dropped is "the requirement went away".
+ * Dropped is not in CREATE_STAGES — an opportunity is only ever moved to it —
+ * so this lives outside OPP_FIELDS rather than in the create wizard's catalogue.
+ */
+export const DROP_REASONS = [
+  'Closed deferred to next season',
+  'Repeat or duplicate offer',
+  'Requirement closed',
+  'Technically disqualified',
+  'Closed no response from client',
+] as const;
+export type DropReason = typeof DROP_REASONS[number];
+
+export const isDropReason = (v: unknown): v is DropReason =>
+  typeof v === 'string' && (DROP_REASONS as readonly string[]).includes(v);
+
 export function isFieldVisible(f: OppFieldDef, stage: CreateStage): boolean {
   if (f.onlyStages) return f.onlyStages.includes(stage);
   return STAGE_RANK[stage] >= f.visibleFrom;

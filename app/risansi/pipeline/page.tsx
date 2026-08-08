@@ -47,6 +47,7 @@ interface OppRow {
   final_value_cr?:     string | number | null;
   lost_to_competitor?: string | null;
   lost_reason?:        string | null;
+  drop_reason?:        string | null;
 }
 
 interface WinRateRow {

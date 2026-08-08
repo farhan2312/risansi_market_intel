@@ -2,6 +2,7 @@
 
 import { useState, useEffect, type CSSProperties } from 'react';
 import { updateOpportunity } from '@/app/actions/risansi';
+import { DROP_REASONS } from '@/lib/risansi-opportunity-fields';
 import type { EditableOpp } from './EditOppDrawer';
 import { SalesOrderList } from './SalesOrderList';
 
@@ -9,15 +10,16 @@ interface Competitor { id: string; name: string; }
 
 export function OppCompletionModal({ opp, stage, onSave, onCancel }: {
   opp: EditableOpp;
-  stage: 'Won' | 'Lost';
+  stage: 'Won' | 'Lost' | 'Dropped';
   onSave: () => void;
   onCancel: () => void;
 }) {
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState('');
   const [competitors, setCompetitors] = useState<Competitor[]>([]);
-  const isWon  = stage === 'Won';
-  const isLost = stage === 'Lost';
+  const isWon     = stage === 'Won';
+  const isLost    = stage === 'Lost';
+  const isDropped = stage === 'Dropped';
   // Final value is controlled so the SO list can show live coverage (Open/Closed).
   const inrOf = (cr: number | string | null | undefined) =>
     cr != null && cr !== '' ? String(Math.round(parseFloat(String(cr)) * 10_000_000)) : '';
@@ -59,12 +61,12 @@ export function OppCompletionModal({ opp, stage, onSave, onCancel }: {
         boxShadow: '0 24px 64px rgba(0,0,0,0.2)', zIndex: 401, overflow: 'hidden',
       }}>
         {/* Coloured header */}
-        <div style={{ padding: '20px 24px', background: isWon ? '#065F46' : '#9B1C1C', color: 'white' }}>
+        <div style={{ padding: '20px 24px', background: isWon ? '#065F46' : isDropped ? '#475569' : '#9B1C1C', color: 'white' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
-              <div style={{ fontSize: 20, marginBottom: 4 }}>{isWon ? '🎉' : '❌'}</div>
+              <div style={{ fontSize: 20, marginBottom: 4 }}>{isWon ? '🎉' : isDropped ? '🚫' : '❌'}</div>
               <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>
-                {isWon ? 'Mark as Won' : 'Mark as Lost'}
+                {isWon ? 'Mark as Won' : isDropped ? 'Mark as Dropped' : 'Mark as Lost'}
               </div>
               <div style={{ fontSize: 13, opacity: 0.85 }}>{opp.client_name} · {opp.product}</div>
             </div>
@@ -153,6 +155,25 @@ export function OppCompletionModal({ opp, stage, onSave, onCancel }: {
               </div>
             )}
 
+            {isDropped && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div>
+                  <label style={LABEL}>Drop Reason *</label>
+                  <select name="drop_reason" required defaultValue="" style={INPUT}>
+                    <option value="">— Select reason —</option>
+                    {DROP_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={LABEL}>Additional Notes (optional)</label>
+                  <textarea name="notes" rows={3} defaultValue={opp.notes ?? ''} placeholder="Any context worth keeping…" style={{ ...INPUT, resize: 'vertical' }} />
+                </div>
+                <div style={{ padding: '10px 14px', background: '#F1F5F9', borderRadius: 7, fontSize: 12, color: '#475569' }}>
+                  🚫 Dropped means the requirement went away — it is excluded from open pipeline and does not count against win rate the way a Lost does.
+                </div>
+              </div>
+            )}
+
             {error && (
               <div style={{ marginTop: 12, padding: '8px 12px', background: '#FDE8E8', border: '1px solid #F87171', borderLeft: '3px solid #E02424', borderRadius: 5, color: '#9B1C1C', fontSize: 12 }}>
                 {error}
@@ -166,11 +187,11 @@ export function OppCompletionModal({ opp, stage, onSave, onCancel }: {
               ← Go back (revert move)
             </button>
             <button type="submit" disabled={loading} style={{
-              padding: '8px 20px', borderRadius: 6, background: isWon ? '#065F46' : '#9B1C1C',
+              padding: '8px 20px', borderRadius: 6, background: isWon ? '#065F46' : isDropped ? '#475569' : '#9B1C1C',
               color: 'white', border: 'none', cursor: loading ? 'not-allowed' : 'pointer',
               fontSize: 13, fontWeight: 500, fontFamily: 'inherit', opacity: loading ? 0.7 : 1,
             }}>
-              {loading ? 'Saving…' : isWon ? '🎉 Confirm Won' : '❌ Confirm Lost'}
+              {loading ? 'Saving…' : isWon ? '🎉 Confirm Won' : isDropped ? '🚫 Confirm Dropped' : '❌ Confirm Lost'}
             </button>
           </div>
         </form>

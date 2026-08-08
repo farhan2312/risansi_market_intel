@@ -44,13 +44,14 @@ export default async function ClientListPage({
   const indFilts  = typeof sp.industry === 'string' && sp.industry ? sp.industry.split(',').filter(Boolean) : [];
   const zoneFilts = typeof sp.zone     === 'string' && sp.zone     ? sp.zone.split(',').filter(Boolean)     : [];
   const tierFilts = typeof sp.tier     === 'string' && sp.tier     ? sp.tier.split(',').filter(Boolean)     : [];
+  const ctypeFilts = typeof sp.ctype   === 'string' && sp.ctype    ? sp.ctype.split(',').filter(Boolean)    : [];
   const statFilts = typeof sp.status   === 'string' && sp.status   ? sp.status.split(',').filter(Boolean).map(s => s.toUpperCase()) : [];
   const repFilts  = typeof sp.rep      === 'string' && sp.rep      ? sp.rep.split(',').filter(Boolean)      : [];
   const fyFilts   = typeof sp.fy       === 'string' && sp.fy       ? sp.fy.split(',').filter(Boolean)       : [];
   const revFilts  = typeof sp.rev      === 'string' && sp.rev      ? sp.rev.split(',').filter(Boolean)      : [];
   const visitFilts = typeof sp.visit   === 'string' && sp.visit    ? sp.visit.split(',').filter(Boolean)    : [];
 
-  const hasActiveFilters = !!(q_str || sugarFilt || indFilts.length || zoneFilts.length || tierFilts.length || statFilts.length || repFilts.length || fyFilts.length || revFilts.length || visitFilts.length);
+  const hasActiveFilters = !!(q_str || sugarFilt || indFilts.length || zoneFilts.length || tierFilts.length || ctypeFilts.length || statFilts.length || repFilts.length || fyFilts.length || revFilts.length || visitFilts.length);
   const sortCol = SORT_MAP[sortKey] ?? 'c.last_visit_date';
 
   // ── WHERE + params (shared with the Excel export so they always match) ──
@@ -83,7 +84,7 @@ export default async function ClientListPage({
   interface RepOption { rep_name: string; client_count: number; }
 
   // ── All queries in parallel ────────────────────────────────────
-  const [clients, total, industries, zones, tiers, repOptions, fyYears, revBuckets, visitBuckets] = await Promise.all([
+  const [clients, total, industries, zones, tiers, clientTypes, repOptions, fyYears, revBuckets, visitBuckets] = await Promise.all([
 
     (async (): Promise<ClientRow[]> => {
       try {
@@ -154,6 +155,24 @@ export default async function ClientListPage({
           `SELECT DISTINCT tier FROM clients WHERE tier IS NOT NULL AND deleted_at IS NULL ORDER BY tier`,
         );
         return rows.map(r => r.tier);
+      } catch { return []; }
+    })(),
+
+    // Client-type options, derived from the data with counts. Deriving (rather
+    // than using the CLIENT_TYPES picklist) keeps legacy values that predate it
+    // — DIRECT MILL, TRADER, GROUP, CHANNEL PARTNER — filterable instead of
+    // silently unreachable. Scoped to the clients this user may see.
+    (async (): Promise<{ value: string; label: string; count: number }[]> => {
+      try {
+        const visForCt = clientVisibilitySql(user, 'c');
+        const ctClause = visForCt ? `AND (${visForCt})` : '';
+        const { rows } = await risansiPool.query<{ t: string; n: string }>(
+          `SELECT c.client_type AS t, COUNT(*)::text AS n
+             FROM clients c
+            WHERE c.client_type IS NOT NULL AND btrim(c.client_type) <> '' AND c.deleted_at IS NULL ${ctClause}
+            GROUP BY c.client_type ORDER BY COUNT(*) DESC`,
+        );
+        return rows.map(r => ({ value: r.t, label: r.t, count: Number(r.n) }));
       } catch { return []; }
     })(),
 
@@ -243,6 +262,7 @@ export default async function ClientListPage({
     if (indFilts.length)    base.industry = indFilts.join(',');
     if (zoneFilts.length)   base.zone     = zoneFilts.join(',');
     if (tierFilts.length)   base.tier     = tierFilts.join(',');
+    if (ctypeFilts.length)  base.ctype    = ctypeFilts.join(',');
     if (statFilts.length)   base.status   = statFilts.join(',');
     if (repFilts.length)    base.rep      = repFilts.join(',');
     if (fyFilts.length)     base.fy       = fyFilts.join(',');
@@ -275,6 +295,7 @@ export default async function ClientListPage({
   if (indFilts.length)  exportQs.set('industry', indFilts.join(','));
   if (zoneFilts.length) exportQs.set('zone', zoneFilts.join(','));
   if (tierFilts.length) exportQs.set('tier', tierFilts.join(','));
+  if (ctypeFilts.length) exportQs.set('ctype', ctypeFilts.join(','));
   if (statFilts.length) exportQs.set('status', statFilts.join(','));
   if (repFilts.length)  exportQs.set('rep', repFilts.join(','));
   if (fyFilts.length)   exportQs.set('fy', fyFilts.join(','));
@@ -332,6 +353,7 @@ export default async function ClientListPage({
             <MultiSelectFilter param="industry" label="Industry"       options={industries}      selected={indFilts}  />
             <MultiSelectFilter param="zone"     label="Zone"           options={zones}           selected={zoneFilts} />
             <MultiSelectFilter param="tier"     label="Tier"           options={tiers}           selected={tierFilts} />
+            <MultiSelectFilter param="ctype"    label="Client Type"    options={clientTypes}     selected={ctypeFilts} />
             <MultiSelectFilter param="status"   label="Status"         options={CLIENT_STATUS_FILTER_OPTIONS} selected={statFilts} />
             <MultiSelectFilter param="rep"      label="Rep"            options={repOptions.map(r => ({ value: r.rep_name, label: r.rep_name, count: r.client_count }))} selected={repFilts} />
             <MultiSelectFilter param="fy"       label="Customer Since" options={fyYears}         selected={fyFilts} />
@@ -345,6 +367,7 @@ export default async function ClientListPage({
           { param: 'industry', label: 'Industry', values: indFilts  },
           { param: 'zone',     label: 'Zone',     values: zoneFilts },
           { param: 'tier',     label: 'Tier',     values: tierFilts },
+          { param: 'ctype',    label: 'Client Type', values: ctypeFilts },
           { param: 'status',   label: 'Status',   values: statFilts, valueLabels: CLIENT_STATUS_LABELS },
           { param: 'rep',      label: 'Rep',      values: repFilts  },
           { param: 'fy',       label: 'Customer Since', values: fyFilts },

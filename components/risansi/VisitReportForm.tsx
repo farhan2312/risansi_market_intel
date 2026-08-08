@@ -24,7 +24,7 @@ import { VISIT_EDIT_WINDOW_DAYS } from '@/lib/risansi-visit-edit-window';
 // a make that isn't listed.
 const COMPETITOR_MAKES = [
   'Roto', 'Rotomac', 'Gita', 'PSP', 'Syno', 'Ropman', 'Myto', 'Vikas',
-  'Newpumps', 'Indopump', 'Tushaco', 'Yaswant', 'Shivam', 'Saksham', 'Alpha',
+  'Newpumps', 'Indopump', 'Tushaco', 'Yaswant', 'Shivam', 'Saksham', 'Sintex', 'Alpha',
   'Gajanan', 'Chandra Helicon', 'Netzsch', 'Akanshi', 'Pragati', 'Ropar',
   'Rotor Flow', 'Naishit', 'Delta', 'Varun', 'NPI', 'Hydroprocav', 'SRE',
   'Span Engg', 'Pandey', 'Mahalaxmi', 'Ravalgoan',

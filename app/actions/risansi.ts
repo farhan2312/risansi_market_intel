@@ -17,7 +17,7 @@ import { parseSalesOrdersJson, inrToCr, type SoInput, type SalesOrder } from '@/
 import { poInrToCr, type PurchaseOrder } from '@/lib/risansi-purchase-orders';
 import { notifyVisitPlanned } from '@/lib/risansi-email';
 import { notifyCheckIn, notifyOppClosed, notifySalesOrder, notifyNewLead, notifyQuotationIssued } from '@/lib/risansi-notify';
-import { requiredFieldNames, labelsFor, CREATE_STAGES, STAGE_PROB, type CreateStage } from '@/lib/risansi-opportunity-fields';
+import { requiredFieldNames, labelsFor, CREATE_STAGES, STAGE_PROB, isDropReason, type CreateStage } from '@/lib/risansi-opportunity-fields';
 import { pctForProbabilityCode } from '@/lib/risansi-probability-codes';
 import { normaliseIndustry } from '@/lib/risansi-utils';
 
@@ -1175,6 +1175,16 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
     soRows = parsed.rows;
   }
 
+  // Moving to Dropped requires a reason from the fixed list — both entry points
+  // (the kanban completion modal and the Edit drawer) ask for it. Enforced only
+  // on the transition INTO Dropped, so re-saving an already-dropped opp from a
+  // form that doesn't carry the field can't fail; the preserve guard below stops
+  // that same case from wiping the stored reason.
+  const isDropTransition = newStage === 'Dropped' && currentStage !== 'Dropped';
+  if (isDropTransition && !isDropReason(formData.get('drop_reason'))) {
+    throw new Error('Select a reason for dropping this opportunity.');
+  }
+
   const valueInr = parseFloat((formData.get('value_inr')       as string | null) ?? '0');
   const finalInr = parseFloat((formData.get('final_value_inr') as string | null) ?? '0');
   // Probability is entered as the RIL code (1–4); the numeric % is derived from
@@ -1229,6 +1239,7 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
     final_value_cr:     finalInr > 0 ? finalInr / 10_000_000 : null,
     lost_to_competitor: (formData.get('lost_to_competitor') as string | null) || null,
     lost_reason:        (formData.get('lost_reason') as string | null) || null,
+    drop_reason:        (formData.get('drop_reason') as string | null) || null,
   };
 
   // Ownership is no longer set from the Edit drawer — it's derived from the
@@ -1238,6 +1249,9 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
   // explicitly, so its Won transition keeps carrying the owner through.
   if (formData.get('rep_id') === null)           delete candidates.rep_id;
   if (formData.get('secondary_rep_id') === null) delete candidates.secondary_rep_id;
+  // Same idea for the drop reason: a form that never asks for it (the Won/Lost
+  // modal, the Quoted modal) must not blank an already-recorded reason.
+  if (formData.get('drop_reason') === null)      delete candidates.drop_reason;
   // Probability: only write when a code is actually chosen. A blank/absent code
   // leaves the stored code AND the numeric % untouched — so editing one of the
   // many legacy opps (which have a numeric probability but no code yet) for an

@@ -4,6 +4,7 @@ import { useState, useEffect, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { updateOpportunity, deleteOpportunity } from '@/app/actions/risansi';
 import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
+import { DROP_REASONS } from '@/lib/risansi-opportunity-fields';
 import { MonthYearSelect } from './MonthYearSelect';
 import { SalesOrderList } from './SalesOrderList';
 import { SalesOrderManager } from './SalesOrderManager';
@@ -40,6 +41,7 @@ export interface EditableOpp {
   final_value_cr?: number | string | null;
   lost_to_competitor?: string | null;
   lost_reason?: string | null;
+  drop_reason?: string | null;
   quotation_link?: string | null;
   tour_name?: string | null;
   tour_people?: string | null;   // all reps + manager on the client's tour
@@ -252,6 +254,9 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
                     <ReadOnlyRow label="Lost Reason" value={opp.lost_reason ?? '—'} />
                   </>
                 )}
+                {opp.stage === 'Dropped' && (
+                  <ReadOnlyRow label="Drop Reason" value={opp.drop_reason ?? '—'} />
+                )}
                 <ReadOnlyRow label="Probability" value={probLabel} />
                 <ReadOnlyRow label="Expected Close" value={opp.eta_text ?? '—'} />
                 <ReadOnlyRow label="Quote Ref" value={opp.quote_ref ?? '—'} />
@@ -389,6 +394,19 @@ export function EditOppDrawer({ opp, onClose, canEdit = true }: { opp: EditableO
                   <label style={LABEL_STYLE}>Lost Reason</label>
                   <input name="lost_reason" defaultValue={opp.lost_reason ?? ''} placeholder="Price / Technical / OEM tied" style={INPUT_STYLE} />
                 </div>
+              </div>
+            )}
+
+            {/* Drop reason — required on the move into Dropped (the server
+                enforces it), so the select is marked required here too. */}
+            {stage === 'Dropped' && (
+              <div>
+                <label style={LABEL_STYLE}>Drop Reason{opp.stage !== 'Dropped' ? ' *' : ''}</label>
+                <select name="drop_reason" required={opp.stage !== 'Dropped'}
+                  defaultValue={opp.drop_reason ?? ''} style={INPUT_STYLE}>
+                  <option value="">— Select reason —</option>
+                  {DROP_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
               </div>
             )}
 

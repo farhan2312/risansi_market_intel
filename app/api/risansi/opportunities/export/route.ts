@@ -3,6 +3,7 @@ import { join } from 'path';
 import ExcelJS from 'exceljs';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, clientScopeSql } from '@/lib/risansi-auth';
+import { DROP_REASONS } from '@/lib/risansi-opportunity-fields';
 
 export const runtime = 'nodejs';
 
@@ -55,7 +56,7 @@ interface Row {
   ril_rep: string | null; pump_model: string | null; pump_qty: number | null;
   negotiation_notes: string | null; notes: string | null;
   final_value_cr: number | null; po_number: string | null;
-  lost_to_competitor: string | null; lost_reason: string | null; quotation_link: string | null;
+  lost_to_competitor: string | null; lost_reason: string | null; drop_reason: string | null; quotation_link: string | null;
   created_by: string | null; created_at: string | null; updated_at: string | null;
 }
 interface So { opportunity_id: number; so_number: string; so_date: string; so_value_cr: number; }
@@ -132,7 +133,7 @@ export async function GET(req: Request) {
               o.ril_rep, o.pump_model, o.pump_qty,
               o.negotiation_notes, o.notes,
               o.final_value_cr::float8 AS final_value_cr, o.po_number,
-              o.lost_to_competitor, o.lost_reason, o.quotation_link,
+              o.lost_to_competitor, o.lost_reason, o.drop_reason, o.quotation_link,
               o.created_by, o.created_at::text AS created_at, o.updated_at::text AS updated_at
          FROM opportunities o
          JOIN clients c ON c.id = o.client_id
@@ -203,6 +204,7 @@ export async function GET(req: Request) {
     { h: 'PO Number', w: 16, f: r => r.po_number ?? '' },
     { h: 'Lost To Competitor', w: 18, f: r => r.lost_to_competitor ?? '' },
     { h: 'Lost Reason', w: 26, f: r => r.lost_reason ?? '', list: 'Lists!$G$2:$G$9' },
+    { h: 'Drop Reason', w: 28, f: r => r.drop_reason ?? '', list: 'Lists!$H$2:$H$6' },
     { h: 'Quotation Link', w: 22, f: r => r.quotation_link ?? '' },
     { h: 'Created By', w: 16, f: r => r.created_by ?? '' },
     { h: 'Created On', w: 12, f: r => (r.created_at ? r.created_at.slice(0, 10) : '') },
@@ -227,9 +229,9 @@ export async function GET(req: Request) {
 
   // Hidden sheet holding the dropdown option lists.
   const lists = wb.addWorksheet('Lists', { state: 'veryHidden' });
-  const listCols = [STAGES, PRODUCT_TYPES, PROB_CODES, MARKETS, CLIENT_STATUS, QUARTERS, LOST_REASONS];
+  const listCols = [STAGES, PRODUCT_TYPES, PROB_CODES, MARKETS, CLIENT_STATUS, QUARTERS, LOST_REASONS, [...DROP_REASONS]];
   listCols.forEach((arr, ci) => {
-    lists.getCell(1, ci + 1).value = ['Stage', 'ProductType', 'ProbCode', 'Market', 'ClientStatus', 'Quarter', 'LostReason'][ci];
+    lists.getCell(1, ci + 1).value = ['Stage', 'ProductType', 'ProbCode', 'Market', 'ClientStatus', 'Quarter', 'LostReason', 'DropReason'][ci];
     arr.forEach((v, ri) => { lists.getCell(ri + 2, ci + 1).value = v; });
   });
 
