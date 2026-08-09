@@ -19,7 +19,7 @@ import {
 // ── Safe query wrapper ─────────────────────────────────────────
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
-  try { return await fn(); } catch { return fallback; }
+  try { return await fn(); } catch (e) { console.error('[dashboard] panel query failed', e); return fallback; }
 }
 
 // ── Competitor colour palette ──────────────────────────────────

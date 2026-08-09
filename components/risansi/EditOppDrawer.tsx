@@ -555,21 +555,29 @@ function QuotedItemsSection({ items, meta, revisions, usdRate }: { items: QItem[
 function DeleteOppButton({ oppId, onDeleted }: { oppId: number; onDeleted: () => void }) {
   const [confirming, setConfirming] = useState(false);
   const [loading, setLoading]       = useState(false);
+  const [error, setError]           = useState('');
 
   if (confirming) {
     return (
-      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
         <span style={{ fontSize: 12, color: 'var(--neg)' }}>Delete permanently?</span>
         <button
           type="button" disabled={loading}
-          onClick={async () => { setLoading(true); await deleteOpportunity(oppId); onDeleted(); }}
+          onClick={async () => {
+            setLoading(true); setError('');
+            // Without this the promise could reject (e.g. a Won/Lost deal is now
+            // admin-locked) and leave the button stuck on '…' with no message.
+            try { await deleteOpportunity(oppId); onDeleted(); }
+            catch (e) { setError(e instanceof Error ? e.message : 'Delete failed'); setLoading(false); }
+          }}
           style={{ padding: '5px 10px', borderRadius: 5, background: '#E02424', color: 'white', border: 'none', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit' }}
         >
           {loading ? '…' : 'Yes, Delete'}
         </button>
-        <button type="button" onClick={() => setConfirming(false)} style={{ padding: '5px 10px', borderRadius: 5, border: '1px solid var(--line-strong)', background: 'white', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit' }}>
+        <button type="button" onClick={() => { setConfirming(false); setError(''); }} style={{ padding: '5px 10px', borderRadius: 5, border: '1px solid var(--line-strong)', background: 'white', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit' }}>
           Cancel
         </button>
+        {error && <span style={{ fontSize: 11.5, color: 'var(--neg)', flexBasis: '100%' }}>{error}</span>}
       </div>
     );
   }

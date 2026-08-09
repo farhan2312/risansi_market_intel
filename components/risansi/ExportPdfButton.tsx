@@ -1,9 +1,11 @@
 'use client';
 
+import { localDateStr } from '@/lib/risansi-utils';
+
 export function ExportPdfButton() {
   function handleExport() {
     const originalTitle  = document.title;
-    document.title = `Risansi-Dashboard-${new Date().toISOString().slice(0, 10)}`;
+    document.title = `Risansi-Dashboard-${localDateStr()}`;
     window.print();
     setTimeout(() => { document.title = originalTitle; }, 1000);
   }

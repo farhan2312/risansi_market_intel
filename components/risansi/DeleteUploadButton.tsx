@@ -8,6 +8,7 @@ export function DeleteUploadButton({ logId, month }: { logId: number; month: str
   const router    = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [loading,    setLoading]    = useState(false);
+  const [error,      setError]      = useState('');
 
   if (confirming) {
     return (
@@ -18,8 +19,8 @@ export function DeleteUploadButton({ logId, month }: { logId: number; month: str
             try {
               await deleteUpload(logId, month);
               router.refresh();
-            } catch {
-              setConfirming(false);
+            } catch (e) {
+              setError(e instanceof Error ? e.message : 'Delete failed');
             } finally {
               setLoading(false);
             }
@@ -45,6 +46,7 @@ export function DeleteUploadButton({ logId, month }: { logId: number; month: str
         >
           Cancel
         </button>
+        {error && <span style={{ fontSize: 10.5, color: '#E02424', alignSelf: 'center' }}>{error}</span>}
       </div>
     );
   }

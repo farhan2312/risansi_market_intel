@@ -342,3 +342,19 @@ export function normaliseIndustry(name: string | null | undefined): string {
 // ── UI labels ──────────────────────────────────────────────────
 // Single source of truth for the Plan Visit button label across the app.
 export const PLAN_VISIT_LABEL = 'Plan Visit';
+
+
+// ── Local calendar date, not UTC ────────────────────────────────
+// new Date(dateOnly) parses as UTC midnight, and toISOString() serialises in
+// UTC — so before ~05:30 IST the "date" is yesterday. These stay in local time.
+
+/** Today (or a given date) as YYYY-MM-DD in the viewer's local zone. */
+export function localDateStr(d: Date = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Is a date-only (or ISO) due date strictly before today, compared as dates? */
+export function isPastDue(due: string | null | undefined): boolean {
+  if (!due) return false;
+  return String(due).slice(0, 10) < localDateStr();
+}

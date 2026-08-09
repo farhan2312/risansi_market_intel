@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo, type CSSProperties } from 'react';
+import { isPastDue } from '@/lib/risansi-utils';
 import { ComplaintFormModal, type ClientOpt, type UserOpt } from './ComplaintFormModal';
 import { ComplaintDetail, type ComplaintRow, type Me } from './ComplaintDetail';
 
@@ -25,7 +26,7 @@ export function ComplaintsClient({ complaints, users, clients, me, canCreate }: 
     open: complaints.filter(c => OPEN_SET.has(c.status)).length,
     resolved: complaints.filter(c => c.status === 'Resolved').length,
     closed: complaints.filter(c => c.status === 'Closed').length,
-    overdue: complaints.filter(c => OPEN_SET.has(c.status) && c.due_date && new Date(c.due_date) < new Date()).length,
+    overdue: complaints.filter(c => OPEN_SET.has(c.status) && isPastDue(c.due_date)).length,
   }), [complaints]);
 
   const visible = useMemo(() => complaints.filter(c => {
@@ -81,7 +82,7 @@ export function ComplaintsClient({ complaints, users, clients, me, canCreate }: 
               {visible.length === 0 ? (
                 <tr><td colSpan={8} style={{ padding: '40px 0', textAlign: 'center', color: 'var(--fg-3)' }}>No complaints match.</td></tr>
               ) : visible.map((c, i) => {
-                const overdue = OPEN_SET.has(c.status) && c.due_date && new Date(c.due_date) < new Date();
+                const overdue = OPEN_SET.has(c.status) && isPastDue(c.due_date);
                 return (
                   <tr key={c.id} onClick={() => setSelected(c)}
                     style={{ borderBottom: i < visible.length - 1 ? '1px solid var(--line)' : 'none', cursor: 'pointer' }}>

@@ -5,7 +5,7 @@ import {
 } from 'react';
 import { useRouter } from 'next/navigation';
 import { assignVisit } from '@/app/actions/risansi';
-import { PLAN_VISIT_LABEL } from '@/lib/risansi-utils';
+import { PLAN_VISIT_LABEL, localDateStr } from '@/lib/risansi-utils';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -270,7 +270,7 @@ export default function AssignVisitDrawer({
     d.setDate(d.getDate() + 1);
     if (d.getDay() === 6) d.setDate(d.getDate() + 2);
     if (d.getDay() === 0) d.setDate(d.getDate() + 1);
-    return d.toISOString().slice(0, 10);
+    return localDateStr(d);
   }
 
   // ── Submit ─────────────────────────────────────────────────
@@ -284,20 +284,6 @@ export default function AssignVisitDrawer({
     setError('');
     const fd = new FormData(e.currentTarget);
     fd.set('client_id', String(selectedClient.id));
-
-    // ── DEBUG: log everything being submitted (browser console) ──
-    console.log('=== AssignVisitDrawer Submit ===');
-    console.log('client_id:', fd.get('client_id'));
-    console.log('rep_id:', fd.get('rep_id'));
-    console.log('visit_date:', fd.get('visit_date'));
-    console.log('purpose:', fd.get('purpose'));
-    console.log('selectedClient:', selectedClient);
-    console.log('prefilledClient prop:', prefilledClient);
-    console.log('repId prop (current user rep):', repId);
-    console.log('role prop:', role, '· lockClientMode:', lockClientMode, '· controlledOpen:', controlledOpen);
-    for (const [key, val] of fd.entries()) {
-      console.log(`  fd[${key}]:`, val);
-    }
 
     startTransition(async () => {
       try {

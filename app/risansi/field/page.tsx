@@ -26,7 +26,9 @@ import { EditVisitButton } from '@/components/risansi/EditVisitButton';
 // ── Helpers ────────────────────────────────────────────────────
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
-  try { return await fn(); } catch { return fallback; }
+  // Log before falling back — a swallowed query error otherwise renders a panel
+  // as empty/zero data with no signal that anything failed.
+  try { return await fn(); } catch (e) { console.error('[field] panel query failed', e); return fallback; }
 }
 
 function pad(n: number) { return String(n).padStart(2, '0'); }
@@ -468,14 +470,15 @@ export default async function FieldActivityPage({
     }, []),
   ]);
 
-  // ── DEBUG: calendar data (server logs) ───────────────────────
-  console.log('=== CALENDAR DEBUG ===');
-  console.log('role:', role, '· isRep:', isRep, '· repId filter:', repId);
-
-  // Activities tab — reps see their own tasks (assigned to or created by them);
-  // admins/managers see all. Parameterized to avoid SQL injection.
-  const activityScope  = isRep && repId ? 'WHERE (t.assigned_to_rep = $1 OR t.created_by = $2)' : '';
-  const activityParams = isRep && repId ? [repId, session?.user?.email ?? ''] : [];
+  // Activities tab — scope EVERY non-admin, not just reps. Managers (non-admin)
+  // used to fall through to the empty scope and receive the whole company's task
+  // register. clientScopeSql returns null for admins (no restriction) and the
+  // tour-based predicate for rep/manager (uid inlined, injection-safe); a person
+  // always also sees tasks assigned to or created by them, including client-less
+  // ones the tour predicate wouldn't match.
+  const taskScope      = clientScopeSql(currentUser, 't.client_id');
+  const activityScope  = taskScope ? `WHERE (${taskScope} OR t.assigned_to_rep = $1 OR t.created_by = $2)` : '';
+  const activityParams = taskScope ? [currentUser.id ?? 0, currentUser.email ?? ''] : [];
   const activityTasks = await risansiPool.query<ActivityTask>(
     `SELECT
        t.id, t.title, t.description, t.due_date, t.priority, t.status,
@@ -495,11 +498,6 @@ export default async function FieldActivityPage({
     activityParams,
   ).then(res => res.rows).catch(() => [] as ActivityTask[]);
   const openTaskCount = activityTasks.filter(t => t.status !== 'completed').length;
-  console.log('todayISO:', todayISO);
-  console.log('weekStart:', weekStart, '· weekEnd (display):', weekEnd, '· weekEndExclusive (query):', weekEndExclusive);
-  console.log('monthStart:', monthStart, '· monthEnd:', monthEnd);
-  console.log('reps fetched:', calendarReps.map(r => `${r.id}:${r.name}`));
-  console.log('visits fetched:', calendarVisits.map(v => `id:${v.id} rep:${v.rep_id} date:${v.visit_date} status:${v.status}`));
 
   // ── Derived ──────────────────────────────────────────────────
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, type CSSProperties } from 'react';
+import { isPastDue } from '@/lib/risansi-utils';
 import { useRouter } from 'next/navigation';
 import { updateTaskStatus } from '@/app/actions/risansi-tasks';
 import { Input } from '@/components/ui/input';
@@ -81,7 +82,7 @@ export function ActivitiesTab({ tasks }: { tasks: ActivityTask[] }) {
 
   const openCount      = tasks.filter(t => t.status !== 'completed').length;
   const completedCount = tasks.filter(t => t.status === 'completed').length;
-  const overdueCount   = tasks.filter(t => t.status === 'open' && !!t.due_date && new Date(t.due_date) < new Date()).length;
+  const overdueCount   = tasks.filter(t => t.status === 'open' && isPastDue(t.due_date)).length;
 
   const q = search.trim().toLowerCase();
   const filtered = tasks.filter(t => {
@@ -138,7 +139,7 @@ export function ActivitiesTab({ tasks }: { tasks: ActivityTask[] }) {
           </TableHeader>
           <TableBody>
             {filtered.map(task => {
-              const isOverdue = !!task.due_date && task.status === 'open' && new Date(task.due_date) < new Date();
+              const isOverdue = task.status === 'open' && isPastDue(task.due_date);
               const pc = PRIORITY_COLORS[task.priority ?? 'Medium'] ?? PRIORITY_COLORS.Medium;
               return (
                 <TableRow key={task.id} style={{ opacity: task.status === 'completed' ? 0.6 : 1, background: isOverdue ? 'rgba(220,38,38,0.03)' : undefined }}>
