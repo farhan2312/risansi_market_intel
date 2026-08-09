@@ -1350,17 +1350,14 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
   const rawRepId = formData.get('rep_id');
   let repId = rawRepId && rawRepId !== '' ? parseInt(rawRepId as string, 10) : null;
   if (!repId) {
-    const { rows } = await risansiPool.query<{ rep_id: number | null; client_id: number | null }>(
-      `SELECT rep_id, client_id FROM opportunities WHERE id = $1`,
-      [oppId],
-    );
-    repId = rows[0]?.rep_id ?? null;
-    if (!repId && rows[0]?.client_id) {
+    // Reuse cur[0] (fetched above) instead of re-SELECTing the same row.
+    repId = cur[0].rep_id ?? null;
+    if (!repId && cur[0].client_id) {
       const { rows: cRows } = await risansiPool.query<{ primary_rep_id: number | null }>(
         `SELECT (SELECT ta.rep_id FROM tour_assignments ta
                   WHERE ta.tour_id = (SELECT tour_id FROM clients WHERE id = $1) AND ta.role = 'rep'
                   ORDER BY ta.assigned_at, ta.rep_id LIMIT 1) AS primary_rep_id`,
-        [rows[0].client_id],
+        [cur[0].client_id],
       );
       repId = cRows[0]?.primary_rep_id ?? null;
     }

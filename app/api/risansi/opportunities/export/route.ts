@@ -295,8 +295,10 @@ export async function GET(req: Request) {
     });
   });
 
-  // Strict validation across the data rows PLUS a buffer for adding new rows.
-  const firstRow = 4, lastRow = 4 + rows.length + 200;
+  // Strict validation across the data rows PLUS a small buffer for adding new
+  // rows. The old +200 built ~30 columns × 200 spare dataValidation objects into
+  // the in-memory workbook on every export for rows nobody had entered.
+  const firstRow = 4, lastRow = 4 + rows.length + 25;
   COLS.forEach((c, i) => {
     if (!c.list && !c.date && !c.num) return;
     for (let rr = firstRow; rr <= lastRow; rr++) {

@@ -9,9 +9,11 @@ import { NotificationBell } from '@/components/risansi/NotificationBell';
 // Honest "synced" label: data is fetched when the page renders, so this counts
 // up from mount instead of claiming a fixed "2s ago" forever.
 function LiveIndicator() {
+  // Tick every 30s, not every second — this re-renders the whole top bar, and
+  // the exact second on a "synced Ns ago" label isn't meaningful.
   const [secs, setSecs] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => setSecs(s => s + 1), 1000);
+    const t = setInterval(() => setSecs(s => s + 30), 30_000);
     return () => clearInterval(t);
   }, []);
   const ago = secs < 5 ? 'just now'

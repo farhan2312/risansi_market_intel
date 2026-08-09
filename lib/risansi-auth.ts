@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
@@ -22,11 +23,17 @@ export function hasRole(userRole: string | null | undefined, requiredRole: Risan
 }
 
 /** Return the current session or throw. Use inside server actions / route handlers. */
-export async function requireSession() {
-  const session = await getServerSession(authOptions);
+// One session read per request, shared. getServerSession re-runs next-auth's jwt
+// callback — which queries the users table — every call, and a single page render
+// calls getCurrentUser/requireSession many times (per gated component). React's
+// cache() dedupes them to one lookup for the lifetime of the request.
+const getSession = cache(async () => getServerSession(authOptions));
+
+export const requireSession = cache(async () => {
+  const session = await getSession();
   if (!session?.user) throw new Error('Unauthorized');
   return session;
-}
+});
 
 /** Tour ids assigned to a rep/manager. (tour_assignments.rep_id holds a users.id.) */
 export async function getRepTours(repId: number): Promise<number[]> {
@@ -46,14 +53,14 @@ export interface CurrentUser {
 }
 
 /** Resolve the signed-in user from the session. role defaults to 'rep'. */
-export async function getCurrentUser(): Promise<CurrentUser> {
-  const session = await getServerSession(authOptions);
+export const getCurrentUser = cache(async (): Promise<CurrentUser> => {
+  const session = await getSession();
   return {
     id:    (session?.user?.repId as number | null) ?? null,
     email: session?.user?.email ?? null,
     role:  ((session?.user?.role as RisansiRole) ?? 'rep'),
   };
-}
+});
 
 // All ids below come from the trusted session (integers), so inlining them
 // into SQL is injection-safe and keeps callers free of param-index juggling.

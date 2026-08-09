@@ -368,6 +368,10 @@ export default async function FieldActivityPage({
 
     // 5. Map data
     q<MapClient[]>(async () => {
+      // Only the Map tab renders these pins, but the query ran on every tab and
+      // shipped the whole active-client set (≈1,400 for an admin) to the browser
+      // each time. Gate it to the tab that uses it, mirroring the reports query.
+      if (tab !== 'map') return [];
       const { rows } = await risansiPool.query<MapClient>(
         `SELECT
            c.id::text, c.code, c.legal_name,

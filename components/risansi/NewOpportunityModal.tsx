@@ -67,19 +67,26 @@ export function NewOpportunityModal(props: NewOpportunityModalProps) {
 
   const reset = () => { onClose(); setSearch(''); setResults([]); if (!lockClient) setSelected(null); };
 
-  const searchClients = async (qStr: string) => {
+  // Debounced: fire the search only once typing settles (~250ms), not on every
+  // keystroke — the endpoint runs a per-visibility ILIKE with a correlated
+  // owner-name subquery, so a keystroke-per-request was needless DB load.
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const searchClients = (qStr: string) => {
     setSearch(qStr);
-    if (qStr.length < 2) { setResults([]); return; }
+    clearTimeout(searchTimer.current);
+    if (qStr.length < 2) { setResults([]); setSearching(false); return; }
     setSearching(true);
-    try {
-      const res  = await fetch(`/api/risansi/clients-search?q=${encodeURIComponent(qStr)}`);
-      const data = await res.json();
-      setResults(Array.isArray(data) ? data : []);
-    } catch {
-      setResults([]);
-    } finally {
-      setSearching(false);
-    }
+    searchTimer.current = setTimeout(async () => {
+      try {
+        const res  = await fetch(`/api/risansi/clients-search?q=${encodeURIComponent(qStr)}`);
+        const data = await res.json();
+        setResults(Array.isArray(data) ? data : []);
+      } catch {
+        setResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 250);
   };
 
   if (!open) return null;
