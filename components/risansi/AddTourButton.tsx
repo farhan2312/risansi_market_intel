@@ -28,7 +28,7 @@ export function AddTourButton() {
     <>
       <button
         onClick={() => setOpen(true)}
-        style={{ padding: '7px 14px', borderRadius: 6, background: 'var(--brand-blue)', color: 'white', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 500, fontFamily: 'inherit' }}
+        style={{ padding: '7px 14px', borderRadius: 6, background: '#0A3D8F', color: 'white', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 500, fontFamily: 'inherit' }}
       >
         + Add Tour
       </button>
@@ -94,7 +94,7 @@ export function AddTourButton() {
                   <button type="button" onClick={() => setOpen(false)} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid var(--line-strong)', background: 'var(--bg-paper)', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}>
                     Cancel
                   </button>
-                  <button type="submit" disabled={loading} style={{ padding: '8px 20px', borderRadius: 6, background: 'var(--brand-blue)', color: 'white', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 500, fontFamily: 'inherit', opacity: loading ? 0.7 : 1 }}>
+                  <button type="submit" disabled={loading} style={{ padding: '8px 20px', borderRadius: 6, background: '#0A3D8F', color: 'white', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 500, fontFamily: 'inherit', opacity: loading ? 0.7 : 1 }}>
                     {loading ? 'Adding…' : 'Add Tour'}
                   </button>
                 </div>

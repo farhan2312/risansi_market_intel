@@ -4,7 +4,7 @@ export default function Loading() {
       {/* Topbar placeholder */}
       <div style={{ height: 52, background: 'var(--bg-paper)', borderBottom: '1px solid var(--line)', flexShrink: 0 }} />
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: '#F4F7FC' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>
 
         {/* Page header */}
         <div style={{ marginBottom: 18 }}>
@@ -40,7 +40,7 @@ export default function Loading() {
           <div style={{ height: 44, borderBottom: '1px solid var(--line)', padding: '12px 16px' }}>
             <div className="skeleton" style={{ height: 11, width: 140, borderRadius: 3 }} />
           </div>
-          <div style={{ background: '#EBF1FB', height: 36, display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px' }}>
+          <div style={{ background: 'var(--accent-soft)', height: 36, display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px' }}>
             {[120, 60, 80, 80, 120].map((w, i) => (
               <div key={i} className="skeleton" style={{ height: 9, width: w, borderRadius: 3 }} />
             ))}

@@ -353,8 +353,13 @@ export function localDateStr(d: Date = new Date()): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/** Is a date-only (or ISO) due date strictly before today, compared as dates? */
-export function isPastDue(due: string | null | undefined): boolean {
+/** Is a date-only (or ISO) due date strictly before today, compared as dates?
+ *  Tolerates a runtime Date: a pg DATE column selected without ::text arrives as
+ *  a Date object (typed as string but not one at runtime), and String(date) would
+ *  yield "Wed Aug 06 …" — not a YYYY-MM-DD prefix — silently breaking the compare.
+ *  A Date is normalised via its local calendar parts; a string is sliced as-is. */
+export function isPastDue(due: string | Date | null | undefined): boolean {
   if (!due) return false;
-  return String(due).slice(0, 10) < localDateStr();
+  const day = due instanceof Date ? localDateStr(due) : String(due).slice(0, 10);
+  return day < localDateStr();
 }
