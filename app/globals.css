@@ -225,12 +225,17 @@ body {
   100% { background-position:  800px 0; }
 }
 
-.skeleton {
+/* `.shimmer` is an alias: the route loading.tsx skeletons mark their
+   placeholder boxes with either class, and before this only `.skeleton` had a
+   rule — so every `.shimmer` box rendered as blank empty space. Tokens (not the
+   old hardcoded light hex) keep the shimmer visible in dark mode too. */
+.skeleton,
+.shimmer {
   background: linear-gradient(
     90deg,
-    #EBF1FB 25%,
-    #DDE6F5 50%,
-    #EBF1FB 75%
+    var(--bg-elev) 25%,
+    var(--bg-sunk) 50%,
+    var(--bg-elev) 75%
   );
   background-size: 800px 100%;
   animation: shimmer 1.4s ease-in-out infinite;

@@ -85,9 +85,9 @@ export function ActiveFilterBar({ filters }: Props) {
             padding:    '2px 8px',
             borderRadius: 12,
             fontSize:   11,
-            background: '#EBF1FB',
-            color:      '#0A3D8F',
-            border:     '1px solid #BFDBFE',
+            background: 'var(--accent-soft)',
+            color:      'var(--title)',
+            border:     '1px solid var(--accent-line)',
           }}
         >
           <span style={{ fontSize: 10, opacity: 0.7 }}>{filterLabel}:</span>
@@ -101,7 +101,7 @@ export function ActiveFilterBar({ filters }: Props) {
               background:  'none',
               border:      'none',
               cursor:      'pointer',
-              color:       '#0A3D8F',
+              color:       'var(--title)',
               padding:     0,
               marginLeft:  2,
               fontSize:    13,

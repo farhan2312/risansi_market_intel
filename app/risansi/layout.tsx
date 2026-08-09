@@ -1,6 +1,5 @@
 import { IBM_Plex_Sans, IBM_Plex_Mono, Instrument_Serif } from 'next/font/google';
 import { getServerSession } from 'next-auth/next';
-import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { cache } from 'react';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
@@ -39,10 +38,6 @@ function getInitials(name: string): string {
   return ((parts[0][0] ?? '') + (parts[parts.length - 1][0] ?? '')).toUpperCase();
 }
 
-function isMobileUA(ua: string): boolean {
-  return /Mobile|Android|iPhone|iPad|iPod|Opera Mini|IEMobile/i.test(ua);
-}
-
 function toSidebarRole(role: string): SidebarRole {
   if (role === 'sysadmin') return 'sysadmin';
   if (role === 'admin')    return 'admin';
@@ -63,10 +58,6 @@ export default async function RisansiLayout({ children }: { children: React.Reac
   if (session.user.mustChange) {
     redirect('/change-password');
   }
-
-  const headersList = await headers();
-  const ua = headersList.get('user-agent') ?? '';
-  const _isMobile = isMobileUA(ua);
 
   const email       = session.user.email;
   const role        = session.user.role ?? 'rep';
@@ -94,7 +85,7 @@ export default async function RisansiLayout({ children }: { children: React.Reac
         display:             'flex',
         height:              '100vh',
         overflow:            'hidden',
-        background:          '#F4F6FB',
+        background:          'var(--bg)',
       }}
     >
       <Sidebar
@@ -109,7 +100,7 @@ export default async function RisansiLayout({ children }: { children: React.Reac
           email:    email,
         }}
       />
-      <main className="risansi-main" style={{ flex: 1, overflowY: 'auto', background: '#F4F6FB', minWidth: 0 }}>
+      <main className="risansi-main" style={{ flex: 1, overflowY: 'auto', background: 'var(--bg)', minWidth: 0 }}>
         {children}
       </main>
 

@@ -210,8 +210,8 @@ const PRIMARY_BTN: CSSProperties = { padding: '7px 14px', fontSize: 12, fontWeig
 const CONTROL: CSSProperties = {
   width: 210, textAlign: 'left',
   padding: '7px 28px 7px 10px', fontSize: 13, fontFamily: 'inherit',
-  background: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: 6,
-  color: '#0D1B2A', outline: 'none', boxSizing: 'border-box', cursor: 'pointer',
+  background: 'var(--bg-elev)', border: '1px solid var(--line-strong)', borderRadius: 6,
+  color: 'var(--fg)', outline: 'none', boxSizing: 'border-box', cursor: 'pointer',
   appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none',
   backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 16 16' fill='none' stroke='%236B7FA3' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4 6.5 8 10.5 12 6.5'/></svg>")`,
   backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center',

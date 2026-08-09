@@ -12,6 +12,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Not part of the Next app: `.claude/` is harness/tooling (and embeds a
+    // whole separate project under impeccable-main), `design/` is scratch
+    // prototypes. Linting them only drowned the real app signal in noise.
+    ".claude/**",
+    "design/**",
   ]),
 ]);
 

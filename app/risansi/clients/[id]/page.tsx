@@ -1658,14 +1658,6 @@ const PANEL_TITLE: CSSProperties = { fontSize: 12, fontWeight: 500, letterSpacin
 
 const MICRO_LBL: CSSProperties = { fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.10em', fontWeight: 500 };
 
-const TH: CSSProperties = {
-  padding: '9px 12px', textAlign: 'left', fontSize: 10,
-  textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 500,
-  color: 'var(--fg-3)', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap',
-};
-
-const TD: CSSProperties = { padding: '10px 12px', verticalAlign: 'middle' };
-
 const REV_TH: CSSProperties = {
   padding: '5px 8px', textAlign: 'right', fontSize: 10,
   fontFamily: 'var(--font-mono)', color: 'var(--fg-3)', fontWeight: 400,

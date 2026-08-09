@@ -82,9 +82,9 @@ export function SalesOrderList({
       {hasFinal && (
         <div style={{
           marginTop: 10, padding: '8px 12px', borderRadius: 7, fontSize: 12,
-          background: covered ? '#D1FAE5' : 'var(--bg-elev)',
+          background: covered ? 'var(--pos-soft)' : 'var(--bg-elev)',
           border: `1px solid ${covered ? 'rgba(6,95,70,0.25)' : 'var(--line)'}`,
-          color: covered ? '#065F46' : 'var(--fg-2)',
+          color: covered ? 'var(--pos-strong)' : 'var(--fg-2)',
           display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8,
         }}>
           <span>SO total <strong>{fmtInr(total)}</strong> of {fmtInr(finalValueInr as number)}</span>

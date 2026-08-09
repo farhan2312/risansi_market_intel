@@ -6,7 +6,7 @@ export default function Loading() {
       {/* Topbar placeholder */}
       <div style={{
         height: 52, flexShrink: 0,
-        background: '#fff',
+        background: 'var(--bg-paper)',
         borderBottom: '1px solid var(--line)',
       }} />
 

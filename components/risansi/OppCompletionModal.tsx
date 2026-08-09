@@ -57,7 +57,7 @@ export function OppCompletionModal({ opp, stage, onSave, onCancel }: {
       <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 400 }} />
       <div className="risansi-modal" style={{
         position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-        width: 480, background: 'white', borderRadius: 12,
+        width: 480, background: 'var(--bg-paper)', borderRadius: 12,
         boxShadow: '0 24px 64px rgba(0,0,0,0.2)', zIndex: 401, overflow: 'hidden',
       }}>
         {/* Coloured header */}
@@ -112,7 +112,7 @@ export function OppCompletionModal({ opp, stage, onSave, onCancel }: {
                   <label style={LABEL}>Notes (optional)</label>
                   <textarea name="notes" rows={3} defaultValue={opp.notes ?? ''} placeholder="Any notes about the win…" style={{ ...INPUT, resize: 'vertical' }} />
                 </div>
-                <div style={{ padding: '10px 14px', background: '#D1FAE5', borderRadius: 7, fontSize: 12, color: '#065F46' }}>
+                <div style={{ padding: '10px 14px', background: 'var(--pos-soft)', borderRadius: 7, fontSize: 12, color: 'var(--pos-strong)' }}>
                   ✓ Once saved, the deal is locked — but you can still record more Sales Orders against it until they cover the final value (Won · Open → Won · Closed).
                 </div>
               </div>
@@ -149,7 +149,7 @@ export function OppCompletionModal({ opp, stage, onSave, onCancel }: {
                   <label style={LABEL}>Additional Notes (optional)</label>
                   <textarea name="notes" rows={3} defaultValue={opp.notes ?? ''} placeholder="What could we have done differently?" style={{ ...INPUT, resize: 'vertical' }} />
                 </div>
-                <div style={{ padding: '10px 14px', background: '#FDE8E8', borderRadius: 7, fontSize: 12, color: '#9B1C1C' }}>
+                <div style={{ padding: '10px 14px', background: 'var(--neg-soft)', borderRadius: 7, fontSize: 12, color: 'var(--neg-strong)' }}>
                   ✗ Once saved, this opportunity will be locked. Lost data feeds the Win Rate and Competitor analysis.
                 </div>
               </div>
@@ -168,14 +168,14 @@ export function OppCompletionModal({ opp, stage, onSave, onCancel }: {
                   <label style={LABEL}>Additional Notes (optional)</label>
                   <textarea name="notes" rows={3} defaultValue={opp.notes ?? ''} placeholder="Any context worth keeping…" style={{ ...INPUT, resize: 'vertical' }} />
                 </div>
-                <div style={{ padding: '10px 14px', background: '#F1F5F9', borderRadius: 7, fontSize: 12, color: '#475569' }}>
+                <div style={{ padding: '10px 14px', background: 'var(--bg-elev)', borderRadius: 7, fontSize: 12, color: 'var(--fg-2)' }}>
                   🚫 Dropped means the requirement went away — it is excluded from open pipeline and does not count against win rate the way a Lost does.
                 </div>
               </div>
             )}
 
             {error && (
-              <div style={{ marginTop: 12, padding: '8px 12px', background: '#FDE8E8', border: '1px solid #F87171', borderLeft: '3px solid #E02424', borderRadius: 5, color: '#9B1C1C', fontSize: 12 }}>
+              <div style={{ marginTop: 12, padding: '8px 12px', background: 'var(--neg-soft)', border: '1px solid var(--neg)', borderLeft: '3px solid var(--neg)', borderRadius: 5, color: 'var(--neg-strong)', fontSize: 12 }}>
                 {error}
               </div>
             )}
@@ -183,7 +183,7 @@ export function OppCompletionModal({ opp, stage, onSave, onCancel }: {
 
           {/* Footer */}
           <div style={{ padding: '12px 24px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--line)' }}>
-            <button type="button" onClick={onCancel} style={{ padding: '8px 14px', borderRadius: 6, border: '1px solid var(--line-strong)', background: 'white', cursor: 'pointer', fontSize: 13, color: 'var(--fg-3)', fontFamily: 'inherit' }}>
+            <button type="button" onClick={onCancel} style={{ padding: '8px 14px', borderRadius: 6, border: '1px solid var(--line-strong)', background: 'var(--bg-paper)', cursor: 'pointer', fontSize: 13, color: 'var(--fg-3)', fontFamily: 'inherit' }}>
               ← Go back (revert move)
             </button>
             <button type="submit" disabled={loading} style={{
@@ -207,6 +207,6 @@ const LABEL: CSSProperties = {
 
 const INPUT: CSSProperties = {
   width: '100%', padding: '8px 10px', border: '1px solid var(--line-strong)',
-  borderRadius: 6, fontSize: 13, background: 'white', color: 'var(--fg)',
+  borderRadius: 6, fontSize: 13, background: 'var(--bg-paper)', color: 'var(--fg)',
   boxSizing: 'border-box', fontFamily: 'inherit',
 };

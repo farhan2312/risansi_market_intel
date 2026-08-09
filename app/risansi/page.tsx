@@ -1365,14 +1365,6 @@ function OppStat({ label, value, sub, color, divider = false }: {
   );
 }
 
-function GhostBtn({ children }: { children: React.ReactNode }) {
-  return (
-    <button style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', fontSize: 11, fontFamily: 'inherit', background: 'transparent', border: '1px solid transparent', color: 'var(--fg-2)', borderRadius: 5, cursor: 'pointer' }}>
-      {children}
-    </button>
-  );
-}
-
 function RepKpi({ label, value, sub, neg = false }: { label: string; value: string; sub: string; neg?: boolean }) {
   return (
     <div style={{ ...KPI_PANEL, minHeight: 110 }}>

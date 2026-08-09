@@ -51,8 +51,8 @@ export function UsdRateForm({ current }: { current: string }) {
 
 const INP: CSSProperties = {
   width: 120, padding: '8px 10px', fontSize: 14, fontFamily: 'inherit',
-  background: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: 6,
-  color: '#0D1B2A', outline: 'none',
+  background: 'var(--bg-elev)', border: '1px solid var(--line-strong)', borderRadius: 6,
+  color: 'var(--fg)', outline: 'none',
 };
 const BTN: CSSProperties = {
   padding: '8px 16px', fontSize: 13, fontWeight: 600, background: '#0A3D8F',
