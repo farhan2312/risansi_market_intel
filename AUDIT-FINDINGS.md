@@ -2,7 +2,25 @@
 
 Read-only audit of risansi_market_intel at commit a2bc561. Findings from 4 workflow waves (23 area auditors, adversarial verification of every CRITICAL/HIGH) plus a hand audit of the infra layer and the four already-known items. CRITICAL/HIGH tagged **verified** survived an adversarial refutation pass; 3 HIGH candidates were refuted and excluded.
 
-Totals after dedupe: **176** — CRITICAL 1 / HIGH 11 / MEDIUM 72 / LOW 92
+Totals after dedupe: **176** — CRITICAL 1 / HIGH 11 / MEDIUM 72 / LOW 92.
+Plus **8 items found during remediation** (#177–184, appended below), bringing the register to **184**.
+
+## Reconciliation vs current code (post-remediation, commit `d713680`)
+
+Every finding was re-verified against the working tree after Waves 1–4 (a 13-agent
+reconciliation workflow + adversarial diff-review). Status of the original 176:
+
+| Severity | Resolved | Partial | Open | Obsolete | Total |
+|----------|----------|---------|------|----------|-------|
+| CRITICAL | 1 | 0 | 0 | 0 | 1 |
+| HIGH | 11 | 0 | 0 | 0 | 11 |
+| MEDIUM | 8 | 7 | 57 | 0 | 72 |
+| LOW | 20 | 3 | 68 | 1 | 92 |
+| **Total** | **40** | **10** | **125** | **1** | **176** |
+
+**All CRITICAL + HIGH resolved.** The 8 new items (#177–184): 5 resolved (incl. the
+3 regressions the diff-review caught and `d713680` fixed), 2 open (lint backlog,
+no build-in-CI), 1 dev-only non-issue. Combined resolved: **45 / 184**.
 
 | # | Sev | Conf | Lens | Location | What | Why it matters | Fix | Eff |
 |---|-----|------|------|----------|------|----------------|-----|-----|
@@ -182,3 +200,13 @@ Totals after dedupe: **176** — CRITICAL 1 / HIGH 11 / MEDIUM 72 / LOW 92
 | 174 | LOW | CONFIRMED | performance | lib/risansi-action-queue.ts:25 | The row cap is baked into the shared TASK_ORDER constant, so buildTasksQuery cannot paginate; the registry page shows open/overdue counts from buildTasksCountQuery but never says the list was truncated. | 49 tasks today so latent, but past 200 the Action Registry silently stops showing actions while the header count keeps climbing, with no way | Move the cap into TaskQueryOpts ('limit', 'offset'), append 'LIMIT $n OFFSET $n+1' in buildTasksQuery, and render a pager plus "showing 1-200 of N" from the count query. | M |
 | 175 | LOW | NEEDS-CHECK | PERFORMANCE | lib/risansi-quotation-parser.ts:153 | rowRe has adjacent lazy quantifiers over overlapping character classes that also include space, separated by \s+. On a long ambiguous run (uppercase/digit/space with no trailing amount) the engine can backtrack | Potential catastrophic backtracking (ReDoS) on adversarial PDF-extracted text. Input is an authenticated rep/manager upload, so worst case i | Anchor rows more tightly (e.g. split lines and match per-line), or bound the class widths; add a length guard on the section body before running the global regex. | M |
 | 176 | LOW | CONFIRMED | GOVERNANCE | lib/risansi-sales-orders.ts:25 | Money-parsing and SQL-building helpers (parseSalesOrdersJson, parseOfferRevisionsJson, parseQuotationText, buildOppFilter, summariseStage) have no unit tests — the only *.test.* files are under node_modules — d | Rupee↔crore conversion, per-row validation and pipeline SQL are correctness-critical and silently regressible; console-only logging in cron/ | Add unit tests for the parse/summary helpers (they are already pure). Route caught errors in risansi-notify.ts through an error monitor (Sentry/log drain) instead of console.error  | M |
+
+<!-- Items #177–184 were found DURING remediation (not in the original a2bc561 audit). The "Fix" column records current status. -->
+| 177 | MEDIUM | RESOLVED | CORRECTNESS | lib/risansi-utils.ts:357 + app/risansi/field/page.tsx:488 | Regression from Wave 2 (42276d9): isPastDue did String(due).slice(0,10), but the Field→Activities query selects t.due_date raw, so pg returns a Date; String(Date) is "Wed Aug 06 …" not "2026-08-06", so every open task compared as not-overdue. | The Field → Activities overdue count read 0 and no ⚠ badges showed — a silently-wrong operational indicator. | RESOLVED d713680: isPastDue normalises a Date via local parts; field query casts t.due_date::text so runtime matches the string type. | S |
+| 178 | LOW | RESOLVED | UI/UX | components/risansi/AddRepButton.tsx / AddTourButton.tsx | Regression from Wave 4 (6b63250): tokenising the solid CTA fill to var(--brand-blue), which lightens to #4A8FE8 in dark mode, put white button text at ~3.3:1 (below AA 4.5). | Primary admin-modal buttons rendered low-contrast in dark theme. | RESOLVED d713680: solid white-text CTA fills reverted to the fixed brand navy; surfaces/inputs/toggles stay tokenised. | S |
+| 179 | LOW | RESOLVED | UI/UX | app/risansi/revenue/loading.tsx / visits/coverage/loading.tsx | Gap from Wave 4 (6b63250): the loader sed sweep covered #fff/#DDE6F5/the 0A3D8F border but missed #F4F7FC and #EBF1FB, leaving light bands in two loaders. | Two loaders showed light bands in dark mode. | RESOLVED d713680: now var(--bg)/var(--accent-soft); all loaders token-only. | S |
+| 180 | LOW | OPEN | GOVERNANCE | (app-wide, eslint) | 34 app-level lint errors remain after .claude/ + design/ were ignored — mostly strict React-Compiler rules (setState-in-effect, impure-function-during-render, reassign-after-render) plus a few no-explicit-any. | CI's lint step is kept non-blocking; it can't flip to blocking until this backlog is burned down. | OPEN: fix or rule-scope the 34 errors, then set lint to blocking in ci.yml. | M |
+| 181 | INFO | RESOLVED | GOVERNANCE | eslint.config.mjs | Config hygiene: eslint was linting an embedded foreign project (.claude/impeccable-main) and the scratch design/ dir, which held 106 of 140 total errors. | Real-app lint signal was drowned in non-app noise. | RESOLVED 6b63250: both dirs added to globalIgnores. | S |
+| 182 | INFO | RESOLVED | GOVERNANCE | build vs dev (app/globals.css) | Build/dev parity gap: the production build (lightningcss) tolerated a malformed CSS comment (a `**/` glob inside a comment) that the Turbopack dev parser rejected with a 500. | A CSS error can ship via `next build` yet break `next dev`; build is not a strict superset of dev parsing. | Instance fixed in 6b63250 (comment reworded); parity gap noted. Browser verification is what caught it. | S |
+| 183 | INFO | RESOLVED | SECURITY | next.config.ts + Turbopack | Dev-only quirk: global X-Content-Type-Options nosniff makes the Turbopack DEV server refuse _clientMiddlewareManifest.js (dev mislabels it application/json). | Dev-only console noise; verified via `next start` that production serves it application/javascript, so nosniff does not block it — no production impact. | No action needed (Next dev-server quirk); nosniff retained for prod. | S |
+| 184 | INFO | OPEN | GOVERNANCE | .github/workflows/ci.yml | CI runs tsc (blocking) + lint (non-blocking) but not `next build`, because build needs the production DB/NEXTAUTH secrets. | A build-only failure that tsc misses (e.g. a server-component-only issue) can still reach the Vercel deploy. | OPEN: add a build job once DB_* / NEXTAUTH_* are wired as GitHub Actions secrets. | M |

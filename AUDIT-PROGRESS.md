@@ -60,8 +60,17 @@ each tsc-clean, production-build-clean, and verified before commit.
 | 3 | Performance & cost (session dedupe via React cache, task indexes / migration 0049, tab-gated + debounced queries) | `4c84e82` | ✅ shipped |
 | 4 | UX + governance (security headers, broken skeletons, dark-mode tokens, dead-code deletion, minimal CI) | `6b63250` | ✅ shipped |
 
-**The 1 CRITICAL and all 11 HIGH findings are resolved** (Wave 1). Most MEDIUM
-and many LOW findings are resolved across Waves 2–4.
+**The 1 CRITICAL and all 11 HIGH findings are resolved** (Wave 1). A 13-agent
+reconciliation of the full register against the current working tree (commit
+`d713680`) gives, for the original 176: **40 resolved, 10 partial, 125 open, 1
+obsolete** (breakdown table in [AUDIT-FINDINGS.md](AUDIT-FINDINGS.md)). Every
+open/partial item is MEDIUM or LOW.
+
+That reconciliation's adversarial diff-review also surfaced **8 new items
+(#177–184)** introduced or discovered during remediation — including three real
+regressions from my own waves (a broken Field-tab overdue indicator, a dark-mode
+button-contrast drop, two missed loader colours), all fixed in `d713680`.
+Combined resolved: **45 / 184**.
 
 ### Deferred (still open in the register)
 
