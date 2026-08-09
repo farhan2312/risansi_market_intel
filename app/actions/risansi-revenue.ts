@@ -51,6 +51,20 @@ export async function uploadRevenue(rows: UploadPayloadRow[]): Promise<UploadRes
   let skipped  = 0;
   const skippedCodes: string[] = [];
 
+  // Open the upload log FIRST, so every revenue row this upload writes can carry
+  // its id (upload_id). That is what makes an undo delete exactly this upload's
+  // rows and no one else's — see deleteUpload. Counts are filled in at the end.
+  const firstMonth = parseMonth(rows[0]?.month ?? '') ?? null;
+  let uploadId: number | null = null;
+  try {
+    const logRow = await risansiPool.query<{ id: number }>(
+      `INSERT INTO revenue_upload_log (uploaded_by, filename, month, rows_total, status)
+       VALUES ($1, $2, $3, $4, 'pending') RETURNING id`,
+      [session!.user!.email, rows[0]?.filename ?? 'unknown', firstMonth, rows.length],
+    );
+    uploadId = logRow.rows[0]?.id ?? null;
+  } catch { /* revenue_upload_log may not exist — proceed without an undo handle */ }
+
   // Batch-lookup all client IDs
   const codes = [...new Set(rows.map(r => r.client_code))];
   const clientRes = await risansiPool.query<{ id: string; code: string }>(
@@ -87,49 +101,38 @@ export async function uploadRevenue(rows: UploadPayloadRow[]): Promise<UploadRes
 
     await risansiPool.query(
       `INSERT INTO client_revenue_monthly
-         (client_id, month, pump_value, spare_value, total_value, entered_by, entered_at)
-       VALUES ($1, $2, $3, $4, $5, $6, NOW())
+         (client_id, month, pump_value, spare_value, total_value, entered_by, entered_at, upload_id)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7)
        ON CONFLICT (client_id, month) DO UPDATE SET
          pump_value  = EXCLUDED.pump_value,
          spare_value = EXCLUDED.spare_value,
          total_value = EXCLUDED.total_value,
          entered_by  = EXCLUDED.entered_by,
-         entered_at  = NOW()`,
-      [clientId, monthDate, pump, spare, total, session!.user!.email],
+         entered_at  = NOW(),
+         upload_id   = EXCLUDED.upload_id`,
+      // ON CONFLICT: the latest upload to touch a (client, month) cell owns it.
+      [clientId, monthDate, pump, spare, total, session!.user!.email, uploadId],
     );
 
     if (existing.rows.length > 0) updated++;
     else inserted++;
   }
 
-  // Determine month from first valid row for the log
-  const firstMonth = parseMonth(rows[0]?.month ?? '') ?? null;
-
-  // Log the upload (silently — table may not exist yet)
-  try {
+  // Finalise the log row opened at the top with the real counts + status.
+  if (uploadId != null) {
     const status =
       skipped === rows.length ? 'failed' :
       skipped > 0             ? 'partial' : 'success';
-
-    await risansiPool.query(
-      `INSERT INTO revenue_upload_log
-         (uploaded_by, filename, month, rows_total,
-          rows_inserted, rows_updated, rows_skipped,
-          skipped_codes, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-      [
-        session!.user!.email,
-        rows[0]?.filename ?? 'unknown',
-        firstMonth,
-        rows.length,
-        inserted,
-        updated,
-        skipped,
-        skippedCodes,
-        status,
-      ],
-    );
-  } catch { /* revenue_upload_log may not exist — non-fatal */ }
+    try {
+      await risansiPool.query(
+        `UPDATE revenue_upload_log
+            SET rows_inserted = $2, rows_updated = $3, rows_skipped = $4,
+                skipped_codes = $5, status = $6
+          WHERE id = $1`,
+        [uploadId, inserted, updated, skipped, skippedCodes, status],
+      );
+    } catch { /* non-fatal — the revenue rows are already written */ }
+  }
 
   revalidatePath('/risansi/admin/revenue');
   return { inserted, updated, skipped, skippedCodes };
@@ -150,16 +153,21 @@ export async function deleteUpload(logId: number, _month: string): Promise<void>
   );
   if (!logRes.rows[0]) throw new Error('Upload log not found');
 
-  const { uploaded_by, month: uploadMonth } = logRes.rows[0];
-
-  // Remove revenue data that was entered by this uploader for that month
-  await risansiPool.query(
-    `DELETE FROM client_revenue_monthly WHERE month = $1 AND entered_by = $2`,
-    [uploadMonth, uploaded_by],
+  // Delete EXACTLY the rows this upload wrote — keyed on upload_id (migration
+  // 0048), not on (month, uploaded_by). The old key blew away every row that
+  // uploader had ever entered for the month, including a different upload's.
+  // Legacy uploads (pre-0048) have no upload_id on their rows, so this removes
+  // nothing for them — deliberately safer than guessing which rows were theirs.
+  const del = await risansiPool.query(
+    `DELETE FROM client_revenue_monthly WHERE upload_id = $1`,
+    [logId],
   );
 
-  // Remove log entry
   await risansiPool.query(`DELETE FROM revenue_upload_log WHERE id = $1`, [logId]);
 
   revalidatePath('/risansi/admin/revenue');
+  if ((del.rowCount ?? 0) === 0) {
+    // Surface the legacy case so an admin isn't left thinking rows vanished.
+    console.warn(`[deleteUpload] log ${logId} removed but 0 revenue rows matched upload_id (legacy pre-0048 upload).`);
+  }
 }

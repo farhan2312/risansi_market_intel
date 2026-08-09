@@ -106,18 +106,37 @@ export async function saveExpansionOpportunity(input: {
   );
   const existingId = existing.rows[0]?.id ?? null;
 
-  // Toggled "No" → drop the draft expansion opp if one exists.
+  // Toggled "No" → drop the draft expansion opp if one exists — but only while
+  // it is still a pristine draft. Once it has moved past Suspect, or picked up a
+  // Sales Order, deleting it would hard-remove a real deal (SOs cascade). In that
+  // case DETACH it from the visit instead and keep it standing on the board.
   if (!input.hasExpansion) {
     if (existingId) {
-      const prod = (await risansiPool.query<{ product: string }>(
-        'SELECT product FROM opportunities WHERE id = $1', [existingId],
-      )).rows[0]?.product ?? 'Expansion';
-      await risansiPool.query('DELETE FROM opportunities WHERE id = $1', [existingId]);
-      await recordAudit({
-        action: 'delete', entityType: 'client', entityId: input.clientId,
-        summary: `opportunity removed (expansion): ${prod}`,
-        actorEmail: session.user.email,
-      });
+      const info = (await risansiPool.query<{ product: string; stage: string; so: number }>(
+        `SELECT product, stage,
+                (SELECT count(*) FROM opportunity_sales_orders s WHERE s.opportunity_id = o.id)::int AS so
+           FROM opportunities o WHERE id = $1`, [existingId],
+      )).rows[0];
+      const prod = info?.product ?? 'Expansion';
+      const advanced = info && (info.stage !== 'Suspect' || info.so > 0);
+      if (advanced) {
+        await risansiPool.query(
+          `UPDATE opportunities SET visit_id = NULL, auto_source = NULL, updated_at = NOW() WHERE id = $1`,
+          [existingId],
+        );
+        await recordAudit({
+          action: 'update', entityType: 'client', entityId: input.clientId,
+          summary: `expansion un-tagged from visit (kept on pipeline): ${prod}`,
+          actorEmail: session.user.email,
+        });
+      } else {
+        await risansiPool.query('DELETE FROM opportunities WHERE id = $1', [existingId]);
+        await recordAudit({
+          action: 'delete', entityType: 'client', entityId: input.clientId,
+          summary: `opportunity removed (expansion): ${prod}`,
+          actorEmail: session.user.email,
+        });
+      }
       revalidatePath(`/risansi/visits/${input.visitId}`);
       revalidatePath('/risansi/pipeline');
     }

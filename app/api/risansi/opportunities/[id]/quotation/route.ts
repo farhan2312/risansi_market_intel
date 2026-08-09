@@ -46,14 +46,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
   const fileName = (file instanceof File && file.name) ? file.name : 'quotation.pdf';
   const mime = file.type || 'application/pdf';
-  if (!/pdf/i.test(mime) && !/\.pdf$/i.test(fileName)) {
-    return NextResponse.json({ error: 'Please upload a PDF file.' }, { status: 415 });
-  }
   if (file.size > MAX_BYTES) {
     return NextResponse.json({ error: 'File is too large (max 15 MB).' }, { status: 413 });
   }
 
   const bytes = Buffer.from(await file.arrayBuffer());
+
+  // A real PDF, verified three ways: claimed mime AND filename AND the %PDF-
+  // magic bytes. The old check passed on mime OR extension, so an .html/.svg
+  // renamed x.pdf was stored with its real (script-bearing) mime and later
+  // served inline — stored XSS in every colleague's browser. Store as PDF only.
+  const looksPdf = /pdf/i.test(mime) && /\.pdf$/i.test(fileName)
+    && bytes.length >= 5 && bytes.subarray(0, 5).toString('latin1') === '%PDF-';
+  if (!looksPdf) {
+    return NextResponse.json({ error: 'Please upload a valid PDF file.' }, { status: 415 });
+  }
 
   // Parse best-effort — never let extraction failure block storing the file.
   let parsed: ReturnType<typeof parseQuotationText> = { meta: {}, items: [] };
@@ -127,7 +134,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   return new NextResponse(body, {
     status: 200,
     headers: {
-      'Content-Type': rec.mime || 'application/pdf',
+      // Hardcode application/pdf and forbid MIME-sniffing rather than echoing the
+      // stored mime — even if a bad row predates the upload hardening above, the
+      // browser will never execute it as HTML/SVG.
+      'Content-Type': 'application/pdf',
+      'X-Content-Type-Options': 'nosniff',
       'Content-Disposition': `inline; filename="${rec.file_name.replace(/["\r\n]/g, '')}"`,
       'Content-Length': String(body.byteLength),
       'Cache-Control': 'private, no-store',

@@ -4,7 +4,7 @@ import { getServerSession } from 'next-auth/next';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, canViewClient } from '@/lib/risansi-auth';
+import { getCurrentUser, canViewClient, hasRole } from '@/lib/risansi-auth';
 import { notifyActionAssigned } from '@/lib/risansi-email';
 import { pushInApp } from '@/lib/risansi-inapp';
 
@@ -12,6 +12,26 @@ async function requireEmail(): Promise<string> {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) throw new Error('Unauthorized');
   return session.user.email;
+}
+
+/**
+ * May the current user change/delete this task? A session alone was the whole
+ * check before, so any rep could complete or delete any team's tasks by id.
+ * Allowed if: admin+, the task's creator, its assigned rep, or someone who can
+ * see the task's client (tour-based). Throws otherwise.
+ */
+async function assertCanManageTask(taskId: number): Promise<void> {
+  const user = await getCurrentUser();
+  const { rows } = await risansiPool.query<{ client_id: number | null; created_by: string | null; assigned_to_rep: number | null }>(
+    'SELECT client_id, created_by, assigned_to_rep FROM tasks WHERE id = $1', [taskId],
+  );
+  const t = rows[0];
+  if (!t) throw new Error('Task not found.');
+  if (hasRole(user.role, 'admin')) return;
+  if (user.email && t.created_by && t.created_by.toLowerCase() === user.email.toLowerCase()) return;
+  if (user.id != null && t.assigned_to_rep != null && Number(t.assigned_to_rep) === Number(user.id)) return;
+  if (t.client_id != null && await canViewClient(user, Number(t.client_id))) return;
+  throw new Error('You do not have permission to change this task.');
 }
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -149,6 +169,8 @@ export async function addTask({
 
 export async function updateTaskStatus(taskId: number, status: 'open' | 'completed') {
   const email = await requireEmail();
+  await assertCanManageTask(taskId);
+  if (status !== 'open' && status !== 'completed') throw new Error('Invalid status.');
 
   await risansiPool.query(
     `UPDATE tasks
@@ -171,6 +193,7 @@ export async function updateTaskStatus(taskId: number, status: 'open' | 'complet
 
 export async function deleteTask(taskId: number) {
   await requireEmail();
+  await assertCanManageTask(taskId);
 
   const taskRes = await risansiPool.query<{ visit_id: number | null }>(
     'SELECT visit_id FROM tasks WHERE id = $1',

@@ -159,6 +159,21 @@ async function resolveAssignableRepId(
 // the client (a rep/manager on its tour, a special-access grantee, or admin) may
 // edit it. `clientId` is what makes this tour-based — pass it wherever possible.
 // The oppRepId fast-path and the manager fallback remain for callers that don't.
+// Read-guard for an opportunity's sub-records (SOs/POs). These are exported
+// server actions = callable endpoints, so without this anyone could enumerate a
+// deal's commercial data by id. Viewing follows client visibility (edit rights
+// are stricter and enforced separately by userCanEditOpp).
+async function assertCanViewOpp(oppId: number): Promise<void> {
+  const user = await getCurrentUser();
+  const { rows } = await risansiPool.query<{ client_id: number | null }>(
+    'SELECT client_id FROM opportunities WHERE id = $1', [oppId],
+  );
+  if (!rows[0]) throw new Error('Opportunity not found.');
+  if (rows[0].client_id == null || !(await canViewClient(user, Number(rows[0].client_id)))) {
+    throw new Error('You do not have access to this opportunity.');
+  }
+}
+
 async function userCanEditOpp(
   user: { role?: string; repId?: number | null; email?: string | null },
   oppRepId: number | null,
@@ -246,6 +261,7 @@ export async function addContact(formData: FormData): Promise<void> {
   const isPrimary = formData.get('is_primary') === 'true';
 
   if (isNaN(clientId) || clientId <= 0) throw new Error('Invalid client ID');
+  if (!(await canViewClient(await getCurrentUser(), clientId))) throw new Error('You do not have access to this client.');
   if (!name || name.length < 2) throw new Error('Contact name is required (min 2 characters)');
 
   const designation = (formData.get('designation') as string | null)?.trim() || null;
@@ -279,6 +295,13 @@ export async function addContact(formData: FormData): Promise<void> {
 
 export async function updateContact(contactId: number, clientId: number, formData: FormData): Promise<void> {
   const user = await requireSession();
+  // Resolve the contact's real owner server-side — never trust the clientId the
+  // caller passed — and require access to it. Without this any rep could rewrite
+  // any contact by id.
+  const owner = (await risansiPool.query<{ client_id: number }>('SELECT client_id FROM contacts WHERE id = $1', [contactId])).rows[0];
+  if (!owner) throw new Error('Contact not found.');
+  if (!(await canViewClient(await getCurrentUser(), owner.client_id))) throw new Error('You do not have access to this contact.');
+  clientId = owner.client_id;
 
   const name = (formData.get('name') as string | null)?.trim() ?? '';
   if (!name || name.length < 2) throw new Error('Contact name is required (min 2 characters)');
@@ -303,8 +326,8 @@ export async function updateContact(contactId: number, clientId: number, formDat
        name = $1, designation = $2, is_primary = $3,
        phone = $4, email = $5, whatsapp = $6, notes = $7,
        updated_at = NOW()
-     WHERE id = $8`,
-    [name, designation, isPrimary, phone, email, whatsapp, notes, contactId],
+     WHERE id = $8 AND client_id = $9`,
+    [name, designation, isPrimary, phone, email, whatsapp, notes, contactId, clientId],
   );
 
   await logActivity('client', String(clientId), `Contact Updated: ${name}`, user.email!);
@@ -315,9 +338,12 @@ export async function updateContact(contactId: number, clientId: number, formDat
 
 export async function deleteContact(contactId: number, clientId: number): Promise<void> {
   const user = await requireSession();
-  await risansiPool.query('DELETE FROM contacts WHERE id = $1', [contactId]);
-  await logActivity('client', String(clientId), 'Contact Deleted', user.email!);
-  revalidatePath(`/risansi/clients/${clientId}`);
+  const owner = (await risansiPool.query<{ client_id: number }>('SELECT client_id FROM contacts WHERE id = $1', [contactId])).rows[0];
+  if (!owner) return;   // already gone
+  if (!(await canViewClient(await getCurrentUser(), owner.client_id))) throw new Error('You do not have access to this contact.');
+  await risansiPool.query('DELETE FROM contacts WHERE id = $1 AND client_id = $2', [contactId, owner.client_id]);
+  await logActivity('client', String(owner.client_id), 'Contact Deleted', user.email!);
+  revalidatePath(`/risansi/clients/${owner.client_id}`);
 }
 
 // ── Client: shared contact processing ──────────────────────────
@@ -1379,6 +1405,18 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
   // negotiation_notes was retired from the forms — no form submits it any more,
   // so this preserves whatever legacy records already hold.
   if (formData.get('negotiation_notes') === null) delete candidates.negotiation_notes;
+  // Broaden that guard to every field a partial submitter may not carry. The
+  // Won/Lost completion modal, for instance, sends no quote_ref / quote_date /
+  // unit_project / eta_text — so winning a deal used to blank its quote number
+  // and project name. A field the form doesn't submit at all (=== null) is left
+  // as it is; an explicit empty string still clears it.
+  for (const k of ['product','product_type','stage','eta_text','quote_ref','quote_date',
+                   'unit_project','notes','po_number','lost_to_competitor','lost_reason']) {
+    if (formData.get(k) === null) delete candidates[k];
+  }
+  // value_cr / final_value_cr are derived from rupee inputs; guard on the source.
+  if (formData.get('value_inr') === null)       delete candidates.value_cr;
+  if (formData.get('final_value_inr') === null) delete candidates.final_value_cr;
   // Probability: only write when a code is actually chosen. A blank/absent code
   // leaves the stored code AND the numeric % untouched — so editing one of the
   // many legacy opps (which have a numeric probability but no code yet) for an
@@ -1443,6 +1481,7 @@ async function insertSalesOrders(oppId: number, rows: SoInput[], email: string |
 }
 
 export async function listSalesOrders(oppId: number): Promise<SalesOrder[]> {
+  await assertCanViewOpp(oppId);
   const { rows } = await risansiPool.query<SalesOrder>(
     `SELECT id, opportunity_id, so_number, so_date::text AS so_date,
             so_value_cr::float8 AS so_value_cr, created_by
@@ -1518,6 +1557,7 @@ export async function updateWonFinalValue(oppId: number, formData: FormData): Pr
 // maths. Same Won-only gate and permission as the SO actions.
 
 export async function listPurchaseOrders(oppId: number): Promise<PurchaseOrder[]> {
+  await assertCanViewOpp(oppId);
   const { rows } = await risansiPool.query<PurchaseOrder>(
     `SELECT id, opportunity_id, po_number, po_date::text AS po_date,
             po_value_cr::float8 AS po_value_cr, created_by
@@ -1580,12 +1620,18 @@ export async function deletePurchaseOrder(poId: number): Promise<PurchaseOrder[]
 
 export async function deleteOpportunity(oppId: number) {
   const user = await requireSession();
-  const { rows } = await risansiPool.query<{ rep_id: number | null; client_id: number | null }>(
-    'SELECT rep_id, client_id FROM opportunities WHERE id = $1', [oppId],
+  const { rows } = await risansiPool.query<{ rep_id: number | null; client_id: number | null; stage: string }>(
+    'SELECT rep_id, client_id, stage FROM opportunities WHERE id = $1', [oppId],
   );
   if (!rows[0]) throw new Error('Opportunity not found.');
   if (!(await userCanEditOpp(user, rows[0].rep_id, rows[0].client_id))) {
     throw new Error('You do not have permission to delete this opportunity.');
+  }
+  // A Won or Lost deal is locked against edits everywhere else; deleting one
+  // hard-removes it AND cascades its Sales Orders (migration 0029), destroying
+  // booked-revenue records. Only an admin may delete a closed deal.
+  if ((rows[0].stage === 'Won' || rows[0].stage === 'Lost') && !hasRole(user.role, 'admin')) {
+    throw new Error('A Won or Lost opportunity is locked. Ask an admin to delete it.');
   }
   await risansiPool.query('DELETE FROM opportunities WHERE id = $1', [oppId]);
   await logActivity('opportunity', String(oppId), 'deleted opportunity', user.email!);

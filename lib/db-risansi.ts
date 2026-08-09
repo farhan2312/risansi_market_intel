@@ -13,7 +13,13 @@ const risansiPool: Pool =
     database: process.env.RISANSI_DB_NAME,
     user:     process.env.DB_USER,
     password: process.env.DB_PASSWORD,
-    ssl:      { rejectUnauthorized: false },
+    // Verify the server certificate. Azure Postgres chains to a publicly-trusted
+    // root, so Node's default trust store validates it with no custom CA — tested
+    // live before flipping this. Previously `rejectUnauthorized: false` accepted
+    // ANY certificate, leaving the connection open to a man-in-the-middle on the
+    // path to the DB. The DB_SSL_INSECURE=1 escape hatch exists only for a local
+    // proxy with a self-signed cert; never set it in production.
+    ssl:      { rejectUnauthorized: process.env.DB_SSL_INSECURE !== '1' },
     // Keep connections warm between requests so we don't pay a TLS
     // handshake to a far-region DB on every page load. A larger pool
     // lets multi-query pages (e.g. 6 parallel queries) run in one wave.
