@@ -44,6 +44,7 @@ const valueRangeSql = (col: string, labels: string[]): string => {
 
 interface Row {
   id: number; client_code: string | null; client_name: string | null;
+  client_type: string | null; industry: string | null;
   tour_name: string | null; tour_people: string | null;
   stage: string | null; product: string | null; unit_project: string | null;
   product_type: string | null; value_cr: number | null; probability_code: string | null;
@@ -133,6 +134,7 @@ export async function GET(req: Request) {
     rows = (await risansiPool.query<Row>(
       `SELECT o.id,
               c.code AS client_code, c.legal_name AS client_name,
+              c.client_type, c.industry,
               tr.name AS tour_name,
               -- Tour-based: an opportunity belongs to the client's tour and all
               -- its reps (managers marked). No single "owner rep".
@@ -197,6 +199,10 @@ export async function GET(req: Request) {
     { h: 'Opp ID', w: 8,  f: r => r.id },
     { h: 'Client Code', w: 14, f: r => r.client_code ?? '' },
     { h: 'Client Name', w: 30, f: r => r.client_name ?? '' },
+    // Client attributes, not opportunity ones — no dropdown validation, since
+    // editing them here would not write back to the client record.
+    { h: 'Client Type', w: 16, f: r => r.client_type ?? '' },
+    { h: 'Industry', w: 16, f: r => r.industry ?? '' },
     { h: 'Tour', w: 16, f: r => r.tour_name ?? '' },
     { h: 'Reps / Manager in Tour', w: 30, f: r => r.tour_people ?? '' },
     { h: 'Stage', w: 13, f: r => r.stage ?? '', list: 'Lists!$A$2:$A$9' },
