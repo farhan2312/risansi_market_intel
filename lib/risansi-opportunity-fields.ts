@@ -130,6 +130,10 @@ export const DROP_REASONS = [
   'Requirement closed',
   'Technically disqualified',
   'Closed no response from client',
+  // Housekeeping rather than a commercial outcome: the record should never have
+  // existed (mis-keyed) or duplicates one that already does. Distinct from
+  // 'Repeat or duplicate offer', which is a real second quote for the same job.
+  'Incorrect entry / Duplicate',
 ] as const;
 export type DropReason = typeof DROP_REASONS[number];
 
