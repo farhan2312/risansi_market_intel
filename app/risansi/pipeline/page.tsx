@@ -365,10 +365,21 @@ export default async function PipelinePage({
       }) as unknown as OppRow[];
     }, []),
 
-    // 1b. Recently closed opportunities (Won/Lost, last 12 months) — feeds the kanban's Won/Lost columns.
+    // 1b. Recently closed opportunities (Won/Lost/Dropped, last 12 months) — feeds
+    //     the kanban's closed columns.
+    //
+    //     The cap is applied PER STAGE, not across the closed set as a whole. Under a
+    //     single shared LIMIT the columns starve each other: Won carries ~800 rows to
+    //     Lost/Dropped's ~16 each, so ordering by updated_at let Won swallow the whole
+    //     budget and the Dropped column rendered empty while its own header still
+    //     counted 17. The duplicate merge made it total — it stamped updated_at on 106
+    //     Won survivors at once, which took 106 of the 200 slots. Partitioning the row
+    //     number by stage gives every column its own allowance.
     q<OppRow[]>(async () => {
       const { rows } = await risansiPool.query(`
+        SELECT * FROM (
         SELECT o.*,
+               ROW_NUMBER() OVER (PARTITION BY o.stage ORDER BY o.updated_at DESC NULLS LAST) AS closed_rn,
                -- Date columns as YYYY-MM-DD text (override the o.* raw dates,
                -- last-wins): a type="date" input can't read an ISO timestamp, and
                -- JS Date serialisation shifts the day by the server's timezone.
@@ -387,8 +398,9 @@ export default async function PipelinePage({
         JOIN clients c ON c.id = o.client_id
         LEFT JOIN users r ON r.id = o.rep_id
         ${closedWhere}
-        ORDER BY o.updated_at DESC NULLS LAST
-        LIMIT ${closedLimit}
+        ) x
+        WHERE x.closed_rn <= ${closedLimit}
+        ORDER BY x.updated_at DESC NULLS LAST
       `, vals as (string | number)[]
       );
       return rows.map((r) => {
