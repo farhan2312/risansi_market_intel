@@ -551,7 +551,18 @@ export default async function PipelinePage({
     //    the honest figure while the cards themselves stay capped for rendering.
     q<Record<string, { count: number; valueCr: number }>>(async () => {
       const { rows } = await risansiPool.query<{ stage: string; n: string; v: string }>(
-        `SELECT o.stage, count(*)::text AS n, COALESCE(SUM(o.value_cr), 0)::text AS v
+        // Won is summed on what the deal actually SOLD for, every other stage on
+        // what it is quoted at. value_cr is the quote and final_value_cr is the
+        // closed amount; for a Won row the quote is stale, so summing it made the
+        // kanban's Won column read Rs 27.5 Cr against Rs 24.9 Cr everywhere else on
+        // the same page. (The duplicate merge widened that: it sets final_value_cr
+        // to the confirmed order value and deliberately leaves value_cr as the
+        // original quote, so the two now differ by the negotiated discount on every
+        // merged deal.) COALESCE keeps the 7 Won rows that never got a final value.
+        `SELECT o.stage, count(*)::text AS n,
+                COALESCE(SUM(CASE WHEN o.stage = 'Won'
+                                  THEN COALESCE(o.final_value_cr, o.value_cr)
+                                  ELSE o.value_cr END), 0)::text AS v
            FROM opportunities o
            JOIN clients c ON c.id = o.client_id
            LEFT JOIN users r ON r.id = o.rep_id
