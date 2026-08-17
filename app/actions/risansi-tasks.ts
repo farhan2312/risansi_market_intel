@@ -4,7 +4,7 @@ import { getServerSession } from 'next-auth/next';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, canViewClient, hasRole } from '@/lib/risansi-auth';
+import { getCurrentUser, canViewClient, hasRole, canEditVisitReport } from '@/lib/risansi-auth';
 import { notifyActionAssigned } from '@/lib/risansi-email';
 import { pushInApp } from '@/lib/risansi-inapp';
 
@@ -113,7 +113,30 @@ export async function addTask({
   // external-assignee email so it can't be used to send from an arbitrary client.
   const user = await getCurrentUser();
   if (!user.email) throw new Error('Unauthorized');
-  if (!(await canViewClient(user, clientId))) {
+
+  // Tour membership is the usual test but not the only legitimate route in. Reps
+  // routinely file visits for clients that are not on their tour, and 1,279
+  // clients carry no tour at all — for those, canViewClient is false for every
+  // non-admin, so the rep filling in the report could not raise an action on it.
+  // Whoever may fill in a visit report may also raise an action against it, so
+  // fall back to the visit's own edit rule. The visit must actually belong to the
+  // client being filed against, otherwise a caller could pair their own visit id
+  // with somebody else's client id and write a task outside their scope.
+  let allowed = await canViewClient(user, clientId);
+  if (!allowed && visitId) {
+    const { rows } = await risansiPool.query<{ rep_id: number | null; client_id: number | null }>(
+      'SELECT rep_id, client_id FROM visits WHERE id = $1', [visitId],
+    );
+    const v = rows[0];
+    if (v && v.client_id != null && Number(v.client_id) === Number(clientId)) {
+      allowed = await canEditVisitReport({ role: user.role, repId: user.id }, v.rep_id);
+    }
+  }
+  if (!allowed) {
+    // Log it: Next redacts server-action error messages in production, so without
+    // this a denial reaches the rep as an opaque "unexpected response" and leaves
+    // no trace anywhere to diagnose it from.
+    console.error('[addTask] denied', { user: user.email, role: user.role, clientId, visitId });
     throw new Error('You do not have access to this client.');
   }
   const email = user.email;

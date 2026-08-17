@@ -61,7 +61,16 @@ export function AddActionForm({ visitId, clientId, reps, onAdded, triggerLabel =
       setOpen(false);
       onAdded();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not add the action.');
+      // Next replaces server-action error text in production with a generic
+      // "unexpected response…" and attaches a digest, so err.message only carries
+      // our own wording in development. Detect that and say something a rep can
+      // act on instead of relaying the placeholder.
+      const raw = err instanceof Error ? err.message : '';
+      const redacted = !raw || /unexpected response/i.test(raw)
+        || Boolean((err as { digest?: string })?.digest);
+      setError(redacted
+        ? 'Could not add the action. If this keeps happening you may not have access to this client — ask an admin to add it to your tour.'
+        : raw);
     } finally {
       setLoading(false);
     }
