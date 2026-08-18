@@ -55,20 +55,38 @@ export function useQuotationDocs(oppId: number | string, opts?: {
   const [docs, setDocs]   = useState<QuotationDoc[]>([]);
   const [link, setLink]   = useState<string>(opts?.initialLink ?? '');
   const [loading, setLoading] = useState(enabled);
+  const [loadError, setLoadError] = useState(false);
   const [busy, setBusy]   = useState(false);
   const [msg, setMsg]     = useState('');
   const [err, setErr]     = useState(false);
 
+  // Pull the list from the server. Also used after a failed write, because a
+  // request can fail on the way back having already committed — the client then
+  // shows nothing attached, and the natural response is to upload it again.
+  const refresh = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/risansi/opportunities/${oppId}/quotation/files`);
+      if (!r.ok) throw new Error(String(r.status));
+      const d = (await r.json()) as { files?: QuotationDoc[] };
+      setDocs(d.files ?? []);
+      setLoadError(false);
+      // A link into this app with no documents behind it is a 404 waiting to
+      // happen, and the quotation form posts it back on save. An external url
+      // is left alone — it points somewhere this app knows nothing about.
+      setLink(cur => (cur.startsWith('/api/') && (d.files ?? []).length === 0 ? '' : cur));
+    } catch {
+      // Distinguish "nothing attached" from "could not ask": without this the
+      // list claims an opportunity has no documents when the request merely failed.
+      setLoadError(true);
+    }
+  }, [oppId]);
+
   useEffect(() => {
     if (!enabled) { setLoading(false); return; }
     let alive = true;
-    fetch(`/api/risansi/opportunities/${oppId}/quotation/files`)
-      .then(r => r.ok ? r.json() : Promise.reject(new Error(String(r.status))))
-      .then((d: { files?: QuotationDoc[] }) => { if (alive) setDocs(d.files ?? []); })
-      .catch(() => { /* leave the list empty; upload still works */ })
-      .finally(() => { if (alive) setLoading(false); });
+    refresh().finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [oppId, enabled]);
+  }, [enabled, refresh]);
 
   // One request per file, in sequence. A single request carrying five PDFs
   // would be one body of their combined size against a 10s function budget,
@@ -105,6 +123,10 @@ export function useQuotationDocs(oppId: number | string, opts?: {
       }
     }
 
+    // Re-read after any failure: the request may have stored the file and died
+    // on the way back, and a list that hides it invites a duplicate upload.
+    if (failures.length) await refresh();
+
     setErr(failures.length > 0);
     setMsg([
       added ? `Attached ${added} document${added === 1 ? '' : 's'}.` : '',
@@ -112,14 +134,21 @@ export function useQuotationDocs(oppId: number | string, opts?: {
     ].filter(Boolean).join(' '));
     setBusy(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [oppId, opts?.onParsed]);
+  }, [oppId, refresh, opts?.onParsed]);
 
   const remove = useCallback(async (docId: number, name: string) => {
     if (typeof window !== 'undefined' && !window.confirm(`Remove “${name}” from this quotation?`)) return;
     setBusy(true); setMsg(''); setErr(false);
     try {
       const res  = await fetch(docHref(oppId, docId), { method: 'DELETE' });
-      const data = (await res.json()) as UploadResponse;
+      const data = (await res.json().catch(() => ({}))) as UploadResponse;
+      if (res.status === 404) {
+        // Already gone — another tab, another user, or a double click. Reflect
+        // that instead of leaving a dead row whose Remove button only re-errors.
+        await refresh();
+        setMsg(`“${name}” was already removed.`);
+        return;
+      }
       if (!res.ok) throw new Error(data?.error || 'Delete failed');
       setDocs(data.files ?? []);
       setLink(data.link ?? '');
@@ -127,15 +156,16 @@ export function useQuotationDocs(oppId: number | string, opts?: {
     } catch (e) {
       setErr(true);
       setMsg(e instanceof Error ? e.message : 'Delete failed.');
+      await refresh();
     } finally { setBusy(false); }
-  }, [oppId]);
+  }, [oppId, refresh]);
 
-  return { docs, link, loading, busy, msg, err, upload, remove, setMsg };
+  return { docs, link, loading, loadError, busy, msg, err, upload, remove, refresh, setMsg };
 }
 
 // ── The list itself ───────────────────────────────────────────────
 
-export function QuotationDocList({ oppId, docs, loading, busy, canEdit, onRemove, emptyText }: {
+export function QuotationDocList({ oppId, docs, loading, busy, canEdit, onRemove, emptyText, loadError, fallbackLink }: {
   oppId: number | string;
   docs: QuotationDoc[];
   loading: boolean;
@@ -143,8 +173,23 @@ export function QuotationDocList({ oppId, docs, loading, busy, canEdit, onRemove
   canEdit: boolean;
   onRemove: (id: number, name: string) => void;
   emptyText?: string;
+  loadError?: boolean;
+  fallbackLink?: string;
 }) {
   if (loading) return <span style={MUTED}>Loading documents…</span>;
+
+  // The list failing to load is not the same as there being nothing attached,
+  // and saying the wrong one invites someone to re-upload what is already there.
+  if (loadError && !docs.length) {
+    return (
+      <span style={{ ...MUTED, color: 'var(--warn-strong, #92400E)' }}>
+        Couldn’t load the document list.{' '}
+        {fallbackLink
+          ? <a href={fallbackLink} target="_blank" rel="noreferrer" style={{ color: 'var(--title)' }}>Open the quotation directly</a>
+          : 'Reopen this card to try again.'}
+      </span>
+    );
+  }
   if (!docs.length) return <span style={MUTED}>{emptyText ?? 'No documents attached.'}</span>;
 
   return (

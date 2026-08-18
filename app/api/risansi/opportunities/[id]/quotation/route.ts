@@ -3,7 +3,8 @@ import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, canViewClient } from '@/lib/risansi-auth';
 import { parseQuotationText } from '@/lib/risansi-quotation-parser';
 import {
-  canEditOpp, loadOpp, listQuotationFiles, pdfRejectionReason, syncQuotationLink,
+  canEditOpp, clearQuotationLink, contentDisposition, loadOpp, listQuotationFiles,
+  pdfRejectionReason, syncQuotationLink,
 } from '@/lib/risansi-quotation-files';
 
 // unpdf (and its bundled pdf.js) needs the Node runtime, not edge.
@@ -86,7 +87,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 // Kept alongside the per-document delete because a browser still running the
 // pre-multi-document bundle calls this one, and to that user there is exactly
 // one PDF — so removing the set is what they asked for.
-export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const oppId = parseInt(id, 10);
   if (!Number.isInteger(oppId)) return NextResponse.json({ error: 'Bad id' }, { status: 400 });
@@ -101,8 +102,15 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   }
 
   await risansiPool.query('DELETE FROM opportunity_quotation_files WHERE opportunity_id = $1', [oppId]);
-  await syncQuotationLink(oppId);
-  return NextResponse.json({ ok: true, files: [] });
+
+  // ?clearLink=1 also drops a legacy external url. syncQuotationLink deliberately
+  // refuses to, so this is the one way to retire a dead link — the capability the
+  // old single-file Delete button had, now something you ask for rather than a
+  // side effect of removing a document.
+  const clear = new URL(req.url).searchParams.get('clearLink') === '1';
+  if (clear) await clearQuotationLink(oppId);
+  const link = clear ? null : await syncQuotationLink(oppId);
+  return NextResponse.json({ ok: true, link, files: [] });
 }
 
 // GET: stream the PRIMARY document (the first one attached) inline.
@@ -138,7 +146,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       // browser will never execute it as HTML/SVG.
       'Content-Type': 'application/pdf',
       'X-Content-Type-Options': 'nosniff',
-      'Content-Disposition': `inline; filename="${rec.file_name.replace(/["\r\n]/g, '')}"`,
+      'Content-Disposition': contentDisposition(rec.file_name),
       'Content-Length': String(body.byteLength),
       'Cache-Control': 'private, no-store',
     },

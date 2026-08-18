@@ -165,18 +165,31 @@ export function QuotedDetailsModal({ opp, usdRate = 86, onSave, onCancel }: { op
   }, []);
 
   const {
-    docs, link, loading: docsLoading, busy: uploading,
-    msg: uploadMsg, err: uploadErr, upload, remove,
+    docs, link, loading: docsLoading, loadError, busy: uploading,
+    msg: uploadMsg, err: uploadErr, upload, remove: removeDoc,
   } = useQuotationDocs(opp.id, {
     initialLink: str(opp.quotation_link),
     onParsed: data => absorbParsed(data as ParsedQuoteResponse),
   });
+
+  // A quote whose only record is an external url typed in before uploads
+  // existed — 678 of them. Without this the form says "No documents attached"
+  // while the hidden field below is faithfully posting that url back, and the
+  // natural response is to upload something over it.
+  const externalOnly = !docsLoading && docs.length === 0 && !!link && !link.startsWith('/api/');
 
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const picked = Array.from(e.target.files ?? []);
     e.target.value = ''; // let the user re-pick the same file
     setFilledCount(0);
     await upload(picked);
+  };
+
+  // The auto-fill tally belongs to the last upload. Clearing it on removal stops
+  // "Removed x.pdf" picking up "Auto-filled 3 blank fields" from an earlier one.
+  const remove = async (docId: number, name: string) => {
+    setFilledCount(0);
+    await removeDoc(docId, name);
   };
 
   return (
@@ -233,8 +246,16 @@ export function QuotedDetailsModal({ opp, usdRate = 86, onSave, onCancel }: { op
               <div style={{ gridColumn: '1 / -1' }}>
                 <label style={LABEL}>Quotation documents</label>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {externalOnly && (
+                    <a href={link} target="_blank" rel="noreferrer"
+                      style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--title)', textDecoration: 'underline' }}>
+                      🔗 Open the linked quotation
+                    </a>
+                  )}
                   <QuotationDocList oppId={opp.id} docs={docs} loading={docsLoading} busy={uploading}
-                    canEdit onRemove={remove} emptyText="No documents attached yet." />
+                    canEdit onRemove={remove} loadError={loadError}
+                    fallbackLink={link && link.startsWith('/api/') ? link : undefined}
+                    emptyText={externalOnly ? 'Nothing uploaded — the quote is at the link above.' : 'No documents attached yet.'} />
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                     <label style={{ ...UPLOAD_BTN, opacity: uploading ? 0.6 : 1, cursor: uploading ? 'wait' : 'pointer' }}>
                       {uploading ? 'Reading…' : (docs.length ? '⤒ Add more PDFs' : '⤒ Upload PDFs')}
@@ -250,7 +271,9 @@ export function QuotedDetailsModal({ opp, usdRate = 86, onSave, onCancel }: { op
                     )}
                   </div>
                 </div>
-                <input type="hidden" name="quotation_link" value={link} />
+                {/* No hidden quotation_link field. The documents own that column
+                    now; posting it back from here only created a way to save a
+                    stale value over a good one. */}
                 <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 5 }}>Attach as many quote PDFs as you need — you can pick several at once. Each one fills any field still blank below; it never overwrites what you&apos;ve already typed.</div>
               </div>
             </div>

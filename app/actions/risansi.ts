@@ -1213,7 +1213,13 @@ export async function saveQuotedDetails(oppId: number, formData: FormData) {
     `UPDATE opportunities SET
        stage = 'Quoted',
        quote_ref = $1, quote_date = $2, enquiry_no = $3, enquiry_date = $4,
-       quotation_link = $5,
+       -- Never written from this form any more. The quotation documents own this
+       -- column (syncQuotationLink is the only writer), and the modal used to
+       -- round-trip it through a hidden field — so a stale or empty field could
+       -- wipe a link that was perfectly good, including the external urls on 678
+       -- rows. COALESCE makes that impossible while leaving the parameter
+       -- positions of this UPDATE undisturbed.
+       quotation_link = COALESCE($5, quotation_link),
        offer_value_inr = $6,
        -- qtn_prepared_by / client_status_at_quote / location / qtr are no longer
        -- asked for on any form, so the modal submits nothing for them. COALESCE

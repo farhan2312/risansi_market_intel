@@ -70,6 +70,29 @@ export function pdfRejectionReason(bytes: Buffer, fileName: string, mime: string
   return looksPdf ? null : 'Please upload a valid PDF file.';
 }
 
+/**
+ * A Content-Disposition value that cannot throw.
+ *
+ * Header values are ByteStrings, so any character above U+00FF makes
+ * `new Response()` raise "Cannot convert argument to a ByteString" — inside the
+ * handler, which turns a download into a 500. An en-dash is enough, and
+ * "Quotation – RIL.pdf" is a name a person types without thinking.
+ *
+ * RFC 6266: an ASCII-only `filename` every client understands, plus a
+ * percent-encoded `filename*` that modern browsers prefer, so the real name
+ * still reaches the user instead of being flattened to underscores.
+ */
+export function contentDisposition(fileName: string): string {
+  const name  = (fileName || 'quotation.pdf').replace(/[\r\n]/g, '');
+  const ascii = name.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_');
+  return `inline; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+}
+
+/** Drop the link entirely, including a legacy external url. Explicit, never implicit. */
+export async function clearQuotationLink(oppId: number): Promise<void> {
+  await risansiPool.query('UPDATE opportunities SET quotation_link = NULL WHERE id = $1', [oppId]);
+}
+
 // quotation_link points at the collection endpoint, which streams the primary
 // document. Call after any change to the file set: it re-points the link when
 // documents exist and clears it when the last one goes — but never overwrites a
@@ -81,8 +104,21 @@ export async function syncQuotationLink(oppId: number): Promise<string | null> {
     'SELECT count(*) AS n FROM opportunity_quotation_files WHERE opportunity_id = $1', [oppId],
   );
   if (Number(rows[0]?.n ?? 0) > 0) {
-    await risansiPool.query('UPDATE opportunities SET quotation_link = $1 WHERE id = $2', [link, oppId]);
-    return link;
+    // Only claim the link if nothing better is there. This used to be an
+    // unconditional UPDATE, which meant the first upload onto one of the 678
+    // opportunities carrying an external url (SharePoint, Drive) overwrote that
+    // url with no copy kept — and since that was the only insert path, the
+    // "don't null a legacy url" guard below could never fire, so removing the
+    // document afterwards erased it for good.
+    await risansiPool.query(
+      `UPDATE opportunities SET quotation_link = $1
+        WHERE id = $2 AND (quotation_link IS NULL OR quotation_link LIKE '/api/%')`,
+      [link, oppId],
+    );
+    const { rows: cur } = await risansiPool.query<{ quotation_link: string | null }>(
+      'SELECT quotation_link FROM opportunities WHERE id = $1', [oppId],
+    );
+    return cur[0]?.quotation_link ?? link;
   }
   await risansiPool.query(
     "UPDATE opportunities SET quotation_link = NULL WHERE id = $1 AND quotation_link LIKE '/api/%'",

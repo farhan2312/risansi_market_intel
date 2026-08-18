@@ -3,7 +3,7 @@ import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, canViewClient } from '@/lib/risansi-auth';
 import { recordAudit } from '@/lib/audit';
 import {
-  canEditOpp, loadOpp, listQuotationFiles, syncQuotationLink,
+  canEditOpp, contentDisposition, loadOpp, listQuotationFiles, syncQuotationLink,
 } from '@/lib/risansi-quotation-files';
 
 // Serving bytea needs the Node runtime, not edge.
@@ -48,7 +48,7 @@ export async function GET(
       // Hardcoded, never the stored mime — see the collection route.
       'Content-Type': 'application/pdf',
       'X-Content-Type-Options': 'nosniff',
-      'Content-Disposition': `inline; filename="${rec.file_name.replace(/["\r\n]/g, '')}"`,
+      'Content-Disposition': contentDisposition(rec.file_name),
       'Content-Length': String(body.byteLength),
       'Cache-Control': 'private, no-store',
     },

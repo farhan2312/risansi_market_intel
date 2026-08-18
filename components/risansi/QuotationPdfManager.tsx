@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, type CSSProperties } from 'react';
+import { useRef, useState, type CSSProperties } from 'react';
 import { useQuotationDocs, QuotationDocList } from './QuotationDocs';
 
 // View / add / remove the quotation documents for an opportunity, available at
@@ -13,14 +13,30 @@ export function QuotationPdfManager({ oppId, initialLink, canEdit }: {
   initialLink: string | null;
   canEdit: boolean;
 }) {
-  const { docs, link, loading, busy, msg, err, upload, remove } =
+  const { docs, link, loading, loadError, busy, msg, err, upload, remove, refresh } =
     useQuotationDocs(oppId, { initialLink });
   const fileRef = useRef<HTMLInputElement>(null);
+  const [clearing, setClearing] = useState(false);
 
   const onPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const picked = Array.from(e.target.files ?? []);
     e.target.value = '';               // let the user re-pick the same file
     await upload(picked);
+  };
+
+  // Retiring a dead external link. syncQuotationLink refuses to null a non-/api
+  // value — that refusal is what stops an upload from destroying it — so this is
+  // the deliberate way back, and it replaces what the old Delete button did as a
+  // side effect of removing the single PDF.
+  const clearLink = async () => {
+    if (typeof window !== 'undefined'
+      && !window.confirm('Remove the quotation link from this opportunity? The linked file itself is not touched.')) return;
+    setClearing(true);
+    try {
+      await fetch(`/api/risansi/opportunities/${oppId}/quotation?clearLink=1`, { method: 'DELETE' });
+      await refresh();
+      window.location.reload();       // the link lives on the server-rendered row
+    } finally { setClearing(false); }
   };
 
   // A legacy external url — a link typed in before uploads existed — has no row
@@ -34,12 +50,22 @@ export function QuotationPdfManager({ oppId, initialLink, canEdit }: {
       </div>
       <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
         {externalOnly ? (
-          <a href={link} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 600, textDecoration: 'none' }}>
-            🔗 Open quotation link
-          </a>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <a href={link} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 600, textDecoration: 'none' }}>
+              🔗 Open quotation link
+            </a>
+            {canEdit && (
+              <button type="button" onClick={clearLink} disabled={clearing || busy}
+                style={{ background: 'none', border: 'none', color: 'var(--neg)', cursor: 'pointer', fontSize: 11, fontWeight: 600, fontFamily: 'inherit' }}>
+                {clearing ? 'Removing…' : 'Remove link'}
+              </button>
+            )}
+          </div>
         ) : (
           <QuotationDocList oppId={oppId} docs={docs} loading={loading} busy={busy}
-            canEdit={canEdit} onRemove={remove} emptyText="No quotation documents attached." />
+            canEdit={canEdit} onRemove={remove} loadError={loadError}
+            fallbackLink={link && link.startsWith('/api/') ? link : undefined}
+            emptyText="No quotation documents attached." />
         )}
 
         {canEdit && (
