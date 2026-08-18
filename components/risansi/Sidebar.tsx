@@ -51,6 +51,7 @@ const SALES_NAV: NavItem[] = [
   { id: 'pipeline',  href: '/risansi/pipeline', label: 'Opportunities',  Icon: IcPipeline },
   { id: 'compete',   href: '/risansi/compete',  label: 'Competition',    Icon: IcTower, alertKey: 'compete' },
   { id: 'complaints',href: '/risansi/complaints', label: 'Complaints',   Icon: IcAlert },
+  { id: 'exhibitions', href: '/risansi/exhibitions', label: 'Exhibitions', Icon: IcList },
   // Open to every role — scoped server-side: admins see every TSM/account,
   // managers the reps on their tours, reps only themselves.
   { id: 'exec-review', href: '/risansi/executive-review', label: 'Executive Review', Icon: IcDash },
@@ -91,6 +92,7 @@ const PATH_TO_ID: [string, string][] = [
   ['/risansi/admin/pumps',      'pumps-admin'],
   ['/risansi/admin/reps',       'reps-admin'],
   ['/risansi/admin/bugs',       'bugs-admin'],
+  ['/risansi/exhibitions',      'exhibitions'],
   ['/risansi/compete',          'compete'],
   ['/risansi/complaints',       'complaints'],
   ['/risansi/clients',          'client360'],
