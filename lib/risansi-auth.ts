@@ -1,5 +1,6 @@
 import { cache } from 'react';
 import { getServerSession } from 'next-auth/next';
+import type { Session } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 
@@ -29,9 +30,31 @@ export function hasRole(userRole: string | null | undefined, requiredRole: Risan
 // cache() dedupes them to one lookup for the lifetime of the request.
 const getSession = cache(async () => getServerSession(authOptions));
 
+/**
+ * Is this session still entitled to the portal?
+ *
+ * Holding a valid cookie is not the same as still being allowed in. An admin
+ * can revoke someone at any moment, and the session they are already holding
+ * stays cryptographically valid for the rest of its 8 hours. The jwt callback
+ * re-reads `users` on every request, so `risansiAccess` is always current — the
+ * bug was that nothing outside proxy.ts ever looked at it.
+ *
+ * proxy.ts applies this rule to pages, but its matcher is /risansi/* and
+ * /admin/* only, so nothing under /api/** ever passes through it. Enforcing it
+ * here instead puts the check on the path EVERY caller shares: route handlers,
+ * server actions, and server components alike.
+ *
+ * Anything that is not exactly 'Approved' — Pending, Rejected (which is what a
+ * revoke writes), or a status this code has never heard of — is refused.
+ */
+function isApproved(session: Session | null): boolean {
+  return session?.user?.risansiAccess === 'Approved';
+}
+
 export const requireSession = cache(async () => {
   const session = await getSession();
   if (!session?.user) throw new Error('Unauthorized');
+  if (!isApproved(session)) throw new Error('Your access to the portal has been withdrawn.');
   return session;
 });
 
@@ -52,9 +75,21 @@ export interface CurrentUser {
   role:  RisansiRole;
 }
 
-/** Resolve the signed-in user from the session. role defaults to 'rep'. */
+/** A caller with no identity and no privileges. Every scope helper below turns
+ *  this into 'FALSE', and every route that tests `user.email` returns 401. */
+const SIGNED_OUT: CurrentUser = { id: null, email: null, role: 'rep' };
+
+/**
+ * Resolve the signed-in user from the session. role defaults to 'rep'.
+ *
+ * A session whose access is no longer 'Approved' resolves to SIGNED_OUT rather
+ * than to its old identity — see isApproved above. Returning the real id and
+ * role here is what let a revoked rep keep calling /api/risansi/** with a
+ * cookie they were no longer entitled to.
+ */
 export const getCurrentUser = cache(async (): Promise<CurrentUser> => {
   const session = await getSession();
+  if (!isApproved(session)) return SIGNED_OUT;
   return {
     id:    (session?.user?.repId as number | null) ?? null,
     email: session?.user?.email ?? null,
