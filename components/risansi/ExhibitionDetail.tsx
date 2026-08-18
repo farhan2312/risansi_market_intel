@@ -14,6 +14,9 @@ import {
   saveExhibitionExpense, deleteExhibitionExpense, updateExhibition,
   saveExhibitionReview,
 } from '@/app/actions/risansi-exhibitions';
+import {
+  MAX_INVOICE_BYTES, INVOICE_ACCEPT, CAMERA_ACCEPT,
+} from '@/lib/risansi-exhibition-files';
 import type { UserOpt } from './ExhibitionsClient';
 
 export interface ExhibitionFull {
@@ -697,41 +700,7 @@ function ExpensesTab({ exhibitionId, expenses, totals, canManage }: {
         <button onClick={() => setAdding(true)} style={{ ...BTN_PRIMARY, marginBottom: 14 }}>+ Add expense</button>
       )}
 
-      {adding && (
-        <div style={{ ...PANEL, padding: 16, marginBottom: 14 }}>
-          <form action={async fd => {
-            setErr('');
-            try { await saveExhibitionExpense(exhibitionId, fd); setAdding(false); router.refresh(); }
-            catch (e) { setErr(e instanceof Error ? e.message : 'Could not save.'); }
-          }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <Two>
-                <F label="Category *">
-                  <select name="category" required defaultValue="" style={INPUT}>
-                    <option value="">— Select —</option>
-                    {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </F>
-                <F label="Vendor"><input name="vendor" style={INPUT} /></F>
-              </Two>
-              <F label="Description"><input name="description" style={INPUT} /></F>
-              <Two>
-                <F label="Estimated (₹)"><input name="estimated_inr" inputMode="decimal" style={INPUT} /></F>
-                <F label="Actual (₹)"><input name="actual_inr" inputMode="decimal" style={INPUT} /></F>
-              </Two>
-              <Two>
-                <F label="Paid (₹)" hint="Cannot exceed the actual amount"><input name="paid_inr" inputMode="decimal" style={INPUT} /></F>
-                <F label="Paid on"><input name="paid_on" type="date" style={INPUT} /></F>
-              </Two>
-              {err && <div style={ERR}>{err}</div>}
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                <button type="button" onClick={() => setAdding(false)} style={BTN_GHOST}>Cancel</button>
-                <button type="submit" style={BTN_PRIMARY}>Save expense</button>
-              </div>
-            </div>
-          </form>
-        </div>
-      )}
+      {adding && <ExpenseForm exhibitionId={exhibitionId} onDone={() => setAdding(false)} />}
 
       {expenses.length === 0 ? (
         <div style={PANEL}><Blank>No expenses recorded yet.</Blank></div>
@@ -761,6 +730,87 @@ function ExpensesTab({ exhibitionId, expenses, totals, canManage }: {
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Add an expense with its invoice in one submit. The file rides along in the same
+ * FormData, so the row and the receipt are written in a single transaction — an
+ * actual amount can never be saved with the bill "to follow".
+ */
+function ExpenseForm({ exhibitionId, onDone }: { exhibitionId: number; onDone: () => void }) {
+  const router = useRouter();
+  const [file, setFile]   = useState<File | null>(null);
+  const [actual, setActual] = useState('');
+  const [busy, setBusy]   = useState(false);
+  const [err, setErr]     = useState('');
+
+  // The receipt is required as soon as real money is recorded. A line carrying
+  // only an estimate is a budget entry — there is no bill yet — so it stays
+  // optional until an actual amount is typed.
+  const needsInvoice = actual.trim() !== '';
+
+  return (
+    <div style={{ ...PANEL, padding: 16, marginBottom: 14 }}>
+      <form action={async fd => {
+        if (needsInvoice && !file) {
+          setErr('Attach the invoice or a photo of the bill for an actual amount.');
+          return;
+        }
+        setBusy(true); setErr('');
+        if (file) fd.set('invoice', file);
+        try { await saveExhibitionExpense(exhibitionId, fd); router.refresh(); onDone(); }
+        catch (e) {
+          const raw = e instanceof Error ? e.message : '';
+          const redacted = !raw || /unexpected response|Server Components render|Body exceeded/i.test(raw)
+            || Boolean((e as { digest?: string })?.digest);
+          setErr(redacted
+            ? 'Could not save the expense. If you attached a large photo, try a smaller one.'
+            : raw);
+          setBusy(false);
+        }
+      }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <Two>
+            <F label="Category *">
+              <select name="category" required defaultValue="" style={INPUT}>
+                <option value="">— Select —</option>
+                {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </F>
+            <F label="Vendor"><input name="vendor" style={INPUT} /></F>
+          </Two>
+          <F label="Description"><input name="description" style={INPUT} /></F>
+          <Two>
+            <F label="Estimated (₹)" hint="Budget only — no bill needed">
+              <input name="estimated_inr" inputMode="decimal" style={INPUT} />
+            </F>
+            <F label="Actual (₹)" hint="Entering this makes the invoice required">
+              <input name="actual_inr" inputMode="decimal" style={INPUT}
+                value={actual} onChange={e => setActual(e.target.value)} />
+            </F>
+          </Two>
+          <Two>
+            <F label="Paid (₹)" hint="Cannot exceed the actual amount">
+              <input name="paid_inr" inputMode="decimal" style={INPUT} />
+            </F>
+            <F label="Paid on"><input name="paid_on" type="date" style={INPUT} /></F>
+          </Two>
+
+          <InvoicePicker value={file} onChange={f => { setFile(f); setErr(''); }} required={needsInvoice} />
+
+          {err && <div style={ERR}>{err}</div>}
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button type="button" onClick={onDone} style={BTN_GHOST}>Cancel</button>
+            <button type="submit" disabled={busy || (needsInvoice && !file)}
+              title={needsInvoice && !file ? 'Attach the invoice first' : undefined}
+              style={{ ...BTN_PRIMARY, opacity: busy || (needsInvoice && !file) ? 0.55 : 1 }}>
+              {busy ? 'Saving…' : 'Save expense'}
+            </button>
+          </div>
+        </div>
+      </form>
     </div>
   );
 }
@@ -949,7 +999,121 @@ function Note({ k, v }: { k: string; v: string | null }) {
   );
 }
 
-// ── Invoice attachment ───────────────────────────────────────────
+// ── Invoice picker (inside the expense form) ─────────────────────
+
+/**
+ * Attach the bill while the expense is being written, not afterwards — a receipt
+ * chased later is a receipt that never arrives.
+ *
+ * Three ways in, because the same form is used at a stand and at a desk:
+ *   Take photo  — capture="environment" opens the rear camera straight away on a
+ *                 phone. Ignored by desktop browsers, which fall back to a picker.
+ *   Gallery     — image/* with no capture attribute, so a phone offers the photo
+ *                 library (and files); the natural choice for a shot taken earlier.
+ *   Browse      — the full accept list including PDF, for a desk with the emailed
+ *                 invoice on disk.
+ *
+ * The chosen file is held in component state and submitted with the rest of the
+ * form, so the expense row and its invoice are written in one transaction.
+ */
+function InvoicePicker({ value, onChange, required, existingName }: {
+  value: File | null;
+  onChange: (f: File | null) => void;
+  required: boolean;
+  existingName?: string | null;
+}) {
+  const cameraRef  = useRef<HTMLInputElement>(null);
+  const galleryRef = useRef<HTMLInputElement>(null);
+  const browseRef  = useRef<HTMLInputElement>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [tooBig, setTooBig]   = useState(false);
+
+  // Object URLs must be revoked or the blob leaks for the life of the page.
+  useEffect(() => {
+    if (!value || !value.type.startsWith('image/')) { setPreview(null); return; }
+    const url = URL.createObjectURL(value);
+    setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [value]);
+
+  function take(f: File | undefined) {
+    if (!f) return;
+    if (f.size > MAX_INVOICE_BYTES) { setTooBig(true); onChange(null); return; }
+    setTooBig(false);
+    onChange(f);
+  }
+
+  const chosen = value != null;
+
+  return (
+    <div>
+      <label style={LABEL}>
+        Invoice / bill {required && <span style={{ color: 'var(--neg)' }}>*</span>}
+      </label>
+
+      {/* Hidden inputs, one per entry point. */}
+      <input ref={cameraRef} type="file" accept={CAMERA_ACCEPT} capture="environment"
+        style={{ display: 'none' }} onChange={e => take(e.target.files?.[0])} />
+      <input ref={galleryRef} type="file" accept={CAMERA_ACCEPT}
+        style={{ display: 'none' }} onChange={e => take(e.target.files?.[0])} />
+      <input ref={browseRef} type="file" accept={INVOICE_ACCEPT}
+        style={{ display: 'none' }} onChange={e => take(e.target.files?.[0])} />
+
+      {!chosen ? (
+        <>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button type="button" onClick={() => cameraRef.current?.click()} style={PICK_BTN}>
+              📷 Take photo
+            </button>
+            <button type="button" onClick={() => galleryRef.current?.click()} style={PICK_BTN}>
+              🖼️ Gallery
+            </button>
+            <button type="button" onClick={() => browseRef.current?.click()} style={PICK_BTN}>
+              📁 Browse
+            </button>
+          </div>
+          {existingName && (
+            <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 6 }}>
+              Currently attached: {existingName} — pick a file only to replace it.
+            </div>
+          )}
+          {required && !existingName && (
+            <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 6 }}>
+              Required once an actual amount is entered. PDF, JPG or PNG, up to 10 MB.
+            </div>
+          )}
+        </>
+      ) : (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10, padding: 10,
+          border: '1px solid var(--line-strong)', borderRadius: 6, background: 'var(--bg-elev)',
+        }}>
+          {preview
+            ? <img src={preview} alt="Invoice preview"
+                style={{ width: 46, height: 46, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} />
+            : <span style={{ fontSize: 22 }}>📄</span>}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12, color: 'var(--fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {value!.name}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--fg-3)' }}>
+              {(value!.size / 1024 / 1024).toFixed(2)} MB
+            </div>
+          </div>
+          <button type="button" onClick={() => onChange(null)} style={LINK_BTN}>Change</button>
+        </div>
+      )}
+
+      {tooBig && (
+        <div style={{ ...ERR, marginTop: 8 }}>
+          That file is over 10 MB. Take the photo again at a lower resolution, or attach the PDF.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Invoice attachment (on an existing row) ──────────────────────
 
 /** Upload / view / remove the invoice on one expense line. Mirrors the quotation
  *  PDF manager, which is also where the file-type checks come from. */
@@ -1100,6 +1264,7 @@ const LABEL: CSSProperties = { fontSize: 11, fontWeight: 600, color: 'var(--fg-3
 const BTN_PRIMARY: CSSProperties = { padding: '8px 16px', borderRadius: 6, background: '#0A3D8F', color: 'white', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 500, fontFamily: 'inherit' };
 const BTN_GHOST: CSSProperties = { padding: '8px 16px', borderRadius: 6, border: '1px solid var(--line-strong)', background: 'var(--bg-paper)', color: 'var(--fg-2)', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' };
 const BTN_DANGER: CSSProperties = { padding: '8px 16px', borderRadius: 6, background: 'var(--neg)', color: 'white', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 500, fontFamily: 'inherit' };
+const PICK_BTN: CSSProperties = { padding: '8px 14px', borderRadius: 6, border: '1px solid var(--line-strong)', background: 'var(--bg-paper)', color: 'var(--fg-2)', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' };
 const LINK_BTN: CSSProperties = { background: 'none', border: 'none', padding: 0, color: 'var(--accent)', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', textDecoration: 'underline' };
 const ERR: CSSProperties = { padding: '8px 12px', background: 'var(--neg-soft)', border: '1px solid var(--neg)', borderLeft: '3px solid var(--neg)', borderRadius: 5, color: 'var(--neg-strong)', fontSize: 12 };
 const FLAG_KNOWN: CSSProperties = { padding: '2px 9px', borderRadius: 999, fontSize: 11, fontWeight: 600, background: 'var(--pos-soft)', color: 'var(--pos-strong)' };

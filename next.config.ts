@@ -37,6 +37,13 @@ const SECURITY_HEADERS = [
 const nextConfig: NextConfig = {
   experimental: {
     optimizePackageImports: ['@/components/risansi'],
+    serverActions: {
+      // Exhibition expenses carry their invoice in the same submit, and a receipt
+      // photographed on a phone is routinely 2-5 MB. The default cap is 1 MB,
+      // which would reject most of them. 12 MB leaves headroom above the 10 MB
+      // per-file limit enforced in lib/risansi-exhibition-files.
+      bodySizeLimit: '12mb',
+    },
   },
   compiler: {
     removeConsole: process.env.NODE_ENV === 'production'

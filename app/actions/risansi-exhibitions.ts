@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, hasRole } from '@/lib/risansi-auth';
 import { recordAudit } from '@/lib/audit';
+import { checkInvoice } from '@/lib/risansi-exhibition-files';
 import {
   isExhibitionStatus, isDecision, UNLOCKED_STATUSES,
   type Decision, type ExhibitionStatus,
@@ -385,28 +386,74 @@ export async function saveExhibitionExpense(exhibitionId: number, fd: FormData, 
   // Mirror the DB constraint so the user gets a sentence, not a Postgres error.
   if (actual != null && paid > actual) throw new Error('Paid amount cannot exceed the actual amount.');
 
+  // The invoice travels with the form so it cannot be forgotten afterwards.
+  const upload = fd.get('invoice');
+  const file = upload instanceof File && upload.size > 0 ? upload : null;
+
+  // An invoice is required for real money. A line carrying only an estimate is a
+  // budget entry — there is no bill to attach yet — so it is exempt; the moment an
+  // actual amount is recorded, the receipt has to come with it.
+  if (actual != null && !file) {
+    const existing = expenseId
+      ? await risansiPool.query('SELECT 1 FROM exhibition_expense_files WHERE expense_id = $1', [expenseId])
+      : { rowCount: 0 };
+    if (!existing.rowCount) {
+      throw new Error('Attach the invoice or a photo of the bill for an actual amount.');
+    }
+  }
+
+  let bytes: Buffer | null = null;
+  let mime = '';
+  if (file) {
+    bytes = Buffer.from(await file.arrayBuffer());
+    const check = checkInvoice(file.name, file.type || '', file.size, new Uint8Array(bytes.subarray(0, 8)));
+    if (!check.ok) throw new Error(check.error ?? 'That file could not be accepted.');
+    mime = check.mime!;
+  }
+
   const vals = [
     exhibitionId, category, str(fd, 'description'), str(fd, 'vendor'),
     inr(fd, 'estimated_inr'), actual, paid, str(fd, 'paid_on'),
   ];
 
-  if (expenseId) {
-    await risansiPool.query(
-      `UPDATE exhibition_expenses SET
-         category=$2, description=$3, vendor=$4, estimated_inr=$5, actual_inr=$6,
-         paid_inr=$7, paid_on=$8, updated_at=NOW()
-       WHERE id=$9 AND exhibition_id=$1`,
-      [...vals, expenseId],
-    );
-  } else {
-    await risansiPool.query(
-      `INSERT INTO exhibition_expenses
-         (exhibition_id, category, description, vendor, estimated_inr, actual_inr,
-          paid_inr, paid_on, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-      [...vals, user.id],
-    );
-  }
+  // One transaction: the expense line and its invoice land together or not at all,
+  // so an actual amount can never end up recorded without its receipt.
+  const client = await risansiPool.connect();
+  try {
+    await client.query('BEGIN');
+    let id = expenseId;
+    if (expenseId) {
+      await client.query(
+        `UPDATE exhibition_expenses SET
+           category=$2, description=$3, vendor=$4, estimated_inr=$5, actual_inr=$6,
+           paid_inr=$7, paid_on=$8, updated_at=NOW()
+         WHERE id=$9 AND exhibition_id=$1`,
+        [...vals, expenseId],
+      );
+    } else {
+      const { rows } = await client.query<{ id: number }>(
+        `INSERT INTO exhibition_expenses
+           (exhibition_id, category, description, vendor, estimated_inr, actual_inr,
+            paid_inr, paid_on, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+        [...vals, user.id],
+      );
+      id = rows[0].id;
+    }
+    if (bytes && id) {
+      await client.query(
+        `INSERT INTO exhibition_expense_files (expense_id, file_name, mime_type, bytes, uploaded_by)
+         VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT (expense_id) DO UPDATE
+           SET file_name=EXCLUDED.file_name, mime_type=EXCLUDED.mime_type,
+               bytes=EXCLUDED.bytes, uploaded_by=EXCLUDED.uploaded_by, uploaded_at=NOW()`,
+        [id, (file as File).name.slice(0, 200), mime, bytes, user.id],
+      );
+    }
+    await client.query('COMMIT');
+  } catch (e) { await client.query('ROLLBACK'); throw e; }
+  finally { client.release(); }
+
   touch(exhibitionId);
 }
 
