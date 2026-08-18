@@ -18,6 +18,24 @@ const NAVY = 'FF0A3D8F';
 const GREY = 'FF64748B';
 
 const txt = (v: unknown) => (v == null ? '' : String(v));
+
+type Row = Record<string, unknown>;
+
+// snake_case column → readable header. The acronym fixes are word-bounded on
+// purpose: an unbounded /kw/ would rewrite "network" as "netkWork".
+const humaniseKey = (k: string) => k
+  .replace(/_/g, ' ')
+  .replace(/\bril\b/gi, 'RIL').replace(/\bkw\b/gi, 'kW').replace(/\bmoc\b/gi, 'MOC')
+  .replace(/^./, ch => ch.toUpperCase());
+
+const cellValue = (v: unknown): string | number => {
+  if (v == null) return '';
+  if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+  if (typeof v === 'number') return v;
+  const s = String(v);
+  // Timestamps read better trimmed to the minute.
+  return /^\d{4}-\d{2}-\d{2}T/.test(s) ? s.slice(0, 16).replace('T', ' ') : s;
+};
 const day = (v: unknown) => (typeof v === 'string' ? v.slice(0, 10) : '');
 const iso = (v: unknown): string =>
   (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '');
@@ -75,14 +93,15 @@ export async function GET(req: Request) {
   if (scope) where.push(scope);
 
   const { rows } = await risansiPool.query<VisitRow>(
-    `SELECT v.id, v.visit_date::text AS visit_date, v.status, v.purpose,
-            v.is_planned, v.is_unplanned,
+    // v.* — every visit column, not a chosen few. The curated columns below drive
+    // the readable left-hand side of the Visits sheet; the rest are appended
+    // automatically, so a column added to `visits` shows up here without an edit.
+    `SELECT v.*, v.visit_date::text AS visit_date,
             v.check_in_time::text AS check_in_time, v.check_out_time::text AS check_out_time,
-            v.gps_within_radius, v.manual_checkin,
-            v.outcome, v.summary, v.follow_up_required, v.follow_up_text,
             v.follow_up_due_date::text AS follow_up_due_date,
             v.submitted_at::text AS submitted_at,
-            v.rep_id, u.name AS rep_name,
+            v.created_at::text AS created_at, v.updated_at::text AS updated_at,
+            u.name AS rep_name,
             v.client_id, c.code AS client_code, c.legal_name AS client_name,
             c.city, c.state, c.industry,
             c.tour_id, tr.name AS tour_name, tr.zone
@@ -96,6 +115,35 @@ export async function GET(req: Request) {
   );
 
   const todayIso = asIso(new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })));
+
+  // ── The detail behind each visit ──────────────────────────────
+  //
+  // Fetched per visit-id set rather than per visit: one query each, however many
+  // visits the range holds. The visit ids are already visibility-filtered above,
+  // so joining back through them cannot widen what is returned.
+  const visitIds = rows.map(v => v.id);
+  const kids = async (sql: string): Promise<Row[]> =>
+    (visitIds.length ? (await risansiPool.query(sql, [visitIds] as never[])).rows as Row[] : []);
+
+  const [sugar, nonSugar, equipment, actions, oppsRaised, photos] = await Promise.all([
+    kids(`SELECT * FROM visit_sugar_report WHERE visit_id = ANY($1) ORDER BY visit_id`),
+    kids(`SELECT * FROM visit_nonsugar_report WHERE visit_id = ANY($1) ORDER BY visit_id`),
+    kids(`SELECT * FROM equipment WHERE visit_id = ANY($1) ORDER BY visit_id, id`),
+    kids(`SELECT id, visit_id, title, description, due_date::text AS due_date, status,
+                 priority, assigned_to_rep, assigned_to_external, assigned_to_external_email,
+                 completed_at::text AS completed_at, completed_by, created_by, notes
+            FROM tasks WHERE visit_id = ANY($1) ORDER BY visit_id, id`),
+    kids(`SELECT id, visit_id, product, product_type, stage, value_cr, quote_ref,
+                 expected_close_date::text AS expected_close_date, auto_created, auto_source, notes
+            FROM opportunities WHERE visit_id = ANY($1) ORDER BY visit_id, id`),
+    kids(`SELECT id, visit_id, caption, lat, lng, mime_type, byte_size,
+                 uploaded_at::text AS uploaded_at, uploaded_by
+            FROM visit_photos WHERE visit_id = ANY($1) ORDER BY visit_id, id`),
+  ]);
+
+  // Where a child row belongs, so a line on any sheet can be traced back without
+  // hunting through the Visits sheet for the id.
+  const ctx = new Map(rows.map(v => [v.id, v]));
 
   // One visit is counted once, under exactly one outcome. 'planned' in the past
   // is a MISS — the plan was made and the day went by — while 'planned' ahead of
@@ -259,22 +307,97 @@ export async function GET(req: Request) {
     { h: 'Submitted', w: 12, f: v => day(v.submitted_at) },
   ];
 
+  // Everything on the visit that the curated columns above do not already cover
+  // — GPS coordinates, remarks, feedback, provenance — appended rather than
+  // dropped, so the sheet really is the whole visit row.
+  const CURATED = new Set([
+    'visit_date', 'rep_name', 'rep_id', 'client_name', 'client_code', 'client_id',
+    'tour_name', 'tour_id', 'zone', 'city', 'state', 'industry', 'purpose', 'status',
+    'is_planned', 'is_unplanned', 'check_in_time', 'check_out_time', 'gps_within_radius',
+    'manual_checkin', 'outcome', 'summary', 'follow_up_required', 'follow_up_text',
+    'follow_up_due_date', 'submitted_at', 'id',
+  ]);
+  const extraKeys = rows.length
+    ? Object.keys(rows[0] as unknown as Row).filter(k => !CURATED.has(k))
+    : [];
+  const DETAIL_ALL = [
+    ...DETAIL,
+    ...extraKeys.map(k => ({
+      h: humaniseKey(k),
+      w: Math.min(40, Math.max(13, humaniseKey(k).length + 4)),
+      f: (v: VisitRow) => cellValue((v as unknown as Row)[k]),
+    })),
+  ];
+
   const det = wb.addWorksheet('Visits', { views: [{ state: 'frozen', ySplit: 3, xSplit: 3 }] });
-  header(det, DETAIL, 'Tour summary — visit detail', sub, false);
+  header(det, DETAIL_ALL, 'Tour summary — visit detail', sub, false);
   rows.forEach((v, ri) => {
     const row = det.getRow(4 + ri);
-    DETAIL.forEach((c, i) => {
+    DETAIL_ALL.forEach((c, i) => {
       const cell = row.getCell(i + 1);
       cell.value = c.f(v);
       cell.alignment = { vertical: 'top', wrapText: i >= 16 };
     });
   });
-  if (rows.length) det.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: DETAIL.length } };
+  if (rows.length) det.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: DETAIL_ALL.length } };
   else {
     const cell = det.getRow(4).getCell(1);
     cell.value = 'No visits fall in this range with these filters.';
     cell.font = { italic: true, color: { argb: GREY }, size: 10 };
   }
+
+  // ── Child records, one sheet each ─────────────────────────────
+  //
+  // Columns are derived from the rows rather than hand-listed. visit_sugar_report
+  // alone is 45 columns of screw/rota/spares detail, and a hand-written list
+  // would silently drop whatever gets added to the table next.
+  const humanise = humaniseKey;
+  const cellOf = cellValue;
+
+  const childSheet = (name: string, data: Row[], note: string) => {
+    const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', ySplit: 3, xSplit: 3 }] });
+    // 'id' identifies nothing to a reader and visit_id is replaced by the context
+    // columns, so both are dropped from the body.
+    const keys = data.length ? Object.keys(data[0]).filter(k => k !== 'id' && k !== 'visit_id') : [];
+    const cols = [
+      { h: 'Visit Date', w: 12 }, { h: 'Rep', w: 20 }, { h: 'Client', w: 30 },
+      ...keys.map(k => ({ h: humanise(k), w: Math.min(42, Math.max(13, humanise(k).length + 4)) })),
+    ];
+    header(ws, cols.length ? cols : [{ h: name, w: 60 }], `Tour summary — ${name}`, sub, false);
+
+    if (!data.length) {
+      const cell = ws.getRow(4).getCell(1);
+      cell.value = note;
+      cell.font = { italic: true, color: { argb: GREY }, size: 10 };
+      return;
+    }
+    data.forEach((x, ri) => {
+      const v = ctx.get(Number(x.visit_id));
+      const row = ws.getRow(4 + ri);
+      row.getCell(1).value = day(v?.visit_date);
+      row.getCell(2).value = txt(v?.rep_name);
+      row.getCell(3).value = txt(v?.client_name);
+      keys.forEach((k, i) => {
+        const cell = row.getCell(4 + i);
+        cell.value = cellOf(x[k]);
+        cell.alignment = { vertical: 'top', wrapText: true };
+      });
+    });
+    ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: cols.length } };
+  };
+
+  childSheet('Sugar Report', sugar,
+    'No sugar-format visit reports in this range.');
+  childSheet('Non-Sugar Report', nonSugar,
+    'No non-sugar visit reports in this range.');
+  childSheet('Equipment', equipment,
+    'No pumps or competitor equipment were recorded on these visits.');
+  childSheet('Action Points', actions,
+    'No actions were raised from these visits.');
+  childSheet('Opportunities Raised', oppsRaised,
+    'No opportunities were created from these visits.');
+  childSheet('Photos', photos,
+    'No photos were taken on these visits.');
 
   // ── What produced this file ───────────────────────────────────
 
@@ -293,6 +416,12 @@ export async function GET(req: Request) {
     ['Client search', search || '(none)'],
     ['Visibility', clientScopeSql(user, 'v.client_id') ? 'Limited to your tours and special-access clients' : 'All clients (admin)'],
     ['Visits matched', String(rows.length)],
+    ['Sugar reports', String(sugar.length)],
+    ['Non-sugar reports', String(nonSugar.length)],
+    ['Equipment rows', String(equipment.length)],
+    ['Action points', String(actions.length)],
+    ['Opportunities raised', String(oppsRaised.length)],
+    ['Photos', String(photos.length)],
     ['Exported by', txt(user.email)],
     ['Exported on', stamp],
     ['"Missed" means', `a visit still marked planned whose date is before ${todayIso}`],

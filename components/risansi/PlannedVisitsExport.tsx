@@ -45,6 +45,15 @@ export function PlannedVisitsExport({ reps }: { reps: ExportRep[] }) {
 
   const invalid = !from || !to || from > to;
 
+  // The Excel export now carries the full visit reports, equipment, actions and
+  // photo records, so a wide range is a genuinely big file rather than just more
+  // rows. Warn on the span rather than counting first — that would cost a round
+  // trip on every keystroke to tell the user something the dates already say.
+  const spanDays = (!invalid && from && to)
+    ? Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1
+    : 0;
+  const wide = spanDays > 92;
+
   function generate() {
     if (invalid) return;
     const qs = new URLSearchParams({ from, to });
@@ -101,6 +110,17 @@ export function PlannedVisitsExport({ reps }: { reps: ExportRep[] }) {
               Also applying this page&apos;s filters:{' '}
               {[pagePurpose && `purpose “${pagePurpose}”`, pageSearch && `search “${pageSearch}”`].filter(Boolean).join(', ')}.
               <br />Excel only — the PDF route plan cannot express them.
+            </div>
+          )}
+          {wide && (
+            <div style={{
+              fontSize: 10.5, lineHeight: 1.5, marginBottom: 10, padding: '7px 9px', borderRadius: 6,
+              color: 'var(--warn-strong, #92400E)', background: 'var(--warn-soft, #FEF3C7)',
+              border: '1px solid var(--warn, #F59E0B)',
+            }}>
+              That is {spanDays} days. The Excel file includes every visit report,
+              equipment record, action and photo entry in the range, so it may take
+              a moment and run large.
             </div>
           )}
           {invalid && <div style={{ fontSize: 11, color: 'var(--neg)', marginBottom: 8 }}>Pick a valid date range (From ≤ To).</div>}
