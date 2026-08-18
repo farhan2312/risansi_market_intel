@@ -179,7 +179,23 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: { 
               )}
             </div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--fg-3)', lineHeight: 1 }}>×</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {/* Everything the portal holds about this one opportunity, as a
+                workbook — a plain link, so the browser downloads it without the
+                surrounding form noticing a navigation. */}
+            <a
+              href={`/api/risansi/opportunities/${opp.id}/export`}
+              title="Download every detail of this opportunity as Excel"
+              style={{
+                fontSize: 11.5, fontWeight: 600, color: '#1A5CB8', textDecoration: 'none',
+                padding: '5px 10px', border: '1px solid rgba(26,92,184,0.3)',
+                borderRadius: 5, background: '#EBF1FB', whiteSpace: 'nowrap',
+              }}
+            >
+              ⤓ Export Excel
+            </a>
+            <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--fg-3)', lineHeight: 1 }}>×</button>
+          </div>
         </div>
 
         {/* Auto-created notice */}
