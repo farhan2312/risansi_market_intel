@@ -144,6 +144,9 @@ export function ExhibitionDetail(props: {
       </div>
 
       {activeTab === 'overview' && !unlocked && <LockedNotice status={ex.status} readiness={readiness} />}
+      {activeTab === 'overview' && unlocked && (
+        <StageNudge exhibition={ex} canManage={canManage} onGoReview={() => setTab('review')} />
+      )}
       {activeTab === 'overview'  && <Overview exhibition={ex} users={users} canManage={canManage} />}
       {activeTab === 'team'      && <TeamTab exhibitionId={ex.id} team={team} users={users} canManage={canManage} />}
       {activeTab === 'meetings'  && <MeetingsTab exhibitionId={ex.id} meetings={meetings} canManage={canManage} />}
@@ -468,7 +471,7 @@ function MeetingsTab({ exhibitionId, meetings, canManage }: {
               already open above, and showing both read as a duplicate entry. */}
           {meetings.filter(m => m.id !== editing?.id).map(m => (
             <div key={m.id} style={{ ...PANEL, padding: 14 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <div className="exh-meeting-head" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     <strong style={{ fontSize: 14, color: 'var(--title)' }}>{m.company_name}</strong>
@@ -488,7 +491,7 @@ function MeetingsTab({ exhibitionId, meetings, canManage }: {
                     {[m.contact_person, m.designation, m.city, m.phone, m.email].filter(Boolean).join(' · ') || '—'}
                   </div>
                 </div>
-                <div style={{ textAlign: 'right', fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>
+                <div className="exh-meeting-meta" style={{ textAlign: 'right', fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>
                   <div>{m.met_on ?? ''}</div>
                   <div>{m.met_by_name ?? ''}</div>
                   {m.potential_value_inr != null && (
@@ -602,7 +605,7 @@ function MeetingForm({ exhibitionId, meeting, onDone }: {
 
   return (
     <div style={{ ...PANEL, padding: 18, marginBottom: 16 }}>
-      <form action={async fd => {
+      <form className="exh-form" action={async fd => {
         setBusy(true); setErr('');
         try {
           await saveExhibitionMeeting(exhibitionId, fd, meeting?.id);
@@ -689,7 +692,7 @@ function MeetingForm({ exhibitionId, meeting, onDone }: {
           </Two>
 
           {err && <div style={ERR}>{err}</div>}
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <div className="exh-actions" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onDone} style={BTN_GHOST}>Cancel</button>
             <button type="submit" disabled={busy} style={BTN_PRIMARY}>{busy ? 'Saving…' : 'Save meeting'}</button>
           </div>
@@ -729,22 +732,24 @@ function ExpensesTab({ exhibitionId, expenses, totals, canManage }: {
         <div style={PANEL}><Blank>No expenses recorded yet.</Blank></div>
       ) : (
         <div style={PANEL}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <table className="exh-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead><tr>{['Category', 'Description', 'Vendor', 'Estimated', 'Actual', 'Paid', 'Invoice', ''].map(h => <th key={h} style={TH}>{h}</th>)}</tr></thead>
             <tbody>
+              {/* data-label feeds the ::before on each cell when the table
+                  reflows to one card per row on a phone (app/mobile.css). */}
               {expenses.map(x => (
                 <tr key={x.id} style={{ borderTop: '1px solid var(--line)' }}>
-                  <td style={TD}>{x.category}</td>
-                  <td style={TD}>{x.description || '—'}</td>
-                  <td style={TD}>{x.vendor || '—'}</td>
-                  <td style={{ ...TD, fontFamily: 'var(--font-mono)' }}>{fmtInrFull(x.estimated_inr)}</td>
-                  <td style={{ ...TD, fontFamily: 'var(--font-mono)' }}>{fmtInrFull(x.actual_inr)}</td>
-                  <td style={{ ...TD, fontFamily: 'var(--font-mono)' }}>{fmtInrFull(x.paid_inr)}</td>
-                  <td style={TD}>
+                  <td data-label="Category"  style={{ ...TD, fontWeight: 600 }}>{x.category}</td>
+                  <td data-label="Details"   style={TD}>{x.description || '—'}</td>
+                  <td data-label="Vendor"    style={TD}>{x.vendor || '—'}</td>
+                  <td data-label="Estimated" style={{ ...TD, fontFamily: 'var(--font-mono)' }}>{fmtInrFull(x.estimated_inr)}</td>
+                  <td data-label="Actual"    style={{ ...TD, fontFamily: 'var(--font-mono)' }}>{fmtInrFull(x.actual_inr)}</td>
+                  <td data-label="Paid"      style={{ ...TD, fontFamily: 'var(--font-mono)' }}>{fmtInrFull(x.paid_inr)}</td>
+                  <td data-label="Invoice"   style={TD}>
                     <InvoiceCell expenseId={x.id} hasInvoice={x.has_invoice}
                       fileName={x.file_name} canManage={canManage} />
                   </td>
-                  <td style={TD}>
+                  <td data-label="" style={TD}>
                     {canManage && <DeleteExpense exhibitionId={exhibitionId} expenseId={x.id} />}
                   </td>
                 </tr>
@@ -775,7 +780,7 @@ function ExpenseForm({ exhibitionId, onDone }: { exhibitionId: number; onDone: (
 
   return (
     <div style={{ ...PANEL, padding: 16, marginBottom: 14 }}>
-      <form action={async fd => {
+      <form className="exh-form" action={async fd => {
         if (!file) {
           setErr('Attach the invoice, quote or a photo of the bill for this expense.');
           return;
@@ -818,7 +823,7 @@ function ExpenseForm({ exhibitionId, onDone }: { exhibitionId: number; onDone: (
           <InvoicePicker value={file} onChange={f => { setFile(f); setErr(''); }} required={needsInvoice} />
 
           {err && <div style={ERR}>{err}</div>}
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <div className="exh-actions" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onDone} style={BTN_GHOST}>Cancel</button>
             <button type="submit" disabled={busy || (needsInvoice && !file)}
               title={needsInvoice && !file ? 'Attach the invoice first' : undefined}
@@ -876,6 +881,99 @@ function ApprovalsTab({ approvals }: { approvals: ApprovalRow[] }) {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ── What happens next ────────────────────────────────────────────
+
+/**
+ * Tells an approved exhibition what its next move is, and offers the button for
+ * it. Without this, advancing to the review depended on someone realising that
+ * "Completed" had to be set first — which is not a thing anyone would guess.
+ *
+ * The prompt is driven by the event's own dates, so once an exhibition is over it
+ * asks for the review by itself rather than waiting to be remembered.
+ */
+function StageNudge({ exhibition: ex, canManage, onGoReview }: {
+  exhibition: ExhibitionFull; canManage: boolean; onGoReview: () => void;
+}) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr]   = useState('');
+  // Compare as YYYY-MM-DD strings in local time. Parsing these as Dates would
+  // reintroduce the UTC day-shift this codebase has been bitten by repeatedly.
+  const today = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })();
+  const started = !!ex.start_date && ex.start_date <= today;
+  const ended   = !!ex.end_date   && ex.end_date   <  today;
+
+  async function go(next: 'Ongoing' | 'Completed') {
+    setBusy(true); setErr('');
+    try { await advanceExhibition(ex.id, next); router.refresh(); }
+    catch (e) {
+      const raw = e instanceof Error ? e.message : '';
+      const redacted = !raw || /unexpected response|Server Components render/i.test(raw)
+        || Boolean((e as { digest?: string })?.digest);
+      setErr(redacted ? 'Could not update the exhibition.' : raw);
+    } finally { setBusy(false); }
+  }
+
+  let body: React.ReactNode = null;
+
+  if (ex.status === 'Completed') {
+    body = (
+      <>
+        <b>The event is over.</b> Fill in the post-event review — clients met, spend
+        and ROI are already worked out for you.
+        <div style={{ marginTop: 8 }}>
+          <button onClick={onGoReview} style={BTN_PRIMARY}>Open post-event review →</button>
+        </div>
+      </>
+    );
+  } else if (ended && canManage) {
+    body = (
+      <>
+        <b>This exhibition ended on {ex.end_date}.</b> Mark it finished to open the
+        post-event review.
+        <div style={{ marginTop: 8 }}>
+          <button disabled={busy} onClick={() => go('Completed')} style={BTN_PRIMARY}>
+            {busy ? 'Working…' : '✓ Event finished — write review'}
+          </button>
+        </div>
+      </>
+    );
+  } else if (ex.status === 'Approved' && started && canManage) {
+    body = (
+      <>
+        <b>The event has started.</b> Capture meetings as you go; mark it finished
+        afterwards to unlock the review.
+        <div style={{ marginTop: 8 }}>
+          <button disabled={busy} onClick={() => go('Ongoing')} style={BTN_GHOST}>▶ Mark as ongoing</button>
+        </div>
+      </>
+    );
+  } else if (ex.status === 'Approved' || ex.status === 'Ongoing') {
+    body = (
+      <>
+        Approved{ex.participation ? ` to ${ex.participation.toLowerCase()}` : ''}.
+        Capture meetings and expenses now; the post-event review opens once the
+        event is marked finished.
+      </>
+    );
+  }
+
+  if (!body) return null;
+
+  return (
+    <div style={{
+      ...PANEL, padding: 14, marginBottom: 16,
+      background: 'var(--accent-soft)', border: '1px solid var(--accent-line)',
+    }}>
+      <div style={{ fontSize: 13, color: 'var(--fg-2)' }}>{body}</div>
+      {err && <div style={{ ...ERR, marginTop: 8 }}>{err}</div>}
     </div>
   );
 }
@@ -1109,7 +1207,7 @@ function InvoicePicker({ value, onChange, required, existingName }: {
 
       {!chosen ? (
         <>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div className="exh-pick" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button type="button" onClick={() => cameraRef.current?.click()} style={PICK_BTN}>
               📷 Take photo
             </button>
@@ -1268,7 +1366,8 @@ function Blank({ children }: { children: React.ReactNode }) {
   return <div style={{ padding: 30, textAlign: 'center', fontSize: 13, color: 'var(--fg-3)' }}>{children}</div>;
 }
 function Two({ children }: { children: React.ReactNode }) {
-  return <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>{children}</div>;
+  // exh-2col collapses to a single column under 767px (app/mobile.css).
+  return <div className="exh-2col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>{children}</div>;
 }
 function F({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (

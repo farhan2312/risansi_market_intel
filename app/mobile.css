@@ -259,4 +259,68 @@
   .risansi-main .r-tabbed[data-active="contacts"] [data-tabgroup]:not([data-tabgroup="contacts"]) {
     display: none !important;
   }
+  /* ── Exhibitions: meeting + expense capture on a phone ──
+     Both are filled standing at a stand, one-handed, so they get the most
+     attention. Everything here is inside the existing 767px block. */
+
+  /* Two-up field rows stack. The desktop grid is a hard 1fr 1fr, which squeezes
+     a date picker and a rupee field into half a phone each. */
+  .risansi-main .exh-2col { grid-template-columns: 1fr !important; }
+
+  /* 16px inputs. Below 16px iOS silently zooms the whole page on focus and does
+     not zoom back out, which is the single worst thing that can happen to
+     someone typing a meeting note between conversations. */
+  .risansi-main .exh-form input,
+  .risansi-main .exh-form select,
+  .risansi-main .exh-form textarea {
+    font-size: 16px !important;
+    padding: 11px 12px !important;
+  }
+
+  /* Thumb-sized controls (44px is the platform minimum touch target). */
+  .risansi-main .exh-form button,
+  .risansi-main .exh-pick button { min-height: 44px !important; }
+
+  /* Attach buttons go full width and stack, rather than three tiny targets. */
+  .risansi-main .exh-pick { flex-direction: column !important; }
+  .risansi-main .exh-pick button { width: 100% !important; }
+
+  /* Save/Cancel pinned to the bottom of the form so a long meeting form never
+     hides its own submit behind the keyboard. */
+  .risansi-main .exh-actions {
+    position: sticky; bottom: calc(60px + env(safe-area-inset-bottom, 0px));
+    background: var(--bg-paper);
+    padding: 10px 0 2px; margin-top: 4px;
+    border-top: 1px solid var(--line); z-index: 2;
+  }
+  .risansi-main .exh-actions button { flex: 1; }
+
+  /* Expense table reflows to one card per row: the header is dropped and each
+     cell carries its own label, so nothing has to be scrolled sideways. */
+  .risansi-main .exh-table thead { display: none; }
+  .risansi-main .exh-table, 
+  .risansi-main .exh-table tbody,
+  .risansi-main .exh-table tr,
+  .risansi-main .exh-table td { display: block; width: 100%; }
+  .risansi-main .exh-table tr {
+    border: 1px solid var(--line) !important; border-radius: 8px;
+    margin-bottom: 10px; padding: 4px 2px; background: var(--bg-paper);
+  }
+  .risansi-main .exh-table td {
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    padding: 7px 12px !important; border: 0 !important;
+  }
+  .risansi-main .exh-table td::before {
+    content: attr(data-label);
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--fg-3); flex-shrink: 0;
+  }
+  /* A cell with nothing in it would otherwise render as a stray label. */
+  .risansi-main .exh-table td:empty { display: none; }
+
+  /* Meeting cards: the right-hand meta column drops under the name instead of
+     squeezing it to a few characters. */
+  .risansi-main .exh-meeting-head { flex-direction: column !important; gap: 6px !important; }
+  .risansi-main .exh-meeting-meta { text-align: left !important; }
+
 }
