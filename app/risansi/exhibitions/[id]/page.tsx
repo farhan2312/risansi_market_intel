@@ -5,7 +5,7 @@ import { getCurrentUser } from '@/lib/risansi-auth';
 import { canManageExhibition, closeReadiness } from '@/app/actions/risansi-exhibitions';
 import { ExhibitionDetail } from '@/components/risansi/ExhibitionDetail';
 import type {
-  ExhibitionFull, TeamMember, ApprovalRow, MeetingRow, ExpenseRow, ReviewRow,
+  ExhibitionFull, TeamMember, MeetingRow, ExpenseRow, ReviewRow,
 } from '@/components/risansi/ExhibitionDetail';
 import type { ReviewMeeting } from '@/components/risansi/ExhibitionReview';
 import type { UserOpt } from '@/components/risansi/ExhibitionsClient';
@@ -23,7 +23,7 @@ export default async function ExhibitionDetailPage({ params }: { params: Promise
 
   const me = await getCurrentUser();
 
-  const [exhibition, team, meetings, approvals, expenses, review, users, canManage, blockers] = await Promise.all([
+  const [exhibition, team, meetings, expenses, review, users, canManage, blockers] = await Promise.all([
     q<ExhibitionFull | null>(async () => {
       const { rows } = await risansiPool.query<ExhibitionFull>(`
         SELECT e.id, e.name, e.organizer, e.website, e.venue, e.city, e.state, e.country,
@@ -74,17 +74,6 @@ export default async function ExhibitionDetailPage({ params }: { params: Promise
            LEFT JOIN users fo ON fo.id = m.follow_up_owner_id
           WHERE m.exhibition_id = $1
           ORDER BY m.met_on DESC NULLS LAST, m.id DESC`, [id]);
-      return rows;
-    }, []),
-
-    // Scoped to this one exhibition, so its team and approver can see the trail
-    // without being given the sysadmin-only Audit Log (which also carries logins,
-    // usage and ownership changes). The module-wide feed still lives there.
-    q<ApprovalRow[]>(async () => {
-      const { rows } = await risansiPool.query<ApprovalRow>(
-        `SELECT id, decision, actor_name, comments, created_at::text AS created_at
-           FROM exhibition_approvals WHERE exhibition_id = $1
-          ORDER BY created_at DESC, id DESC`, [id]);
       return rows;
     }, []),
 
@@ -143,7 +132,6 @@ export default async function ExhibitionDetailPage({ params }: { params: Promise
         exhibition={exhibition}
         team={team}
         meetings={meetings}
-        approvals={approvals}
         expenses={expenses}
         review={review}
         users={users}

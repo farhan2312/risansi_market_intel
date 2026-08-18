@@ -59,16 +59,16 @@ export interface ReviewRow {
   reviewed_by_name: string | null; reviewed_at: string | null;
 }
 
-type Tab = 'overview' | 'team' | 'meetings' | 'expenses' | 'review' | 'approvals';
+type Tab = 'overview' | 'team' | 'meetings' | 'expenses' | 'review';
 
 export function ExhibitionDetail(props: {
-  exhibition: ExhibitionFull; team: TeamMember[]; approvals: ApprovalRow[];
+  exhibition: ExhibitionFull; team: TeamMember[];
   meetings: MeetingRow[]; expenses: ExpenseRow[]; users: UserOpt[];
   review: ReviewRow | null;
   canManage: boolean; isApprover: boolean;
   isOwner: boolean; isSysadmin: boolean; blockers: string[];
 }) {
-  const { exhibition: ex, team, approvals, meetings, expenses, users, review,
+  const { exhibition: ex, team, meetings, expenses, users, review,
           canManage, isApprover, isOwner, isSysadmin, blockers } = props;
   const [tab, setTab] = useState<Tab>('overview');
   const totals = useMemo(() => sumExpenses(expenses), [expenses]);
@@ -127,9 +127,6 @@ export function ExhibitionDetail(props: {
           ['meetings', `Meetings (${meetings.length})`, unlocked],
           ['expenses', `Expenses (${expenses.length})`, unlocked],
           ['review', 'Post-event review', reviewOk],
-          // Scoped to this exhibition for the people accountable for it. The
-          // module-wide feed lives in the sysadmin-only Audit Log.
-          ['approvals', `History (${approvals.length})`, canManage || isApprover],
         ] as [Tab, string, boolean][]).map(([k, label, on]) => (
           <button key={k} onClick={() => on && setTab(k)} disabled={!on}
             title={on ? undefined
@@ -157,17 +154,15 @@ export function ExhibitionDetail(props: {
       {activeTab === 'expenses'  && <ExpensesTab exhibitionId={ex.id} expenses={expenses} totals={totals} canManage={canManage} />}
       {activeTab === 'review' && (
         <div style={{ display: 'grid', gap: 22 }}>
-          <ReviewTab exhibitionId={ex.id} review={review} meetings={meetings} totals={totals}
-            canManage={canManage && ex.status !== 'Closed'} />
+          <ReviewSummaryStrip meetings={meetings} totals={totals} review={review} />
           <ExhibitionReviewWorkbench
             exhibitionId={ex.id} status={ex.status}
             meetings={meetings as ReviewMeeting[]} expenses={expenses} users={users}
             expensesReviewedAt={ex.expenses_reviewed_at} closedAt={ex.closed_at}
             closedByName={ex.closed_by_name} isOwner={isOwner} isSysadmin={isSysadmin}
-            blockers={blockers} hasReview={!!review} />
+            blockers={blockers} hasReview={!!review} review={review} />
         </div>
       )}
-      {activeTab === 'approvals' && <ApprovalsTab approvals={approvals} />}
     </div>
   );
 }
@@ -869,37 +864,6 @@ function DeleteExpense({ exhibitionId, expenseId }: { exhibitionId: number; expe
   );
 }
 
-// ── Approval history (this exhibition only) ──────────────────────
-
-/**
- * The decision trail for this exhibition, for the people accountable for it —
- * its team and its approver. Deliberately kept here rather than only in the
- * Audit Log: that page is sysadmin-only and also carries logins, usage and
- * ownership changes, so opening it to approvers would hand over far more than
- * the history they actually need. The module-wide feed still lives there.
- */
-function ApprovalsTab({ approvals }: { approvals: ApprovalRow[] }) {
-  if (approvals.length === 0) {
-    return <div style={PANEL}><Blank>Nothing submitted yet.</Blank></div>;
-  }
-  return (
-    <div style={PANEL}>
-      {approvals.map(a => (
-        <div key={a.id} style={{ ...ROW, alignItems: 'flex-start' }}>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>{a.decision}</div>
-            {a.comments && <div style={{ fontSize: 12, color: 'var(--fg-2)', marginTop: 3 }}>{a.comments}</div>}
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--fg-3)', textAlign: 'right', whiteSpace: 'nowrap' }}>
-            <div>{a.actor_name ?? '—'}</div>
-            <div>{a.created_at?.slice(0, 16).replace('T', ' ')}</div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 // ── What happens next ────────────────────────────────────────────
 
 /**
@@ -1034,128 +998,30 @@ function LockedNotice({ status, readiness }: {
   );
 }
 
-// ── Post-event review ────────────────────────────────────────────
+// ── Derived outcome strip (top of the review tab) ────────────────
 
-function ReviewTab({ exhibitionId, review, meetings, totals, canManage }: {
-  exhibitionId: number; review: ReviewRow | null; meetings: MeetingRow[];
-  totals: ReturnType<typeof sumExpenses>; canManage: boolean;
+/** Figures taken straight from the meeting and expense records, so the review can
+ *  never contradict them. ROI needs a business-won number, which only the
+ *  summary at the foot of the page can supply. */
+function ReviewSummaryStrip({ meetings, totals, review }: {
+  meetings: MeetingRow[]; totals: ReturnType<typeof sumExpenses>; review: ReviewRow | null;
 }) {
-  const router = useRouter();
-  const [edit, setEdit] = useState(!review);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr]   = useState('');
-
-  // Derived, never stored: these come from the meeting and expense records, so
-  // the review can never contradict the underlying data.
-  const met     = meetings.length;
-  const known   = meetings.filter(m => m.client_id != null).length;
-  const hot     = meetings.filter(m => m.interest === 'Hot').length;
+  const met   = meetings.length;
+  const known = meetings.filter(m => m.client_id != null).length;
+  const hot   = meetings.filter(m => m.interest === 'Hot').length;
   const pipeline = meetings.reduce((s, m) => s + Number(m.potential_value_inr ?? 0), 0);
-  const spend   = totals.actual;
-  const won     = Number(review?.business_won_inr ?? 0);
-  const roi     = spend > 0 && won > 0 ? ((won - spend) / spend) * 100 : null;
-
-  if (!canManage && !review) {
-    return <div style={PANEL}><Blank>No review recorded yet.</Blank></div>;
-  }
-
+  const spend = totals.actual;
+  const won   = Number(review?.business_won_inr ?? 0);
+  const roi   = spend > 0 && won > 0 ? ((won - spend) / spend) * 100 : null;
   return (
-    <div>
-      {/* Derived outcome */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 16 }}>
-        <Kpi label="Companies met"     value={String(met)} sub={`${known} existing · ${met - known} new`} />
-        <Kpi label="Hot leads"         value={String(hot)} sub="marked hot at the stand" />
-        <Kpi label="Potential value"   value={fmtInr(pipeline)} sub="summed from meetings" />
-        <Kpi label="Total spend"       value={fmtInr(spend)} />
-        <Kpi label="Business won"      value={fmtInr(won)} sub={review ? undefined : 'not recorded'} />
-        <Kpi label="ROI"               value={roi == null ? '—' : `${roi > 0 ? '+' : ''}${roi.toFixed(0)}%`}
-             sub={roi == null ? 'needs spend + business won' : 'business won vs spend'} />
-      </div>
-
-      {!edit && review ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
-          <Card title="Outcome">
-            <Detail k="New leads"        v={review.new_leads?.toString() ?? null} />
-            <Detail k="Opportunities"    v={review.opportunities?.toString() ?? null} />
-            <Detail k="Potential value"  v={review.potential_value_inr != null ? fmtInrFull(review.potential_value_inr) : null} />
-            <Detail k="Business won"     v={review.business_won_inr != null ? fmtInrFull(review.business_won_inr) : null} />
-            <Detail k="Stand footfall"   v={review.footfall?.toString() ?? null} />
-            <Detail k="Attend next year" v={review.attend_next_year} />
-          </Card>
-          <Card title="What we learned">
-            <Note k="Worked well"    v={review.what_worked} />
-            <Note k="Did not work"   v={review.what_did_not} />
-            <Note k="Key learnings"  v={review.key_learnings} />
-          </Card>
-          <Card title="Market">
-            <Note k="Competitors"    v={review.competitor_notes} />
-            <Note k="Next year"      v={review.next_year_notes} />
-            <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 10 }}>
-              Reviewed by {review.reviewed_by_name ?? '—'}
-              {review.reviewed_at ? ` on ${review.reviewed_at.slice(0, 10)}` : ''}
-            </div>
-            {canManage && <button onClick={() => setEdit(true)} style={{ ...BTN_GHOST, marginTop: 10 }}>Edit review</button>}
-          </Card>
-        </div>
-      ) : (
-        <div style={{ ...PANEL, padding: 18, maxWidth: 760 }}>
-          <form action={async fd => {
-            setBusy(true); setErr('');
-            try { await saveExhibitionReview(exhibitionId, fd); setEdit(false); router.refresh(); }
-            catch (e) {
-              const raw = e instanceof Error ? e.message : '';
-              const redacted = !raw || /unexpected response|Server Components render/i.test(raw)
-                || Boolean((e as { digest?: string })?.digest);
-              setErr(redacted ? 'Could not save the review.' : raw);
-            } finally { setBusy(false); }
-          }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ fontSize: 12, color: 'var(--fg-3)' }}>
-                Companies met, existing-client hits and spend are taken from the records above —
-                only fill in what they cannot tell us.
-              </div>
-              <Two>
-                <F label="New leads worth pursuing"><input name="new_leads" inputMode="numeric" defaultValue={review?.new_leads ?? ''} style={INPUT} /></F>
-                <F label="Opportunities raised"><input name="opportunities" inputMode="numeric" defaultValue={review?.opportunities ?? ''} style={INPUT} /></F>
-              </Two>
-              <Two>
-                <F label="Potential business (₹)"><input name="potential_value_inr" inputMode="decimal" defaultValue={review?.potential_value_inr ?? ''} style={INPUT} /></F>
-                <F label="Business actually won (₹)" hint="Leave blank until something closes"><input name="business_won_inr" inputMode="decimal" defaultValue={review?.business_won_inr ?? ''} style={INPUT} /></F>
-              </Two>
-              <F label="Stand footfall"><input name="footfall" inputMode="numeric" defaultValue={review?.footfall ?? ''} style={INPUT} /></F>
-              <F label="What worked well"><textarea name="what_worked" rows={2} defaultValue={review?.what_worked ?? ''} style={{ ...INPUT, resize: 'vertical' }} /></F>
-              <F label="What did not work"><textarea name="what_did_not" rows={2} defaultValue={review?.what_did_not ?? ''} style={{ ...INPUT, resize: 'vertical' }} /></F>
-              <F label="Key learnings"><textarea name="key_learnings" rows={2} defaultValue={review?.key_learnings ?? ''} style={{ ...INPUT, resize: 'vertical' }} /></F>
-              <F label="Competitors seen"><textarea name="competitor_notes" rows={2} defaultValue={review?.competitor_notes ?? ''} style={{ ...INPUT, resize: 'vertical' }} /></F>
-              <Two>
-                <F label="Attend next year?">
-                  <select name="attend_next_year" defaultValue={review?.attend_next_year ?? ''} style={INPUT}>
-                    <option value="">— Select —</option>
-                    {['Yes', 'No', 'Undecided'].map(o => <option key={o} value={o}>{o}</option>)}
-                  </select>
-                </F>
-                <F label="Notes for next year"><input name="next_year_notes" defaultValue={review?.next_year_notes ?? ''} style={INPUT} /></F>
-              </Two>
-              {err && <div style={ERR}>{err}</div>}
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                {review && <button type="button" onClick={() => setEdit(false)} style={BTN_GHOST}>Cancel</button>}
-                <button type="submit" disabled={busy} style={BTN_PRIMARY}>{busy ? 'Saving…' : 'Save review'}</button>
-              </div>
-            </div>
-          </form>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Note({ k, v }: { k: string; v: string | null }) {
-  return (
-    <div style={{ marginBottom: 10 }}>
-      <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{k}</div>
-      <div style={{ fontSize: 12, color: 'var(--fg-2)', whiteSpace: 'pre-wrap', marginTop: 2 }}>
-        {v || <span style={{ color: 'var(--fg-3)' }}>—</span>}
-      </div>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+      <Kpi label="Companies met"   value={String(met)} sub={`${known} existing · ${met - known} new`} />
+      <Kpi label="Hot leads"       value={String(hot)} sub="marked hot at the stand" />
+      <Kpi label="Potential value" value={fmtInr(pipeline)} sub="summed from meetings" />
+      <Kpi label="Total spend"     value={fmtInr(spend)} />
+      <Kpi label="Business won"    value={fmtInr(won)} sub={review ? undefined : 'not recorded yet'} />
+      <Kpi label="ROI"             value={roi == null ? '—' : `${roi > 0 ? '+' : ''}${roi.toFixed(0)}%`}
+           sub={roi == null ? 'needs spend + business won' : 'business won vs spend'} />
     </div>
   );
 }

@@ -5,10 +5,10 @@ import { useRouter } from 'next/navigation';
 import { fmtInr, fmtInrFull, type ExhibitionStatus } from '@/lib/risansi-exhibition-fields';
 import {
   updateMeetingCompany, setMeetingFollowUp,
-  reviewExhibitionExpenses, closeExhibition, reopenExhibition,
+  reviewExhibitionExpenses, closeExhibition, reopenExhibition, saveExhibitionReview,
   type FollowUpType,
 } from '@/app/actions/risansi-exhibitions';
-import type { MeetingRow, ExpenseRow } from './ExhibitionDetail';
+import type { MeetingRow, ExpenseRow, ReviewRow } from './ExhibitionDetail';
 import type { UserOpt } from './ExhibitionsClient';
 
 /**
@@ -39,12 +39,13 @@ const DISPOSITIONS: { value: FollowUpType; label: string; needsClient: boolean; 
 
 export function ExhibitionReviewWorkbench({
   exhibitionId, status, meetings, expenses, users,
-  expensesReviewedAt, closedAt, closedByName, isOwner, isSysadmin, blockers, hasReview,
+  expensesReviewedAt, closedAt, closedByName, isOwner, isSysadmin, blockers, hasReview, review,
 }: {
   exhibitionId: number; status: ExhibitionStatus;
   meetings: ReviewMeeting[]; expenses: ExpenseRow[]; users: UserOpt[];
   expensesReviewedAt: string | null; closedAt: string | null; closedByName: string | null;
   isOwner: boolean; isSysadmin: boolean; blockers: string[]; hasReview: boolean;
+  review: ReviewRow | null;
 }) {
   const closed = status === 'Closed';
   const decided = meetings.filter(m => m.follow_up_type != null).length;
@@ -96,9 +97,17 @@ export function ExhibitionReviewWorkbench({
           reviewedAt={expensesReviewedAt} editable={isOwner && !closed} />
       </section>
 
-      {/* Step 3 — close */}
+      {/* Step 3 — the summary, last because it summarises the two steps above */}
       <section>
-        <StepHead n={3} title="Close the exhibition" done={closed}
+        <StepHead n={3} title="Final summary" done={hasReview}
+          sub={hasReview ? 'Saved' : 'Pre-filled from the records above'} />
+        <SummaryForm exhibitionId={exhibitionId} review={review} meetings={meetings}
+          editable={isOwner && !closed} />
+      </section>
+
+      {/* Step 4 — close */}
+      <section>
+        <StepHead n={4} title="Close the exhibition" done={closed}
           sub={closed ? 'Closed — read only' : 'Locks everything for good'} />
         <ClosePanel exhibitionId={exhibitionId} blockers={blockers} hasReview={hasReview}
           closed={closed} editable={isOwner && !closed} />
@@ -337,6 +346,159 @@ function CompanyCell({ exhibitionId, meeting: m, editable }: {
         </button>
         <button onClick={() => { setEdit(false); setName(m.company_name); setClientId(m.client_id); setMatched(m.client_code); }}
           style={{ ...BTN_GHOST, padding: '5px 10px', fontSize: 12 }}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Final summary ────────────────────────────────────────────────
+
+/**
+ * Sits last, because it summarises the two steps above it.
+ *
+ * The countable fields arrive already filled from the records themselves: leads
+ * worth pursuing is how many meetings were given a real follow-up, opportunities
+ * raised is how many actually became one, and potential business is the sum of
+ * what was captured at the stand. Nobody should be re-counting rows they have
+ * just finished working through — and a hand-typed count would be the number that
+ * quietly disagrees with the table above it.
+ *
+ * Every prefilled value stays editable: the derived figure is a starting point,
+ * not a verdict. Only what genuinely cannot be derived — business actually won,
+ * footfall, and the written judgement — starts blank.
+ */
+function SummaryForm({ exhibitionId, review, meetings, editable }: {
+  exhibitionId: number; review: ReviewRow | null; meetings: ReviewMeeting[]; editable: boolean;
+}) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr]   = useState('');
+  const [edit, setEdit] = useState(!review);
+
+  const derived = {
+    // "Worth pursuing" = we decided to do something about it.
+    newLeads: meetings.filter(m => m.follow_up_type && m.follow_up_type !== 'None').length,
+    opportunities: meetings.filter(m => m.linked_opportunity_id != null).length,
+    potential: meetings.reduce((s, m) => s + Number(m.potential_value_inr ?? 0), 0),
+  };
+  // A saved review wins over the derived figure — someone may have corrected it.
+  const val = (saved: number | null | undefined, auto: number) =>
+    saved != null ? String(saved) : auto ? String(auto) : '';
+
+  if (!editable && !review) {
+    return <div style={PANEL}><div style={BLANK}>The summary has not been filled in yet.</div></div>;
+  }
+
+  if (!edit && review) {
+    return (
+      <div style={{ ...PANEL, padding: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+          <Fig label="New leads"       v={review.new_leads?.toString() ?? '—'} />
+          <Fig label="Opportunities"   v={review.opportunities?.toString() ?? '—'} />
+          <Fig label="Potential"       v={review.potential_value_inr != null ? fmtInrFull(review.potential_value_inr) : '—'} />
+          <Fig label="Business won"    v={review.business_won_inr != null ? fmtInrFull(review.business_won_inr) : '—'} />
+          <Fig label="Footfall"        v={review.footfall?.toString() ?? '—'} />
+          <Fig label="Attend next year" v={review.attend_next_year ?? '—'} />
+        </div>
+        <div style={{ display: 'grid', gap: 8, marginTop: 14 }}>
+          <Note k="Worked well"  v={review.what_worked} />
+          <Note k="Did not work" v={review.what_did_not} />
+          <Note k="Learnings"    v={review.key_learnings} />
+          <Note k="Competitors"  v={review.competitor_notes} />
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 12 }}>
+          Saved by {review.reviewed_by_name ?? '—'}{review.reviewed_at ? ` on ${review.reviewed_at.slice(0, 10)}` : ''}
+        </div>
+        {editable && <button onClick={() => setEdit(true)} style={{ ...BTN_GHOST, marginTop: 10 }}>Edit summary</button>}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ ...PANEL, padding: 16 }}>
+      <form className="exh-form" action={async fd => {
+        setBusy(true); setErr('');
+        try { await saveExhibitionReview(exhibitionId, fd); setEdit(false); router.refresh(); }
+        catch (e) {
+          const raw = e instanceof Error ? e.message : '';
+          const redacted = !raw || /unexpected response|Server Components render/i.test(raw)
+            || Boolean((e as { digest?: string })?.digest);
+          setErr(redacted ? 'Could not save the summary.' : raw);
+        } finally { setBusy(false); }
+      }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ fontSize: 12, color: 'var(--fg-3)' }}>
+            The counts below are filled in from the meetings and expenses you just worked through.
+            Change any of them if you disagree.
+          </div>
+
+          <div className="exh-2col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <Fld label="New leads worth pursuing" hint={`${derived.newLeads} meeting(s) given a follow-up`}>
+              <input name="new_leads" inputMode="numeric" style={INPUT}
+                defaultValue={val(review?.new_leads, derived.newLeads)} />
+            </Fld>
+            <Fld label="Opportunities raised" hint={`${derived.opportunities} raised from this review`}>
+              <input name="opportunities" inputMode="numeric" style={INPUT}
+                defaultValue={val(review?.opportunities, derived.opportunities)} />
+            </Fld>
+          </div>
+
+          <div className="exh-2col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <Fld label="Potential business (₹)" hint="Summed from what was captured at the stand">
+              <input name="potential_value_inr" inputMode="decimal" style={INPUT}
+                defaultValue={val(review?.potential_value_inr, derived.potential)} />
+            </Fld>
+            <Fld label="Business actually won (₹)" hint="Leave blank until something closes">
+              <input name="business_won_inr" inputMode="decimal" style={INPUT}
+                defaultValue={review?.business_won_inr ?? ''} />
+            </Fld>
+          </div>
+
+          <Fld label="Stand footfall"><input name="footfall" inputMode="numeric" style={INPUT} defaultValue={review?.footfall ?? ''} /></Fld>
+          <Fld label="What worked well"><textarea name="what_worked" rows={2} style={{ ...INPUT, resize: 'vertical' }} defaultValue={review?.what_worked ?? ''} /></Fld>
+          <Fld label="What did not work"><textarea name="what_did_not" rows={2} style={{ ...INPUT, resize: 'vertical' }} defaultValue={review?.what_did_not ?? ''} /></Fld>
+          <Fld label="Key learnings"><textarea name="key_learnings" rows={2} style={{ ...INPUT, resize: 'vertical' }} defaultValue={review?.key_learnings ?? ''} /></Fld>
+          <Fld label="Competitors seen"><textarea name="competitor_notes" rows={2} style={{ ...INPUT, resize: 'vertical' }} defaultValue={review?.competitor_notes ?? ''} /></Fld>
+
+          <div className="exh-2col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <Fld label="Attend next year?">
+              <select name="attend_next_year" defaultValue={review?.attend_next_year ?? ''} style={INPUT}>
+                <option value="">— Select —</option>
+                {['Yes', 'No', 'Undecided'].map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </Fld>
+            <Fld label="Notes for next year">
+              <input name="next_year_notes" style={INPUT} defaultValue={review?.next_year_notes ?? ''} />
+            </Fld>
+          </div>
+
+          {err && <div style={ERR}>{err}</div>}
+          <div className="exh-actions" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            {review && <button type="button" onClick={() => setEdit(false)} style={BTN_GHOST}>Cancel</button>}
+            <button type="submit" disabled={busy} style={BTN_PRIMARY}>{busy ? 'Saving…' : 'Save summary'}</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function Fld({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label style={LABEL}>{label}</label>
+      {children}
+      {hint && <p style={HINT}>{hint}</p>}
+    </div>
+  );
+}
+
+function Note({ k, v }: { k: string; v: string | null }) {
+  return (
+    <div>
+      <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{k}</div>
+      <div style={{ fontSize: 12, color: 'var(--fg-2)', whiteSpace: 'pre-wrap' }}>
+        {v || <span style={{ color: 'var(--fg-3)' }}>—</span>}
       </div>
     </div>
   );
