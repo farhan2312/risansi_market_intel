@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { saveQuotedDetails } from '@/app/actions/risansi';
 import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
 import { PRODUCT_TYPES } from '@/lib/risansi-opportunity-fields';
@@ -9,6 +9,7 @@ import { type OfferRevision } from '@/lib/risansi-offer-revisions';
 import { MoneyInput } from './MoneyInput';
 import { useFormDraft } from './useFormDraft';
 import { SaveIndicator, DraftRestoredBanner } from './SaveIndicator';
+import { useQuotationDocs, QuotationDocList } from './QuotationDocs';
 
 // Shown when a card is dragged into the Quoted column — captures the full
 // quotation (all attributes + a dynamic list of quoted items). Cancel reverts.
@@ -122,12 +123,8 @@ export function QuotedDetailsModal({ opp, usdRate = 86, onSave, onCancel }: { op
   const captureDraft = draft.capture;
   useEffect(() => { captureDraft(); }, [items, captureDraft]);
 
-  // ── Upload PDF + auto-fill (blanks only) ─────────────────────
-  const [link, setLink]           = useState(str(opp.quotation_link));
-  const [fileName, setFileName]   = useState('');
-  const [uploading, setUploading] = useState(false);
-  const [uploadMsg, setUploadMsg] = useState('');
-  const [uploadErr, setUploadErr] = useState(false);
+  // ── Attach documents + auto-fill (blanks only) ───────────────
+  const [filledCount, setFilledCount] = useState(0);
 
   // The default values we rendered. A field still equal to its default (or empty)
   // counts as "not typed by the user", so it is safe to auto-fill; anything the
@@ -149,37 +146,37 @@ export function QuotedDetailsModal({ opp, usdRate = 86, onSave, onCancel }: { op
     !r.pump_model && !r.pump_qty && !r.pump_speed && !r.geared_motor_detail &&
     !r.motor_price && !r.gearbox_vbelt_price && !r.offer_value_inr && !r.offer_value_usd && !r.detailed_specifications);
 
+  // Runs once per uploaded PDF. Every fill below touches blanks only, so
+  // attaching several documents lets a later one supply what an earlier one
+  // left empty, and nothing already typed is ever overwritten.
+  const absorbParsed = useCallback((data: ParsedQuoteResponse) => {
+    const meta = data.meta || {};
+    // 'qtr' dropped with the Quarter field and 'offer_value_usd' with the USD
+    // input — there is no longer an element to fill for either.
+    const keys = ['quote_ref', 'quote_date', 'enquiry_no', 'enquiry_date', 'product_type', 'market', 'offer_value_inr'];
+    let filled = 0;
+    for (const k of keys) if (fillEmpty(k, meta[k])) filled++;
+    syncOfferFromDom();   // fillEmpty writes the DOM directly; onChange never fires
+
+    const pItems = Array.isArray(data.items) ? data.items : [];
+    setItems(cur => (pItems.length && itemsAllBlank(cur)) ? pItems.map(mapItem) : cur);
+    setFilledCount(n => n + filled);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const {
+    docs, link, loading: docsLoading, busy: uploading,
+    msg: uploadMsg, err: uploadErr, upload, remove,
+  } = useQuotationDocs(opp.id, {
+    initialLink: str(opp.quotation_link),
+    onParsed: data => absorbParsed(data as ParsedQuoteResponse),
+  });
+
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
+    const picked = Array.from(e.target.files ?? []);
     e.target.value = ''; // let the user re-pick the same file
-    if (!f) return;
-    setUploading(true); setUploadMsg(''); setUploadErr(false);
-    try {
-      const fd = new FormData(); fd.append('file', f);
-      const res  = await fetch(`/api/risansi/opportunities/${opp.id}/quotation`, { method: 'POST', body: fd });
-      const data = (await res.json()) as ParsedQuoteResponse;
-      if (!res.ok) throw new Error(data?.error || 'Upload failed');
-      setLink(data.link || ''); setFileName(data.fileName || f.name);
-
-      const meta = data.meta || {};
-      // 'qtr' dropped with the Quarter field and 'offer_value_usd' with the USD
-      // input — there is no longer an element to fill for either.
-      const keys = ['quote_ref', 'quote_date', 'enquiry_no', 'enquiry_date', 'product_type', 'market', 'offer_value_inr'];
-      let filled = 0;
-      for (const k of keys) if (fillEmpty(k, meta[k])) filled++;
-      syncOfferFromDom();   // fillEmpty writes the DOM directly; onChange never fires
-
-      const pItems = Array.isArray(data.items) ? data.items : [];
-      let filledItems = 0;
-      setItems(cur => {
-        if (pItems.length && itemsAllBlank(cur)) { filledItems = pItems.length; return pItems.map(mapItem); }
-        return cur;
-      });
-      setUploadMsg(`Saved “${data.fileName || f.name}”. Auto-filled ${filled} blank field${filled === 1 ? '' : 's'}${filledItems ? ` + ${filledItems} item${filledItems === 1 ? '' : 's'}` : ''} — review before saving.`);
-    } catch (err) {
-      setUploadErr(true);
-      setUploadMsg(err instanceof Error ? err.message : 'Upload failed');
-    } finally { setUploading(false); }
+    setFilledCount(0);
+    await upload(picked);
   };
 
   return (
@@ -234,17 +231,27 @@ export function QuotedDetailsModal({ opp, usdRate = 86, onSave, onCancel }: { op
                 />
               </Field>
               <div style={{ gridColumn: '1 / -1' }}>
-                <label style={LABEL}>Quotation PDF</label>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <label style={{ ...UPLOAD_BTN, opacity: uploading ? 0.6 : 1, cursor: uploading ? 'wait' : 'pointer' }}>
-                    {uploading ? 'Reading…' : (link ? '⤒ Replace PDF' : '⤒ Upload PDF')}
-                    <input type="file" accept="application/pdf,.pdf" onChange={onFile} disabled={uploading} style={{ display: 'none' }} />
-                  </label>
-                  {link && <a href={link} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--title)', textDecoration: 'underline' }}>View{fileName ? ` · ${fileName}` : ''}</a>}
-                  {uploadMsg && <span style={{ fontSize: 11, color: uploadErr ? 'var(--neg-strong)' : 'var(--fg-3)' }}>{uploadMsg}</span>}
+                <label style={LABEL}>Quotation documents</label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <QuotationDocList oppId={opp.id} docs={docs} loading={docsLoading} busy={uploading}
+                    canEdit onRemove={remove} emptyText="No documents attached yet." />
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <label style={{ ...UPLOAD_BTN, opacity: uploading ? 0.6 : 1, cursor: uploading ? 'wait' : 'pointer' }}>
+                      {uploading ? 'Reading…' : (docs.length ? '⤒ Add more PDFs' : '⤒ Upload PDFs')}
+                      <input type="file" accept="application/pdf,.pdf" multiple onChange={onFile} disabled={uploading} style={{ display: 'none' }} />
+                    </label>
+                    {uploadMsg && (
+                      <span style={{ fontSize: 11, color: uploadErr ? 'var(--neg-strong)' : 'var(--fg-3)' }}>
+                        {uploadMsg}
+                        {!uploadErr && filledCount > 0
+                          ? ` Auto-filled ${filledCount} blank field${filledCount === 1 ? '' : 's'} — review before saving.`
+                          : ''}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <input type="hidden" name="quotation_link" value={link} />
-                <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 5 }}>Upload the quote PDF to store it and auto-fill any blank fields below. It never overwrites what you&apos;ve already typed.</div>
+                <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 5 }}>Attach as many quote PDFs as you need — you can pick several at once. Each one fills any field still blank below; it never overwrites what you&apos;ve already typed.</div>
               </div>
             </div>
 

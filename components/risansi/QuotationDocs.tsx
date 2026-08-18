@@ -1,0 +1,185 @@
+'use client';
+
+import { useCallback, useEffect, useState, type CSSProperties } from 'react';
+
+// The quotation attachment list, shared by the Quotation-details form and the
+// Edit-opportunity drawer's PDF panel. Both need the same three behaviours —
+// list what is attached, add more, remove one — so they share the hook and the
+// list rather than each growing their own copy.
+
+export interface QuotationDoc {
+  id: number;
+  file_name: string;
+  mime: string;
+  size: number | null;
+  uploaded_at: string;
+  uploaded_by_name: string | null;
+}
+
+export interface UploadResponse {
+  ok?: boolean; error?: string; fileId?: number; fileName?: string;
+  link?: string | null; files?: QuotationDoc[];
+  meta?: Record<string, string | number | null>;
+  items?: Record<string, unknown>[];
+}
+
+const MAX_BYTES = 15 * 1024 * 1024;
+
+export function fmtSize(bytes: number | null): string {
+  if (!bytes) return '';
+  return bytes >= 1024 * 1024
+    ? `${(bytes / 1024 / 1024).toFixed(1)} MB`
+    : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+export function docHref(oppId: number | string, docId: number): string {
+  return `/api/risansi/opportunities/${oppId}/quotation/${docId}`;
+}
+
+/**
+ * Attachment state for one opportunity.
+ *
+ * `initialLink` seeds the link the quotation form posts back in its hidden
+ * field, so a legacy external url survives until an upload replaces it.
+ * `onParsed` is called once per successfully uploaded PDF — the quotation form
+ * uses it to fill blank fields, and because that fill only ever touches blanks,
+ * attaching several documents lets a later one supply what an earlier one
+ * lacked without ever overwriting it.
+ */
+export function useQuotationDocs(oppId: number | string, opts?: {
+  initialLink?: string | null;
+  onParsed?: (data: UploadResponse, file: File) => void;
+  enabled?: boolean;
+}) {
+  const enabled = opts?.enabled ?? true;
+  const [docs, setDocs]   = useState<QuotationDoc[]>([]);
+  const [link, setLink]   = useState<string>(opts?.initialLink ?? '');
+  const [loading, setLoading] = useState(enabled);
+  const [busy, setBusy]   = useState(false);
+  const [msg, setMsg]     = useState('');
+  const [err, setErr]     = useState(false);
+
+  useEffect(() => {
+    if (!enabled) { setLoading(false); return; }
+    let alive = true;
+    fetch(`/api/risansi/opportunities/${oppId}/quotation/files`)
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(String(r.status))))
+      .then((d: { files?: QuotationDoc[] }) => { if (alive) setDocs(d.files ?? []); })
+      .catch(() => { /* leave the list empty; upload still works */ })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [oppId, enabled]);
+
+  // One request per file, in sequence. A single request carrying five PDFs
+  // would be one body of their combined size against a 10s function budget,
+  // and a failure partway would leave nobody able to say which ones landed.
+  const upload = useCallback(async (picked: File[]) => {
+    if (!picked.length) return;
+    setBusy(true); setMsg(''); setErr(false);
+
+    const failures: string[] = [];
+    let added = 0;
+
+    for (let i = 0; i < picked.length; i++) {
+      const f = picked[i];
+      if (picked.length > 1) setMsg(`Uploading ${i + 1} of ${picked.length}…`);
+      if (f.size > MAX_BYTES) { failures.push(`${f.name} — larger than 15 MB`); continue; }
+      try {
+        const fd = new FormData(); fd.append('file', f);
+        const res  = await fetch(`/api/risansi/opportunities/${oppId}/quotation`, { method: 'POST', body: fd });
+        const data = (await res.json()) as UploadResponse;
+        if (!res.ok) { failures.push(`${f.name} — ${data?.error || 'upload failed'}`); continue; }
+        added++;
+        if (data.files) setDocs(data.files);
+        if (data.link !== undefined) setLink(data.link ?? '');
+        opts?.onParsed?.(data, f);
+      } catch {
+        failures.push(`${f.name} — network error`);
+      }
+    }
+
+    setErr(failures.length > 0);
+    setMsg([
+      added ? `Attached ${added} document${added === 1 ? '' : 's'}.` : '',
+      failures.length ? `Could not attach: ${failures.join('; ')}` : '',
+    ].filter(Boolean).join(' '));
+    setBusy(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [oppId, opts?.onParsed]);
+
+  const remove = useCallback(async (docId: number, name: string) => {
+    if (typeof window !== 'undefined' && !window.confirm(`Remove “${name}” from this quotation?`)) return;
+    setBusy(true); setMsg(''); setErr(false);
+    try {
+      const res  = await fetch(docHref(oppId, docId), { method: 'DELETE' });
+      const data = (await res.json()) as UploadResponse;
+      if (!res.ok) throw new Error(data?.error || 'Delete failed');
+      setDocs(data.files ?? []);
+      setLink(data.link ?? '');
+      setMsg(`Removed “${name}”.`);
+    } catch (e) {
+      setErr(true);
+      setMsg(e instanceof Error ? e.message : 'Delete failed.');
+    } finally { setBusy(false); }
+  }, [oppId]);
+
+  return { docs, link, loading, busy, msg, err, upload, remove, setMsg };
+}
+
+// ── The list itself ───────────────────────────────────────────────
+
+export function QuotationDocList({ oppId, docs, loading, busy, canEdit, onRemove, emptyText }: {
+  oppId: number | string;
+  docs: QuotationDoc[];
+  loading: boolean;
+  busy: boolean;
+  canEdit: boolean;
+  onRemove: (id: number, name: string) => void;
+  emptyText?: string;
+}) {
+  if (loading) return <span style={MUTED}>Loading documents…</span>;
+  if (!docs.length) return <span style={MUTED}>{emptyText ?? 'No documents attached.'}</span>;
+
+  return (
+    <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {docs.map((d, i) => (
+        <li key={d.id} style={ROW}>
+          <a href={docHref(oppId, d.id)} target="_blank" rel="noreferrer" style={NAME} title={d.file_name}>
+            📄 {d.file_name}
+          </a>
+          {/* The first document is what quotation_link resolves to, so anyone
+              reading the row in Excel or on Client 360 lands on this one. */}
+          {i === 0 && docs.length > 1 && <span style={TAG}>primary</span>}
+          <span style={META}>
+            {[fmtSize(d.size), d.uploaded_at?.slice(0, 10), d.uploaded_by_name].filter(Boolean).join(' · ')}
+          </span>
+          {canEdit && (
+            <button type="button" onClick={() => onRemove(d.id, d.file_name)} disabled={busy}
+              aria-label={`Remove ${d.file_name}`} style={REMOVE}>
+              Remove
+            </button>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+const MUTED: CSSProperties = { fontSize: 12, color: 'var(--fg-3)' };
+const ROW: CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+  padding: '5px 8px', borderRadius: 6, background: 'var(--bg-elev)', border: '1px solid var(--line)',
+};
+const NAME: CSSProperties = {
+  fontSize: 12.5, fontWeight: 600, color: 'var(--title)', textDecoration: 'none',
+  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260,
+};
+const TAG: CSSProperties = {
+  fontSize: 9.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase',
+  color: 'var(--fg-3)', border: '1px solid var(--line-strong)', borderRadius: 4, padding: '1px 5px',
+};
+const META: CSSProperties = { fontSize: 10.5, color: 'var(--fg-3)', marginLeft: 'auto' };
+const REMOVE: CSSProperties = {
+  background: 'none', border: 'none', color: 'var(--neg)', cursor: 'pointer',
+  fontSize: 11, fontWeight: 600, fontFamily: 'inherit', padding: '2px 4px',
+};

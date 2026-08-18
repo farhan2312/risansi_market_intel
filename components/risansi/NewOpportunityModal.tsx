@@ -195,7 +195,7 @@ function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess }: {
   const [stage, setStage]     = useState<CreateStage>('Suspect');
   const [step, setStep]       = useState<1 | 2>(1);
   const [items, setItems]     = useState<ItemRow[]>([]);
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [pdfFiles, setPdfFiles] = useState<File[]>([]);
   const [competitors, setCompetitors] = useState<string[]>([]);
   // Owner follows the client's tour. If the client has none yet, it can be
   // mapped inline below; assignedOwner captures the resolved owner so the form
@@ -284,8 +284,9 @@ function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess }: {
 
       // Catch the common upload rejection (oversize) BEFORE creating, so the
       // form can say so inline instead of dropping the PDF after the fact.
-      if (pdfFile && pdfFile.size > 15 * 1024 * 1024) {
-        setError('The quotation PDF is larger than 15 MB. Choose a smaller file, or create now and attach it from the card.');
+      const oversize = pdfFiles.filter(f => f.size > 15 * 1024 * 1024);
+      if (oversize.length) {
+        setError(`${oversize.length === 1 ? 'This quotation PDF is' : 'These quotation PDFs are'} larger than 15 MB: ${oversize.map(f => f.name).join(', ')}. Remove ${oversize.length === 1 ? 'it' : 'them'}, or create now and attach from the card.`);
         setLoading(false);
         return;
       }
@@ -293,25 +294,31 @@ function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess }: {
       const created = await createPipelineOpportunity(fd);
       draft.clear();   // it exists on the server now
 
-      // Attach the quotation PDF to the record we just created — the reason the
-      // form has a second step. The opportunity is already saved, so a failed
-      // upload is non-fatal, but it must NOT be swallowed: the step-2 copy
-      // promised the PDF was attached, so surface any failure plainly.
-      if (pdfFile && created?.id) {
-        let attachError = '';
-        try {
-          const pf = new FormData();
-          pf.set('file', pdfFile);
-          const up = await fetch(`/api/risansi/opportunities/${created.id}/quotation`, { method: 'POST', body: pf });
-          if (!up.ok) {
-            const j = await up.json().catch(() => ({} as { error?: string }));
-            attachError = j?.error || `upload failed (${up.status})`;
+      // Attach the quotation documents to the record we just created — the
+      // reason the form has a second step. The opportunity is already saved, so
+      // a failed upload is non-fatal, but it must NOT be swallowed: the step-2
+      // copy promised they were attached, so surface any failure plainly.
+      //
+      // One request per file. Sending them as a single multipart body would put
+      // their combined size into one request against a 10s function budget, and
+      // a failure partway would leave nobody able to say which ones landed.
+      if (pdfFiles.length && created?.id) {
+        const failures: string[] = [];
+        for (const f of pdfFiles) {
+          try {
+            const pf = new FormData();
+            pf.set('file', f);
+            const up = await fetch(`/api/risansi/opportunities/${created.id}/quotation`, { method: 'POST', body: pf });
+            if (!up.ok) {
+              const j = await up.json().catch(() => ({} as { error?: string }));
+              failures.push(`${f.name} — ${j?.error || `upload failed (${up.status})`}`);
+            }
+          } catch {
+            failures.push(`${f.name} — a network error`);
           }
-        } catch {
-          attachError = 'a network error';
         }
-        if (attachError) {
-          window.alert(`Opportunity created, but the quotation PDF could not be attached (${attachError}). You can add it from the opportunity card.`);
+        if (failures.length) {
+          window.alert(`Opportunity created, but ${failures.length} of ${pdfFiles.length} document(s) could not be attached:\n\n${failures.join('\n')}\n\nYou can add them from the opportunity card.`);
         }
       }
 
@@ -557,23 +564,47 @@ function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess }: {
             </div>
           </div>
 
-          {/* Quotation PDF — attached to the opportunity as soon as it is created. */}
+          {/* Quotation documents — attached to the opportunity as soon as it is
+              created. Picking again adds to the list rather than replacing it,
+              so a quote and its annexures can be gathered in one pass. */}
           <div style={{ marginTop: 16 }}>
-            <label style={LBL}>Quotation PDF</label>
+            <label style={LBL}>Quotation documents</label>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               <label style={UPLOAD_BTN}>
-                {pdfFile ? '⤒ Replace PDF' : '⤒ Choose PDF'}
-                <input type="file" accept="application/pdf,.pdf"
-                  onChange={e => setPdfFile(e.target.files?.[0] ?? null)}
+                {pdfFiles.length ? '⤒ Add more PDFs' : '⤒ Choose PDFs'}
+                <input type="file" accept="application/pdf,.pdf" multiple
+                  onChange={e => {
+                    const picked = Array.from(e.target.files ?? []);
+                    e.target.value = '';   // let the same file be re-picked
+                    setPdfFiles(cur => [
+                      ...cur,
+                      ...picked.filter(p => !cur.some(c => c.name === p.name && c.size === p.size)),
+                    ]);
+                  }}
                   style={{ display: 'none' }} />
               </label>
-              {pdfFile
-                ? <span style={{ fontSize: 11.5, color: 'var(--fg-2)' }}>{pdfFile.name}</span>
-                : <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>Attached on create — no need to visit the card.</span>}
-              {pdfFile && (
-                <button type="button" onClick={() => setPdfFile(null)} style={{ background: 'none', border: 'none', color: 'var(--neg)', cursor: 'pointer', fontSize: 11 }}>Remove</button>
+              {!pdfFiles.length && (
+                <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>Attached on create — no need to visit the card.</span>
               )}
             </div>
+            {pdfFiles.length > 0 && (
+              <ul style={{ listStyle: 'none', margin: '8px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {pdfFiles.map(f => (
+                  <li key={`${f.name}:${f.size}`} style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '4px 8px', borderRadius: 6,
+                    background: 'var(--bg-elev)', border: '1px solid var(--line)',
+                  }}>
+                    <span style={{ fontSize: 11.5, color: 'var(--fg-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📄 {f.name}</span>
+                    <button type="button"
+                      onClick={() => setPdfFiles(cur => cur.filter(c => !(c.name === f.name && c.size === f.size)))}
+                      style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--neg)', cursor: 'pointer', fontSize: 11 }}>
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
       )}
