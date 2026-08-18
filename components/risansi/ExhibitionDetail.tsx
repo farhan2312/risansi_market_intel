@@ -57,15 +57,15 @@ export interface ReviewRow {
   reviewed_by_name: string | null; reviewed_at: string | null;
 }
 
-type Tab = 'overview' | 'team' | 'meetings' | 'expenses' | 'review';
+type Tab = 'overview' | 'team' | 'meetings' | 'expenses' | 'review' | 'approvals';
 
 export function ExhibitionDetail(props: {
-  exhibition: ExhibitionFull; team: TeamMember[];
+  exhibition: ExhibitionFull; team: TeamMember[]; approvals: ApprovalRow[];
   meetings: MeetingRow[]; expenses: ExpenseRow[]; users: UserOpt[];
   review: ReviewRow | null;
   canManage: boolean; isApprover: boolean;
 }) {
-  const { exhibition: ex, team, meetings, expenses, users, review, canManage, isApprover } = props;
+  const { exhibition: ex, team, approvals, meetings, expenses, users, review, canManage, isApprover } = props;
   const [tab, setTab] = useState<Tab>('overview');
   const totals = useMemo(() => sumExpenses(expenses), [expenses]);
   const known  = meetings.filter(m => m.client_id != null).length;
@@ -123,6 +123,9 @@ export function ExhibitionDetail(props: {
           ['meetings', `Meetings (${meetings.length})`, unlocked],
           ['expenses', `Expenses (${expenses.length})`, unlocked],
           ['review', 'Post-event review', reviewOk],
+          // Scoped to this exhibition for the people accountable for it. The
+          // module-wide feed lives in the sysadmin-only Audit Log.
+          ['approvals', `History (${approvals.length})`, canManage || isApprover],
         ] as [Tab, string, boolean][]).map(([k, label, on]) => (
           <button key={k} onClick={() => on && setTab(k)} disabled={!on}
             title={on ? undefined
@@ -146,6 +149,7 @@ export function ExhibitionDetail(props: {
       {activeTab === 'meetings'  && <MeetingsTab exhibitionId={ex.id} meetings={meetings} canManage={canManage} />}
       {activeTab === 'expenses'  && <ExpensesTab exhibitionId={ex.id} expenses={expenses} totals={totals} canManage={canManage} />}
       {activeTab === 'review'    && <ReviewTab exhibitionId={ex.id} review={review} meetings={meetings} totals={totals} canManage={canManage} />}
+      {activeTab === 'approvals' && <ApprovalsTab approvals={approvals} />}
     </div>
   );
 }
@@ -842,6 +846,37 @@ function DeleteExpense({ exhibitionId, expenseId }: { exhibitionId: number; expe
       }}>Confirm</button>{' '}
       <button style={LINK_BTN} onClick={() => setConfirm(false)}>Cancel</button>
     </span>
+  );
+}
+
+// ── Approval history (this exhibition only) ──────────────────────
+
+/**
+ * The decision trail for this exhibition, for the people accountable for it —
+ * its team and its approver. Deliberately kept here rather than only in the
+ * Audit Log: that page is sysadmin-only and also carries logins, usage and
+ * ownership changes, so opening it to approvers would hand over far more than
+ * the history they actually need. The module-wide feed still lives there.
+ */
+function ApprovalsTab({ approvals }: { approvals: ApprovalRow[] }) {
+  if (approvals.length === 0) {
+    return <div style={PANEL}><Blank>Nothing submitted yet.</Blank></div>;
+  }
+  return (
+    <div style={PANEL}>
+      {approvals.map(a => (
+        <div key={a.id} style={{ ...ROW, alignItems: 'flex-start' }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>{a.decision}</div>
+            {a.comments && <div style={{ fontSize: 12, color: 'var(--fg-2)', marginTop: 3 }}>{a.comments}</div>}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--fg-3)', textAlign: 'right', whiteSpace: 'nowrap' }}>
+            <div>{a.actor_name ?? '—'}</div>
+            <div>{a.created_at?.slice(0, 16).replace('T', ' ')}</div>
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
