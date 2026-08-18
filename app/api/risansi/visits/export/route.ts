@@ -354,11 +354,14 @@ export async function GET(req: Request) {
   const humanise = humaniseKey;
   const cellOf = cellValue;
 
-  const childSheet = (name: string, data: Row[], note: string) => {
+  const childSheet = (name: string, data: Row[], note: string, pick?: (k: string) => boolean) => {
     const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', ySplit: 3, xSplit: 3 }] });
     // 'id' identifies nothing to a reader and visit_id is replaced by the context
-    // columns, so both are dropped from the body.
-    const keys = data.length ? Object.keys(data[0]).filter(k => k !== 'id' && k !== 'visit_id') : [];
+    // columns, so both are dropped from the body. `pick` narrows the rest, which
+    // is how the sugar report is split across three sheets.
+    const keys = data.length
+      ? Object.keys(data[0]).filter(k => k !== 'id' && k !== 'visit_id' && (!pick || pick(k)))
+      : [];
     const cols = [
       { h: 'Visit Date', w: 12 }, { h: 'Rep', w: 20 }, { h: 'Client', w: 30 },
       ...keys.map(k => ({ h: humanise(k), w: Math.min(42, Math.max(13, humanise(k).length + 4)) })),
@@ -386,8 +389,20 @@ export async function GET(req: Request) {
     ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: cols.length } };
   };
 
-  childSheet('Sugar Report', sugar,
-    'No sugar-format visit reports in this range.');
+  // The sugar report is 45 columns — unreadable as one sheet, and the columns
+  // fall into three groups a person actually asks about separately: our pumps,
+  // theirs, and the commercial state of the account. Same rows on each, so the
+  // three line up and can be read side by side.
+  const isRil        = (k: string) => k.startsWith('ril_');
+  const isCompetitor = (k: string) => k.startsWith('other_') || k.startsWith('competitor_');
+
+  childSheet('Sugar RIL Pumps', sugar,
+    'No sugar-format visit reports in this range.', isRil);
+  childSheet('Sugar Competitor', sugar,
+    'No sugar-format visit reports in this range.', isCompetitor);
+  childSheet('Sugar Commercial', sugar,
+    'No sugar-format visit reports in this range.',
+    k => !isRil(k) && !isCompetitor(k));
   childSheet('Non-Sugar Report', nonSugar,
     'No non-sugar visit reports in this range.');
   childSheet('Equipment', equipment,
