@@ -5,7 +5,7 @@ import { getCurrentUser } from '@/lib/risansi-auth';
 import { canManageExhibition } from '@/app/actions/risansi-exhibitions';
 import { ExhibitionDetail } from '@/components/risansi/ExhibitionDetail';
 import type {
-  ExhibitionFull, TeamMember, ApprovalRow, MeetingRow, ExpenseRow,
+  ExhibitionFull, TeamMember, ApprovalRow, MeetingRow, ExpenseRow, ReviewRow,
 } from '@/components/risansi/ExhibitionDetail';
 import type { UserOpt } from '@/components/risansi/ExhibitionsClient';
 
@@ -22,7 +22,7 @@ export default async function ExhibitionDetailPage({ params }: { params: Promise
 
   const me = await getCurrentUser();
 
-  const [exhibition, team, approvals, meetings, expenses, users, canManage] = await Promise.all([
+  const [exhibition, team, approvals, meetings, expenses, review, users, canManage] = await Promise.all([
     q<ExhibitionFull | null>(async () => {
       const { rows } = await risansiPool.query<ExhibitionFull>(`
         SELECT e.id, e.name, e.organizer, e.website, e.venue, e.city, e.state, e.country,
@@ -93,6 +93,18 @@ export default async function ExhibitionDetailPage({ params }: { params: Promise
       return rows;
     }, []),
 
+    q<ReviewRow | null>(async () => {
+      const { rows } = await risansiPool.query<ReviewRow>(
+        `SELECT exhibition_id, new_leads, opportunities,
+                potential_value_inr::float8 AS potential_value_inr,
+                business_won_inr::float8 AS business_won_inr, footfall,
+                what_worked, what_did_not, key_learnings, competitor_notes,
+                attend_next_year, next_year_notes, reviewed_by_name,
+                reviewed_at::text AS reviewed_at
+           FROM exhibition_reviews WHERE exhibition_id = $1`, [id]);
+      return rows[0] ?? null;
+    }, null),
+
     q<UserOpt[]>(async () => {
       const { rows } = await risansiPool.query<UserOpt>(
         `SELECT id, name, role FROM users
@@ -118,6 +130,7 @@ export default async function ExhibitionDetailPage({ params }: { params: Promise
         approvals={approvals}
         meetings={meetings}
         expenses={expenses}
+        review={review}
         users={users}
         canManage={canManage}
         isApprover={isApprover}

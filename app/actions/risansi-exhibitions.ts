@@ -5,7 +5,7 @@ import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, hasRole } from '@/lib/risansi-auth';
 import { recordAudit } from '@/lib/audit';
 import {
-  isExhibitionStatus, isDecision,
+  isExhibitionStatus, isDecision, UNLOCKED_STATUSES,
   type Decision, type ExhibitionStatus,
 } from '@/lib/risansi-exhibition-fields';
 
@@ -60,6 +60,23 @@ export async function canManageExhibition(exhibitionId: number): Promise<boolean
 async function assertCanManage(exhibitionId: number): Promise<void> {
   if (!(await canManageExhibition(exhibitionId))) {
     throw new Error('You are not on this exhibition’s team.');
+  }
+}
+
+/**
+ * Meetings, expenses and the review only open once the exhibition has actually
+ * been approved. Enforced here and not only in the UI: a disabled tab is a
+ * convention, this is the rule. Without it, spend and captured leads could
+ * accumulate against an event nobody agreed to attend.
+ */
+async function assertUnlocked(exhibitionId: number): Promise<void> {
+  const { rows } = await risansiPool.query<{ status: string }>(
+    "SELECT status FROM exhibitions WHERE id = $1", [exhibitionId],
+  );
+  const status = rows[0]?.status;
+  if (!status) throw new Error("Exhibition not found.");
+  if (!UNLOCKED_STATUSES.includes(status as ExhibitionStatus)) {
+    throw new Error("This exhibition has not been approved yet.");
   }
 }
 
@@ -287,6 +304,7 @@ export async function setExhibitionTeam(id: number, members: { userId: number; r
 export async function saveExhibitionMeeting(exhibitionId: number, fd: FormData, meetingId?: number) {
   const user = await requireUser();
   await assertCanManage(exhibitionId);
+  await assertUnlocked(exhibitionId);
 
   const company = str(fd, 'company_name');
   if (!company) throw new Error('Company name is required.');
@@ -344,6 +362,7 @@ export async function saveExhibitionMeeting(exhibitionId: number, fd: FormData, 
 export async function deleteExhibitionMeeting(exhibitionId: number, meetingId: number) {
   await requireUser();
   await assertCanManage(exhibitionId);
+  await assertUnlocked(exhibitionId);
   await risansiPool.query(
     'DELETE FROM exhibition_meetings WHERE id = $1 AND exhibition_id = $2',
     [meetingId, exhibitionId],
@@ -356,6 +375,7 @@ export async function deleteExhibitionMeeting(exhibitionId: number, meetingId: n
 export async function saveExhibitionExpense(exhibitionId: number, fd: FormData, expenseId?: number) {
   const user = await requireUser();
   await assertCanManage(exhibitionId);
+  await assertUnlocked(exhibitionId);
 
   const category = str(fd, 'category');
   if (!category) throw new Error('Pick an expense category.');
@@ -393,9 +413,62 @@ export async function saveExhibitionExpense(exhibitionId: number, fd: FormData, 
 export async function deleteExhibitionExpense(exhibitionId: number, expenseId: number) {
   await requireUser();
   await assertCanManage(exhibitionId);
+  await assertUnlocked(exhibitionId);
   await risansiPool.query(
     'DELETE FROM exhibition_expenses WHERE id = $1 AND exhibition_id = $2',
     [expenseId, exhibitionId],
   );
+  touch(exhibitionId);
+}
+
+// ── Post-event review ────────────────────────────────────────────
+
+/**
+ * One review row per exhibition, upserted. Only judgement fields are stored —
+ * companies met, existing-client hits and spend are derived from the meeting and
+ * expense tables at read time so the review can never contradict them.
+ */
+export async function saveExhibitionReview(exhibitionId: number, fd: FormData) {
+  const user = await requireUser();
+  await assertCanManage(exhibitionId);
+  await assertUnlocked(exhibitionId);
+
+  const int = (k: string): number | null => {
+    const raw = str(fd, k);
+    if (raw == null) return null;
+    const n = Number(raw.replace(/[,\s]/g, ''));
+    return Number.isInteger(n) && n >= 0 ? n : null;
+  };
+  const attend = str(fd, 'attend_next_year');
+  if (attend != null && !['Yes', 'No', 'Undecided'].includes(attend)) {
+    throw new Error('Unknown answer for attending next year.');
+  }
+
+  await risansiPool.query(
+    `INSERT INTO exhibition_reviews
+       (exhibition_id, new_leads, opportunities, potential_value_inr, business_won_inr,
+        footfall, what_worked, what_did_not, key_learnings, competitor_notes,
+        attend_next_year, next_year_notes, reviewed_by, reviewed_by_name, reviewed_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,(SELECT name FROM users WHERE id=$13),NOW())
+     ON CONFLICT (exhibition_id) DO UPDATE SET
+       new_leads=EXCLUDED.new_leads, opportunities=EXCLUDED.opportunities,
+       potential_value_inr=EXCLUDED.potential_value_inr, business_won_inr=EXCLUDED.business_won_inr,
+       footfall=EXCLUDED.footfall, what_worked=EXCLUDED.what_worked,
+       what_did_not=EXCLUDED.what_did_not, key_learnings=EXCLUDED.key_learnings,
+       competitor_notes=EXCLUDED.competitor_notes, attend_next_year=EXCLUDED.attend_next_year,
+       next_year_notes=EXCLUDED.next_year_notes, reviewed_by=EXCLUDED.reviewed_by,
+       reviewed_by_name=EXCLUDED.reviewed_by_name, reviewed_at=NOW(), updated_at=NOW()`,
+    [
+      exhibitionId, int('new_leads'), int('opportunities'),
+      inr(fd, 'potential_value_inr'), inr(fd, 'business_won_inr'), int('footfall'),
+      str(fd, 'what_worked'), str(fd, 'what_did_not'), str(fd, 'key_learnings'),
+      str(fd, 'competitor_notes'), attend, str(fd, 'next_year_notes'), user.id,
+    ],
+  );
+
+  await recordAudit({
+    action: 'exhibition_reviewed', entityType: 'exhibition', entityId: String(exhibitionId),
+    summary: 'saved post-event review', actorEmail: user.email,
+  }).catch(() => {});
   touch(exhibitionId);
 }

@@ -5,12 +5,14 @@ import { useRouter } from 'next/navigation';
 import {
   DECISIONS, EXPENSE_CATEGORIES, INTEREST_LEVELS, TEAM_ROLES, EDITABLE_STATUSES,
   STATUS_TONE, fmtInr, fmtInrFull, sumExpenses, eventDays,
+  isUnlocked, canReview, submitReadiness,
   type ExhibitionStatus, type Decision,
 } from '@/lib/risansi-exhibition-fields';
 import {
   submitForApproval, decideExhibition, setExhibitionTeam,
   saveExhibitionMeeting, deleteExhibitionMeeting,
   saveExhibitionExpense, deleteExhibitionExpense, updateExhibition,
+  saveExhibitionReview,
 } from '@/app/actions/risansi-exhibitions';
 import type { UserOpt } from './ExhibitionsClient';
 
@@ -44,18 +46,41 @@ export interface ExpenseRow {
   paid_on: string | null; has_invoice: boolean; file_name: string | null;
 }
 
-type Tab = 'overview' | 'team' | 'meetings' | 'expenses' | 'approvals';
+export interface ReviewRow {
+  exhibition_id: number; new_leads: number | null; opportunities: number | null;
+  potential_value_inr: number | null; business_won_inr: number | null; footfall: number | null;
+  what_worked: string | null; what_did_not: string | null; key_learnings: string | null;
+  competitor_notes: string | null; attend_next_year: string | null; next_year_notes: string | null;
+  reviewed_by_name: string | null; reviewed_at: string | null;
+}
+
+type Tab = 'overview' | 'team' | 'meetings' | 'expenses' | 'review' | 'approvals';
 
 export function ExhibitionDetail(props: {
   exhibition: ExhibitionFull; team: TeamMember[]; approvals: ApprovalRow[];
   meetings: MeetingRow[]; expenses: ExpenseRow[]; users: UserOpt[];
+  review: ReviewRow | null;
   canManage: boolean; isApprover: boolean;
 }) {
-  const { exhibition: ex, team, approvals, meetings, expenses, users, canManage, isApprover } = props;
+  const { exhibition: ex, team, approvals, meetings, expenses, users, review, canManage, isApprover } = props;
   const [tab, setTab] = useState<Tab>('overview');
   const totals = useMemo(() => sumExpenses(expenses), [expenses]);
   const known  = meetings.filter(m => m.client_id != null).length;
   const days   = eventDays(ex.start_date, ex.end_date);
+
+  // The operational tabs stay shut until the exhibition is actually approved, so
+  // spend and captured leads cannot pile up against an event nobody agreed to.
+  const unlocked  = isUnlocked(ex.status);
+  const reviewOk  = canReview(ex.status);
+  const hasLead   = team.some(t => t.team_role === 'Team Lead');
+  const readiness = submitReadiness(ex, team.length, hasLead);
+
+  // Never leave someone parked on a tab that has since locked (e.g. after a
+  // rejection), which would otherwise render an empty panel with no explanation.
+  const activeTab: Tab =
+    (!unlocked && (tab === 'meetings' || tab === 'expenses' || tab === 'review')) ? 'overview'
+    : (!reviewOk && tab === 'review') ? 'overview'
+    : tab;
 
   return (
     <div style={{ padding: '20px 24px 40px' }}>
@@ -72,7 +97,7 @@ export function ExhibitionDetail(props: {
               .filter(Boolean).join('  ·  ') || 'No details recorded yet'}
           </div>
         </div>
-        <ApprovalBar exhibition={ex} canManage={canManage} isApprover={isApprover} />
+        <ApprovalBar exhibition={ex} canManage={canManage} isApprover={isApprover} readiness={readiness} />
       </div>
 
       {/* KPIs */}
@@ -90,33 +115,45 @@ export function ExhibitionDetail(props: {
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', marginBottom: 16, flexWrap: 'wrap' }}>
         {([
-          ['overview', 'Overview'], ['team', `Team (${team.length})`],
-          ['meetings', `Meetings (${meetings.length})`], ['expenses', `Expenses (${expenses.length})`],
-          ['approvals', `History (${approvals.length})`],
-        ] as [Tab, string][]).map(([k, label]) => (
-          <button key={k} onClick={() => setTab(k)} style={{
-            padding: '8px 14px', border: 'none', background: 'none', cursor: 'pointer',
-            fontSize: 13, fontFamily: 'inherit',
-            color: tab === k ? 'var(--title)' : 'var(--fg-3)',
-            fontWeight: tab === k ? 600 : 400,
-            borderBottom: tab === k ? '2px solid var(--brand-blue)' : '2px solid transparent',
-          }}>{label}</button>
+          ['overview', 'Overview', true],
+          ['team', `Team (${team.length})`, true],
+          ['meetings', `Meetings (${meetings.length})`, unlocked],
+          ['expenses', `Expenses (${expenses.length})`, unlocked],
+          ['review', 'Post-event review', reviewOk],
+          ['approvals', `History (${approvals.length})`, true],
+        ] as [Tab, string, boolean][]).map(([k, label, on]) => (
+          <button key={k} onClick={() => on && setTab(k)} disabled={!on}
+            title={on ? undefined
+              : k === 'review' ? 'Available once the event is under way'
+              : 'Unlocked once the exhibition is approved'}
+            style={{
+              padding: '8px 14px', border: 'none', background: 'none',
+              cursor: on ? 'pointer' : 'not-allowed',
+              fontSize: 13, fontFamily: 'inherit',
+              color: activeTab === k ? 'var(--title)' : on ? 'var(--fg-3)' : 'var(--fg-3)',
+              opacity: on ? 1 : 0.5,
+              fontWeight: activeTab === k ? 600 : 400,
+              borderBottom: activeTab === k ? '2px solid var(--brand-blue)' : '2px solid transparent',
+            }}>{on ? label : `${label} 🔒`}</button>
         ))}
       </div>
 
-      {tab === 'overview'  && <Overview exhibition={ex} users={users} canManage={canManage} />}
-      {tab === 'team'      && <TeamTab exhibitionId={ex.id} team={team} users={users} canManage={canManage} />}
-      {tab === 'meetings'  && <MeetingsTab exhibitionId={ex.id} meetings={meetings} canManage={canManage} />}
-      {tab === 'expenses'  && <ExpensesTab exhibitionId={ex.id} expenses={expenses} totals={totals} canManage={canManage} />}
-      {tab === 'approvals' && <ApprovalsTab approvals={approvals} />}
+      {activeTab === 'overview' && !unlocked && <LockedNotice status={ex.status} readiness={readiness} />}
+      {activeTab === 'overview'  && <Overview exhibition={ex} users={users} canManage={canManage} />}
+      {activeTab === 'team'      && <TeamTab exhibitionId={ex.id} team={team} users={users} canManage={canManage} />}
+      {activeTab === 'meetings'  && <MeetingsTab exhibitionId={ex.id} meetings={meetings} canManage={canManage} />}
+      {activeTab === 'expenses'  && <ExpensesTab exhibitionId={ex.id} expenses={expenses} totals={totals} canManage={canManage} />}
+      {activeTab === 'review'    && <ReviewTab exhibitionId={ex.id} review={review} meetings={meetings} totals={totals} canManage={canManage} />}
+      {activeTab === 'approvals' && <ApprovalsTab approvals={approvals} />}
     </div>
   );
 }
 
 // ── Approval bar ─────────────────────────────────────────────────
 
-function ApprovalBar({ exhibition: ex, canManage, isApprover }: {
+function ApprovalBar({ exhibition: ex, canManage, isApprover, readiness }: {
   exhibition: ExhibitionFull; canManage: boolean; isApprover: boolean;
+  readiness: { ready: boolean; missing: string[] };
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -142,7 +179,10 @@ function ApprovalBar({ exhibition: ex, canManage, isApprover }: {
     <div style={{ textAlign: 'right' }}>
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
         {canSubmit && (
-          <button disabled={busy} onClick={() => run(() => submitForApproval(ex.id))} style={BTN_PRIMARY}>
+          <button disabled={busy || !readiness.ready}
+            onClick={() => run(() => submitForApproval(ex.id))}
+            title={readiness.ready ? undefined : `Still needed: ${readiness.missing.join(', ')}`}
+            style={{ ...BTN_PRIMARY, opacity: readiness.ready ? 1 : 0.5, cursor: readiness.ready ? 'pointer' : 'not-allowed' }}>
             Submit for approval
           </button>
         )}
@@ -292,8 +332,18 @@ function TeamTab({ exhibitionId, team, users, canManage }: {
   const [busy, setBusy] = useState(false);
   const [err, setErr]   = useState('');
 
-  const toggle = (userId: number) => setSel(s =>
-    s.some(x => x.userId === userId) ? s.filter(x => x.userId !== userId) : [...s, { userId, role: 'Member' }]);
+  // The first person picked becomes Team Lead, because a team without one is
+  // invalid and the server rejects it. Defaulting beats an unexplained failure.
+  const toggle = (userId: number) => setSel(s => {
+    if (s.some(x => x.userId === userId)) {
+      const left = s.filter(x => x.userId !== userId);
+      // Removing the lead promotes whoever is left, so the team stays valid.
+      return left.length && !left.some(x => x.role === 'Team Lead')
+        ? left.map((x, i) => (i === 0 ? { ...x, role: 'Team Lead' } : x))
+        : left;
+    }
+    return [...s, { userId, role: s.length === 0 ? 'Team Lead' : 'Member' }];
+  });
   const setRole = (userId: number, role: string) => setSel(s =>
     // Exactly one lead: promoting someone demotes the incumbent, which is also
     // what the server enforces, so the UI can never submit an invalid team.
@@ -304,7 +354,12 @@ function TeamTab({ exhibitionId, team, users, canManage }: {
   async function save() {
     setBusy(true); setErr('');
     try { await setExhibitionTeam(exhibitionId, sel); router.refresh(); }
-    catch (e) { setErr(e instanceof Error ? e.message : 'Could not save the team.'); }
+    catch (e) {
+      const raw = e instanceof Error ? e.message : '';
+      const redacted = !raw || /unexpected response|Server Components render/i.test(raw)
+        || Boolean((e as { digest?: string })?.digest);
+      setErr(redacted ? 'Could not save the team. Every team needs exactly one Team Lead.' : raw);
+    }
     finally { setBusy(false); }
   }
 
@@ -683,7 +738,7 @@ function ExpensesTab({ exhibitionId, expenses, totals, canManage }: {
       ) : (
         <div style={PANEL}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead><tr>{['Category', 'Description', 'Vendor', 'Estimated', 'Actual', 'Paid', ''].map(h => <th key={h} style={TH}>{h}</th>)}</tr></thead>
+            <thead><tr>{['Category', 'Description', 'Vendor', 'Estimated', 'Actual', 'Paid', 'Invoice', ''].map(h => <th key={h} style={TH}>{h}</th>)}</tr></thead>
             <tbody>
               {expenses.map(x => (
                 <tr key={x.id} style={{ borderTop: '1px solid var(--line)' }}>
@@ -693,6 +748,10 @@ function ExpensesTab({ exhibitionId, expenses, totals, canManage }: {
                   <td style={{ ...TD, fontFamily: 'var(--font-mono)' }}>{fmtInrFull(x.estimated_inr)}</td>
                   <td style={{ ...TD, fontFamily: 'var(--font-mono)' }}>{fmtInrFull(x.actual_inr)}</td>
                   <td style={{ ...TD, fontFamily: 'var(--font-mono)' }}>{fmtInrFull(x.paid_inr)}</td>
+                  <td style={TD}>
+                    <InvoiceCell expenseId={x.id} hasInvoice={x.has_invoice}
+                      fileName={x.file_name} canManage={canManage} />
+                  </td>
                   <td style={TD}>
                     {canManage && <DeleteExpense exhibitionId={exhibitionId} expenseId={x.id} />}
                   </td>
@@ -720,6 +779,232 @@ function DeleteExpense({ exhibitionId, expenseId }: { exhibitionId: number; expe
       }}>Confirm</button>{' '}
       <button style={LINK_BTN} onClick={() => setConfirm(false)}>Cancel</button>
     </span>
+  );
+}
+
+// ── Locked-stage explainer ───────────────────────────────────────
+
+/** Shown above the Overview while the operational tabs are still shut, so the
+ *  greyed-out tabs are never a mystery. */
+function LockedNotice({ status, readiness }: {
+  status: ExhibitionStatus; readiness: { ready: boolean; missing: string[] };
+}) {
+  const rejected = status === 'Rejected';
+  const waiting  = status === 'Submitted';
+  return (
+    <div style={{
+      ...PANEL, padding: 14, marginBottom: 16,
+      background: rejected ? 'var(--neg-soft)' : 'var(--accent-soft)',
+      border: `1px solid ${rejected ? 'var(--neg)' : 'var(--accent-line)'}`,
+    }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: rejected ? 'var(--neg-strong)' : 'var(--title)' }}>
+        {rejected ? 'This exhibition was not approved'
+          : waiting ? 'Waiting for a decision'
+          : 'Not submitted for approval yet'}
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--fg-2)', marginTop: 5 }}>
+        {rejected
+          ? 'Meetings, expenses and the review stay closed. The record is kept for the history.'
+          : waiting
+            ? 'Meetings, expenses and the post-event review open as soon as the approver decides.'
+            : 'Fill in the event details and pick the team, then submit. Meetings, expenses and the review unlock once it is approved.'}
+      </div>
+      {!waiting && !rejected && !readiness.ready && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 11, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            Still needed
+          </div>
+          <ul style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: 12, color: 'var(--fg-2)' }}>
+            {readiness.missing.map(m => <li key={m}>{m}</li>)}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Post-event review ────────────────────────────────────────────
+
+function ReviewTab({ exhibitionId, review, meetings, totals, canManage }: {
+  exhibitionId: number; review: ReviewRow | null; meetings: MeetingRow[];
+  totals: ReturnType<typeof sumExpenses>; canManage: boolean;
+}) {
+  const router = useRouter();
+  const [edit, setEdit] = useState(!review);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr]   = useState('');
+
+  // Derived, never stored: these come from the meeting and expense records, so
+  // the review can never contradict the underlying data.
+  const met     = meetings.length;
+  const known   = meetings.filter(m => m.client_id != null).length;
+  const hot     = meetings.filter(m => m.interest === 'Hot').length;
+  const pipeline = meetings.reduce((s, m) => s + Number(m.potential_value_inr ?? 0), 0);
+  const spend   = totals.actual;
+  const won     = Number(review?.business_won_inr ?? 0);
+  const roi     = spend > 0 && won > 0 ? ((won - spend) / spend) * 100 : null;
+
+  if (!canManage && !review) {
+    return <div style={PANEL}><Blank>No review recorded yet.</Blank></div>;
+  }
+
+  return (
+    <div>
+      {/* Derived outcome */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 16 }}>
+        <Kpi label="Companies met"     value={String(met)} sub={`${known} existing · ${met - known} new`} />
+        <Kpi label="Hot leads"         value={String(hot)} sub="marked hot at the stand" />
+        <Kpi label="Potential value"   value={fmtInr(pipeline)} sub="summed from meetings" />
+        <Kpi label="Total spend"       value={fmtInr(spend)} />
+        <Kpi label="Business won"      value={fmtInr(won)} sub={review ? undefined : 'not recorded'} />
+        <Kpi label="ROI"               value={roi == null ? '—' : `${roi > 0 ? '+' : ''}${roi.toFixed(0)}%`}
+             sub={roi == null ? 'needs spend + business won' : 'business won vs spend'} />
+      </div>
+
+      {!edit && review ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
+          <Card title="Outcome">
+            <Detail k="New leads"        v={review.new_leads?.toString() ?? null} />
+            <Detail k="Opportunities"    v={review.opportunities?.toString() ?? null} />
+            <Detail k="Potential value"  v={review.potential_value_inr != null ? fmtInrFull(review.potential_value_inr) : null} />
+            <Detail k="Business won"     v={review.business_won_inr != null ? fmtInrFull(review.business_won_inr) : null} />
+            <Detail k="Stand footfall"   v={review.footfall?.toString() ?? null} />
+            <Detail k="Attend next year" v={review.attend_next_year} />
+          </Card>
+          <Card title="What we learned">
+            <Note k="Worked well"    v={review.what_worked} />
+            <Note k="Did not work"   v={review.what_did_not} />
+            <Note k="Key learnings"  v={review.key_learnings} />
+          </Card>
+          <Card title="Market">
+            <Note k="Competitors"    v={review.competitor_notes} />
+            <Note k="Next year"      v={review.next_year_notes} />
+            <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 10 }}>
+              Reviewed by {review.reviewed_by_name ?? '—'}
+              {review.reviewed_at ? ` on ${review.reviewed_at.slice(0, 10)}` : ''}
+            </div>
+            {canManage && <button onClick={() => setEdit(true)} style={{ ...BTN_GHOST, marginTop: 10 }}>Edit review</button>}
+          </Card>
+        </div>
+      ) : (
+        <div style={{ ...PANEL, padding: 18, maxWidth: 760 }}>
+          <form action={async fd => {
+            setBusy(true); setErr('');
+            try { await saveExhibitionReview(exhibitionId, fd); setEdit(false); router.refresh(); }
+            catch (e) {
+              const raw = e instanceof Error ? e.message : '';
+              const redacted = !raw || /unexpected response|Server Components render/i.test(raw)
+                || Boolean((e as { digest?: string })?.digest);
+              setErr(redacted ? 'Could not save the review.' : raw);
+            } finally { setBusy(false); }
+          }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ fontSize: 12, color: 'var(--fg-3)' }}>
+                Companies met, existing-client hits and spend are taken from the records above —
+                only fill in what they cannot tell us.
+              </div>
+              <Two>
+                <F label="New leads worth pursuing"><input name="new_leads" inputMode="numeric" defaultValue={review?.new_leads ?? ''} style={INPUT} /></F>
+                <F label="Opportunities raised"><input name="opportunities" inputMode="numeric" defaultValue={review?.opportunities ?? ''} style={INPUT} /></F>
+              </Two>
+              <Two>
+                <F label="Potential business (₹)"><input name="potential_value_inr" inputMode="decimal" defaultValue={review?.potential_value_inr ?? ''} style={INPUT} /></F>
+                <F label="Business actually won (₹)" hint="Leave blank until something closes"><input name="business_won_inr" inputMode="decimal" defaultValue={review?.business_won_inr ?? ''} style={INPUT} /></F>
+              </Two>
+              <F label="Stand footfall"><input name="footfall" inputMode="numeric" defaultValue={review?.footfall ?? ''} style={INPUT} /></F>
+              <F label="What worked well"><textarea name="what_worked" rows={2} defaultValue={review?.what_worked ?? ''} style={{ ...INPUT, resize: 'vertical' }} /></F>
+              <F label="What did not work"><textarea name="what_did_not" rows={2} defaultValue={review?.what_did_not ?? ''} style={{ ...INPUT, resize: 'vertical' }} /></F>
+              <F label="Key learnings"><textarea name="key_learnings" rows={2} defaultValue={review?.key_learnings ?? ''} style={{ ...INPUT, resize: 'vertical' }} /></F>
+              <F label="Competitors seen"><textarea name="competitor_notes" rows={2} defaultValue={review?.competitor_notes ?? ''} style={{ ...INPUT, resize: 'vertical' }} /></F>
+              <Two>
+                <F label="Attend next year?">
+                  <select name="attend_next_year" defaultValue={review?.attend_next_year ?? ''} style={INPUT}>
+                    <option value="">— Select —</option>
+                    {['Yes', 'No', 'Undecided'].map(o => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                </F>
+                <F label="Notes for next year"><input name="next_year_notes" defaultValue={review?.next_year_notes ?? ''} style={INPUT} /></F>
+              </Two>
+              {err && <div style={ERR}>{err}</div>}
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                {review && <button type="button" onClick={() => setEdit(false)} style={BTN_GHOST}>Cancel</button>}
+                <button type="submit" disabled={busy} style={BTN_PRIMARY}>{busy ? 'Saving…' : 'Save review'}</button>
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Note({ k, v }: { k: string; v: string | null }) {
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{k}</div>
+      <div style={{ fontSize: 12, color: 'var(--fg-2)', whiteSpace: 'pre-wrap', marginTop: 2 }}>
+        {v || <span style={{ color: 'var(--fg-3)' }}>—</span>}
+      </div>
+    </div>
+  );
+}
+
+// ── Invoice attachment ───────────────────────────────────────────
+
+/** Upload / view / remove the invoice on one expense line. Mirrors the quotation
+ *  PDF manager, which is also where the file-type checks come from. */
+function InvoiceCell({ expenseId, hasInvoice, fileName, canManage }: {
+  expenseId: number; hasInvoice: boolean; fileName: string | null; canManage: boolean;
+}) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr]   = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const url = `/api/risansi/exhibitions/expenses/${expenseId}/invoice`;
+
+  async function upload(file: File) {
+    setBusy(true); setErr('');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(url, { method: 'POST', body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setErr(data?.error ?? 'Upload failed.'); return; }
+      router.refresh();
+    } catch { setErr('Upload failed.'); }
+    finally { setBusy(false); if (inputRef.current) inputRef.current.value = ''; }
+  }
+
+  async function remove() {
+    setBusy(true); setErr('');
+    try {
+      const res = await fetch(url, { method: 'DELETE' });
+      if (!res.ok) { setErr('Could not remove.'); return; }
+      router.refresh();
+    } catch { setErr('Could not remove.'); }
+    finally { setBusy(false); }
+  }
+
+  if (err) return <span style={{ fontSize: 11, color: 'var(--neg)' }}>{err}</span>;
+  if (busy) return <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>Working…</span>;
+
+  if (hasInvoice) {
+    return (
+      <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+        <a href={url} target="_blank" rel="noopener noreferrer"
+           style={{ fontSize: 12, color: 'var(--accent)' }}
+           title={fileName ?? undefined}>📎 View</a>
+        {canManage && <button onClick={remove} style={LINK_BTN}>Remove</button>}
+      </span>
+    );
+  }
+  if (!canManage) return <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>—</span>;
+  return (
+    <>
+      <input ref={inputRef} type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: 'none' }}
+        onChange={e => { const f = e.target.files?.[0]; if (f) upload(f); }} />
+      <button onClick={() => inputRef.current?.click()} style={LINK_BTN}>Attach</button>
+    </>
   );
 }
 

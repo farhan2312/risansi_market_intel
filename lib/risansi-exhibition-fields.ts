@@ -129,3 +129,49 @@ export function eventDays(start?: string | null, end?: string | null): number | 
   if (!Number.isFinite(s) || !Number.isFinite(e) || e < s) return null;
   return Math.round((e - s) / 86400000) + 1;
 }
+
+// ── Lifecycle gating ─────────────────────────────────────────────
+//
+// The module runs in two stages. Before approval an exhibition is still a
+// proposal: you describe the event and name who would go, and that is all. Once a
+// decision is recorded it becomes a real commitment, and the operational tabs —
+// meetings, expenses and the post-event review — open up.
+//
+// This keeps spend and captured leads from accumulating against an event nobody
+// has agreed to attend, which is the whole point of having an approval step.
+
+/** Statuses at which the operational tabs are usable. */
+export const UNLOCKED_STATUSES: readonly ExhibitionStatus[] = [
+  'Approved', 'Ongoing', 'Completed', 'Closed',
+];
+
+export const isUnlocked = (s: ExhibitionStatus): boolean => UNLOCKED_STATUSES.includes(s);
+
+/** The post-event review only makes sense once the event has actually happened. */
+export const canReview = (s: ExhibitionStatus): boolean =>
+  s === 'Ongoing' || s === 'Completed' || s === 'Closed';
+
+export interface SubmitCheck {
+  ready: boolean;
+  missing: string[];
+}
+
+/**
+ * What still has to be filled in before an exhibition can go for approval.
+ * Returned as a list rather than a boolean so the UI can tell the user exactly
+ * what is outstanding instead of leaving a disabled button unexplained.
+ */
+export function submitReadiness(ex: {
+  name?: string | null; start_date?: string | null; end_date?: string | null;
+  city?: string | null; approver_id?: number | null;
+}, teamCount: number, hasLead: boolean): SubmitCheck {
+  const missing: string[] = [];
+  if (!ex.name?.trim())  missing.push('Exhibition name');
+  if (!ex.start_date)    missing.push('Start date');
+  if (!ex.end_date)      missing.push('End date');
+  if (!ex.city?.trim())  missing.push('City');
+  if (!ex.approver_id)   missing.push('An approver');
+  if (teamCount === 0)   missing.push('At least one team member');
+  else if (!hasLead)     missing.push('A team lead');
+  return { ready: missing.length === 0, missing };
+}
