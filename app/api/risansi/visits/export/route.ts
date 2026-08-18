@@ -405,8 +405,26 @@ export async function GET(req: Request) {
     k => !isRil(k) && !isCompetitor(k));
   childSheet('Non-Sugar Report', nonSugar,
     'No non-sugar visit reports in this range.');
-  childSheet('Equipment', equipment,
-    'No pumps or competitor equipment were recorded on these visits.');
+  // Equipment is 28 columns and splits the same way an engineer reads a pump:
+  // what it is, what it does, and what state it is in.
+  //
+  // Unlike the sugar report these names share no prefix, so the first two groups
+  // are explicit lists. Assessment is therefore the REMAINDER, not a third list —
+  // a column added to `equipment` later lands there instead of falling through
+  // all three predicates and disappearing from the export unnoticed.
+  const EQUIP_ID = new Set([
+    'client_id', 'pump_type', 'supplier', 'is_ril', 'model', 'qty',
+    'application', 'serial_no', 'supplied_through',
+  ]);
+  const EQUIP_SPEC = new Set([
+    'capacity_m3h', 'head_m', 'pressure_bar', 'kw', 'drive_system', 'moc', 'other_spec',
+  ]);
+
+  const noEquip = 'No pumps or competitor equipment were recorded on these visits.';
+  childSheet('Equipment Identification', equipment, noEquip, k => EQUIP_ID.has(k));
+  childSheet('Equipment Specification',  equipment, noEquip, k => EQUIP_SPEC.has(k));
+  childSheet('Equipment Assessment',     equipment, noEquip,
+    k => !EQUIP_ID.has(k) && !EQUIP_SPEC.has(k));
   childSheet('Action Points', actions,
     'No actions were raised from these visits.');
   childSheet('Opportunities Raised', oppsRaised,
