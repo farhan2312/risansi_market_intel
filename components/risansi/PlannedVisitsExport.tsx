@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, type CSSProperties } from 'react';
+import { useSearchParams } from 'next/navigation';
 
 export interface ExportRep { id: string; name: string }
 
@@ -13,7 +14,17 @@ export function PlannedVisitsExport({ reps }: { reps: ExportRep[] }) {
   const [rep, setRep]   = useState('');
   const wrapRef = useRef<HTMLDivElement>(null);
 
-  // Default to the current calendar month (set client-side to avoid a hydration mismatch).
+  // Open pre-filled with whatever the page is already filtered to, so the export
+  // matches what is on screen instead of quietly asking the same questions again.
+  // The feed range (ffrom/fto) wins over the visit-reports range (rfrom/rto);
+  // with neither set, the current calendar month. Set client-side to avoid a
+  // hydration mismatch.
+  const sp = useSearchParams();
+  const pageFrom    = sp.get('ffrom') || sp.get('rfrom') || '';
+  const pageTo      = sp.get('fto')   || sp.get('rto')   || '';
+  const pagePurpose = sp.get('rpurpose') || '';
+  const pageSearch  = sp.get('rsearch')  || '';
+
   useEffect(() => {
     const now = new Date();
     const first = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -22,8 +33,8 @@ export function PlannedVisitsExport({ reps }: { reps: ExportRep[] }) {
     // the day back in +TZ regions like IST/GST).
     const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setFrom(iso(first)); setTo(iso(last));
-  }, []);
+    setFrom(pageFrom || iso(first)); setTo(pageTo || iso(last));
+  }, [pageFrom, pageTo]);
 
   useEffect(() => {
     if (!open) return;
@@ -42,6 +53,18 @@ export function PlannedVisitsExport({ reps }: { reps: ExportRep[] }) {
     setOpen(false);
   }
 
+  // The workbook carries the page's purpose and search filters too — the print
+  // view has no way to express them, which is why the two can differ.
+  function generateExcel() {
+    if (invalid) return;
+    const qs = new URLSearchParams({ from, to });
+    if (rep)         qs.set('rep', rep);
+    if (pagePurpose) qs.set('purpose', pagePurpose);
+    if (pageSearch)  qs.set('search', pageSearch);
+    window.location.href = `/api/risansi/visits/export?${qs.toString()}`;
+    setOpen(false);
+  }
+
   return (
     <div ref={wrapRef} style={{ position: 'relative' }}>
       <button onClick={() => setOpen(o => !o)} style={BTN}>
@@ -50,7 +73,7 @@ export function PlannedVisitsExport({ reps }: { reps: ExportRep[] }) {
           <path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2" />
           <rect x="6" y="14" width="12" height="8" />
         </svg>
-        Export Visits (PDF)
+        Export Visits
       </button>
 
       {open && (
@@ -73,9 +96,19 @@ export function PlannedVisitsExport({ reps }: { reps: ExportRep[] }) {
               {reps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
           </label>
+          {(pagePurpose || pageSearch) && (
+            <div style={{ fontSize: 10.5, color: 'var(--fg-3)', marginBottom: 10, lineHeight: 1.5 }}>
+              Also applying this page&apos;s filters:{' '}
+              {[pagePurpose && `purpose “${pagePurpose}”`, pageSearch && `search “${pageSearch}”`].filter(Boolean).join(', ')}.
+              <br />Excel only — the PDF route plan cannot express them.
+            </div>
+          )}
           {invalid && <div style={{ fontSize: 11, color: 'var(--neg)', marginBottom: 8 }}>Pick a valid date range (From ≤ To).</div>}
-          <button onClick={generate} disabled={invalid} style={{ ...GEN, opacity: invalid ? 0.5 : 1, cursor: invalid ? 'not-allowed' : 'pointer' }}>
-            Generate PDF
+          <button onClick={generateExcel} disabled={invalid} style={{ ...GEN, opacity: invalid ? 0.5 : 1, cursor: invalid ? 'not-allowed' : 'pointer' }}>
+            ⤓ Tour summary (Excel)
+          </button>
+          <button onClick={generate} disabled={invalid} style={{ ...GEN2, opacity: invalid ? 0.5 : 1, cursor: invalid ? 'not-allowed' : 'pointer' }}>
+            Route plan (PDF)
           </button>
         </div>
       )}
@@ -88,3 +121,4 @@ const POP: CSSProperties = { position: 'absolute', top: 'calc(100% + 6px)', righ
 const LBL: CSSProperties = { display: 'block', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--fg-3)', marginBottom: 4 };
 const INP: CSSProperties = { width: '100%', padding: '7px 9px', fontSize: 13, fontFamily: 'inherit', background: 'var(--bg-sunk)', border: '1px solid var(--line-strong)', borderRadius: 6, color: 'var(--fg)', outline: 'none', boxSizing: 'border-box' };
 const GEN: CSSProperties = { width: '100%', padding: '8px 0', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', background: '#0A3D8F', color: '#fff', border: 'none', borderRadius: 6 };
+const GEN2: CSSProperties = { width: '100%', marginTop: 7, padding: '7px 0', fontSize: 12.5, fontWeight: 600, fontFamily: 'inherit', background: 'var(--bg-paper)', color: 'var(--fg)', border: '1px solid var(--line-strong)', borderRadius: 6 };
