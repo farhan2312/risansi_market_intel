@@ -78,6 +78,10 @@ export function ExhibitionDetail(props: {
   // The operational tabs stay shut until the exhibition is actually approved, so
   // spend and captured leads cannot pile up against an event nobody agreed to.
   const unlocked  = isUnlocked(ex.status);
+  // Closed is read-only. The tabs still render so the record can be read, but
+  // nothing in them may be changed — the server enforces the same rule.
+  const isClosed  = ex.status === 'Closed';
+  const canEdit   = canManage && !isClosed;
   const reviewOk  = canReview(ex.status);
   const hasLead   = team.some(t => t.team_role === 'Team Lead');
   const readiness = submitReadiness(ex, team.length, hasLead);
@@ -151,10 +155,10 @@ export function ExhibitionDetail(props: {
       {activeTab === 'overview' && unlocked && (
         <StageNudge exhibition={ex} canManage={canManage} onGoReview={() => setTab('review')} />
       )}
-      {activeTab === 'overview'  && <Overview exhibition={ex} users={users} canManage={canManage} />}
-      {activeTab === 'team'      && <TeamTab exhibitionId={ex.id} team={team} users={users} canManage={canManage} />}
-      {activeTab === 'meetings'  && <MeetingsTab exhibitionId={ex.id} meetings={meetings} canManage={canManage} />}
-      {activeTab === 'expenses'  && <ExpensesTab exhibitionId={ex.id} expenses={expenses} totals={totals} canManage={canManage} />}
+      {activeTab === 'overview'  && <Overview exhibition={ex} users={users} canManage={canEdit} />}
+      {activeTab === 'team'      && <TeamTab exhibitionId={ex.id} team={team} users={users} canManage={canEdit} />}
+      {activeTab === 'meetings'  && <MeetingsTab exhibitionId={ex.id} meetings={meetings} canManage={canEdit} />}
+      {activeTab === 'expenses'  && <ExpensesTab exhibitionId={ex.id} expenses={expenses} totals={totals} canManage={canEdit} />}
       {activeTab === 'review' && (
         <div style={{ display: 'grid', gap: 22 }}>
           <ReviewSummaryStrip meetings={meetings} totals={totals} review={review} />
@@ -215,7 +219,11 @@ function ApprovalBar({ exhibition: ex, canManage, isApprover, readiness }: {
   const [note, setNote] = useState('');
 
   const awaiting = ex.status === 'Submitted';
-  const canSubmit = canManage && !awaiting && ex.status !== 'Approved' && ex.status !== 'Rejected';
+  // Submitting only makes sense while the exhibition is still a proposal. The old
+  // test was "anything except Approved/Rejected/Submitted", which meant a Closed,
+  // Ongoing or Completed event still offered "Submit for approval" — and the
+  // server would have accepted it, pushing a finished event back into the queue.
+  const canSubmit = canManage && (ex.status === 'Draft' || ex.status === 'Shortlisted');
 
   async function run(fn: () => Promise<void>) {
     setBusy(true); setErr('');
@@ -937,7 +945,18 @@ function StageNudge({ exhibition: ex, canManage, onGoReview }: {
 
   let body: React.ReactNode = null;
 
-  if (ex.status === 'Completed') {
+  if (ex.status === 'Closed') {
+    body = (
+      <>
+        <b>This exhibition is closed.</b>{' '}
+        {ex.closed_at
+          ? `Closed by ${ex.closed_by_name ?? '—'} on ${ex.closed_at.slice(0, 10)}.`
+          : ''}{' '}
+        Everything below is read-only. A sysadmin can reopen it if something needs
+        correcting.
+      </>
+    );
+  } else if (ex.status === 'Completed') {
     body = (
       <>
         <b>The event is over.</b> Fill in the post-event review — clients met, spend

@@ -77,6 +77,12 @@ async function assertUnlocked(exhibitionId: number): Promise<void> {
   );
   const status = rows[0]?.status;
   if (!status) throw new Error("Exhibition not found.");
+  // Closed is in UNLOCKED_STATUSES because the tabs stay VISIBLE once an
+  // exhibition is closed — you can still read what happened. Writing is a
+  // different question, and this helper only ever guards writes, so it has to
+  // reject Closed explicitly. Without this, everything the close was supposed to
+  // freeze — meetings, expenses, the review — stayed editable.
+  assertNotClosed(status);
   if (!UNLOCKED_STATUSES.includes(status as ExhibitionStatus)) {
     throw new Error("This exhibition has not been approved yet.");
   }
@@ -140,6 +146,14 @@ export async function updateExhibition(id: number, fd: FormData) {
   const user = await requireUser();
   await assertCanManage(id);
 
+  // Closed means closed: read-only for everyone until a sysadmin reopens it.
+  {
+    const { rows: st } = await risansiPool.query<{ status: string }>(
+      "SELECT status FROM exhibitions WHERE id = $1", [id],
+    );
+    if (st[0]) assertNotClosed(st[0].status);
+  }
+
   const start = str(fd, 'start_date');
   const end   = str(fd, 'end_date');
   if (start && end && end < start) throw new Error('End date cannot be before the start date.');
@@ -181,6 +195,17 @@ export async function updateExhibition(id: number, fd: FormData) {
 export async function deleteExhibition(id: number) {
   const user = await requireUser();
   if (!hasRole(user.role, 'admin')) throw new Error('Only an admin can delete an exhibition.');
+  // A closed exhibition is a settled record — meetings, expenses, invoices and a
+  // signed-off review. Deleting it is the most destructive edit there is, so it
+  // obeys the same freeze: a sysadmin has to reopen it first, which is logged.
+  {
+    const { rows } = await risansiPool.query<{ status: string }>(
+      'SELECT status FROM exhibitions WHERE id = $1', [id],
+    );
+    if (rows[0]?.status === 'Closed') {
+      throw new Error('This exhibition is closed and cannot be deleted. A sysadmin must reopen it first.');
+    }
+  }
   await risansiPool.query('DELETE FROM exhibitions WHERE id = $1', [id]);
   await recordAudit({
     action: 'exhibition_deleted', entityType: 'exhibition', entityId: String(id),
@@ -200,7 +225,18 @@ export async function submitForApproval(id: number, note?: string) {
   );
   const ex = rows[0];
   if (!ex) throw new Error('Exhibition not found.');
-  if (ex.status === 'Submitted') throw new Error('This exhibition is already awaiting a decision.');
+  // Submitting is only meaningful while an exhibition is still a proposal. The
+  // old rule was "anything except already-Submitted", which let a Closed,
+  // Approved, Ongoing or Completed event be pushed back into the approval queue
+  // — undoing a decision, and in the closed case undoing the lock entirely.
+  const SUBMITTABLE = ['Draft', 'Shortlisted'];
+  if (!SUBMITTABLE.includes(ex.status)) {
+    throw new Error(
+      ex.status === 'Submitted' ? 'This exhibition is already awaiting a decision.'
+      : ex.status === 'Closed'  ? 'This exhibition is closed.'
+      : `A ${ex.status.toLowerCase()} exhibition cannot be submitted for approval again.`,
+    );
+  }
   if (!ex.approver_id) throw new Error('Nominate an approver before submitting.');
 
   const client = await risansiPool.connect();
@@ -230,6 +266,21 @@ export async function decideExhibition(id: number, decision: Decision, comments?
   const user = await requireUser();
   if (!isDecision(decision)) throw new Error('Unknown decision.');
   await assertCanApprove(id, user);
+
+  {
+    const { rows } = await risansiPool.query<{ status: string }>(
+      'SELECT status FROM exhibitions WHERE id = $1', [id],
+    );
+    const status = rows[0]?.status;
+    if (!status) throw new Error('Exhibition not found.');
+    if (status !== 'Submitted') {
+      throw new Error(
+        status === 'Closed'
+          ? 'This exhibition is closed and can no longer be decided.'
+          : `Only a submitted exhibition can be decided. This one is ${status.toLowerCase()}.`,
+      );
+    }
+  }
 
   // 'More Info' returns it to the submitter rather than closing it out, so the
   // earlier approval rows stay as history and a resubmission appends to them.
@@ -268,6 +319,14 @@ export async function decideExhibition(id: number, decision: Decision, comments?
 export async function setExhibitionTeam(id: number, members: { userId: number; role: string }[]) {
   const user = await requireUser();
   await assertCanManage(id);
+
+  // Closed means closed: read-only for everyone until a sysadmin reopens it.
+  {
+    const { rows: st } = await risansiPool.query<{ status: string }>(
+      "SELECT status FROM exhibitions WHERE id = $1", [id],
+    );
+    if (st[0]) assertNotClosed(st[0].status);
+  }
 
   const clean = members
     .filter(m => Number.isInteger(m.userId) && m.userId > 0)
