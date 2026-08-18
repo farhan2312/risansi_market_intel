@@ -2,11 +2,12 @@ import { notFound } from 'next/navigation';
 import { Topbar } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser } from '@/lib/risansi-auth';
-import { canManageExhibition } from '@/app/actions/risansi-exhibitions';
+import { canManageExhibition, closeReadiness } from '@/app/actions/risansi-exhibitions';
 import { ExhibitionDetail } from '@/components/risansi/ExhibitionDetail';
 import type {
   ExhibitionFull, TeamMember, ApprovalRow, MeetingRow, ExpenseRow, ReviewRow,
 } from '@/components/risansi/ExhibitionDetail';
+import type { ReviewMeeting } from '@/components/risansi/ExhibitionReview';
 import type { UserOpt } from '@/components/risansi/ExhibitionsClient';
 
 export const dynamic = 'force-dynamic';
@@ -22,7 +23,7 @@ export default async function ExhibitionDetailPage({ params }: { params: Promise
 
   const me = await getCurrentUser();
 
-  const [exhibition, team, meetings, approvals, expenses, review, users, canManage] = await Promise.all([
+  const [exhibition, team, meetings, approvals, expenses, review, users, canManage, blockers] = await Promise.all([
     q<ExhibitionFull | null>(async () => {
       const { rows } = await risansiPool.query<ExhibitionFull>(`
         SELECT e.id, e.name, e.organizer, e.website, e.venue, e.city, e.state, e.country,
@@ -34,11 +35,14 @@ export default async function ExhibitionDetailPage({ params }: { params: Promise
                e.submitted_by, sb.name AS submitted_by_name, e.submitted_at::text AS submitted_at,
                e.decided_by, db.name AS decided_by_name, e.decided_at::text AS decided_at,
                e.decision_notes, e.created_by, e.created_by_name,
+               e.expenses_reviewed_at::text AS expenses_reviewed_at,
+               e.closed_at::text AS closed_at, cb.name AS closed_by_name,
                e.created_at::text AS created_at
           FROM exhibitions e
           LEFT JOIN users ap ON ap.id = e.approver_id
           LEFT JOIN users sb ON sb.id = e.submitted_by
           LEFT JOIN users db ON db.id = e.decided_by
+          LEFT JOIN users cb ON cb.id = e.closed_by
          WHERE e.id = $1`, [id]);
       return rows[0] ?? null;
     }, null),
@@ -55,16 +59,19 @@ export default async function ExhibitionDetailPage({ params }: { params: Promise
     // The lookup surfaces here: client_id != NULL means the company was matched
     // to an existing client, and we join through for its code so the badge can
     // show which record it is. LEFT JOIN — an unmatched meeting is normal.
-    q<MeetingRow[]>(async () => {
-      const { rows } = await risansiPool.query<MeetingRow>(
+    q<ReviewMeeting[]>(async () => {
+      const { rows } = await risansiPool.query<ReviewMeeting>(
         `SELECT m.id, m.client_id, m.company_name, m.contact_person, m.designation,
                 m.phone, m.email, m.city, m.discussion, m.requirement, m.outcome,
                 m.next_action, m.follow_up_date::text AS follow_up_date, m.interest,
                 m.potential_value_inr::float8 AS potential_value_inr,
                 m.met_by, m.met_by_name, m.met_on::text AS met_on,
-                c.code AS client_code, c.legal_name AS client_legal_name, c.status AS client_status
+                c.code AS client_code, c.legal_name AS client_legal_name, c.status AS client_status,
+                m.follow_up_type, m.follow_up_owner_id, fo.name AS follow_up_owner_name,
+                m.follow_up_note, m.linked_visit_id, m.linked_task_id, m.linked_opportunity_id
            FROM exhibition_meetings m
            LEFT JOIN clients c ON c.id = m.client_id
+           LEFT JOIN users fo ON fo.id = m.follow_up_owner_id
           WHERE m.exhibition_id = $1
           ORDER BY m.met_on DESC NULLS LAST, m.id DESC`, [id]);
       return rows;
@@ -116,9 +123,14 @@ export default async function ExhibitionDetailPage({ params }: { params: Promise
     }, []),
 
     canManageExhibition(id).catch(() => false),
+
+    closeReadiness(id).catch(() => ['Could not check readiness']),
   ]);
 
   if (!exhibition) notFound();
+
+  const isOwner = me.role === 'sysadmin' ||
+    (exhibition.created_by != null && me.id != null && Number(exhibition.created_by) === Number(me.id));
 
   const isApprover =
     me.role === 'sysadmin' ||
@@ -137,6 +149,9 @@ export default async function ExhibitionDetailPage({ params }: { params: Promise
         users={users}
         canManage={canManage}
         isApprover={isApprover}
+        isOwner={isOwner}
+        isSysadmin={me.role === 'sysadmin'}
+        blockers={blockers}
       />
     </>
   );

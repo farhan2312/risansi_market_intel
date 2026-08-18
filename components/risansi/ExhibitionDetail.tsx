@@ -17,6 +17,7 @@ import {
 import {
   MAX_INVOICE_BYTES, INVOICE_ACCEPT, CAMERA_ACCEPT,
 } from '@/lib/risansi-exhibition-files';
+import { ExhibitionReviewWorkbench, type ReviewMeeting } from './ExhibitionReview';
 import type { UserOpt } from './ExhibitionsClient';
 
 export interface ExhibitionFull {
@@ -30,6 +31,7 @@ export interface ExhibitionFull {
   submitted_by: number | null; submitted_by_name: string | null; submitted_at: string | null;
   decided_by: number | null; decided_by_name: string | null; decided_at: string | null;
   decision_notes: string | null; created_by: number | null; created_by_name: string | null;
+  expenses_reviewed_at: string | null; closed_at: string | null; closed_by_name: string | null;
   created_at: string | null;
 }
 export interface TeamMember { id: number; user_id: number; name: string; user_role: string; team_role: string }
@@ -64,8 +66,10 @@ export function ExhibitionDetail(props: {
   meetings: MeetingRow[]; expenses: ExpenseRow[]; users: UserOpt[];
   review: ReviewRow | null;
   canManage: boolean; isApprover: boolean;
+  isOwner: boolean; isSysadmin: boolean; blockers: string[];
 }) {
-  const { exhibition: ex, team, approvals, meetings, expenses, users, review, canManage, isApprover } = props;
+  const { exhibition: ex, team, approvals, meetings, expenses, users, review,
+          canManage, isApprover, isOwner, isSysadmin, blockers } = props;
   const [tab, setTab] = useState<Tab>('overview');
   const totals = useMemo(() => sumExpenses(expenses), [expenses]);
   const known  = meetings.filter(m => m.client_id != null).length;
@@ -151,7 +155,18 @@ export function ExhibitionDetail(props: {
       {activeTab === 'team'      && <TeamTab exhibitionId={ex.id} team={team} users={users} canManage={canManage} />}
       {activeTab === 'meetings'  && <MeetingsTab exhibitionId={ex.id} meetings={meetings} canManage={canManage} />}
       {activeTab === 'expenses'  && <ExpensesTab exhibitionId={ex.id} expenses={expenses} totals={totals} canManage={canManage} />}
-      {activeTab === 'review'    && <ReviewTab exhibitionId={ex.id} review={review} meetings={meetings} totals={totals} canManage={canManage} />}
+      {activeTab === 'review' && (
+        <div style={{ display: 'grid', gap: 22 }}>
+          <ReviewTab exhibitionId={ex.id} review={review} meetings={meetings} totals={totals}
+            canManage={canManage && ex.status !== 'Closed'} />
+          <ExhibitionReviewWorkbench
+            exhibitionId={ex.id} status={ex.status}
+            meetings={meetings as ReviewMeeting[]} expenses={expenses} users={users}
+            expensesReviewedAt={ex.expenses_reviewed_at} closedAt={ex.closed_at}
+            closedByName={ex.closed_by_name} isOwner={isOwner} isSysadmin={isSysadmin}
+            blockers={blockers} hasReview={!!review} />
+        </div>
+      )}
       {activeTab === 'approvals' && <ApprovalsTab approvals={approvals} />}
     </div>
   );

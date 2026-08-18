@@ -5,6 +5,7 @@ import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, hasRole } from '@/lib/risansi-auth';
 import { recordAudit } from '@/lib/audit';
 import { checkInvoice } from '@/lib/risansi-exhibition-files';
+import { pushInApp } from '@/lib/risansi-inapp';
 import {
   isExhibitionStatus, isDecision, UNLOCKED_STATUSES,
   type Decision, type ExhibitionStatus,
@@ -558,4 +559,315 @@ export async function advanceExhibition(id: number, next: 'Ongoing' | 'Completed
     summary: `moved from ${current} to ${next}`, actorEmail: user.email,
   }).catch(() => {});
   touch(id);
+}
+
+// ── Post-event review: dispositions, sign-off, closing ───────────
+
+/**
+ * The review is the owner's job — the person who proposed the exhibition and
+ * carries it. Sysadmin is kept as the standing fallback so an event is never
+ * stranded when someone leaves. Team membership is deliberately NOT enough here:
+ * these actions create real CRM records and then close the event for good.
+ */
+async function assertOwner(exhibitionId: number, user: Me): Promise<{ status: string; created_by: number | null }> {
+  const { rows } = await risansiPool.query<{ status: string; created_by: number | null }>(
+    'SELECT status, created_by FROM exhibitions WHERE id = $1', [exhibitionId],
+  );
+  const ex = rows[0];
+  if (!ex) throw new Error('Exhibition not found.');
+  if (hasRole(user.role, 'sysadmin')) return ex;
+  if (ex.created_by == null || user.id == null || Number(ex.created_by) !== Number(user.id)) {
+    throw new Error('Only the person who proposed this exhibition can run its review.');
+  }
+  return ex;
+}
+
+/** Closed is final: nothing may be edited until a sysadmin reopens it. */
+function assertNotClosed(status: string) {
+  if (status === 'Closed') {
+    throw new Error('This exhibition is closed. A sysadmin has to reopen it before anything can change.');
+  }
+}
+
+/**
+ * Correct the company on a meeting and re-point the lookup.
+ *
+ * Names get typed badly at a stand, and a wrong name is also a missed match — so
+ * fixing it here is the moment a meeting can finally be linked to the client it
+ * always belonged to. Passing clientId = null unlinks it again.
+ */
+export async function updateMeetingCompany(
+  exhibitionId: number, meetingId: number, companyName: string, clientId: number | null,
+) {
+  const user = await requireUser();
+  const ex = await assertOwner(exhibitionId, user);
+  assertNotClosed(ex.status);
+
+  const name = companyName.trim();
+  if (!name) throw new Error('Company name cannot be blank.');
+
+  // Only accept an id that resolves to a live client, so a stale or forged value
+  // degrades to "unlinked" rather than pointing at nothing.
+  let resolved: number | null = null;
+  if (clientId != null && Number.isInteger(clientId)) {
+    const { rows } = await risansiPool.query<{ id: number }>(
+      'SELECT id FROM clients WHERE id = $1 AND deleted_at IS NULL', [clientId],
+    );
+    resolved = rows[0]?.id ?? null;
+  }
+
+  await risansiPool.query(
+    `UPDATE exhibition_meetings SET company_name = $3, client_id = $4, updated_at = NOW()
+      WHERE id = $2 AND exhibition_id = $1`,
+    [exhibitionId, meetingId, name, resolved],
+  );
+  await recordAudit({
+    action: 'exhibition_meeting_renamed', entityType: 'exhibition', entityId: String(exhibitionId),
+    summary: `renamed meeting to ${name}${resolved ? ' (linked to client)' : ' (unlinked)'}`,
+    actorEmail: user.email,
+  }).catch(() => {});
+  touch(exhibitionId);
+}
+
+export type FollowUpType = 'None' | 'Visit' | 'Action' | 'Opportunity';
+
+/**
+ * Decide what a meeting becomes, and create the real record for it.
+ *
+ * Visit and Opportunity both need a client row (an opportunity needs an owning
+ * rep as well), so they are refused for a company the lookup never matched.
+ * An Action always works, because tasks.client_id is nullable — which is what
+ * makes "we met someone new, chase them" expressible without inventing a client.
+ *
+ * Re-running a disposition replaces the previous one: the old linked record is
+ * left alone (it may already have been worked on) but the meeting stops pointing
+ * at it, so nothing is silently duplicated on a second pass.
+ */
+export async function setMeetingFollowUp(exhibitionId: number, meetingId: number, opts: {
+  type: FollowUpType;
+  ownerId?: number | null;
+  dueDate?: string | null;
+  note?: string | null;
+  product?: string | null;
+  valueInr?: number | null;
+}) {
+  const user = await requireUser();
+  const ex = await assertOwner(exhibitionId, user);
+  assertNotClosed(ex.status);
+
+  const { rows: mrows } = await risansiPool.query<{
+    id: number; client_id: number | null; company_name: string;
+    contact_person: string | null; outcome: string | null; next_action: string | null;
+    potential_value_inr: string | null;
+  }>(
+    `SELECT id, client_id, company_name, contact_person, outcome, next_action, potential_value_inr
+       FROM exhibition_meetings WHERE id = $1 AND exhibition_id = $2`, [meetingId, exhibitionId],
+  );
+  const m = mrows[0];
+  if (!m) throw new Error('Meeting not found.');
+
+  const needsClient = opts.type === 'Visit' || opts.type === 'Opportunity';
+  if (needsClient && m.client_id == null) {
+    throw new Error(`${opts.type === 'Visit' ? 'A visit' : 'An opportunity'} needs a known client. Correct the company name so it matches one, or raise an action instead.`);
+  }
+  const ownerId = opts.ownerId != null && Number.isInteger(opts.ownerId) ? opts.ownerId : null;
+  if (opts.type !== 'None' && ownerId == null) throw new Error('Pick who this is assigned to.');
+
+  let visitId: number | null = null, taskId: number | null = null, oppId: number | null = null;
+
+  const client = await risansiPool.connect();
+  try {
+    await client.query('BEGIN');
+
+    if (opts.type === 'Visit') {
+      // IST day, not the UTC one: before 05:30 local, toISOString would date a
+      // plan to yesterday.
+      const date = opts.dueDate || new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10);
+      const { rows } = await client.query<{ id: number }>(
+        `INSERT INTO visits (client_id, rep_id, visit_date, purpose, status, created_at)
+         VALUES ($1,$2,$3,$4,'planned',NOW()) RETURNING id`,
+        [m.client_id, ownerId, date, `Exhibition follow-up · ${m.company_name}`.slice(0, 200)],
+      );
+      visitId = rows[0].id;
+    } else if (opts.type === 'Action') {
+      const title = (opts.note || m.next_action || `Follow up with ${m.company_name}`).slice(0, 200);
+      const { rows } = await client.query<{ id: number }>(
+        `INSERT INTO tasks (visit_id, client_id, assigned_to_rep, title, description, due_date,
+                            priority, status, created_by, created_at, updated_at)
+         VALUES (NULL,$1,$2,$3,$4,$5,'Medium','open',$6,NOW(),NOW()) RETURNING id`,
+        [
+          m.client_id, ownerId, title,
+          [m.company_name, m.contact_person, m.outcome].filter(Boolean).join(' · ') || null,
+          opts.dueDate || null, user.email,
+        ],
+      );
+      taskId = rows[0].id;
+    } else if (opts.type === 'Opportunity') {
+      // Created at Suspect on purpose. The pipeline's Quoted gateway forbids
+      // jumping ahead, and a booth conversation is a lead, not a quotation.
+      // value_cr is CRORES — the rupee figure is divided in SQL rather than in
+      // JS, the way syncOfferRevisions already does it.
+      const { rows } = await client.query<{ id: number }>(
+        `INSERT INTO opportunities
+           (client_id, rep_id, product, product_type, stage, value_cr, offer_value_inr,
+            notes, auto_created, auto_source, created_by, created_at, updated_at)
+         VALUES ($1,$2,$3,'PCP','Suspect',$4::numeric / 10000000,$4,$5,TRUE,'exhibition',$6,NOW(),NOW())
+         RETURNING id`,
+        [
+          m.client_id, ownerId,
+          (opts.product || m.next_action || 'Exhibition enquiry').slice(0, 200),
+          opts.valueInr ?? (m.potential_value_inr != null ? Number(m.potential_value_inr) : null),
+          `From exhibition meeting · ${m.company_name}${m.outcome ? ` · ${m.outcome}` : ''}`,
+          user.email,
+        ],
+      );
+      oppId = rows[0].id;
+    }
+
+    await client.query(
+      `UPDATE exhibition_meetings SET
+         follow_up_type=$3, follow_up_owner_id=$4, follow_up_note=$5,
+         follow_up_set_at=NOW(), follow_up_set_by=$6,
+         linked_visit_id=$7, linked_task_id=$8, linked_opportunity_id=$9,
+         follow_up_date=COALESCE($10::date, follow_up_date), updated_at=NOW()
+       WHERE id=$2 AND exhibition_id=$1`,
+      [exhibitionId, meetingId, opts.type, ownerId, opts.note ?? null, user.id,
+       visitId, taskId, oppId, opts.dueDate || null],
+    );
+
+    await client.query('COMMIT');
+  } catch (e) { await client.query('ROLLBACK'); throw e; }
+  finally { client.release(); }
+
+  // Best-effort: a notification failure must never undo work already committed.
+  if (ownerId && opts.type !== 'None') {
+    await pushInApp([ownerId], {
+      kind: 'exhibition_followup', section: 'Exhibitions', actor: user.email,
+      title: `Exhibition follow-up: ${m.company_name}`,
+      body: opts.note ?? m.outcome ?? null,
+      link: opts.type === 'Opportunity' ? '/risansi/pipeline'
+          : opts.type === 'Action' ? '/risansi/registry' : '/risansi/field',
+      entityType: 'exhibition', entityId: String(exhibitionId),
+    }).catch(() => {});
+  }
+
+  await recordAudit({
+    action: 'exhibition_followup', entityType: 'exhibition', entityId: String(exhibitionId),
+    summary: `${m.company_name} → ${opts.type}`, actorEmail: user.email,
+  }).catch(() => {});
+  touch(exhibitionId);
+  revalidatePath('/risansi/registry');
+  revalidatePath('/risansi/pipeline');
+  revalidatePath('/risansi/field');
+}
+
+export async function reviewExhibitionExpenses(exhibitionId: number) {
+  const user = await requireUser();
+  const ex = await assertOwner(exhibitionId, user);
+  assertNotClosed(ex.status);
+  await risansiPool.query(
+    `UPDATE exhibitions SET expenses_reviewed_at=NOW(), expenses_reviewed_by=$2, updated_at=NOW()
+      WHERE id=$1`, [exhibitionId, user.id],
+  );
+  await recordAudit({
+    action: 'exhibition_expenses_reviewed', entityType: 'exhibition', entityId: String(exhibitionId),
+    summary: 'signed off exhibition expenses', actorEmail: user.email,
+  }).catch(() => {});
+  touch(exhibitionId);
+}
+
+/**
+ * What still blocks closing. Returned as a list so the UI can name every reason
+ * at once instead of failing one at a time.
+ */
+export async function closeReadiness(exhibitionId: number): Promise<string[]> {
+  const { rows } = await risansiPool.query<{
+    undecided: number; unpaid: number; no_invoice: number;
+    expenses_reviewed: boolean; has_review: boolean;
+  }>(
+    `SELECT
+       (SELECT COUNT(*)::int FROM exhibition_meetings m
+         WHERE m.exhibition_id = $1 AND m.follow_up_type IS NULL)                          AS undecided,
+       (SELECT COUNT(*)::int FROM exhibition_expenses x
+         WHERE x.exhibition_id = $1 AND COALESCE(x.actual_inr,0) > COALESCE(x.paid_inr,0)) AS unpaid,
+       (SELECT COUNT(*)::int FROM exhibition_expenses x
+         LEFT JOIN exhibition_expense_files f ON f.expense_id = x.id
+        WHERE x.exhibition_id = $1 AND f.expense_id IS NULL)                               AS no_invoice,
+       (SELECT expenses_reviewed_at IS NOT NULL FROM exhibitions WHERE id = $1)            AS expenses_reviewed,
+       (SELECT EXISTS (SELECT 1 FROM exhibition_reviews r WHERE r.exhibition_id = $1))     AS has_review`,
+    [exhibitionId],
+  );
+  const r = rows[0];
+  if (!r) return ['Exhibition not found'];
+  const missing: string[] = [];
+  if (r.undecided > 0)      missing.push(`${r.undecided} meeting(s) still need a follow-up decision`);
+  if (r.unpaid > 0)         missing.push(`${r.unpaid} expense line(s) are not fully paid`);
+  if (r.no_invoice > 0)     missing.push(`${r.no_invoice} expense line(s) have no invoice attached`);
+  if (!r.has_review)        missing.push('The post-event review has not been filled in');
+  if (!r.expenses_reviewed) missing.push('Expenses have not been signed off');
+  return missing;
+}
+
+export async function closeExhibition(exhibitionId: number) {
+  const user = await requireUser();
+  const ex = await assertOwner(exhibitionId, user);
+  assertNotClosed(ex.status);
+
+  // Re-checked on the server: the button being enabled is a convenience, this is
+  // the rule. Closing makes everything read-only, so it has to be earned.
+  const missing = await closeReadiness(exhibitionId);
+  if (missing.length) throw new Error(`Cannot close yet — ${missing.join('; ')}.`);
+
+  const client = await risansiPool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `UPDATE exhibitions SET status='Closed', closed_at=NOW(), closed_by=$2, updated_at=NOW() WHERE id=$1`,
+      [exhibitionId, user.id],
+    );
+    await client.query(
+      `INSERT INTO exhibition_approvals (exhibition_id, decision, actor_id, actor_name, comments)
+       VALUES ($1,'Closed',$2,(SELECT name FROM users WHERE id=$2),'Review complete')`,
+      [exhibitionId, user.id],
+    );
+    await client.query('COMMIT');
+  } catch (e) { await client.query('ROLLBACK'); throw e; }
+  finally { client.release(); }
+
+  await recordAudit({
+    action: 'exhibition_closed', entityType: 'exhibition', entityId: String(exhibitionId),
+    summary: 'closed the exhibition', actorEmail: user.email,
+  }).catch(() => {});
+  touch(exhibitionId);
+}
+
+/** Sysadmin-only, and written into the history — a closed event that reopens
+ *  should never be a quiet event. */
+export async function reopenExhibition(exhibitionId: number, reason: string) {
+  const user = await requireUser();
+  if (!hasRole(user.role, 'sysadmin')) throw new Error('Only a sysadmin can reopen a closed exhibition.');
+  if (!reason.trim()) throw new Error('Give a reason for reopening.');
+
+  const client = await risansiPool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `UPDATE exhibitions SET status='Completed', reopened_at=NOW(), reopened_by=$2,
+              closed_at=NULL, closed_by=NULL, updated_at=NOW()
+        WHERE id=$1 AND status='Closed'`, [exhibitionId, user.id],
+    );
+    await client.query(
+      `INSERT INTO exhibition_approvals (exhibition_id, decision, actor_id, actor_name, comments)
+       VALUES ($1,'Reopened',$2,(SELECT name FROM users WHERE id=$2),$3)`,
+      [exhibitionId, user.id, reason.trim()],
+    );
+    await client.query('COMMIT');
+  } catch (e) { await client.query('ROLLBACK'); throw e; }
+  finally { client.release(); }
+
+  await recordAudit({
+    action: 'exhibition_reopened', entityType: 'exhibition', entityId: String(exhibitionId),
+    summary: `reopened: ${reason.trim()}`, actorEmail: user.email,
+  }).catch(() => {});
+  touch(exhibitionId);
 }
