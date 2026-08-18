@@ -1,4 +1,5 @@
 import { Resend } from 'resend';
+import { APP_URL, appLink } from './risansi-app-url';
 
 // Transactional email via Resend. Everything here is best-effort: a failed or
 // unconfigured send must never break the action that triggered it.
@@ -19,9 +20,6 @@ function client(): Resend | null {
 }
 
 const FROM     = process.env.RESEND_FROM || 'Risansi <sales-portal@digital.risansi.com>';
-// Public site URL used for links in emails — the hosted domain, deliberately
-// NOT NEXTAUTH_URL (which is the internal Vercel URL). Override with APP_URL.
-const APP_URL  = (process.env.APP_URL || 'https://sales.risansi.com').replace(/\/+$/, '');
 const REPLY_TO = process.env.RESEND_REPLY_TO || undefined;
 
 export interface SendArgs {
@@ -60,8 +58,10 @@ function prettyDate(d?: string | null): string | null {
   return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-/** Build an absolute portal link from a path (uses the public APP_URL). */
-export const appLink = (path: string) => `${APP_URL}${path.startsWith('/') ? path : '/' + path}`;
+// Re-exported so the many `import { appLink } from './risansi-email'` call sites
+// keep working; the origin itself now lives in risansi-app-url so a spreadsheet
+// export can build absolute links without pulling the mailer (and Resend) in.
+export { appLink, APP_URL };
 
 // Generic notification card — one consistent layout for every portal email, so
 // the many event/scheduled notifications stay on-brand without duplicating HTML.

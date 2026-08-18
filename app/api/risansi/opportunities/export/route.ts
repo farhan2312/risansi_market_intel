@@ -4,6 +4,7 @@ import ExcelJS from 'exceljs';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, clientScopeSql } from '@/lib/risansi-auth';
 import { DROP_REASONS } from '@/lib/risansi-opportunity-fields';
+import { absoluteLink } from '@/lib/risansi-app-url';
 
 export const runtime = 'nodejs';
 
@@ -59,6 +60,7 @@ interface Row {
   negotiation_notes: string | null; notes: string | null;
   final_value_cr: number | null; po_number: string | null;
   lost_to_competitor: string | null; lost_reason: string | null; drop_reason: string | null; quotation_link: string | null;
+  doc_count: number | null;
   created_by: string | null; created_at: string | null; updated_at: string | null;
 }
 interface So { opportunity_id: number; so_number: string; so_date: string; so_value_cr: number; }
@@ -162,6 +164,8 @@ export async function GET(req: Request) {
               o.negotiation_notes, o.notes,
               o.final_value_cr::float8 AS final_value_cr, o.po_number,
               o.lost_to_competitor, o.lost_reason, o.drop_reason, o.quotation_link,
+              (SELECT count(*) FROM opportunity_quotation_files qf
+                WHERE qf.opportunity_id = o.id)::int AS doc_count,
               o.created_by, o.created_at::text AS created_at, o.updated_at::text AS updated_at
          FROM opportunities o
          JOIN clients c ON c.id = o.client_id
@@ -189,7 +193,7 @@ export async function GET(req: Request) {
   for (const s of sos) { const a = soByOpp.get(s.opportunity_id) ?? []; a.push(s); soByOpp.set(s.opportunity_id, a); }
 
   // Column catalogue. `list`/`date`/`num` drive the strict validation applied below.
-  type Col = { h: string; w: number; f: (r: Row) => string | number; fmt?: string; list?: string; date?: boolean; num?: boolean };
+  type Col = { h: string; w: number; f: (r: Row) => string | number; fmt?: string; list?: string; date?: boolean; num?: boolean; link?: boolean };
   const so = (r: Row, i: number, part: 'num' | 'date' | 'val') => {
     const s = (soByOpp.get(r.id) ?? [])[i];
     if (!s) return '';
@@ -238,7 +242,14 @@ export async function GET(req: Request) {
     { h: 'Lost To Competitor', w: 18, f: r => r.lost_to_competitor ?? '' },
     { h: 'Lost Reason', w: 26, f: r => r.lost_reason ?? '', list: 'Lists!$G$2:$G$9' },
     { h: 'Drop Reason', w: 28, f: r => r.drop_reason ?? '', list: 'Lists!$H$2:$H$6' },
-    { h: 'Quotation Link', w: 22, f: r => r.quotation_link ?? '' },
+    // Derived, so no edit validation: it is a readout of what is attached, not
+    // a field anyone fills in on the reconciliation pass.
+    { h: 'Documents', w: 11, f: r => r.doc_count ?? 0 },
+    // Absolute, and a real Excel hyperlink. The stored value is an in-app path
+    // like /api/risansi/opportunities/26/quotation, which is dead the moment the
+    // sheet leaves the browser — prefixing the portal origin is what makes the
+    // quote openable from the spreadsheet.
+    { h: 'Quotation Link', w: 34, f: r => absoluteLink(r.quotation_link), link: true },
     { h: 'Created By', w: 16, f: r => r.created_by ?? '' },
     { h: 'Created On', w: 12, f: r => (r.created_at ? r.created_at.slice(0, 10) : '') },
     { h: 'Updated On', w: 12, f: r => (r.updated_at ? r.updated_at.slice(0, 10) : '') },
@@ -296,7 +307,16 @@ export async function GET(req: Request) {
     const row = ws.getRow(4 + ri);
     COLS.forEach((c, i) => {
       const cell = row.getCell(i + 1);
-      cell.value = c.f(r);
+      const v = c.f(r);
+      // A clickable hyperlink when the value really is one. The 12 legacy rows
+      // holding a bare filename rather than a url fall through to plain text —
+      // better a visibly dead string than a link that pretends to work.
+      if (c.link && typeof v === 'string' && /^https?:\/\//i.test(v)) {
+        cell.value = { text: v, hyperlink: v };
+        cell.font = { color: { argb: 'FF1A5CB8' }, underline: true };
+      } else {
+        cell.value = v;
+      }
       if (c.fmt) cell.numFmt = c.fmt;
     });
   });

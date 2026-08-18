@@ -87,8 +87,15 @@ export function useQuotationDocs(oppId: number | string, opts?: {
       try {
         const fd = new FormData(); fd.append('file', f);
         const res  = await fetch(`/api/risansi/opportunities/${oppId}/quotation`, { method: 'POST', body: fd });
-        const data = (await res.json()) as UploadResponse;
-        if (!res.ok) { failures.push(`${f.name} — ${data?.error || 'upload failed'}`); continue; }
+        // Not every failure comes from the route. A body rejected upstream by
+        // the host returns an HTML error page, and parsing that as JSON throws —
+        // which would have surfaced a plainly oversize file as "network error".
+        const data = (await res.json().catch(() => ({}))) as UploadResponse;
+        if (!res.ok) {
+          failures.push(`${f.name} — ${data?.error
+            || (res.status === 413 ? `too large to upload (${fmtSize(f.size)})` : `upload failed (${res.status})`)}`);
+          continue;
+        }
         added++;
         if (data.files) setDocs(data.files);
         if (data.link !== undefined) setLink(data.link ?? '');

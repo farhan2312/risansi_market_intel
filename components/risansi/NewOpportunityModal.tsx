@@ -310,8 +310,12 @@ function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess }: {
             pf.set('file', f);
             const up = await fetch(`/api/risansi/opportunities/${created.id}/quotation`, { method: 'POST', body: pf });
             if (!up.ok) {
+              // A body rejected upstream by the host returns an HTML error page,
+              // so the JSON parse has to be allowed to fail before falling back
+              // to a message built from the status.
               const j = await up.json().catch(() => ({} as { error?: string }));
-              failures.push(`${f.name} — ${j?.error || `upload failed (${up.status})`}`);
+              failures.push(`${f.name} — ${j?.error
+                || (up.status === 413 ? 'too large to upload' : `upload failed (${up.status})`)}`);
             }
           } catch {
             failures.push(`${f.name} — a network error`);
