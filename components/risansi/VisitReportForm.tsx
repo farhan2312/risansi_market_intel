@@ -30,6 +30,20 @@ const COMPETITOR_MAKES = [
   'Span Engg', 'Pandey', 'Mahalaxmi', 'Ravalgoan',
 ];
 
+// Duty and build options for the equipment sub-form. Each select keeps any
+// legacy value it is handed, so an option retired from these lists never
+// silently blanks an existing row on the next save.
+const DRIVE_SYSTEMS = [
+  'Direct Coupled', 'Geared Motor', 'V-Belt', 'Gearbox', 'VFD', 'Other',
+];
+const MOC_OPTIONS = [
+  'CI', 'CS', 'SS304', 'SS316', 'SS316L', 'Duplex', 'Hastelloy', 'Other',
+];
+const COMPETITOR_ACTIVITY = [
+  'New Installation', 'Replacement', 'Spares Supply', 'Rate Contract',
+  'Trial / Demo', 'Quoted, Not Ordered',
+];
+
 // ── Types ──────────────────────────────────────────────────────
 
 interface VisitData {
@@ -290,6 +304,10 @@ export function VisitReportForm({
     application: '', condition: 'Good', condition_remark: '', is_ril: true,
     reason_for_competitor: '', competitor_activity_type: '',
     performance_feedback: '',
+    // Duty and build. Held as strings like every other input here; the numeric
+    // ones are parsed on save, since capacity/head/kW are numeric columns and an
+    // empty string would be rejected outright.
+    capacity_m3h: '', head_m: '', kw: '', drive_system: '', moc: '',
   });
 
   // A submitted report shows as Closed and is read-only until the viewer
@@ -794,6 +812,14 @@ export function VisitReportForm({
                             reason_for_competitor: String(e.reason_for_competitor ?? ''),
                             competitor_activity_type: String(e.competitor_activity_type ?? ''),
                             performance_feedback: String(e.performance_feedback ?? ''),
+                            // Without these the edit form would open blank on the
+                            // duty fields and write those blanks back on save,
+                            // erasing whatever the row already held.
+                            capacity_m3h: e.capacity_m3h == null ? '' : String(e.capacity_m3h),
+                            head_m:       e.head_m       == null ? '' : String(e.head_m),
+                            kw:           e.kw           == null ? '' : String(e.kw),
+                            drive_system: String(e.drive_system ?? ''),
+                            moc:          String(e.moc ?? ''),
                           });
                         }}
                         className="r-tap"
@@ -893,6 +919,87 @@ export function VisitReportForm({
               </div>
             </div>
 
+            {/* Duty and build. Every one of these columns already existed and was
+                already saved by the action — there was simply never an input, so
+                all 239 equipment records carry NULL. Optional: a rep who does not
+                have the nameplate to hand leaves them blank. */}
+            <div className="r-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10 }}>
+              <div>
+                <label style={LBL}>Capacity (m³/hr)</label>
+                <input type="number" inputMode="decimal" min={0} step="any" value={newEq.capacity_m3h}
+                  onChange={e => setNewEq(p => ({ ...p, capacity_m3h: e.target.value }))}
+                  placeholder="e.g. 25" style={INP} />
+              </div>
+              <div>
+                <label style={LBL}>Head (m)</label>
+                <input type="number" inputMode="decimal" min={0} step="any" value={newEq.head_m}
+                  onChange={e => setNewEq(p => ({ ...p, head_m: e.target.value }))}
+                  placeholder="e.g. 40" style={INP} />
+              </div>
+              <div>
+                <label style={LBL}>Power (kW)</label>
+                <input type="number" inputMode="decimal" min={0} step="any" value={newEq.kw}
+                  onChange={e => setNewEq(p => ({ ...p, kw: e.target.value }))}
+                  placeholder="e.g. 7.5" style={INP} />
+              </div>
+            </div>
+
+            <div className="r-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+              <div>
+                <label style={LBL}>Drive System</label>
+                <select value={newEq.drive_system} onChange={e => setNewEq(p => ({ ...p, drive_system: e.target.value }))} style={INP}>
+                  <option value="">—</option>
+                  {DRIVE_SYSTEMS.map(d => <option key={d} value={d}>{d}</option>)}
+                  {/* Keep a legacy value that is not on the list rather than
+                      silently switching the row to blank on the next save. */}
+                  {newEq.drive_system && !DRIVE_SYSTEMS.includes(newEq.drive_system) && (
+                    <option value={newEq.drive_system}>{newEq.drive_system}</option>
+                  )}
+                </select>
+              </div>
+              <div>
+                <label style={LBL}>MOC</label>
+                <select value={newEq.moc} onChange={e => setNewEq(p => ({ ...p, moc: e.target.value }))} style={INP}>
+                  <option value="">—</option>
+                  {MOC_OPTIONS.map(m => <option key={m} value={m}>{m}</option>)}
+                  {newEq.moc && !MOC_OPTIONS.includes(newEq.moc) && (
+                    <option value={newEq.moc}>{newEq.moc}</option>
+                  )}
+                </select>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 10 }}>
+              <label style={LBL}>Performance Feedback</label>
+              <input type="text" value={newEq.performance_feedback}
+                onChange={e => setNewEq(p => ({ ...p, performance_feedback: e.target.value }))}
+                placeholder="How is it performing in service?" style={INP} />
+            </div>
+
+            {/* Only meaningful for someone else's pump — asking why a RIL pump is
+                a competitor's would be nonsense. */}
+            {eqTab === 'competitor' && (
+              <div className="r-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+                <div>
+                  <label style={LBL}>Why this make?</label>
+                  <input type="text" value={newEq.reason_for_competitor}
+                    onChange={e => setNewEq(p => ({ ...p, reason_for_competitor: e.target.value }))}
+                    placeholder="Price, lead time, OEM tie-up…" style={INP} />
+                </div>
+                <div>
+                  <label style={LBL}>Competitor Activity</label>
+                  <select value={newEq.competitor_activity_type}
+                    onChange={e => setNewEq(p => ({ ...p, competitor_activity_type: e.target.value }))} style={INP}>
+                    <option value="">—</option>
+                    {COMPETITOR_ACTIVITY.map(a => <option key={a} value={a}>{a}</option>)}
+                    {newEq.competitor_activity_type && !COMPETITOR_ACTIVITY.includes(newEq.competitor_activity_type) && (
+                      <option value={newEq.competitor_activity_type}>{newEq.competitor_activity_type}</option>
+                    )}
+                  </select>
+                </div>
+              </div>
+            )}
+
             <div style={{ marginBottom: 10 }}>
               <label style={LBL}>Condition Remark</label>
               <textarea
@@ -917,7 +1024,31 @@ export function VisitReportForm({
                   // entry); an explicit 0 is honoured rather than snapped to 1.
                   const parsedQty = parseInt(newEq.qty, 10);
                   const qtyNum = Number.isFinite(parsedQty) && parsedQty >= 0 ? parsedQty : 1;
-                  const eqPayload = { ...newEq, qty: qtyNum };
+                  // capacity / head / kW are numeric columns. Left blank they must
+                  // arrive as undefined so the action's `?? null` writes NULL —
+                  // an empty string would be rejected by Postgres outright.
+                  const num = (v: string) => {
+                    const n = parseFloat(v);
+                    return Number.isFinite(n) && n >= 0 ? n : undefined;
+                  };
+                  // Blank text arrives as undefined too, so the action's `?? null`
+                  // writes NULL rather than an empty string. Without this, an
+                  // untouched field is stored as '' and is indistinguishable from
+                  // one someone deliberately cleared — which is precisely what
+                  // makes a "how often is this filled?" check meaningless.
+                  const str = (v: string) => (v.trim() === '' ? undefined : v.trim());
+                  const eqPayload = {
+                    ...newEq,
+                    qty: qtyNum,
+                    capacity_m3h: num(newEq.capacity_m3h),
+                    head_m: num(newEq.head_m),
+                    kw: num(newEq.kw),
+                    drive_system: str(newEq.drive_system),
+                    moc: str(newEq.moc),
+                    performance_feedback: str(newEq.performance_feedback),
+                    reason_for_competitor: str(newEq.reason_for_competitor),
+                    competitor_activity_type: str(newEq.competitor_activity_type),
+                  };
                   if (editingEqId != null) {
                     await updateEquipment(editingEqId, visit.id, eqPayload);
                   } else {
@@ -926,7 +1057,7 @@ export function VisitReportForm({
                   setShowEqForm(false);
                   setEditingEqId(null);
                   setSupplierOther(false);
-                  setNewEq({ pump_type: 'PCP', supplier: '', model: '', qty: '1', application: '', condition: 'Good', condition_remark: '', is_ril: true, reason_for_competitor: '', competitor_activity_type: '', performance_feedback: '' });
+                  setNewEq({ pump_type: 'PCP', supplier: '', model: '', qty: '1', application: '', condition: 'Good', condition_remark: '', is_ril: true, reason_for_competitor: '', competitor_activity_type: '', performance_feedback: '', capacity_m3h: '', head_m: '', kw: '', drive_system: '', moc: '' });
                 }}
                 style={{ padding: '7px 14px', background: '#0A3D8F', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}
               >
