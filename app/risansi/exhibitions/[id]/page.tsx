@@ -5,7 +5,7 @@ import { getCurrentUser } from '@/lib/risansi-auth';
 import { canManageExhibition } from '@/app/actions/risansi-exhibitions';
 import { ExhibitionDetail } from '@/components/risansi/ExhibitionDetail';
 import type {
-  ExhibitionFull, TeamMember, ApprovalRow, MeetingRow, ExpenseRow, ReviewRow,
+  ExhibitionFull, TeamMember, MeetingRow, ExpenseRow, ReviewRow,
 } from '@/components/risansi/ExhibitionDetail';
 import type { UserOpt } from '@/components/risansi/ExhibitionsClient';
 
@@ -22,7 +22,7 @@ export default async function ExhibitionDetailPage({ params }: { params: Promise
 
   const me = await getCurrentUser();
 
-  const [exhibition, team, approvals, meetings, expenses, review, users, canManage] = await Promise.all([
+  const [exhibition, team, meetings, expenses, review, users, canManage] = await Promise.all([
     q<ExhibitionFull | null>(async () => {
       const { rows } = await risansiPool.query<ExhibitionFull>(`
         SELECT e.id, e.name, e.organizer, e.website, e.venue, e.city, e.state, e.country,
@@ -49,14 +49,6 @@ export default async function ExhibitionDetailPage({ params }: { params: Promise
            FROM exhibition_team t JOIN users u ON u.id = t.user_id
           WHERE t.exhibition_id = $1
           ORDER BY (t.team_role <> 'Team Lead'), u.name`, [id]);
-      return rows;
-    }, []),
-
-    q<ApprovalRow[]>(async () => {
-      const { rows } = await risansiPool.query<ApprovalRow>(
-        `SELECT id, decision, actor_name, comments, created_at::text AS created_at
-           FROM exhibition_approvals WHERE exhibition_id = $1
-          ORDER BY created_at DESC, id DESC`, [id]);
       return rows;
     }, []),
 
@@ -127,7 +119,6 @@ export default async function ExhibitionDetailPage({ params }: { params: Promise
       <ExhibitionDetail
         exhibition={exhibition}
         team={team}
-        approvals={approvals}
         meetings={meetings}
         expenses={expenses}
         review={review}

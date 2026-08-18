@@ -12,7 +12,7 @@ import {
   submitForApproval, decideExhibition, setExhibitionTeam,
   saveExhibitionMeeting, deleteExhibitionMeeting,
   saveExhibitionExpense, deleteExhibitionExpense, updateExhibition,
-  saveExhibitionReview,
+  saveExhibitionReview, advanceExhibition,
 } from '@/app/actions/risansi-exhibitions';
 import {
   MAX_INVOICE_BYTES, INVOICE_ACCEPT, CAMERA_ACCEPT,
@@ -57,15 +57,15 @@ export interface ReviewRow {
   reviewed_by_name: string | null; reviewed_at: string | null;
 }
 
-type Tab = 'overview' | 'team' | 'meetings' | 'expenses' | 'review' | 'approvals';
+type Tab = 'overview' | 'team' | 'meetings' | 'expenses' | 'review';
 
 export function ExhibitionDetail(props: {
-  exhibition: ExhibitionFull; team: TeamMember[]; approvals: ApprovalRow[];
+  exhibition: ExhibitionFull; team: TeamMember[];
   meetings: MeetingRow[]; expenses: ExpenseRow[]; users: UserOpt[];
   review: ReviewRow | null;
   canManage: boolean; isApprover: boolean;
 }) {
-  const { exhibition: ex, team, approvals, meetings, expenses, users, review, canManage, isApprover } = props;
+  const { exhibition: ex, team, meetings, expenses, users, review, canManage, isApprover } = props;
   const [tab, setTab] = useState<Tab>('overview');
   const totals = useMemo(() => sumExpenses(expenses), [expenses]);
   const known  = meetings.filter(m => m.client_id != null).length;
@@ -123,7 +123,6 @@ export function ExhibitionDetail(props: {
           ['meetings', `Meetings (${meetings.length})`, unlocked],
           ['expenses', `Expenses (${expenses.length})`, unlocked],
           ['review', 'Post-event review', reviewOk],
-          ['approvals', `History (${approvals.length})`, true],
         ] as [Tab, string, boolean][]).map(([k, label, on]) => (
           <button key={k} onClick={() => on && setTab(k)} disabled={!on}
             title={on ? undefined
@@ -147,7 +146,6 @@ export function ExhibitionDetail(props: {
       {activeTab === 'meetings'  && <MeetingsTab exhibitionId={ex.id} meetings={meetings} canManage={canManage} />}
       {activeTab === 'expenses'  && <ExpensesTab exhibitionId={ex.id} expenses={expenses} totals={totals} canManage={canManage} />}
       {activeTab === 'review'    && <ReviewTab exhibitionId={ex.id} review={review} meetings={meetings} totals={totals} canManage={canManage} />}
-      {activeTab === 'approvals' && <ApprovalsTab approvals={approvals} />}
     </div>
   );
 }
@@ -199,6 +197,25 @@ function ApprovalBar({ exhibition: ex, canManage, isApprover, readiness }: {
           <span style={{ fontSize: 12, color: 'var(--fg-3)' }}>
             Awaiting {ex.approver_name ?? 'approver'}
           </span>
+        )}
+
+        {/* Timeline. These exist so reaching the post-event review is one click,
+            rather than depending on someone finding the status dropdown inside
+            Edit details. The label says what happens next, not the status name. */}
+        {canManage && ex.status === 'Approved' && (
+          <button disabled={busy} onClick={() => run(() => advanceExhibition(ex.id, 'Ongoing'))} style={BTN_GHOST}>
+            ▶ Start event
+          </button>
+        )}
+        {canManage && (ex.status === 'Approved' || ex.status === 'Ongoing') && (
+          <button disabled={busy} onClick={() => run(() => advanceExhibition(ex.id, 'Completed'))} style={BTN_PRIMARY}>
+            ✓ Event finished — write review
+          </button>
+        )}
+        {canManage && ex.status === 'Completed' && (
+          <button disabled={busy} onClick={() => run(() => advanceExhibition(ex.id, 'Closed'))} style={BTN_GHOST}>
+            Close exhibition
+          </button>
         )}
       </div>
 
@@ -443,7 +460,9 @@ function MeetingsTab({ exhibitionId, meetings, canManage }: {
         <div style={PANEL}><Blank>No meetings captured yet.</Blank></div>
       ) : (
         <div style={{ display: 'grid', gap: 10 }}>
-          {meetings.map(m => (
+          {/* The meeting being edited is hidden from the list — its own form is
+              already open above, and showing both read as a duplicate entry. */}
+          {meetings.filter(m => m.id !== editing?.id).map(m => (
             <div key={m.id} style={{ ...PANEL, padding: 14 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                 <div style={{ minWidth: 0 }}>
@@ -741,21 +760,20 @@ function ExpensesTab({ exhibitionId, expenses, totals, canManage }: {
  */
 function ExpenseForm({ exhibitionId, onDone }: { exhibitionId: number; onDone: () => void }) {
   const router = useRouter();
-  const [file, setFile]   = useState<File | null>(null);
-  const [actual, setActual] = useState('');
-  const [busy, setBusy]   = useState(false);
-  const [err, setErr]     = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr]   = useState('');
 
-  // The receipt is required as soon as real money is recorded. A line carrying
-  // only an estimate is a budget entry — there is no bill yet — so it stays
-  // optional until an actual amount is typed.
-  const needsInvoice = actual.trim() !== '';
+  // Every expense line carries a supporting document — no exceptions, including
+  // estimate-only lines, where the quote or proforma is the document. Enforced
+  // again in the server action; this is only the friendly half.
+  const needsInvoice = true;
 
   return (
     <div style={{ ...PANEL, padding: 16, marginBottom: 14 }}>
       <form action={async fd => {
-        if (needsInvoice && !file) {
-          setErr('Attach the invoice or a photo of the bill for an actual amount.');
+        if (!file) {
+          setErr('Attach the invoice, quote or a photo of the bill for this expense.');
           return;
         }
         setBusy(true); setErr('');
@@ -783,13 +801,8 @@ function ExpenseForm({ exhibitionId, onDone }: { exhibitionId: number; onDone: (
           </Two>
           <F label="Description"><input name="description" style={INPUT} /></F>
           <Two>
-            <F label="Estimated (₹)" hint="Budget only — no bill needed">
-              <input name="estimated_inr" inputMode="decimal" style={INPUT} />
-            </F>
-            <F label="Actual (₹)" hint="Entering this makes the invoice required">
-              <input name="actual_inr" inputMode="decimal" style={INPUT}
-                value={actual} onChange={e => setActual(e.target.value)} />
-            </F>
+            <F label="Estimated (₹)"><input name="estimated_inr" inputMode="decimal" style={INPUT} /></F>
+            <F label="Actual (₹)"><input name="actual_inr" inputMode="decimal" style={INPUT} /></F>
           </Two>
           <Two>
             <F label="Paid (₹)" hint="Cannot exceed the actual amount">
@@ -1079,7 +1092,8 @@ function InvoicePicker({ value, onChange, required, existingName }: {
           )}
           {required && !existingName && (
             <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 6 }}>
-              Required once an actual amount is entered. PDF, JPG or PNG, up to 10 MB.
+              Required on every expense — invoice, quote or a photo of the bill.
+              PDF, JPG or PNG, up to 10 MB.
             </div>
           )}
         </>
@@ -1169,28 +1183,6 @@ function InvoiceCell({ expenseId, hasInvoice, fileName, canManage }: {
         onChange={e => { const f = e.target.files?.[0]; if (f) upload(f); }} />
       <button onClick={() => inputRef.current?.click()} style={LINK_BTN}>Attach</button>
     </>
-  );
-}
-
-// ── Approvals history ────────────────────────────────────────────
-
-function ApprovalsTab({ approvals }: { approvals: ApprovalRow[] }) {
-  if (approvals.length === 0) return <div style={PANEL}><Blank>Nothing submitted yet.</Blank></div>;
-  return (
-    <div style={PANEL}>
-      {approvals.map(a => (
-        <div key={a.id} style={{ ...ROW, alignItems: 'flex-start' }}>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>{a.decision}</div>
-            {a.comments && <div style={{ fontSize: 12, color: 'var(--fg-2)', marginTop: 3 }}>{a.comments}</div>}
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--fg-3)', textAlign: 'right', whiteSpace: 'nowrap' }}>
-            <div>{a.actor_name ?? '—'}</div>
-            <div>{a.created_at?.slice(0, 16).replace('T', ' ')}</div>
-          </div>
-        </div>
-      ))}
-    </div>
   );
 }
 

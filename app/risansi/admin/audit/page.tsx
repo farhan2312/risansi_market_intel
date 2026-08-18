@@ -13,12 +13,19 @@ async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch (err) { console.error('[admin/audit]', err); return fallback; }
 }
 
-type Tab = 'usage' | 'logins' | 'activity' | 'changes';
+interface ExhibitionAuditRow {
+  created_at: string; kind: string; exhibition: string; what: string | null;
+  detail: string | null; who: string; who_role: string | null;
+  amount: number | null; existing_client: boolean | null;
+}
+
+type Tab = 'usage' | 'logins' | 'activity' | 'changes' | 'exhibitions';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'usage',    label: 'Usage & Time' },
   { id: 'logins',   label: 'Logins & Sessions' },
   { id: 'activity', label: 'Activity' },
   { id: 'changes',  label: 'Ownership Changes' },
+  { id: 'exhibitions', label: 'Exhibitions' },
 ];
 
 // Time windows for the Usage tab.
@@ -97,6 +104,7 @@ export default async function AuditPage({
   // ── Tab data ──
   let total = 0;
   let logins: LoginRow[] = [], activity: ActivityRow[] = [], changes: ChangeRow[] = [];
+  let exhibitionRows: ExhibitionAuditRow[] = [];
   let usageUsers: UsageUser[] = [], usagePages: UsagePage[] = [], usageSessions: UsageSession[] = [];
 
   if (tab === 'usage') {
@@ -139,6 +147,60 @@ export default async function AuditPage({
       q<ActivityRow[]>(async () => (await risansiPool.query<ActivityRow>(
         `SELECT id, actor_email, actor_role, action, entity_type, entity_id, entity_label, summary, ip, created_at::text FROM audit_log ${where} ORDER BY created_at DESC LIMIT ${PAGE_SIZE} OFFSET ${offset}`, params)).rows, []),
       q<number>(async () => Number((await risansiPool.query<{ c: string }>(`SELECT COUNT(*)::text c FROM audit_log ${where}`, params)).rows[0]?.c ?? 0), 0),
+    ]);
+  } else if (tab === 'exhibitions') {
+    // One feed for the whole module: approval decisions, every meeting captured
+    // (with who captured it and their role), expenses logged, and reviews filed.
+    // Meetings and expenses are read from their own tables rather than audit_log
+    // so the company, the existing-client flag and the amount are all present.
+    const like = qStr ? `%${qStr.toLowerCase()}%` : null;
+    const feedSql = `
+      WITH feed AS (
+        SELECT a.created_at, 'Approval' AS kind, e.name AS exhibition,
+               a.decision AS what, COALESCE(a.comments,'') AS detail,
+               COALESCE(a.actor_name, u.name, '—') AS who, u.role AS who_role,
+               NULL::numeric AS amount, NULL::boolean AS existing_client
+          FROM exhibition_approvals a
+          JOIN exhibitions e ON e.id = a.exhibition_id
+          LEFT JOIN users u ON u.id = a.actor_id
+        UNION ALL
+        SELECT m.created_at, 'Meeting', e.name,
+               m.company_name,
+               NULLIF(CONCAT_WS(' · ', m.contact_person, m.interest, NULLIF(m.outcome,'')), ''),
+               COALESCE(m.met_by_name, u.name, '—'), u.role,
+               m.potential_value_inr, (m.client_id IS NOT NULL)
+          FROM exhibition_meetings m
+          JOIN exhibitions e ON e.id = m.exhibition_id
+          LEFT JOIN users u ON u.id = m.met_by
+        UNION ALL
+        SELECT x.created_at, 'Expense', e.name, x.category,
+               NULLIF(CONCAT_WS(' · ', x.vendor, x.description), ''),
+               COALESCE(u.name,'—'), u.role, x.actual_inr, NULL
+          FROM exhibition_expenses x
+          JOIN exhibitions e ON e.id = x.exhibition_id
+          LEFT JOIN users u ON u.id = x.created_by
+        UNION ALL
+        SELECT r.reviewed_at, 'Review', e.name, 'Post-event review',
+               NULLIF(CONCAT_WS(' · ', r.attend_next_year, r.key_learnings), ''),
+               COALESCE(r.reviewed_by_name, u.name, '—'), u.role,
+               r.business_won_inr, NULL
+          FROM exhibition_reviews r
+          JOIN exhibitions e ON e.id = r.exhibition_id
+          LEFT JOIN users u ON u.id = r.reviewed_by
+         WHERE r.reviewed_at IS NOT NULL
+      )
+      SELECT * FROM feed
+      ${like ? `WHERE lower(exhibition) LIKE $1 OR lower(who) LIKE $1 OR lower(COALESCE(what,'')) LIKE $1 OR lower(COALESCE(detail,'')) LIKE $1` : ''}`;
+    const params = like ? [like] : [];
+    [exhibitionRows, total] = await Promise.all([
+      q<ExhibitionAuditRow[]>(async () => (await risansiPool.query<ExhibitionAuditRow>(
+        `SELECT created_at::text AS created_at, kind, exhibition, what, detail, who, who_role,
+                amount::float8 AS amount, existing_client
+           FROM (${feedSql}) t
+          ORDER BY created_at DESC NULLS LAST
+          LIMIT ${PAGE_SIZE} OFFSET ${offset}`, params)).rows, []),
+      q<number>(async () => Number((await risansiPool.query<{ c: string }>(
+        `SELECT COUNT(*)::text c FROM (${feedSql}) t`, params)).rows[0]?.c ?? 0), 0),
     ]);
   } else {
     const conds: string[] = [], params: (string)[] = [];
@@ -229,6 +291,7 @@ export default async function AuditPage({
             {tab === 'logins' && <LoginsTable rows={logins} />}
             {tab === 'activity' && <ActivityTable rows={activity} />}
             {tab === 'changes' && <ChangesTable rows={changes} />}
+            {tab === 'exhibitions' && <ExhibitionAuditTable rows={exhibitionRows} />}
           </div>
         </div>
 
@@ -287,6 +350,83 @@ function ActivityTable({ rows }: { rows: ActivityRow[] }) {
             <td data-label="Entity" style={{ ...TD, fontSize: 11 }}>{r.entity_type ?? '—'}{r.entity_id ? <span style={{ color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}> #{r.entity_id}</span> : null}</td>
             <td data-label="What" style={{ ...TD, maxWidth: 360 }}>{r.summary ?? r.entity_label ?? '—'}</td>
             <td data-label="IP" style={MONO}>{r.ip ?? '—'}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/**
+ * Everything that happened in the Exhibition module, in one feed: approval
+ * decisions, every meeting captured, expenses logged and reviews filed — each
+ * with the person who recorded it and their role, which is the question this tab
+ * exists to answer.
+ */
+function ExhibitionAuditTable({ rows }: { rows: ExhibitionAuditRow[] }) {
+  if (rows.length === 0) {
+    return <div style={{ padding: 30, textAlign: 'center', fontSize: 13, color: 'var(--fg-3)' }}>
+      No exhibition activity yet.
+    </div>;
+  }
+  const tone: Record<string, string> = {
+    Approval: 'var(--accent-soft)', Meeting: 'var(--pos-soft)',
+    Expense: 'var(--bg-elev)', Review: 'var(--accent-soft)',
+  };
+  const inr = (v: number | null) => v == null ? '' :
+    v >= 1e5 ? `₹${(v / 1e5).toFixed(1)} L` : `₹${Math.round(v).toLocaleString('en-IN')}`;
+
+  return (
+    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+      <thead>
+        <tr>
+          {['When', 'Type', 'Exhibition', 'What', 'Recorded by', 'Amount'].map(h => (
+            <th key={h} style={{
+              padding: '9px 12px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase',
+              letterSpacing: '0.08em', fontWeight: 500, color: 'var(--fg-3)',
+              borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap',
+            }}>{h}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r, i) => (
+          <tr key={i} style={{ borderTop: '1px solid var(--line)' }}>
+            <td style={{ padding: '9px 12px', whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)' }}>
+              {r.created_at?.slice(0, 16).replace('T', ' ')}
+            </td>
+            <td style={{ padding: '9px 12px' }}>
+              <span style={{
+                padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600,
+                background: tone[r.kind] ?? 'var(--bg-elev)', color: 'var(--fg-2)',
+              }}>{r.kind}</span>
+            </td>
+            <td style={{ padding: '9px 12px', color: 'var(--fg-2)' }}>{r.exhibition}</td>
+            <td style={{ padding: '9px 12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <span style={{ color: 'var(--fg)' }}>{r.what ?? '—'}</span>
+                {/* Only meetings carry this: it says whether the company was
+                    already in the client master when it was captured. */}
+                {r.existing_client === true && (
+                  <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--pos-soft)', color: 'var(--pos-strong)' }}>
+                    existing client
+                  </span>
+                )}
+                {r.existing_client === false && (
+                  <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'var(--bg-elev)', color: 'var(--fg-3)' }}>
+                    new
+                  </span>
+                )}
+              </div>
+              {r.detail && <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 2 }}>{r.detail}</div>}
+            </td>
+            <td style={{ padding: '9px 12px', whiteSpace: 'nowrap' }}>
+              <div style={{ color: 'var(--fg-2)' }}>{r.who}</div>
+              {r.who_role && <div style={{ fontSize: 11, color: 'var(--fg-3)' }}>{r.who_role}</div>}
+            </td>
+            <td style={{ padding: '9px 12px', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', color: 'var(--fg-2)' }}>
+              {inr(r.amount)}
+            </td>
           </tr>
         ))}
       </tbody>

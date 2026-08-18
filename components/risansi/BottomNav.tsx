@@ -9,6 +9,7 @@ import {
   LayoutGrid, Building2, MapPinned, Receipt, Menu, X,
   GitBranch, RadioTower, ListChecks, Upload, Users, KeyRound,
   Map as MapIcon, ClipboardList, Settings, Sun, Moon, LogOut, AlertTriangle, ListTodo, Gauge,
+  Store, BarChart3, Wallet, Bug,
 } from 'lucide-react';
 
 export type BottomNavRole = 'rep' | 'manager' | 'exec' | 'admin' | 'sysadmin';
@@ -23,24 +24,34 @@ const TABS: Item[] = [
   { href: '/risansi/revenue', label: 'Revenue', Icon: Receipt },
 ];
 
+// Kept deliberately in step with the desktop Sidebar — anything reachable there
+// must be reachable here, or the feature simply does not exist on a phone.
 const MORE_SALES: Item[] = [
-  { href: '/risansi/registry',   label: 'Action Registry', Icon: ListTodo },
-  { href: '/risansi/pipeline',   label: 'Opportunities', Icon: GitBranch },
-  { href: '/risansi/compete',    label: 'Competition',   Icon: RadioTower },
-  { href: '/risansi/complaints', label: 'Complaints',    Icon: AlertTriangle },
+  { href: '/risansi/registry',    label: 'Action Registry', Icon: ListTodo },
+  { href: '/risansi/pipeline',    label: 'Opportunities',   Icon: GitBranch },
+  { href: '/risansi/exhibitions', label: 'Exhibitions',     Icon: Store },
+  { href: '/risansi/compete',     label: 'Competition',     Icon: RadioTower },
+  { href: '/risansi/complaints',  label: 'Complaints',      Icon: AlertTriangle },
+];
+
+// Manager-and-above analysis, matching the Sidebar's own review group.
+const MORE_REVIEW: Item[] = [
+  { href: '/risansi/executive-review', label: 'Executive Review', Icon: BarChart3 },
 ];
 
 const MORE_ADMIN: Item[] = [
-  { href: '/risansi/admin/clients', label: 'Client Master',  Icon: ListChecks },
-  { href: '/risansi/admin/revenue', label: 'Revenue Upload', Icon: Upload },
-  { href: '/risansi/admin/pumps',   label: 'Pump Ingestion', Icon: Gauge },
+  { href: '/risansi/admin/clients',     label: 'Client Master',       Icon: ListChecks },
+  { href: '/risansi/admin/revenue',     label: 'Revenue Upload',      Icon: Upload },
+  { href: '/risansi/admin/outstanding', label: 'Outstanding Upload',  Icon: Wallet },
+  { href: '/risansi/admin/pumps',       label: 'Pump Ingestion',      Icon: Gauge },
 ];
 
 const MORE_SYSADMIN: Item[] = [
-  { href: '/risansi/admin/reps',     label: 'Tours & Reps',  Icon: MapIcon },
+  { href: '/risansi/admin/reps',     label: 'Tours & Reps',   Icon: MapIcon },
   { href: '/admin',                  label: 'Users & Access', Icon: Users },
-  { href: '/risansi/admin/audit',    label: 'Audit Log',     Icon: ClipboardList },
-  { href: '/risansi/admin/settings', label: 'Settings',      Icon: Settings },
+  { href: '/risansi/admin/bugs',     label: 'Bugs',           Icon: Bug },
+  { href: '/risansi/admin/audit',    label: 'Audit Log',      Icon: ClipboardList },
+  { href: '/risansi/admin/settings', label: 'Settings',       Icon: Settings },
 ];
 
 function isActive(pathname: string, href: string): boolean {
@@ -70,7 +81,10 @@ export function BottomNav({ role, user }: {
 
   const isAdmin    = role === 'admin' || role === 'sysadmin';
   const isSysAdmin = role === 'sysadmin';
-  const moreActive = [...MORE_SALES, ...MORE_ADMIN, ...MORE_SYSADMIN].some(i => isActive(pathname, i.href));
+  const isReviewer = role === 'manager' || role === 'exec' || isAdmin;
+  // Every group is included, so opening a sub-page still lights the More tab.
+  const moreActive = [...MORE_SALES, ...MORE_REVIEW, ...MORE_ADMIN, ...MORE_SYSADMIN]
+    .some(i => isActive(pathname, i.href));
 
   function closeAnd() { setMoreOpen(false); }
 
@@ -112,6 +126,14 @@ export function BottomNav({ role, user }: {
               <Group label="Sales">
                 {MORE_SALES.map(i => <Row key={i.href} item={i} active={isActive(pathname, i.href)} onClick={closeAnd} />)}
               </Group>
+
+              {/* Executive Review is manager-and-above on the desktop sidebar, so
+                  it is gated the same way here rather than shown to every rep. */}
+              {isReviewer && (
+                <Group label="Review">
+                  {MORE_REVIEW.map(i => <Row key={i.href} item={i} active={isActive(pathname, i.href)} onClick={closeAnd} />)}
+                </Group>
+              )}
 
               {isAdmin && (
                 <Group label="Admin">

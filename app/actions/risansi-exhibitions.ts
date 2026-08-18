@@ -390,15 +390,15 @@ export async function saveExhibitionExpense(exhibitionId: number, fd: FormData, 
   const upload = fd.get('invoice');
   const file = upload instanceof File && upload.size > 0 ? upload : null;
 
-  // An invoice is required for real money. A line carrying only an estimate is a
-  // budget entry — there is no bill to attach yet — so it is exempt; the moment an
-  // actual amount is recorded, the receipt has to come with it.
-  if (actual != null && !file) {
+  // Every expense line carries its supporting document — no exceptions. Editing a
+  // line that already has one does not force a re-upload, but a line can never
+  // exist without a document behind it.
+  if (!file) {
     const existing = expenseId
       ? await risansiPool.query('SELECT 1 FROM exhibition_expense_files WHERE expense_id = $1', [expenseId])
       : { rowCount: 0 };
     if (!existing.rowCount) {
-      throw new Error('Attach the invoice or a photo of the bill for an actual amount.');
+      throw new Error('Attach the invoice, quote or a photo of the bill for this expense.');
     }
   }
 
@@ -518,4 +518,44 @@ export async function saveExhibitionReview(exhibitionId: number, fd: FormData) {
     summary: 'saved post-event review', actorEmail: user.email,
   }).catch(() => {});
   touch(exhibitionId);
+}
+
+// ── Lifecycle ────────────────────────────────────────────────────
+
+/**
+ * Move an approved exhibition along its timeline: Approved → Ongoing →
+ * Completed → Closed. Exposed as explicit buttons rather than buried in the edit
+ * form's status dropdown, because reaching the post-event review depended on
+ * finding that dropdown — which nobody would.
+ *
+ * Only forward moves along this one path are allowed. Anything that would skip
+ * the approval flow, or reverse a decision, is rejected.
+ */
+export async function advanceExhibition(id: number, next: 'Ongoing' | 'Completed' | 'Closed') {
+  const user = await requireUser();
+  await assertCanManage(id);
+
+  const { rows } = await risansiPool.query<{ status: string }>(
+    'SELECT status FROM exhibitions WHERE id = $1', [id],
+  );
+  const current = rows[0]?.status;
+  if (!current) throw new Error('Exhibition not found.');
+
+  const ALLOWED: Record<string, string[]> = {
+    Approved:  ['Ongoing', 'Completed'],   // a short event may be logged after the fact
+    Ongoing:   ['Completed'],
+    Completed: ['Closed'],
+  };
+  if (!ALLOWED[current]?.includes(next)) {
+    throw new Error(`Cannot move from ${current} to ${next}.`);
+  }
+
+  await risansiPool.query(
+    'UPDATE exhibitions SET status = $2, updated_at = NOW() WHERE id = $1', [id, next],
+  );
+  await recordAudit({
+    action: 'exhibition_status', entityType: 'exhibition', entityId: String(id),
+    summary: `moved from ${current} to ${next}`, actorEmail: user.email,
+  }).catch(() => {});
+  touch(id);
 }
