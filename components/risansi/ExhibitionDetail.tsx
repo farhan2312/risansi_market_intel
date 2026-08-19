@@ -14,6 +14,7 @@ import {
   saveExhibitionExpense, deleteExhibitionExpense, updateExhibition,
   saveExhibitionReview, advanceExhibition,
 } from '@/app/actions/risansi-exhibitions';
+import { BusinessCards, uploadCards } from './BusinessCards';
 import {
   MAX_INVOICE_BYTES, INVOICE_ACCEPT, CAMERA_ACCEPT,
 } from '@/lib/risansi-exhibition-files';
@@ -605,6 +606,8 @@ function MeetingForm({ exhibitionId, meeting, onDone }: {
   exhibitionId: number; meeting: MeetingRow | null; onDone: () => void;
 }) {
   const router = useRouter();
+  // Cards photographed before this meeting has an id, flushed on save.
+  const [pendingCards, setPendingCards] = useState<File[]>([]);
   const [company, setCompany] = useState(meeting?.company_name ?? '');
   const [clientId, setClientId] = useState<number | null>(meeting?.client_id ?? null);
   const [matched, setMatched] = useState<{ code: string | null; legal_name: string; city: string | null } | null>(
@@ -661,7 +664,21 @@ function MeetingForm({ exhibitionId, meeting, onDone }: {
       <form className="exh-form" action={async fd => {
         setBusy(true); setErr('');
         try {
-          await saveExhibitionMeeting(exhibitionId, fd, meeting?.id);
+          const savedId = await saveExhibitionMeeting(exhibitionId, fd, meeting?.id);
+          // Cards photographed before the meeting existed have somewhere to go
+          // now. A failure here must not read as "the meeting did not save" —
+          // it did; only the photos did not.
+          if (pendingCards.length && savedId) {
+            const failed = await uploadCards(Number(savedId), pendingCards);
+            if (failed.length) {
+              setErr(`Meeting saved, but ${failed.length} business card photo(s) could not be attached. Reopen the meeting to add them.`);
+              setBusy(false);
+              setPendingCards([]);
+              router.refresh();
+              return;
+            }
+            setPendingCards([]);
+          }
           router.refresh(); onDone();
         } catch (e) {
           const raw = e instanceof Error ? e.message : '';
@@ -723,6 +740,14 @@ function MeetingForm({ exhibitionId, meeting, onDone }: {
             <F label="City"><input name="city" defaultValue={meeting?.city ?? ''} style={INPUT} /></F>
             <F label="Met on"><input name="met_on" type="date" defaultValue={meeting?.met_on ?? ''} style={INPUT} /></F>
           </Two>
+
+          {/* Directly under the contact fields, so the card can be read off
+              while they are typed. */}
+          <BusinessCards
+            meetingId={meeting?.id ?? null}
+            pending={pendingCards}
+            onPendingChange={setPendingCards}
+          />
 
           <F label="What was discussed"><textarea name="discussion" rows={2} defaultValue={meeting?.discussion ?? ''} style={{ ...INPUT, resize: 'vertical' }} /></F>
           <F label="Requirement"><textarea name="requirement" rows={2} defaultValue={meeting?.requirement ?? ''} style={{ ...INPUT, resize: 'vertical' }} /></F>

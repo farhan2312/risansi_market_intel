@@ -389,6 +389,11 @@ export async function saveExhibitionMeeting(exhibitionId: number, fd: FormData, 
     str(fd, 'follow_up_date'), str(fd, 'interest'), inr(fd, 'potential_value_inr'),
   ];
 
+  // The id is returned so the caller can attach anything that needs one — a
+  // business card photographed at the stand has nowhere to go until the meeting
+  // it belongs to exists.
+  let savedId = meetingId ?? 0;
+
   if (meetingId) {
     await risansiPool.query(
       `UPDATE exhibition_meetings SET
@@ -400,15 +405,17 @@ export async function saveExhibitionMeeting(exhibitionId: number, fd: FormData, 
       [...vals, meetingId],
     );
   } else {
-    await risansiPool.query(
+    const ins = await risansiPool.query<{ id: number }>(
       `INSERT INTO exhibition_meetings
          (exhibition_id, client_id, company_name, contact_person, designation, phone,
           email, city, discussion, requirement, outcome, next_action, follow_up_date,
           interest, potential_value_inr, met_by, met_by_name, met_on)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
-               (SELECT name FROM users WHERE id=$16), COALESCE($17::date, CURRENT_DATE))`,
+               (SELECT name FROM users WHERE id=$16), COALESCE($17::date, CURRENT_DATE))
+       RETURNING id`,
       [...vals, user.id, str(fd, 'met_on')],
     );
+    savedId = ins.rows[0].id;
   }
 
   await recordAudit({
@@ -418,6 +425,7 @@ export async function saveExhibitionMeeting(exhibitionId: number, fd: FormData, 
     actorEmail: user.email,
   }).catch(() => {});
   touch(exhibitionId);
+  return savedId;
 }
 
 export async function deleteExhibitionMeeting(exhibitionId: number, meetingId: number) {

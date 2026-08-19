@@ -51,3 +51,32 @@ export function checkInvoice(fileName: string, declaredMime: string, size: numbe
  *  cannot drift apart. */
 export const INVOICE_ACCEPT = '.pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png';
 export const CAMERA_ACCEPT  = 'image/*';
+
+// ── Business cards ────────────────────────────────────────────
+
+export const MAX_CARD_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Validate a photographed business card. Images only: a card is something you
+ * point a phone at, and allowing PDF here would mean a second serveable type
+ * for no gain. Otherwise identical in spirit to checkInvoice — declared mime
+ * AND extension AND magic bytes, all three, because any one alone lets a file
+ * named card.jpg carrying HTML through, and a stored page that executes in a
+ * colleague's browser is stored XSS.
+ */
+export function checkCardPhoto(fileName: string, declaredMime: string, size: number, head: Uint8Array): InvoiceCheck {
+  if (size === 0)              return { ok: false, error: 'That photo is empty.' };
+  if (size > MAX_CARD_BYTES)   return { ok: false, error: 'Photo is larger than 8 MB.' };
+
+  const kind = KINDS.filter(k => k.out !== 'application/pdf').find(k =>
+    k.ext.test(fileName) &&
+    k.mime.test(declaredMime) &&
+    k.magic.every((b, i) => head[i] === b));
+
+  return kind
+    ? { ok: true, mime: kind.out }
+    : { ok: false, error: 'Take or attach a JPG or PNG photo of the card.' };
+}
+
+/** Cards come from a camera or the gallery, so the picker advertises images. */
+export const CARD_ACCEPT = '.jpg,.jpeg,.png,image/jpeg,image/png';
