@@ -10,6 +10,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import ExcelJS from 'exceljs';
+import { CLUSTERS, drawCluster } from './er-diagram.mjs';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..');
 const S = JSON.parse(readFileSync(path.join(ROOT, 'schema.tmp.json'), 'utf8'));
@@ -142,7 +143,7 @@ const put = (ws, r, cols, obj, zebra) => {
 
   const blocks = [
     ['What this is', 'A guide to the Risansi Postgres database for anyone building reports or Power BI models against it. It describes the structure and the meaning of every table and column. It contains no customer data.'],
-    ['Sheets', 'Tables — one row per table: what it holds, its grain, and whether it is a fact, a dimension or a log.\nColumns — one row per column: type, nullability, keys, unit, what it means, and how often it is actually populated.\nRelationships — every foreign key, with cardinality and delete behaviour, ready to recreate as Power BI relationships.\nKeys & Indexes — primary keys, unique constraints and indexes.\nAllowed Values — the real vocabulary of every low-cardinality column, i.e. what a slicer will show.\nModelling Guide — star schema, date handling, row-level security and the traps.'],
+    ['Sheets', 'ER Diagram — the tables drawn as pictures, one per domain, with the keys that join them.\nTables — one row per table: what it holds, its grain, and whether it is a fact, a dimension or a log.\nColumns — one row per column: type, nullability, keys, unit, what it means, and how often it is actually populated.\nRelationships — every foreign key, with cardinality and delete behaviour, ready to recreate as Power BI relationships.\nKeys & Indexes — primary keys, unique constraints and indexes.\nAllowed Values — the real vocabulary of every low-cardinality column, i.e. what a slicer will show.\nModelling Guide — star schema, date handling, row-level security and the traps.'],
     ['READ THIS FIRST — money units', 'Money is stored in TWO different units and nothing in the column type tells you which.\n\n  • Columns ending _cr  are CRORES.  1 crore = 10,000,000 rupees.\n  • Columns ending _inr are RUPEES.\n\nAdding a _cr column to an _inr column, or charting them on one axis, is wrong by a factor of ten million. The Columns sheet names the unit for every numeric column; the Modelling Guide has a DAX pattern that normalises both to rupees.'],
     ['Populated %', 'The Columns sheet shows what proportion of rows actually hold a value. A column at 0% exists in the schema but has never been filled — building a visual on one produces an empty chart, not an error. Check this before you model.'],
     ['Do not import', 'Columns marked do-not-import hold file bytes (bytea) or credentials. They are large, useless in a report, and in the case of password hashes must never leave the database.'],
@@ -160,6 +161,35 @@ const put = (ws, r, cols, obj, zebra) => {
     row.getCell(2).font = { size: 10 };
     row.height = Math.min(150, 15 * (body.split('\n').length + Math.ceil(body.length / 115)));
     r++;
+  }
+}
+
+// ══ 1b · ER Diagram ═══════════════════════════════════════════
+{
+  const ws = wb.addWorksheet('ER Diagram');
+  ws.getColumn(1).width = 3;
+  ws.getRow(1).getCell(2).value = 'Entity relationships';
+  ws.getRow(1).getCell(2).font = { size: 16, bold: true, color: { argb: NAVY } };
+  ws.getRow(2).getCell(2).value =
+    'One diagram per domain. All 53 tables in a single picture is a hairball, so each area is drawn on its own '
+    + 'and a link leaving the area is shown on the box as an italic "→ table" stub rather than being dropped.';
+  ws.getRow(2).getCell(2).font = { size: 10, color: { argb: GREY } };
+  ws.getRow(3).getCell(2).value =
+    'Reading it: a box lists the primary key and the foreign keys only — the Columns sheet has the rest. '
+    + 'A line runs from the many side (three prongs) to the one side (dot), and its label is the joining column. '
+    + 'An amber line means ON DELETE CASCADE: removing the parent row deletes these children with it.';
+  ws.getRow(3).getCell(2).font = { size: 10, color: { argb: GREY } };
+
+  let row = 5;
+  for (const [title, tables] of CLUSTERS) {
+    const known = tables.filter(t => S.tables.some(x => x.table_name === t));
+    if (!known.length) continue;
+    const { png, width, height } = await drawCluster(S, title, known);
+    const id = wb.addImage({ buffer: png, extension: 'png' });
+    // Placed at natural size; the PNG is rendered at 1.6x that, so it stays
+    // sharp when someone zooms in to read a column name.
+    ws.addImage(id, { tl: { col: 1, row: row - 1 }, ext: { width, height } });
+    row += Math.ceil(height / 20) + 3;
   }
 }
 
@@ -366,3 +396,4 @@ console.log(`  ${wb.worksheets.length} sheets: ${wb.worksheets.map(w => w.name).
 console.log(`  ${S.tables.length} tables, ${S.columns.length} columns`);
 console.log(`  column meanings: ${documented}/${S.columns.length} (${Math.round(documented / S.columns.length * 100)}%)`);
 console.log(`  modelling sections: ${(DESC.sections ?? []).length}`);
+console.log(`  ER diagrams: ${CLUSTERS.length}`);
