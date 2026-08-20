@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Data-dictionary build artefacts (regenerate with scripts/schema-dump.mjs)
+schema.tmp.json
+descriptions.json
+Risansi-Database-Guide-*.xlsx
