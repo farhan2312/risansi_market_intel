@@ -175,3 +175,33 @@ export function submitReadiness(ex: {
   else if (!hasLead)     missing.push('A team lead');
   return { ready: missing.length === 0, missing };
 }
+
+/**
+ * SQL predicate limiting an `exhibitions` query (aliased `alias`) to what this
+ * user may SEE. Returns null for admins and sysadmins, meaning no restriction.
+ *
+ * Four ways in, because all four have a reason to be there:
+ *   - on the team          (exhibition_team)
+ *   - proposed it          (created_by)
+ *   - is the approver      (approver_id)
+ *   - admin or sysadmin    (no restriction at all)
+ *
+ * The approver matters more than it looks. They are named per exhibition and are
+ * usually NOT on the team, so a strict team-only rule would hide the very
+ * exhibition they have been asked to decide on, and approvals would silently
+ * stall.
+ *
+ * The id is an integer straight from the session, so inlining it is
+ * injection-safe and keeps callers free of parameter-index juggling — the same
+ * approach clientScopeSql takes.
+ */
+export function exhibitionVisibilitySql(
+  role: string | null | undefined, userId: number | null, alias = 'e',
+): string | null {
+  if (role === 'admin' || role === 'sysadmin') return null;
+  const uid = Number(userId);
+  if (!Number.isInteger(uid)) return 'FALSE';
+  return `(${alias}.created_by = ${uid}
+        OR ${alias}.approver_id = ${uid}
+        OR EXISTS (SELECT 1 FROM exhibition_team t WHERE t.exhibition_id = ${alias}.id AND t.user_id = ${uid}))`;
+}

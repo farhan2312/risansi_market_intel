@@ -59,6 +59,32 @@ export async function canManageExhibition(exhibitionId: number): Promise<boolean
   return rows[0]?.ok ?? false;
 }
 
+/**
+ * May this user SEE the exhibition? Broader than managing it: the named approver
+ * has to be able to open the one they are deciding on, without being able to
+ * edit its meetings or expenses.
+ */
+export async function canViewExhibition(exhibitionId: number): Promise<boolean> {
+  const user = await getCurrentUser();
+  if (!user.email) return false;
+  if (hasRole(user.role, 'admin')) return true;
+  if (user.id == null) return false;
+  const { rows } = await risansiPool.query<{ ok: boolean }>(
+    `SELECT (EXISTS (SELECT 1 FROM exhibitions e
+                      WHERE e.id = $1 AND (e.created_by = $2 OR e.approver_id = $2))
+          OR EXISTS (SELECT 1 FROM exhibition_team t
+                      WHERE t.exhibition_id = $1 AND t.user_id = $2)) AS ok`,
+    [exhibitionId, user.id],
+  );
+  return rows[0]?.ok ?? false;
+}
+
+/** True when this user may create exhibitions — drives whether the button shows. */
+export async function canCreateExhibition(): Promise<boolean> {
+  const user = await getCurrentUser();
+  return !!user.email && hasRole(user.role, 'admin');
+}
+
 async function assertCanManage(exhibitionId: number): Promise<void> {
   if (!(await canManageExhibition(exhibitionId))) {
     throw new Error('You are not on this exhibition’s team.');
@@ -109,6 +135,11 @@ function touch(id: number) {
 
 export async function createExhibition(fd: FormData) {
   const user = await requireUser();
+  // Proposing an exhibition is an admin act now. Everyone else contributes to
+  // one they have been put on: meetings, expenses, the post-event review.
+  if (!hasRole(user.role, 'admin')) {
+    throw new Error('Only an admin can create an exhibition.');
+  }
   const name = str(fd, 'name');
   if (!name) throw new Error('Exhibition name is required.');
 

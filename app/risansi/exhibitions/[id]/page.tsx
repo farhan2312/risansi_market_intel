@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation';
 import { Topbar } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser } from '@/lib/risansi-auth';
-import { canManageExhibition, closeReadiness } from '@/app/actions/risansi-exhibitions';
+import { canManageExhibition, canViewExhibition, closeReadiness } from '@/app/actions/risansi-exhibitions';
 import { ExhibitionDetail } from '@/components/risansi/ExhibitionDetail';
 import type {
   ExhibitionFull, TeamMember, ApprovalRow, MeetingRow, ExpenseRow, ReviewRow,
@@ -22,6 +22,10 @@ export default async function ExhibitionDetailPage({ params }: { params: Promise
   if (!Number.isInteger(id) || id <= 0) notFound();
 
   const me = await getCurrentUser();
+  // Seeing an exhibition is not the default. Team, proposer, approver, admin —
+  // anyone else gets the same answer as a URL that does not exist, rather than a
+  // "forbidden" that confirms it does.
+  if (!(await canViewExhibition(id))) notFound();
 
   const [exhibition, team, meetings, approvals, expenses, review, users, canManage, blockers] = await Promise.all([
     q<ExhibitionFull | null>(async () => {

@@ -1,6 +1,7 @@
 import { Topbar } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser } from '@/lib/risansi-auth';
+import { exhibitionVisibilitySql } from '@/lib/risansi-exhibition-fields';
 import { ExhibitionsClient, type ExhibitionRow, type UserOpt } from '@/components/risansi/ExhibitionsClient';
 
 export const dynamic = 'force-dynamic';
@@ -14,9 +15,14 @@ async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
 export default async function ExhibitionsPage() {
   const me = await getCurrentUser();
 
-  // Exhibitions are company-wide events. Every other list in the portal is scoped
-  // by the client's tour, but an exhibition has no client and therefore no tour —
-  // routing this through clientScopeSql would show every rep an empty page.
+  // An exhibition has no client and therefore no tour, so the portal's usual
+  // clientScopeSql does not apply. It is scoped by involvement instead: the
+  // team, whoever proposed it, and the named approver — plus admins, who see
+  // everything. The approver is in that list because they are usually not on
+  // the team, and without them approvals would stall on an invisible record.
+  const visPred = exhibitionVisibilitySql(me.role, me.id, 'e');
+  const visClause = visPred ? `WHERE ${visPred}` : '';
+
   const [rows, users] = await Promise.all([
     q<ExhibitionRow[]>(async () => {
       const { rows } = await risansiPool.query<ExhibitionRow>(`
@@ -40,6 +46,7 @@ export default async function ExhibitionsPage() {
                  WHERE x.exhibition_id = e.id) AS actual_cost_inr
           FROM exhibitions e
           LEFT JOIN users ap ON ap.id = e.approver_id
+         ${visClause}
          ORDER BY COALESCE(e.start_date, e.created_at::date) DESC, e.id DESC
       `);
       return rows;

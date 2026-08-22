@@ -32,6 +32,11 @@ export function ExhibitionsClient({ rows, users, me }: {
   me: { id: number | null; role: string };
 }) {
   const router = useRouter();
+  // Proposing an exhibition is an admin act. Checked inline rather than through
+  // hasRole, which lives beside the server-only auth helpers and would pull them
+  // into the browser bundle. createExhibition enforces the same rule server-side;
+  // this only decides whether the button is worth showing.
+  const canCreate = me.role === 'admin' || me.role === 'sysadmin';
   const [status, setStatus] = useState<string>('open');
   const [term, setTerm]     = useState('');
   const [open, setOpen]     = useState(false);
@@ -86,14 +91,16 @@ export function ExhibitionsClient({ rows, users, me }: {
         <span style={{ fontSize: 12, color: 'var(--fg-3)' }}>
           {shown.length} of {rows.length}
         </span>
-        <button onClick={() => setOpen(true)} style={{ ...BTN_PRIMARY, marginLeft: 'auto' }}>
-          + New Exhibition
-        </button>
+        {canCreate && (
+          <button onClick={() => setOpen(true)} style={{ ...BTN_PRIMARY, marginLeft: 'auto' }}>
+            + New Exhibition
+          </button>
+        )}
       </div>
 
       {/* List */}
       {shown.length === 0 ? (
-        <Empty hasAny={rows.length > 0} onCreate={() => setOpen(true)} />
+        <Empty hasAny={rows.length > 0} onCreate={() => setOpen(true)} canCreate={canCreate} />
       ) : (
         <div style={PANEL}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -310,16 +317,18 @@ function Kpi({ label, value, sub, accent }: { label: string; value: string; sub?
   );
 }
 
-function Empty({ hasAny, onCreate }: { hasAny: boolean; onCreate: () => void }) {
+function Empty({ hasAny, onCreate, canCreate }: { hasAny: boolean; onCreate: () => void; canCreate: boolean }) {
   return (
     <div style={{ ...PANEL, padding: 40, textAlign: 'center' }}>
       <div style={{ fontSize: 14, color: 'var(--fg-2)', marginBottom: 6 }}>
         {hasAny ? 'No exhibitions match this filter.' : 'No exhibitions yet.'}
       </div>
       <div style={{ fontSize: 12, color: 'var(--fg-3)', marginBottom: 16 }}>
-        {hasAny ? 'Try “All statuses”, or clear the search.' : 'Add the first event you are considering.'}
+        {hasAny ? 'Try “All statuses”, or clear the search.'
+          : canCreate ? 'Add the first event you are considering.'
+          : 'You will see an exhibition here once you are added to its team.'}
       </div>
-      {!hasAny && <button onClick={onCreate} style={BTN_PRIMARY}>+ New Exhibition</button>}
+      {!hasAny && canCreate && <button onClick={onCreate} style={BTN_PRIMARY}>+ New Exhibition</button>}
     </div>
   );
 }
