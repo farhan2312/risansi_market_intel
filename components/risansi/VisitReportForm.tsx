@@ -7,6 +7,7 @@ import { CLIENT_TYPES, isEpcOem } from '@/lib/risansi-client-types';
 import { ClientPumpEditor } from './ClientPumpEditor';
 import { LogComplaintButton } from './LogComplaintButton';
 import { updateTaskStatus, deleteTask } from '@/app/actions/risansi-tasks';
+import { ResolveActionDialog, type ResolvingAction } from './ResolveActionDialog';
 import { AddActionForm } from './AddActionForm';
 import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
 import { MonthYearSelect } from './MonthYearSelect';
@@ -90,6 +91,7 @@ interface TaskItem {
   assigned_to_external: string | null;
   assigned_rep_name: string | null;
   created_by: string | null;
+  resolution_note?: string | null;
 }
 
 interface TaskRep { id: number; name: string; zone: string | null }
@@ -202,8 +204,11 @@ export function VisitReportForm({
   const { saveState, queueSave, hasDraft, syncDraft } = useAutoSave(visit.id);
   const router = useRouter();
 
-  const handleCompleteTask = async (taskId: number, status: 'open' | 'completed') => {
-    await updateTaskStatus(taskId, status);
+  // Closing an action point asks what was done, the same as everywhere else.
+  const [resolvingTask, setResolvingTask] = useState<ResolvingAction | null>(null);
+  const handleCompleteTask = async (taskId: number, status: 'open' | 'completed', title = '', existingNote: string | null = null) => {
+    if (status === 'completed') { setResolvingTask({ id: taskId, title, existingNote }); return; }
+    await updateTaskStatus(taskId, 'open');
     router.refresh();
   };
   const handleDeleteTask = async (taskId: number) => {
@@ -1368,6 +1373,13 @@ export function VisitReportForm({
             />
           ))
         )}
+        {resolvingTask && (
+          <ResolveActionDialog
+            action={resolvingTask}
+            onCancel={() => setResolvingTask(null)}
+            onDone={() => { setResolvingTask(null); router.refresh(); }}
+          />
+        )}
         {!disabled && (
           <AddActionForm
             visitId={Number(visit.id)}
@@ -2021,7 +2033,7 @@ const TASK_PRIORITY_COLORS: Record<string, { bg: string; text: string }> = {
 function TaskRow({ task, isClosed, onComplete, onDelete }: {
   task: TaskItem;
   isClosed: boolean;
-  onComplete: (id: number, status: 'open' | 'completed') => void;
+  onComplete: (id: number, status: 'open' | 'completed', title?: string, existingNote?: string | null) => void;
   onDelete: (id: number) => void;
 }) {
   const isOverdue = !!task.due_date && task.status === 'open' && new Date(task.due_date) < new Date();
@@ -2037,7 +2049,8 @@ function TaskRow({ task, isClosed, onComplete, onDelete }: {
         <input
           type="checkbox"
           checked={task.status === 'completed'}
-          onChange={() => onComplete(task.id, task.status === 'open' ? 'completed' : 'open')}
+          onChange={() => onComplete(
+            task.id, task.status === 'open' ? 'completed' : 'open', task.title, task.resolution_note ?? null)}
           style={{ marginTop: 3, flexShrink: 0 }}
         />
       )}

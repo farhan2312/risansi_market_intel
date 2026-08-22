@@ -4,6 +4,7 @@ import { useState, type CSSProperties } from 'react';
 import { isPastDue } from '@/lib/risansi-utils';
 import { useRouter } from 'next/navigation';
 import { updateTaskStatus } from '@/app/actions/risansi-tasks';
+import { ResolveActionDialog, ResolutionNote } from './ResolveActionDialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -19,6 +20,8 @@ export interface ActivityTask {
   priority: string | null;
   status: string;
   assigned_to_external: string | null;
+  /** What was done to close it. NULL on actions closed before this was recorded. */
+  resolution_note?: string | null;
   assigned_rep_name: string | null;
   client_id: number | null;
   client_code: string | null;
@@ -42,22 +45,34 @@ function ActionStatusToggle({ task, compact, onToggle }: {
   task: ActivityTask; compact?: boolean; onToggle: () => void;
 }) {
   const [loading, setLoading] = useState(false);
+  const [resolving, setResolving] = useState(false);
   const handleToggle = async () => {
+    if (task.status === 'open') { setResolving(true); return; }
     setLoading(true);
-    await updateTaskStatus(task.id, task.status === 'open' ? 'completed' : 'open');
+    await updateTaskStatus(task.id, 'open');
     onToggle();
     setLoading(false);
   };
 
   if (compact) {
     return (
-      <Button variant="ghost" size="sm" onClick={handleToggle} disabled={loading} style={{ fontSize: 10 }}>
-        {loading ? '…' : task.status === 'completed' ? '↩' : '✓'}
-      </Button>
+      <>
+        <Button variant="ghost" size="sm" onClick={handleToggle} disabled={loading} style={{ fontSize: 10 }}>
+          {loading ? '…' : task.status === 'completed' ? '↩' : '✓'}
+        </Button>
+      {resolving && (
+        <ResolveActionDialog
+          action={{ id: task.id, title: task.title, existingNote: task.resolution_note }}
+          onCancel={() => setResolving(false)}
+          onDone={() => { setResolving(false); onToggle(); }}
+        />
+      )}
+      </>
     );
   }
 
   return (
+    <>
     <Badge
       onClick={handleToggle}
       className="r-tap"
@@ -69,6 +84,14 @@ function ActionStatusToggle({ task, compact, onToggle }: {
     >
       {loading ? '…' : task.status === 'completed' ? '✓ Done' : 'Open'}
     </Badge>
+      {resolving && (
+        <ResolveActionDialog
+          action={{ id: task.id, title: task.title, existingNote: task.resolution_note }}
+          onCancel={() => setResolving(false)}
+          onDone={() => { setResolving(false); onToggle(); }}
+        />
+      )}
+    </>
   );
 }
 
@@ -153,6 +176,7 @@ export function ActivitiesTab({ tasks }: { tasks: ActivityTask[] }) {
                         {task.description.slice(0, 60)}{task.description.length > 60 ? '…' : ''}
                       </div>
                     )}
+                    {task.status === 'completed' && <ResolutionNote note={task.resolution_note} compact />}
                   </TableCell>
                   <TableCell data-label="Client">
                     {task.client_code && task.client_name ? (

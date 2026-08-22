@@ -486,7 +486,7 @@ export default async function FieldActivityPage({
   const activityTasks = await risansiPool.query<ActivityTask>(
     `SELECT
        t.id, t.title, t.description, t.due_date::text AS due_date, t.priority, t.status,
-       t.assigned_to_external,
+       t.assigned_to_external, t.resolution_note,
        c.id AS client_id, c.code AS client_code, c.legal_name AS client_name,
        v.id AS visit_id, v.visit_date,
        COALESCE(r.name, '—') AS assigned_rep_name

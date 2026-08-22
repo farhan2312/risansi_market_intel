@@ -190,28 +190,56 @@ export async function addTask({
   });
 }
 
-export async function updateTaskStatus(taskId: number, status: 'open' | 'completed') {
+/**
+ * Open or close an action.
+ *
+ * Closing requires a resolution note — what was actually done — and the note is
+ * written once. If the action already carries one (it was closed, reopened and
+ * is being closed again) the original stands and any note passed here is
+ * ignored, so the record cannot be quietly rewritten after the fact.
+ *
+ * Reopening leaves the note alone rather than clearing it: it is the account of
+ * a closure that genuinely happened, and erasing it would lose that history.
+ */
+export async function updateTaskStatus(
+  taskId: number, status: 'open' | 'completed', resolutionNote?: string,
+) {
   const email = await requireEmail();
   await assertCanManageTask(taskId);
   if (status !== 'open' && status !== 'completed') throw new Error('Invalid status.');
 
+  const { rows } = await risansiPool.query<{ resolution_note: string | null }>(
+    'SELECT resolution_note FROM tasks WHERE id = $1', [taskId],
+  );
+  if (!rows[0]) throw new Error('Action not found.');
+  const existing = rows[0].resolution_note;
+
+  const note = (resolutionNote ?? '').trim();
+  if (status === 'completed' && !existing && !note) {
+    throw new Error('Add a resolution note describing what was done before closing this action.');
+  }
+
   await risansiPool.query(
     `UPDATE tasks
-       SET status       = $1,
-           completed_at = $2,
-           completed_by = $3,
-           updated_at   = NOW()
+       SET status          = $1,
+           completed_at    = $2,
+           completed_by    = $3,
+           -- COALESCE, so the first note written is the one that survives.
+           resolution_note = COALESCE(resolution_note, $5),
+           updated_at      = NOW()
      WHERE id = $4`,
     [
       status,
       status === 'completed' ? new Date() : null,
       status === 'completed' ? email : null,
       taskId,
+      status === 'completed' && note ? note.slice(0, 2000) : null,
     ],
   );
 
   revalidatePath('/risansi');
   revalidatePath('/risansi/field');
+  revalidatePath('/risansi/registry');
 }
 
 export async function deleteTask(taskId: number) {

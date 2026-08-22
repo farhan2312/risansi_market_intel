@@ -476,7 +476,7 @@ export default async function ClientProfilePage({
              u.name AS assigned_rep_name,
              t.assigned_to_external, t.assigned_to_external_email,
              t.due_date::text AS due_date, t.priority, t.status,
-             t.created_by, t.created_at::text AS created_at,
+             t.created_by, t.created_at::text AS created_at, t.resolution_note,
              (t.visit_id IS NOT NULL) AS from_visit
       FROM tasks t
       LEFT JOIN users u ON u.id = t.assigned_to_rep

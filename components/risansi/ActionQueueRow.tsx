@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { updateTaskStatus } from '@/app/actions/risansi-tasks';
+import { ResolveActionDialog, ResolutionNote } from './ResolveActionDialog';
 
 export interface QueueTask {
   id: number;
@@ -11,6 +12,8 @@ export interface QueueTask {
   priority: string | null;
   status: string;
   assigned_to_external: string | null;
+  /** What was done to close it. NULL on actions closed before this was recorded. */
+  resolution_note?: string | null;
   assigned_rep_name: string | null;
   client_id: number | null;
   client_code: string | null;
@@ -34,9 +37,12 @@ export function ActionQueueRow({ task }: { task: QueueTask }) {
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const isOverdue = !!task.due_date && task.status !== 'completed' && task.due_date < todayStr;
 
+  // Closing asks what was done; reopening does not need to.
+  const [resolving, setResolving] = useState(false);
   const handleToggle = async () => {
+    if (task.status === 'open') { setResolving(true); return; }
     setLoading(true);
-    await updateTaskStatus(task.id, task.status === 'open' ? 'completed' : 'open');
+    await updateTaskStatus(task.id, 'open');
     router.refresh();
     setLoading(false);
   };
@@ -83,6 +89,7 @@ export function ActionQueueRow({ task }: { task: QueueTask }) {
           )}
           <span>→ {assignee}</span>
         </div>
+        {task.status === 'completed' && <ResolutionNote note={task.resolution_note} compact />}
       </div>
 
       <button
@@ -98,6 +105,14 @@ export function ActionQueueRow({ task }: { task: QueueTask }) {
       >
         {loading ? '…' : task.status === 'completed' ? '↩ Reopen' : '✓ Done'}
       </button>
+
+      {resolving && (
+        <ResolveActionDialog
+          action={{ id: task.id, title: task.title, existingNote: task.resolution_note }}
+          onCancel={() => setResolving(false)}
+          onDone={() => { setResolving(false); router.refresh(); }}
+        />
+      )}
     </div>
   );
 }

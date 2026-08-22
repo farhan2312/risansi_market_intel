@@ -4,6 +4,7 @@ import { useState, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { AddActionForm, type ActionRep } from './AddActionForm';
 import { updateTaskStatus, deleteTask } from '@/app/actions/risansi-tasks';
+import { ResolveActionDialog, ResolutionNote, type ResolvingAction } from './ResolveActionDialog';
 
 export interface ActionItem {
   id: number;
@@ -11,6 +12,8 @@ export interface ActionItem {
   description: string | null;
   assigned_rep_name: string | null;
   assigned_to_external: string | null;
+  /** What was done to close it. NULL on actions closed before this was recorded. */
+  resolution_note?: string | null;
   assigned_to_external_email: string | null;
   due_date: string | null;          // yyyy-mm-dd
   priority: string;
@@ -34,9 +37,11 @@ export function ClientActivityRegister({ clientId, actions, reps }: {
   const [busy, setBusy] = useState<number | null>(null);
   const [err, setErr]   = useState('');
 
-  const setDone = async (id: number, done: boolean) => {
+  const [resolving, setResolving] = useState<ResolvingAction | null>(null);
+  const setDone = async (id: number, done: boolean, title = '', existingNote: string | null = null) => {
+    if (done) { setResolving({ id, title, existingNote }); return; }
     setBusy(id); setErr('');
-    try { await updateTaskStatus(id, done ? 'completed' : 'open'); router.refresh(); }
+    try { await updateTaskStatus(id, 'open'); router.refresh(); }
     catch (e) { setErr(e instanceof Error ? e.message : 'Could not update the action.'); }
     finally { setBusy(null); }
   };
@@ -82,7 +87,7 @@ export function ClientActivityRegister({ clientId, actions, reps }: {
                   opacity: done ? 0.6 : 1,
                 }}>
                   <button
-                    type="button" onClick={() => setDone(a.id, !done)} disabled={busy === a.id}
+                    type="button" onClick={() => setDone(a.id, !done, a.title, a.resolution_note ?? null)} disabled={busy === a.id}
                     aria-label={done ? 'Reopen' : 'Mark complete'} title={done ? 'Reopen' : 'Mark complete'}
                     style={{
                       flexShrink: 0, marginTop: 1, width: 16, height: 16, borderRadius: 4, cursor: 'pointer',
@@ -101,6 +106,7 @@ export function ClientActivityRegister({ clientId, actions, reps }: {
                     {a.description && (
                       <div style={{ fontSize: 12, color: 'var(--fg-2)', marginTop: 2, overflowWrap: 'anywhere' }}>{a.description}</div>
                     )}
+                    {done && <ResolutionNote note={a.resolution_note} />}
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4, fontSize: 11, color: 'var(--fg-3)', minWidth: 0 }}>
                       <span style={{ overflowWrap: 'anywhere', maxWidth: '100%' }}>👤 {assignee}</span>
                       {a.due_date && <span>· 📅 {a.due_date}</span>}
@@ -131,6 +137,14 @@ export function ClientActivityRegister({ clientId, actions, reps }: {
           triggerLabel="+ New Activity"
         />
       </div>
+
+      {resolving && (
+        <ResolveActionDialog
+          action={resolving}
+          onCancel={() => setResolving(null)}
+          onDone={() => { setResolving(null); router.refresh(); }}
+        />
+      )}
     </div>
   );
 }
