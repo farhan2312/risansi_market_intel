@@ -12,6 +12,7 @@ import { SalesOrderList } from './SalesOrderList';
 import { SalesOrderManager } from './SalesOrderManager';
 import { PurchaseOrderManager } from './PurchaseOrderManager';
 import { QuotationPdfManager } from './QuotationPdfManager';
+import { ChangeOppClient } from './ChangeOppClient';
 
 // A quotation exists from Quoted onward — the PDF can be viewed/replaced/deleted
 // at any of these stages (even a locked Won/Lost, if the viewer may edit).
@@ -177,6 +178,15 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: { 
                   View Client →
                 </a>
               )}
+              {/* Sysadmin only, and renders nothing for anyone else. Sits beside
+                  the client it would change, and stays available on a locked
+                  Won/Lost deal — a mis-linked closed deal is the case that most
+                  needs correcting. */}
+              <ChangeOppClient
+                oppId={Number(opp.id)}
+                currentCode={opp.client_code}
+                currentName={opp.client_name}
+              />
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
