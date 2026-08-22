@@ -129,9 +129,12 @@ export async function GET(req: Request) {
     kids(`SELECT * FROM visit_sugar_report WHERE visit_id = ANY($1) ORDER BY visit_id`),
     kids(`SELECT * FROM visit_nonsugar_report WHERE visit_id = ANY($1) ORDER BY visit_id`),
     kids(`SELECT * FROM equipment WHERE visit_id = ANY($1) ORDER BY visit_id, id`),
+    // Named columns rather than SELECT *, so a column added to `tasks` has to be
+    // listed here to appear — resolution_note is the first one that was.
     kids(`SELECT id, visit_id, title, description, due_date::text AS due_date, status,
                  priority, assigned_to_rep, assigned_to_external, assigned_to_external_email,
-                 completed_at::text AS completed_at, completed_by, created_by, notes
+                 completed_at::text AS completed_at, completed_by, resolution_note,
+                 created_by, notes
             FROM tasks WHERE visit_id = ANY($1) ORDER BY visit_id, id`),
     kids(`SELECT id, visit_id, product, product_type, stage, value_cr, quote_ref,
                  expected_close_date::text AS expected_close_date, auto_created, auto_source, notes
