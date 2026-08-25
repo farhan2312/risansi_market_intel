@@ -6,7 +6,7 @@ import { OfferRevisionsList } from './OfferRevisionsField';
 import type { OfferRevision } from '@/lib/risansi-offer-revisions';
 import { updateOpportunity, deleteOpportunity } from '@/app/actions/risansi';
 import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
-import { DROP_REASONS } from '@/lib/risansi-opportunity-fields';
+import { DROP_REASONS, PRODUCT_TYPES } from '@/lib/risansi-opportunity-fields';
 import { MonthYearSelect } from './MonthYearSelect';
 import { SalesOrderList } from './SalesOrderList';
 import { SalesOrderManager } from './SalesOrderManager';
@@ -349,7 +349,11 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: { 
               <div>
                 <label style={LABEL_STYLE}>Product Type</label>
                 <select name="product_type" defaultValue={opp.product_type ?? 'PCP'} style={INPUT_STYLE}>
-                  {['PCP', 'MMP', 'Spares', 'Service', 'Other'].map(t => <option key={t}>{t}</option>)}
+                  {PRODUCT_TYPES.map(t => <option key={t}>{t}</option>)}
+                  {/* Keep a legacy value rather than silently switching the row on save. */}
+                  {opp.product_type && !PRODUCT_TYPES.includes(opp.product_type as typeof PRODUCT_TYPES[number]) && (
+                    <option value={opp.product_type}>{opp.product_type}</option>
+                  )}
                 </select>
               </div>
               <div>

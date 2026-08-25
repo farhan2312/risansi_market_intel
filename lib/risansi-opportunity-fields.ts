@@ -20,7 +20,11 @@
  * across 'SPARE' and 'Spares' and every product-mix chart double-counted them.
  * Migration 0043 folded them together; both forms now render from here.
  */
-export const PRODUCT_TYPES = ['PCP', 'MMP', 'Spares', 'OBL', 'Service', 'Other'] as const;
+// Kept in step with the CHECK constraint added in migration 0061 — adding an
+// option here without adding it there means the form saves and the database
+// refuses. 'Spares' became SPARE (944 rows) and the transposed 'OBL' became
+// OLB; RBL is new.
+export const PRODUCT_TYPES = ['PCP', 'MMP', 'RBL', 'OLB', 'SPARE', 'SERVICE', 'OTHER'] as const;
 
 export const CREATE_STAGES = ['Suspect', 'Prospect', 'Quoted', 'Negotiating', 'Won', 'Lost'] as const;
 export type CreateStage = typeof CREATE_STAGES[number];

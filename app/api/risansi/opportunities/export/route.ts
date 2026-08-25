@@ -3,7 +3,7 @@ import { join } from 'path';
 import ExcelJS from 'exceljs';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, clientScopeSql } from '@/lib/risansi-auth';
-import { DROP_REASONS } from '@/lib/risansi-opportunity-fields';
+import { DROP_REASONS, PRODUCT_TYPES as OPP_PRODUCT_TYPES } from '@/lib/risansi-opportunity-fields';
 import { absoluteLink } from '@/lib/risansi-app-url';
 
 export const runtime = 'nodejs';
@@ -14,7 +14,9 @@ export const runtime = 'nodejs';
 // opportunity gets four Sales Order slots (No / Date / Value) to fill in.
 
 const STAGES        = ['Suspect', 'Prospect', 'Quoted', 'Negotiating', 'On Hold', 'Won', 'Lost', 'Dropped'];
-const PRODUCT_TYPES = ['PCP', 'MMP', 'Spares', 'Service', 'OBL', 'Other'];
+// Imported, not re-listed: this drives the Excel dropdown, and a stale copy
+// here offers a value the database now refuses on re-ingest.
+const PRODUCT_TYPES = [...OPP_PRODUCT_TYPES];
 const PROB_CODES    = ['1', '2', '3', '4'];
 const MARKETS       = ['DOMESTIC', 'EXPORT'];
 const CLIENT_STATUS = ['NEW', 'EXISTING'];

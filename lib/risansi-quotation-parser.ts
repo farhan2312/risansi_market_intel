@@ -63,7 +63,14 @@ const qtrFromISO = (iso: string | null): string | null => {
   return 'Q4';
 };
 
-const CAT_MAP: Record<string, string> = { SPR: 'SPARE', SPARE: 'SPARE', PCP: 'PCP', MMP: 'MMP', OBL: 'OBL' };
+// Maps the code in a quote number to a product type. OBL in a quote ref means
+// the type spelled OLB — the column's old value was a transposition, corrected
+// in migration 0061, and this map fed it.
+const CAT_MAP: Record<string, string> = {
+  SPR: 'SPARE', SPARE: 'SPARE', SPARES: 'SPARE',
+  PCP: 'PCP', MMP: 'MMP', RBL: 'RBL', OBL: 'OLB', OLB: 'OLB',
+  SERVICE: 'SERVICE', OTHER: 'OTHER',
+};
 
 export function parseQuotationText(rawText: string): ParsedQuote {
   const t = String(rawText || '').replace(/ /g, ' ').replace(/\s+/g, ' ').trim();

@@ -7,6 +7,7 @@ import { CLIENT_TYPES, isEpcOem } from '@/lib/risansi-client-types';
 import { ClientPumpEditor } from './ClientPumpEditor';
 import { LogComplaintButton } from './LogComplaintButton';
 import { updateTaskStatus, deleteTask } from '@/app/actions/risansi-tasks';
+import { PRODUCT_TYPES } from '@/lib/risansi-opportunity-fields';
 import { ResolveActionDialog, type ResolvingAction } from './ResolveActionDialog';
 import { AddActionForm } from './AddActionForm';
 import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
@@ -1938,7 +1939,7 @@ function ExpansionOpportunityForm({ visitId, clientId, clientName, repId, isClos
             <div>
               <label style={LBL}>Product Type</label>
               <select value={productType} onChange={e => setProductType(e.target.value)} disabled={isClosed} style={INP}>
-                {['PCP', 'MMP', 'Spares', 'Service', 'Other'].map(t => <option key={t}>{t}</option>)}
+                {PRODUCT_TYPES.map(t => <option key={t}>{t}</option>)}
               </select>
             </div>
             <div>
