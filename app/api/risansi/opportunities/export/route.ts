@@ -214,7 +214,7 @@ export async function GET(req: Request) {
     { h: 'Stage', w: 13, f: r => r.stage ?? '', list: 'Lists!$A$2:$A$9' },
     { h: 'Product / Description', w: 30, f: r => r.product ?? '' },
     { h: 'Project Name / Unit', w: 26, f: r => r.unit_project ?? '' },
-    { h: 'Product Type', w: 13, f: r => r.product_type ?? '', list: 'Lists!$B$2:$B$7' },
+    { h: 'Product Type', w: 13, f: r => r.product_type ?? '', list: `Lists!$B$2:$B$${1 + PRODUCT_TYPES.length}` },
     { h: 'Value (₹)', w: 14, f: r => rupees(r.value_cr), fmt: '#,##0', num: true },
     { h: 'Probability Code', w: 14, f: r => r.probability_code ?? '', list: 'Lists!$C$2:$C$5' },
     { h: 'Probability %', w: 11, f: r => (r.probability ?? ''), num: true },

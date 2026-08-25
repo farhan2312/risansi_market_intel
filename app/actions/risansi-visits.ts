@@ -742,6 +742,21 @@ async function syncPlannedFollowUpVisit(
   return newId ? { id: newId, action: 'created' } : null;
 }
 
+/**
+ * Equipment pump types and opportunity product types are two different
+ * vocabularies, and this path fed one straight into the other. Equipment holds
+ * Rota (76 records) and Other (8), neither of which is an opportunity product
+ * type — and since displacement opportunities are created during visit submit,
+ * an unmapped value fails the whole submission, not just the auto-opportunity.
+ *
+ * Anything without a counterpart becomes OTHER rather than being passed
+ * through. A displacement opportunity is a lead to chase, not a product spec.
+ */
+function oppProductType(pumpType: string | null | undefined): string {
+  const t = (pumpType ?? '').trim().toUpperCase();
+  return t === 'PCP' || t === 'MMP' ? t : 'OTHER';
+}
+
 export async function submitVisit(visitId: string) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) throw new Error('Unauthorized');
@@ -816,7 +831,7 @@ export async function submitVisit(visitId: string) {
       visit_id:     visitId,
       equipment_id: equip.id,
       product:      `${equip.supplier} ${equip.model ?? ''} replacement`.trim(),
-      product_type: equip.pump_type,
+      product_type: oppProductType(equip.pump_type),
       stage:        'Suspect',
       notes:        `Auto-created: EOL ${equip.supplier} pump (${equip.application ?? 'n/a'}) observed.`,
       auto_source:  'displacement',

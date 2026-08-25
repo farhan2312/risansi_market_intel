@@ -56,8 +56,11 @@ async function derivePairs() {
        AND b.stage = 'Won' AND b.quote_date IS NOT NULL
        AND a.final_value_cr > 0 AND b.value_cr > 0
        AND (o.order_date - b.quote_date) BETWEEN 0 AND 180
-       AND ( (o.product_category = 'SPARE' AND b.product_type =  'Spares')
-          OR (o.product_category = 'PUMP'  AND b.product_type <> 'Spares') )`)).rows;
+       -- 'SPARE' since migration 0061. Left as 'Spares' this matched nothing on
+       -- the first branch and everything — spares included — on the second, so
+       -- the pair list would still have looked plausible while being wrong.
+       AND ( (o.product_category = 'SPARE' AND b.product_type =  'SPARE')
+          OR (o.product_category = 'PUMP'  AND b.product_type <> 'SPARE') )`)).rows;
 
   const hits = edges.filter(e => {
     if (aOih.has(e.oih) || aTwin.has(e.twin)) return false;
