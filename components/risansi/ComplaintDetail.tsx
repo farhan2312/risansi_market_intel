@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, type CSSProperties } from 'react';
+import { COMPLAINT_CHANNELS } from '@/lib/risansi-complaint-fields';
 import { useRouter } from 'next/navigation';
 import {
   setComplaintStatus, reassignComplaint, addComplaintUpdate, updateComplaint, deleteComplaint,
@@ -279,7 +280,7 @@ function EditForm({ c, busy, onCancel, onSave }: { c: ComplaintRow; busy: boolea
       <textarea name="details" defaultValue={c.details} rows={3} style={{ ...INP, resize: 'vertical' }} />
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         <select name="priority" defaultValue={c.priority} style={INP}>{['High', 'Medium', 'Low'].map(p => <option key={p}>{p}</option>)}</select>
-        <select name="channel" defaultValue={c.channel ?? 'Verbal'} style={INP}>{['Verbal', 'Email', 'Mail'].map(p => <option key={p}>{p}</option>)}</select>
+        <select name="channel" defaultValue={c.channel ?? 'Verbal'} style={INP}>{COMPLAINT_CHANNELS.map(p => <option key={p}>{p}</option>)}</select>
         <input name="complaint_date" type="date" defaultValue={c.complaint_date ?? ''} style={INP} />
         <input name="due_date" type="date" defaultValue={c.due_date ?? ''} style={INP} />
         <input name="part_name" defaultValue={c.part_name ?? ''} placeholder="Part name" style={INP} />

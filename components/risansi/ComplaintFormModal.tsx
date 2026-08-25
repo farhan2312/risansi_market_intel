@@ -2,12 +2,12 @@
 
 import { useState, useMemo, useRef, useEffect, type CSSProperties } from 'react';
 import { createComplaint } from '@/app/actions/risansi-complaints';
+import { COMPLAINT_CHANNELS, COMPLAINT_PRIORITIES } from '@/lib/risansi-complaint-fields';
 
 export interface ClientOpt { id: number; code: string; name: string }
 export interface UserOpt { id: number; name: string; role: string }
 
-const CHANNELS = ['Verbal', 'Email', 'Mail'];
-const PRIORITIES = ['High', 'Medium', 'Low'];
+
 
 // Reusable "raise a complaint" drawer. Either pass a fixed client (from a visit
 // or the Client 360 page) or a client list for the rep to pick from.
@@ -109,7 +109,7 @@ export function ComplaintFormModal({ clients, fixedClient, users, onClose, onSav
           <Row>
             <Field label="Channel">
               <select name="channel" defaultValue="Verbal" style={INP}>
-                {CHANNELS.map(c => <option key={c} value={c}>{c}</option>)}
+                {COMPLAINT_CHANNELS.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </Field>
             <Field label="Complaint Date">
@@ -143,7 +143,7 @@ export function ComplaintFormModal({ clients, fixedClient, users, onClose, onSav
           <Row>
             <Field label="Priority">
               <select name="priority" defaultValue="Medium" style={INP}>
-                {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+                {COMPLAINT_PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
               </select>
             </Field>
             <Field label="Target Date">
