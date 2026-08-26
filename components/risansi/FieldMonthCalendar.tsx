@@ -16,6 +16,24 @@ export interface CalDayVisit {
   rep_name:    string;
 }
 
+/**
+ * An exhibition a team member is attending, as one block spanning its whole run.
+ *
+ * One entry per exhibition, not per attendee: a five-person exhibition would
+ * otherwise put five identical chips in a day cell that only shows three visits
+ * before it starts collapsing into "+N more". The attendees ride along so the
+ * block can name them.
+ */
+export interface CalExhibition {
+  id:         string;
+  name:       string;
+  venue:      string | null;
+  city:       string | null;
+  start_date: string;   // 'YYYY-MM-DD', inclusive
+  end_date:   string;   // 'YYYY-MM-DD', inclusive
+  reps:       { id: string; name: string }[];
+}
+
 // Distinct, reasonably distinguishable hues. Reps map to a colour by their index
 // in the (stable, name-sorted) colour basis, cycling if there are more than 16.
 const REP_PALETTE = [
@@ -23,6 +41,18 @@ const REP_PALETTE = [
   '#65A30D', '#DC2626', '#4F46E5', '#EA580C', '#0D9488', '#9333EA',
   '#CA8A04', '#E11D48', '#0369A1', '#15803D',
 ];
+
+// Everything the block cannot fit: where it is, how long it runs, and who is
+// there. The names matter most — the block says a day is not free, and the next
+// question is always "whose day".
+function exTitle(ex: CalExhibition): string {
+  const place = [ex.venue, ex.city].filter(Boolean).join(', ');
+  const when  = ex.start_date === ex.end_date ? ex.start_date : `${ex.start_date} to ${ex.end_date}`;
+  const who   = ex.reps.length
+    ? `${ex.reps.length} attending: ${ex.reps.map(r => r.name).join(', ')}`
+    : '';
+  return [ex.name, place, when, who].filter(Boolean).join(' · ');
+}
 
 const pad2  = (n: number) => String(n).padStart(2, '0');
 const isoOf = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -50,7 +80,7 @@ function monthWeeks(year: number, m0: number) {
 const WD_FULL  = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 export function FieldMonthCalendar({
-  view, months, visits, reps, todayISO, purposeColors,
+  view, months, visits, reps, todayISO, purposeColors, exhibitions = [],
 }: {
   view:          'month' | 'quarter';
   months:        { year: number; month: number; label: string }[];
@@ -58,6 +88,7 @@ export function FieldMonthCalendar({
   reps:          { id: string; name: string }[];   // stable colour basis
   todayISO:      string;
   purposeColors: Record<string, string>;
+  exhibitions?:  CalExhibition[];
 }) {
   const compact  = view === 'quarter';
   const repIndex = new Map(reps.map((r, i) => [r.id, i]));
@@ -75,6 +106,26 @@ export function FieldMonthCalendar({
   const legendReps = [...seen.entries()]
     .map(([id, name]) => ({ id, name }))
     .sort((a, b) => a.name.localeCompare(b.name));
+
+  // Exhibition runs expanded to the days they cover. Done by walking the ISO
+  // dates rather than by date arithmetic on the strings, so a run crossing a
+  // month or year boundary needs no special case. Capped at a year of days per
+  // exhibition purely so a bad end_date cannot spin here forever.
+  const exByDate = new Map<string, CalExhibition[]>();
+  for (const ex of exhibitions) {
+    if (!ex.start_date || !ex.end_date || ex.end_date < ex.start_date) continue;
+    const [sy, sm, sd] = ex.start_date.split('-').map(Number);
+    const cur = new Date(sy, sm - 1, sd);
+    for (let guard = 0; guard < 370; guard++) {
+      const iso = isoOf(cur);
+      if (iso > ex.end_date) break;
+      const arr = exByDate.get(iso) ?? [];
+      arr.push(ex);
+      exByDate.set(iso, arr);
+      cur.setDate(cur.getDate() + 1);
+    }
+  }
+  const anyExhibitions = exByDate.size > 0;
 
   const cellCap = compact ? 6 : 3;
 
@@ -101,6 +152,7 @@ export function FieldMonthCalendar({
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))' }}>
           {monthWeeks(mo.year, mo.month).flat().map(day => {
             const dv      = byDate.get(day.date) ?? [];
+            const dex     = exByDate.get(day.date) ?? [];
             const isToday = day.date === todayISO;
             return (
               <div key={day.date} style={{
@@ -123,6 +175,27 @@ export function FieldMonthCalendar({
                     ? <span style={{ background: '#0A3D8F', color: '#fff', borderRadius: 999, padding: '0 6px' }}>{day.dayNum}</span>
                     : day.dayNum}
                 </div>
+
+                {/* Exhibitions sit above the visits and outside the visit cap.
+                    Being away is the fact that frames the whole day, and it must
+                    not be the thing pushed under a "+2 more" by a busy day. */}
+                {dex.map(ex => (
+                  <div key={`ex-${ex.id}`} title={exTitle(ex)} style={{
+                    background: 'var(--purple-soft)', color: 'var(--purple)',
+                    borderRadius: 3, padding: compact ? '1px 3px' : '2px 5px',
+                    fontSize: compact ? 8.5 : 10.5, fontWeight: 700, lineHeight: 1.45,
+                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                    display: 'flex', alignItems: 'center', gap: 4,
+                  }}>
+                    <span aria-hidden style={{ flexShrink: 0 }}>&#9635;</span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{ex.name}</span>
+                    {!compact && ex.reps.length > 1 && (
+                      <span style={{ marginLeft: 'auto', flexShrink: 0, fontWeight: 600, opacity: 0.85 }}>
+                        {ex.reps.length}
+                      </span>
+                    )}
+                  </div>
+                ))}
 
                 {compact ? (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, alignContent: 'flex-start' }}>
@@ -182,7 +255,7 @@ export function FieldMonthCalendar({
         {months.map(renderMonth)}
       </div>
 
-      {legendReps.length > 0 && (
+      {(legendReps.length > 0 || anyExhibitions) && (
         <div style={{
           marginTop: 12, padding: '10px 14px', background: 'var(--bg-elev)',
           border: '1px solid var(--line)', borderRadius: 'var(--radius)',
@@ -195,6 +268,15 @@ export function FieldMonthCalendar({
               {r.name}
             </span>
           ))}
+          {anyExhibitions && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--fg-2)' }}>
+              <span style={{
+                width: 10, height: 10, borderRadius: 3, flexShrink: 0,
+                background: 'var(--purple-soft)', border: '1px solid var(--purple)',
+              }} />
+              at an exhibition
+            </span>
+          )}
           <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, color: 'var(--fg-3)' }}>
             <span style={{ width: 6, height: 6, borderRadius: 999, background: '#6B7FA3', flexShrink: 0 }} />
             dot = visit purpose

@@ -99,6 +99,17 @@
   --info:      #60A5FA;
   --info-soft: rgba(96, 165, 250, 0.15);
   --purple:    #A78BFA;
+  /* 0.10, not the 0.16 the other -soft tokens use. The exhibition block puts
+     --purple text directly on this, and at 0.16 the composite over --bg-paper
+     measures 4.44:1 — just under AA for 10.5px text. 0.10 gives 4.92:1 and still
+     reads as a filled band rather than a bare label.
+
+     On --bg-elev it is 4.31:1, and going low enough to fix that (0.06) leaves the
+     band too faint to notice, which is the one thing it must not be. The only
+     --bg-elev day cells are the adjacent-month ones, which the calendar already
+     renders at opacity 0.55 — every visit chip there is equally faded, so
+     singling this element out would buy nothing. */
+  --purple-soft: rgba(167, 139, 250, 0.10);
 }
 
 /* ── Tailwind theme mappings ─────────────────────────────────────
@@ -324,6 +335,7 @@ body {
   --info:      #2563EB;
   --info-soft: #DBEAFE;
   --purple:    #7C3AED;
+  --purple-soft: #EDE9FE;
 
   /* Radii */
   --radius-sm: 4px;

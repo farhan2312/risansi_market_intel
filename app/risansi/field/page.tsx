@@ -15,7 +15,8 @@ import { WeekNav } from '@/components/risansi/WeekNav';
 import { MonthNav } from '@/components/risansi/MonthNav';
 import { QuarterNav } from '@/components/risansi/QuarterNav';
 import { CalViewToggle } from '@/components/risansi/CalViewToggle';
-import { FieldMonthCalendar } from '@/components/risansi/FieldMonthCalendar';
+import { FieldMonthCalendar, type CalExhibition } from '@/components/risansi/FieldMonthCalendar';
+import { CALENDAR_BLOCKING_STATUSES } from '@/lib/risansi-exhibition-fields';
 import { ActivitiesTab, type ActivityTask } from '@/components/risansi/ActivitiesTab';
 import { AssignVisitButton } from '@/components/risansi/AssignVisitButton';
 import AssignVisitDrawer, { AssignVisitRowBtn } from '@/components/risansi/AssignVisitDrawer';
@@ -45,6 +46,15 @@ interface VisitFeedRow {
   check_in_time: string | null; submitted_at: string | null;
   client_id: string; legal_name: string; code: string; industry: string | null;
   city: string | null; tier: string | null;
+  rep_id: string; rep_name: string;
+}
+
+// One row per (exhibition × team member) whose run overlaps the visible window.
+// Grouped into per-exhibition blocks below; the query returns the flat join so
+// the attendee list comes back in the same pass.
+interface ExhibitionDay {
+  id: string; name: string; venue: string | null; city: string | null;
+  start_date: string; end_date: string; status: string;
   rep_id: string; rep_name: string;
 }
 
@@ -256,7 +266,7 @@ export default async function FieldActivityPage({
 
   // ── Queries ──────────────────────────────────────────────────
 
-  const [feed, overdue, calendarVisits, calendarReps, mapClients, stats, reportsVisits] = await Promise.all([
+  const [feed, overdue, calendarVisits, calendarReps, mapClients, stats, reportsVisits, exhibitionDays] = await Promise.all([
 
     // 1. Visit feed — filtered by sub-tab (upcoming / today / past)
     q<VisitFeedRow[]>(async () => {
@@ -522,7 +532,101 @@ export default async function FieldActivityPage({
       );
       return rows as VisitReportRow[];
     }, []),
+
+    // 8. Exhibition attendance — a team member is away at an exhibition for its
+    //    whole run, so their calendar should say so rather than reading as free.
+    //
+    //    Scope is by REP rather than by client, because an exhibition has no
+    //    client and so none of the tour-based visit scoping applies to it. The
+    //    set of reps is the same one the filter bar offers this viewer, which is
+    //    already "reps whose work you may see", plus the viewer themselves — a
+    //    manager with no tour assignments would otherwise not see their own.
+    //
+    //    Deliberately NOT filtered by exhibitionVisibilitySql: the point of the
+    //    block is that nobody schedules a visit for someone who is away, and
+    //    hiding it from a manager who happens not to be on that exhibition's
+    //    team would cause exactly the mistake this exists to prevent.
+    q<ExhibitionDay[]>(async () => {
+      // Only the calendar tab renders these, and the mobile redirect above has
+      // already turned a calendar request into a feed one, so this also skips
+      // the join on phones. Matches how the map and reports queries opt out.
+      if (tab !== 'calendar') return [];
+      const [from, to] =
+        calView === 'quarter' ? [qGridStart, qGridEnd]
+        : calView === 'month' ? [mGridStart, mGridEnd]
+        : [weekStart, weekEndExclusive];
+
+      // Which reps' blocks this viewer may see, narrowed by the active filters.
+      const visible = filterOpts.reps;
+      const chosen  = filters.reps.length ? filters.reps : null;
+      const zoneTour = await getScopedRepNames(filters);   // [] when no zone/tour filter
+      let names = visible;
+      if (chosen)          names = names.filter(n => chosen.includes(n));
+      if (zoneTour.length) names = names.filter(n => zoneTour.includes(n));
+
+      // A rep always sees their own exhibitions even if the name lists miss them.
+      const selfId = Number(currentUser.id) || 0;
+      if (!names.length && !selfId) return [];
+
+      const { rows } = await risansiPool.query<ExhibitionDay>(
+        `SELECT e.id::text            AS id,
+                e.name,
+                e.venue, e.city,
+                e.start_date::text     AS start_date,
+                e.end_date::text       AS end_date,
+                e.status,
+                u.id::text             AS rep_id,
+                u.name                 AS rep_name
+           FROM exhibitions e
+           JOIN exhibition_team t ON t.exhibition_id = e.id
+           JOIN users u           ON u.id = t.user_id
+          WHERE e.status = ANY($1)
+            AND e.start_date IS NOT NULL
+            AND e.end_date   IS NOT NULL
+            -- overlaps the visible window at all
+            AND e.start_date < $3::date
+            AND e.end_date  >= $2::date
+            AND (u.name = ANY($4) OR u.id = $5)
+          ORDER BY e.start_date, e.name, u.name`,
+        [[...CALENDAR_BLOCKING_STATUSES], from, to, names, selfId],
+      );
+      return rows;
+    }, []),
   ]);
+
+  // The flat (exhibition x member) join folded into one block per exhibition,
+  // carrying its attendees. Insertion order preserves the query's ORDER BY, so
+  // blocks come out in start-date order and attendees alphabetically.
+  const exhibitionBlocks: CalExhibition[] = (() => {
+    const byId = new Map<string, CalExhibition>();
+    for (const r of exhibitionDays) {
+      const cur = byId.get(r.id) ?? {
+        id: r.id, name: r.name, venue: r.venue, city: r.city,
+        start_date: r.start_date, end_date: r.end_date, reps: [],
+      };
+      if (r.rep_id && !cur.reps.some(x => x.id === r.rep_id)) cur.reps.push({ id: r.rep_id, name: r.rep_name });
+      byId.set(r.id, cur);
+    }
+    return [...byId.values()];
+  })();
+
+  // Which reps are at which exhibition on which day — the week grid is a
+  // reps x days table, so it needs the answer per rep rather than per day.
+  const exhibitionByRepDay = new Map<string, CalExhibition[]>();
+  for (const ex of exhibitionBlocks) {
+    if (!ex.start_date || !ex.end_date || ex.end_date < ex.start_date) continue;
+    const [sy, sm, sd] = ex.start_date.split('-').map(Number);
+    const cur = new Date(sy, sm - 1, sd);
+    for (let guard = 0; guard < 370; guard++) {
+      const iso = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`;
+      if (iso > ex.end_date) break;
+      for (const rep of ex.reps) {
+        const k = `${rep.id}|${iso}`;
+        exhibitionByRepDay.set(k, [...(exhibitionByRepDay.get(k) ?? []), ex]);
+      }
+      cur.setDate(cur.getDate() + 1);
+    }
+  }
 
   // Activities tab — scope EVERY non-admin, not just reps. Managers (non-admin)
   // used to fall through to the empty scope and receive the whole company's task
@@ -589,12 +693,21 @@ export default async function FieldActivityPage({
   });
 
   // Reps present in the window's visits (name-sorted) — legend + week-grid fallback.
+  //
+  // Exhibition attendees are folded in, and that is not a nicety. The week grid
+  // rows are calReps when we have the roster and these otherwise, and calReps is
+  // empty for a rep viewing their own page — so a rep who is at an exhibition all
+  // week with no visits booked would get no row at all, and the block saying
+  // where they are would have nowhere to render. That is the exact mistake the
+  // blocks exist to prevent, on the one view where it matters most.
   const derivedReps = Array.from(
-    new Map(
-      calendarVisits
+    new Map([
+      ...calendarVisits
         .filter(v => v.rep_id)
-        .map(v => [v.rep_id, { id: v.rep_id, name: v.rep_name, route: '' as string | null }]),
-    ).values(),
+        .map(v => [v.rep_id, { id: v.rep_id, name: v.rep_name, route: '' as string | null }] as const),
+      ...exhibitionBlocks.flatMap(ex =>
+        ex.reps.map(r => [r.id, { id: r.id, name: r.name, route: null as string | null }] as const)),
+    ]).values(),
   ).sort((a, b) => a.name.localeCompare(b.name));
   // Stable colour basis for the month/quarter calendar: roster ∪ visit-reps, so a
   // rep keeps the same colour regardless of which reps have visits this period.
@@ -843,6 +956,7 @@ export default async function FieldActivityPage({
                 reps={colorReps}
                 todayISO={todayISO}
                 purposeColors={PURPOSE_COLORS}
+                exhibitions={exhibitionBlocks}
               />
             ) : (
               /* ─── Week grid (reps × days) ─── */
@@ -897,6 +1011,7 @@ export default async function FieldActivityPage({
                           </td>
                           {weekDays.map(day => {
                             const dayVisits = calendarVisits.filter(v => String(v.rep_id) === String(rep.id) && v.visit_date === day.date);
+                            const dayEx = exhibitionByRepDay.get(`${rep.id}|${day.date}`) ?? [];
                             return (
                               <td key={day.date} style={{
                                 padding: 4, verticalAlign: 'top',
@@ -904,9 +1019,26 @@ export default async function FieldActivityPage({
                                 borderBottom: '1px solid var(--line)',
                                 borderRight: '1px solid rgba(0,0,0,0.04)', minHeight: 60,
                               }}>
+                                {/* Above the visits, because a rep at an exhibition
+                                    can still have a visit booked that day — the two
+                                    coexist, and the exhibition is the wider fact. */}
+                                {dayEx.map(ex => (
+                                  <div key={`ex-${ex.id}`}
+                                    title={[ex.name, [ex.venue, ex.city].filter(Boolean).join(', '),
+                                            ex.start_date === ex.end_date ? ex.start_date : `${ex.start_date} to ${ex.end_date}`]
+                                            .filter(Boolean).join(' · ')}
+                                    style={{
+                                      margin: 2, padding: '3px 6px', borderRadius: 4,
+                                      background: 'var(--purple-soft)', color: 'var(--purple)',
+                                      fontSize: 10.5, fontWeight: 700, lineHeight: 1.4,
+                                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                                    }}>
+                                    &#9635; {ex.name}
+                                  </div>
+                                ))}
                                 {dayVisits.length > 0
                                   ? dayVisits.map(v => <CalendarVisitCard key={v.id} visit={v} role={role} />)
-                                  : <div style={{ height: 50, margin: 2, border: '1px dashed rgba(0,0,0,0.08)', borderRadius: 4 }} />
+                                  : dayEx.length === 0 && <div style={{ height: 50, margin: 2, border: '1px dashed rgba(0,0,0,0.08)', borderRadius: 4 }} />
                                 }
                               </td>
                             );

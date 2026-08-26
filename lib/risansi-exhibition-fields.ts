@@ -23,6 +23,20 @@ export const EXHIBITION_STATUSES = [
 ] as const;
 export type ExhibitionStatus = typeof EXHIBITION_STATUSES[number];
 
+/**
+ * Statuses that put an attendance block on a team member's Field Activity
+ * calendar.
+ *
+ * Only once the exhibition is actually committed. Draft, Shortlisted and
+ * Submitted are still proposals — most exhibitions on file are Drafts that may
+ * never happen, and blocking calendars on them would train people to ignore the
+ * blocks. Rejected never shows. Completed and Closed stay, because the calendar
+ * is a record of where someone was, not only a plan of where they will be.
+ */
+export const CALENDAR_BLOCKING_STATUSES: readonly ExhibitionStatus[] = [
+  'Approved', 'Ongoing', 'Completed', 'Closed',
+];
+
 /** Statuses a user may pick directly. Submitted/Approved/Rejected are reached
  *  only through the approval actions, never by editing a dropdown. */
 export const EDITABLE_STATUSES: readonly ExhibitionStatus[] = [
