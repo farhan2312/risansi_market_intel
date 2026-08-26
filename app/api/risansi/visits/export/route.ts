@@ -137,7 +137,7 @@ export async function GET(req: Request) {
                  created_by, notes
             FROM tasks WHERE visit_id = ANY($1) ORDER BY visit_id, id`),
     kids(`SELECT id, visit_id, product, product_type, stage, value_cr, quote_ref,
-                 expected_close_date::text AS expected_close_date, auto_created, auto_source, notes
+                 auto_created, auto_source, notes
             FROM opportunities WHERE visit_id = ANY($1) ORDER BY visit_id, id`),
     kids(`SELECT id, visit_id, caption, lat, lng, mime_type, byte_size,
                  uploaded_at::text AS uploaded_at, uploaded_by

@@ -20,7 +20,6 @@ export interface ParsedQuoteMeta {
   ril_rep?: string;
   qtr?: string;                // Q1..Q4 (Indian FY)
   offer_value_inr?: number;
-  offer_value_usd?: number;
 }
 
 export interface ParsedQuoteItem {
@@ -31,7 +30,6 @@ export interface ParsedQuoteItem {
   motor_price: number | null;
   gearbox_vbelt_price: number | null;
   offer_value_inr: number | null;
-  offer_value_usd: number | null;
   detailed_specifications: string | null;
 }
 
@@ -138,10 +136,11 @@ export function parseQuotationText(rawText: string): ParsedQuote {
     if (xq && xq[1].trim().split(/\s+/).length === 1) total = num(xq[1]);
     else if (bare) total = num(bare[1]);
   }
-  if (total != null) {
-    if (usd) meta.offer_value_usd = total;
-    else meta.offer_value_inr = total;
-  }
+  // A USD-denominated quote is left without an offer rather than being written
+  // into the rupee column. offer_value_usd was retired (4% filled, never typed —
+  // USD is derived from the settings rate for display), and putting a dollar
+  // figure in offer_value_inr would understate the quote roughly 86-fold.
+  if (total != null && !usd) meta.offer_value_inr = total;
 
   // ---- Items ----
   if (sub || tot) items.push(...extractTableItems(t, usd));
@@ -164,8 +163,7 @@ function extractTableItems(t: string, usd: boolean): ParsedQuoteItem[] {
     const it = blank();
     it.pump_model = model.trim();
     it.pump_qty = num(qty);
-    if (usd) it.offer_value_usd = num(amount);
-    else it.offer_value_inr = num(amount);
+    if (!usd) it.offer_value_inr = num(amount);
     it.detailed_specifications = `${desc.trim()}${partNo && partNo !== '-' ? ` · Part ${partNo}` : ''}`;
     out.push(it);
     if (out.length >= 40) break;
@@ -202,6 +200,6 @@ function blank(): ParsedQuoteItem {
   return {
     pump_model: null, pump_qty: null, pump_speed: null, geared_motor_detail: null,
     motor_price: null, gearbox_vbelt_price: null, offer_value_inr: null,
-    offer_value_usd: null, detailed_specifications: null,
+    detailed_specifications: null,
   };
 }

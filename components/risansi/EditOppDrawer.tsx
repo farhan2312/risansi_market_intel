@@ -50,7 +50,6 @@ export interface EditableOpp {
   negotiation_notes?: string | null;
   notes?: string | null;
   rep_id?: number | null;
-  secondary_rep_id?: number | null;
   auto_created?: boolean | null;
   auto_source?: string | null;
   po_number?: string | null;
@@ -76,7 +75,7 @@ export interface EditableOpp {
   tour_people?: string | null;   // all reps + manager on the client's tour
 }
 
-interface QItem { id: number; pump_model: string | null; pump_qty: number | null; pump_speed: string | null; geared_motor_detail: string | null; motor_price: number | null; gearbox_vbelt_price: number | null; offer_value_inr: number | null; offer_value_usd: number | null; detailed_specifications: string | null; }
+interface QItem { id: number; pump_model: string | null; pump_qty: number | null; pump_speed: string | null; geared_motor_detail: string | null; motor_price: number | null; gearbox_vbelt_price: number | null; offer_value_inr: number | null; detailed_specifications: string | null; }
 interface QMeta { market?: string | null; ril_rep?: string | null; qtn_prepared_by?: string | null; client_status_at_quote?: string | null; unit_project?: string | null; location?: string | null; qtr?: string | null; probability_code?: string | null; enquiry_no?: string | null; enquiry_date?: string | null; revised_offer_date?: string | null; revised_offer_value_inr?: number | null; offer_value_inr?: number | null; quotation_link?: string | null; }
 
 

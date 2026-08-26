@@ -148,7 +148,6 @@ interface Visit {
 interface Opportunity {
   id: string; product: string; stage: string;
   value_cr: string; probability: number | null;
-  expected_close_date: string | null;
   final_value_cr?: string | null; so_sum_cr?: number;
   quotation_link?: string | null; quote_ref?: string | null;
   offer_value_inr?: number | null;
@@ -365,12 +364,11 @@ export default async function ClientProfilePage({
       const { rows } = await risansiPool.query<{
         id: string; product: string; stage: string;
         value_cr: string; probability: number | null;
-        expected_close_date: string | null;
         final_value_cr: string | null; so_sum_cr: number;
         quotation_link: string | null; quote_ref: string | null;
         offer_value_inr: number | null; revisions: OfferRevision[] | null;
       }>(
-        `SELECT id, product, stage, value_cr::text, probability, expected_close_date,
+        `SELECT id, product, stage, value_cr::text, probability,
                 final_value_cr::text, quotation_link, quote_ref,
                 offer_value_inr::float8 AS offer_value_inr,
                 (SELECT COALESCE(SUM(so.so_value_cr), 0) FROM opportunity_sales_orders so WHERE so.opportunity_id = opportunities.id)::float8 AS so_sum_cr,
@@ -1412,9 +1410,6 @@ export default async function ClientProfilePage({
                           })()}
                           {!isWon && o.probability != null && (
                             <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>{o.probability}%</span>
-                          )}
-                          {o.expected_close_date && (
-                            <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>· {o.expected_close_date}</span>
                           )}
                           {o.revisions && o.revisions.length > 0 && (
                             <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600 }}>

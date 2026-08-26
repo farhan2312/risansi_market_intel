@@ -55,8 +55,8 @@ interface Row {
   quote_ref: string | null; quote_date: string | null; enquiry_no: string | null; enquiry_date: string | null;
   market: string | null; client_status_at_quote: string | null; qtn_prepared_by: string | null;
   qtr: string | null; location: string | null;
-  offer_value_inr: number | null; offer_value_usd: number | null;
-  revised_offer_value_inr: number | null; revised_offer_value_usd: number | null; revised_offer_date: string | null;
+  offer_value_inr: number | null;
+  revised_offer_value_inr: number | null; revised_offer_date: string | null;
   offer_revision_history: string | null;
   ril_rep: string | null; pump_model: string | null; pump_qty: number | null;
   negotiation_notes: string | null; notes: string | null;
@@ -150,8 +150,8 @@ export async function GET(req: Request) {
               o.value_cr::float8 AS value_cr, o.probability_code, o.probability, o.eta_text,
               o.quote_ref, o.quote_date::text AS quote_date, o.enquiry_no, o.enquiry_date::text AS enquiry_date,
               o.market, o.client_status_at_quote, o.qtn_prepared_by, o.qtr, o.location,
-              o.offer_value_inr::float8 AS offer_value_inr, o.offer_value_usd::float8 AS offer_value_usd,
-              o.revised_offer_value_inr::float8 AS revised_offer_value_inr, o.revised_offer_value_usd::float8 AS revised_offer_value_usd,
+              o.offer_value_inr::float8 AS offer_value_inr,
+              o.revised_offer_value_inr::float8 AS revised_offer_value_inr,
               o.revised_offer_date::text AS revised_offer_date,
               -- The full re-pricing history, flattened to one cell. The three
               -- Revised Offer columns above stay as the LATEST revision, so
@@ -229,9 +229,7 @@ export async function GET(req: Request) {
     { h: 'Quarter', w: 9,  f: r => r.qtr ?? '', list: 'Lists!$F$2:$F$5' },
     { h: 'Location', w: 16, f: r => r.location ?? '' },
     { h: 'Total Offer (₹)', w: 15, f: r => (r.offer_value_inr ?? ''), fmt: '#,##0', num: true },
-    { h: 'Total Offer (USD)', w: 15, f: r => (r.offer_value_usd ?? ''), num: true },
     { h: 'Revised Offer (₹)', w: 15, f: r => (r.revised_offer_value_inr ?? ''), fmt: '#,##0', num: true },
-    { h: 'Revised Offer (USD)', w: 15, f: r => (r.revised_offer_value_usd ?? ''), num: true },
     { h: 'Revised Offer Date', w: 15, f: r => r.revised_offer_date ?? '', date: true },
     { h: 'Offer Revision History', w: 42, f: r => r.offer_revision_history ?? '' },
     { h: 'RIL Rep', w: 14, f: r => r.ril_rep ?? '' },

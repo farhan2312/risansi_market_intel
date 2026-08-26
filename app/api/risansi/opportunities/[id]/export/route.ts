@@ -49,13 +49,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
             c.total_outstanding, c.last_visit_date::text AS last_visit_date,
             tr.name AS tour_name,
             rep.name AS rep_name, rep.email AS rep_email,
-            sec.name AS secondary_rep_name,
             tsm.name AS tsm_name
        FROM opportunities o
        JOIN clients c        ON c.id = o.client_id
        LEFT JOIN tour_routes tr ON tr.id = c.tour_id
        LEFT JOIN users rep   ON rep.id = o.rep_id
-       LEFT JOIN users sec   ON sec.id = o.secondary_rep_id
        LEFT JOIN users tsm   ON tsm.id = o.tsm_user_id
       WHERE o.id = $1`, [oppId]))[0];
 
@@ -67,7 +65,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
   const [items, revisions, salesOrders, docs, stages, ordersRows, contacts] = await Promise.all([
     q(`SELECT sort_order, pump_model, pump_qty, pump_speed, geared_motor_detail,
-              motor_price, gearbox_vbelt_price, offer_value_inr, offer_value_usd,
+              motor_price, gearbox_vbelt_price, offer_value_inr,
               detailed_specifications
          FROM opportunity_items WHERE opportunity_id = $1
         ORDER BY sort_order NULLS LAST, id`, [oppId]),
@@ -161,7 +159,6 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     ['Value (₹)', rupees(opp.value_cr)],
     ['Probability', opp.probability ?? ''],
     ['Probability Code', txt(opp.probability_code)],
-    ['Expected Close', day(opp.expected_close_date)],
     ['ETA', txt(opp.eta_text)],
     ['Quarter', txt(opp.qtr)],
     ['Market', txt(opp.market)],
@@ -175,7 +172,6 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     ['Enquiry No.', txt(opp.enquiry_no)],
     ['Enquiry Date', day(opp.enquiry_date)],
     ['Offer Value (₹)', opp.offer_value_inr ?? ''],
-    ['Offer Value (USD)', opp.offer_value_usd ?? ''],
     ['Revised Offer (₹)', opp.revised_offer_value_inr ?? ''],
     ['Revised Offer Date', day(opp.revised_offer_date)],
     ['Quotation Prepared By', txt(opp.qtn_prepared_by)],
@@ -203,7 +199,6 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   pairs([
     ['Rep', txt(opp.rep_name)],
     ['Rep Email', txt(opp.rep_email)],
-    ['Secondary Rep', txt(opp.secondary_rep_name)],
     ['RIL Rep', txt(opp.ril_rep)],
     ['TSM', txt(opp.tsm_name) || txt(opp.tsm_external)],
     ['TSM Email', txt(opp.tsm_external_email)],
@@ -293,7 +288,6 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     { h: 'Motor Price (₹)', w: 16, f: x => (x.motor_price as number) ?? '', fmt: '#,##0' },
     { h: 'Gearbox / V-belt (₹)', w: 18, f: x => (x.gearbox_vbelt_price as number) ?? '', fmt: '#,##0' },
     { h: 'Offer Value (₹)', w: 16, f: x => (x.offer_value_inr as number) ?? '', fmt: '#,##0' },
-    { h: 'Offer Value (USD)', w: 16, f: x => (x.offer_value_usd as number) ?? '', fmt: '#,##0' },
     { h: 'Detailed Specifications', w: 60, f: x => txt(x.detailed_specifications) },
   ], items, 'No line items were captured on this quotation.');
 

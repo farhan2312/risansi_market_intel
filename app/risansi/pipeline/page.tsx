@@ -44,7 +44,6 @@ interface OppRow {
   tour_name:           string | null;
   can_edit:            boolean;
   // Optional edit fields — may not exist on the table
-  secondary_rep_id?:   number | null;
   quote_date?:         string | null;
   negotiation_notes?:  string | null;
   po_number?:          string | null;
@@ -344,7 +343,6 @@ export default async function PipelinePage({
                o.quote_date::text          AS quote_date,
                o.enquiry_date::text        AS enquiry_date,
                o.revised_offer_date::text  AS revised_offer_date,
-               o.expected_close_date::text AS expected_close_date,
                (SELECT COALESCE(SUM(so.so_value_cr), 0) FROM opportunity_sales_orders so WHERE so.opportunity_id = o.id)::float8 AS so_sum_cr,
                (SELECT string_agg(u2.name || CASE WHEN ta2.role = 'manager' THEN ' (mgr)' ELSE '' END, ', ' ORDER BY (ta2.role = 'manager'), u2.name)
                   FROM tour_assignments ta2 JOIN users u2 ON u2.id = ta2.rep_id WHERE ta2.tour_id = c.tour_id) AS tour_people,
@@ -386,7 +384,6 @@ export default async function PipelinePage({
                o.quote_date::text          AS quote_date,
                o.enquiry_date::text        AS enquiry_date,
                o.revised_offer_date::text  AS revised_offer_date,
-               o.expected_close_date::text AS expected_close_date,
                (SELECT COALESCE(SUM(so.so_value_cr), 0) FROM opportunity_sales_orders so WHERE so.opportunity_id = o.id)::float8 AS so_sum_cr,
                (SELECT string_agg(u2.name || CASE WHEN ta2.role = 'manager' THEN ' (mgr)' ELSE '' END, ', ' ORDER BY (ta2.role = 'manager'), u2.name)
                   FROM tour_assignments ta2 JOIN users u2 ON u2.id = ta2.rep_id WHERE ta2.tour_id = c.tour_id) AS tour_people,

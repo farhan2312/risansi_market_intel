@@ -40,7 +40,7 @@ import { parseMoneyInput, parsePositiveMoney, moneyToCr } from '@/lib/risansi-mo
 function quotedItemHasData(it: object): boolean {
   const FIELDS = [
     'pump_model', 'pump_qty', 'pump_speed', 'geared_motor_detail',
-    'motor_price', 'gearbox_vbelt_price', 'offer_value_inr', 'offer_value_usd',
+    'motor_price', 'gearbox_vbelt_price', 'offer_value_inr',
     'detailed_specifications',
   ];
   const row = (it ?? {}) as Record<string, unknown>;
@@ -56,8 +56,8 @@ function quotedItemHasData(it: object): boolean {
  * Excel export, the opportunity drawer and the quote summary keep reading one
  * column instead of joining. Nothing else may write them. Delete + re-insert
  * runs in a transaction so a failed insert can't leave a quote with no history
- * at all. revised_offer_value_usd is deliberately left alone — USD comes from
- * the settings rate now, and clearing it would throw away hand-typed figures.
+ * at all. revised_offer_value_usd was retired with the other USD columns — it
+ * was never populated on any row.
  *
  * Only call this when the caller actually submitted a revision list; an empty
  * array from a form that HAS the field means "the user removed them all".
@@ -206,10 +206,6 @@ async function opportunityColumns(): Promise<Set<string>> {
     _oppColumns = new Set();
   }
   return _oppColumns;
-}
-
-async function opportunitiesHasSecondaryRep(): Promise<boolean> {
-  return (await opportunityColumns()).has('secondary_rep_id');
 }
 
 function auditVerb(action: string): string {
@@ -984,7 +980,7 @@ export async function createPipelineOpportunity(formData: FormData) {
   const iNum = (v: unknown) => { const f = parseFloat(String(v ?? '').replace(/[^0-9.\-]/g, '')); return Number.isFinite(f) ? f : null; };
   const iInt = (v: unknown) => { const p = parseInt(String(v ?? '').replace(/[^0-9\-]/g, ''), 10); return Number.isFinite(p) ? p : null; };
 
-  interface ItemInput { pump_model?: unknown; pump_qty?: unknown; pump_speed?: unknown; geared_motor_detail?: unknown; motor_price?: unknown; gearbox_vbelt_price?: unknown; offer_value_inr?: unknown; offer_value_usd?: unknown; detailed_specifications?: unknown; }
+  interface ItemInput { pump_model?: unknown; pump_qty?: unknown; pump_speed?: unknown; geared_motor_detail?: unknown; motor_price?: unknown; gearbox_vbelt_price?: unknown; offer_value_inr?: unknown; detailed_specifications?: unknown; }
   let items: ItemInput[] = [];
   try { const parsed = JSON.parse((formData.get('items_json') as string) || '[]'); if (Array.isArray(parsed)) items = parsed; } catch { /* ignore */ }
   items = items.filter(quotedItemHasData);
@@ -1068,12 +1064,12 @@ export async function createPipelineOpportunity(formData: FormData) {
   // (mirrors updateOpportunity), so an environment missing an optional column
   // still inserts cleanly.
   const candidates: Record<string, unknown> = {
-    client_id: clientId, rep_id: primaryRepId, secondary_rep_id: null,
+    client_id: clientId, rep_id: primaryRepId,
     product, product_type: prodType, stage, value_cr: value, probability: prob,
     eta_text: s('eta_text'),
     quote_ref: s('quote_ref'), quote_date: s('quote_date'),
     enquiry_no: s('enquiry_no'), enquiry_date: s('enquiry_date'),
-    market: s('market'), offer_value_inr: offerInr, offer_value_usd: nRaw('offer_value_usd'),
+    market: s('market'), offer_value_inr: offerInr,
     probability_code: s('probability_code'), ril_rep: s('ril_rep'),
     qtn_prepared_by: s('qtn_prepared_by'), client_status_at_quote: s('client_status_at_quote'),
     qtr: s('qtr'), unit_project: s('unit_project'), location: s('location'),
@@ -1140,11 +1136,11 @@ export async function createPipelineOpportunity(formData: FormData) {
     for (const it of items) {
       await risansiPool.query(
         `INSERT INTO opportunity_items (opportunity_id, sort_order, pump_model, pump_qty, pump_speed,
-           geared_motor_detail, motor_price, gearbox_vbelt_price, offer_value_inr, offer_value_usd, detailed_specifications)
+           geared_motor_detail, motor_price, gearbox_vbelt_price, offer_value_inr, detailed_specifications)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
         [newOppId, so++, iStr(it.pump_model), iInt(it.pump_qty), iStr(it.pump_speed),
          iStr(it.geared_motor_detail), iNum(it.motor_price), iNum(it.gearbox_vbelt_price),
-         iNum(it.offer_value_inr), iNum(it.offer_value_usd), iStr(it.detailed_specifications)],
+         iNum(it.offer_value_inr), iStr(it.detailed_specifications)],
       );
     }
   }
@@ -1205,7 +1201,7 @@ export async function saveQuotedDetails(oppId: number, formData: FormData) {
   const iNum = (v: unknown) => { const f = parseFloat(String(v ?? '').replace(/[^0-9.\-]/g, '')); return Number.isFinite(f) ? f : null; };
   const iInt = (v: unknown) => { const p = parseInt(String(v ?? '').replace(/[^0-9\-]/g, ''), 10); return Number.isFinite(p) ? p : null; };
 
-  interface ItemInput { pump_model?: unknown; pump_qty?: unknown; pump_speed?: unknown; geared_motor_detail?: unknown; motor_price?: unknown; gearbox_vbelt_price?: unknown; offer_value_inr?: unknown; offer_value_usd?: unknown; detailed_specifications?: unknown; }
+  interface ItemInput { pump_model?: unknown; pump_qty?: unknown; pump_speed?: unknown; geared_motor_detail?: unknown; motor_price?: unknown; gearbox_vbelt_price?: unknown; offer_value_inr?: unknown; detailed_specifications?: unknown; }
   let items: ItemInput[] = [];
   try { const parsed = JSON.parse((formData.get('items_json') as string) || '[]'); if (Array.isArray(parsed)) items = parsed; } catch { /* ignore */ }
   items = items.filter(quotedItemHasData);
@@ -1238,10 +1234,8 @@ export async function saveQuotedDetails(oppId: number, formData: FormData) {
        -- qtn_prepared_by / client_status_at_quote / location / qtr are no longer
        -- asked for on any form, so the modal submits nothing for them. COALESCE
        -- keeps whatever a legacy record already holds instead of blanking it on
-       -- the next save. offer_value_usd is the same story: USD is derived from
-       -- the settings rate for display and no longer entered, but 80-odd rows
-       -- carry a hand-typed figure worth keeping.
-       offer_value_usd = COALESCE($7, offer_value_usd),
+       -- the next save. offer_value_usd was retired: USD is derived from the
+       -- settings rate for display and was never typed.
        market = $8, ril_rep = COALESCE($9, ril_rep),
        qtn_prepared_by = COALESCE($10, qtn_prepared_by),
        client_status_at_quote = COALESCE($11, client_status_at_quote),
@@ -1257,7 +1251,7 @@ export async function saveQuotedDetails(oppId: number, formData: FormData) {
        updated_at = NOW()
      WHERE id = $22`,
     [s('quote_ref'), s('quote_date'), s('enquiry_no'), s('enquiry_date'),
-     s('quotation_link'), offerInr, n('offer_value_usd'),
+     s('quotation_link'), offerInr,
      s('market'), s('ril_rep'), s('qtn_prepared_by'), s('client_status_at_quote'),
      s('unit_project'), s('location'), s('qtr'), s('probability_code'),
      s('product_type'), valueCr, s('notes'),
@@ -1276,11 +1270,11 @@ export async function saveQuotedDetails(oppId: number, formData: FormData) {
   for (const it of items) {
     await risansiPool.query(
       `INSERT INTO opportunity_items (opportunity_id, sort_order, pump_model, pump_qty, pump_speed,
-         geared_motor_detail, motor_price, gearbox_vbelt_price, offer_value_inr, offer_value_usd, detailed_specifications)
+         geared_motor_detail, motor_price, gearbox_vbelt_price, offer_value_inr, detailed_specifications)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
       [oppId, so++, iStr(it.pump_model), iInt(it.pump_qty), iStr(it.pump_speed),
        iStr(it.geared_motor_detail), iNum(it.motor_price), iNum(it.gearbox_vbelt_price),
-       iNum(it.offer_value_inr), iNum(it.offer_value_usd), iStr(it.detailed_specifications)],
+       iNum(it.offer_value_inr), iStr(it.detailed_specifications)],
     );
   }
 
@@ -1388,9 +1382,6 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
       repId = cRows[0]?.primary_rep_id ?? null;
     }
   }
-  // secondary_rep_id can be null
-  const rawSecRepId = formData.get('secondary_rep_id');
-  const secRepId = rawSecRepId && rawSecRepId !== '' ? parseInt(rawSecRepId as string, 10) : null;
 
   // Candidate columns → values. Only those present on the table are written.
   const candidates: Record<string, unknown> = {
@@ -1408,7 +1399,6 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
     negotiation_notes:  (formData.get('negotiation_notes') as string | null) || null,
     notes:              (formData.get('notes') as string | null) || null,
     rep_id:             repId,
-    secondary_rep_id:   secRepId,
     po_number:          (formData.get('po_number') as string | null) || null,
     final_value_cr:     finalInr > 0 ? finalInr / 10_000_000 : null,
     lost_to_competitor: (formData.get('lost_to_competitor') as string | null) || null,
@@ -1431,7 +1421,6 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
   // owner or re-derive the primary). OppCompletionModal still sends rep_id
   // explicitly, so its Won transition keeps carrying the owner through.
   if (formData.get('rep_id') === null)           delete candidates.rep_id;
-  if (formData.get('secondary_rep_id') === null) delete candidates.secondary_rep_id;
   // Same idea for the drop reason: a form that never asks for it (the Won/Lost
   // modal, the Quoted modal) must not blank an already-recorded reason.
   if (formData.get('drop_reason') === null)      delete candidates.drop_reason;
@@ -1938,7 +1927,7 @@ export async function submitOpportunity(formData: FormData) {
     try {
       const { rows } = await risansiPool.query<{ id: string }>(
         `INSERT INTO opportunities
-           (client_id, product, stage, value_cr, probability, expected_close_date, created_at, updated_at)
+           (client_id, product, stage, value_cr, probability, eta_text, created_at, updated_at)
          VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
          RETURNING id`,
         [clientId, product, stage, valueCr, probability, etaText],

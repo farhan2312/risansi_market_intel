@@ -94,7 +94,7 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
     q(async () => (await risansiPool.query<Record<string, unknown>>(
       // Every stage — Won opportunities are the client's order in hand and must
       // appear in the report. Order-in-hand first, then live pipeline, then closed.
-      `SELECT product, stage, value_cr::text AS value_cr, probability, expected_close_date,
+      `SELECT product, stage, value_cr::text AS value_cr, probability,
               final_value_cr::text AS final_value_cr,
               (SELECT COALESCE(SUM(so.so_value_cr), 0) FROM opportunity_sales_orders so WHERE so.opportunity_id = opportunities.id)::float8 AS so_sum_cr
          FROM opportunities WHERE client_id = $1
@@ -377,7 +377,6 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
                       <td style={TD}>{String(o.product ?? '—')}</td>
                       <td style={{ ...TD, fontWeight: won ? 600 : undefined }}>{won ? 'Won · order in hand' : String(o.stage ?? '—')}</td>
                       <td style={TD}>{!won && o.probability != null ? `${o.probability}%` : '—'}</td>
-                      <td style={TD}>{o.expected_close_date ? String(o.expected_close_date) : '—'}</td>
                       <td style={{ ...TD, fontFamily: 'monospace' }}>{fmtCr(Number(o.value_cr))}</td>
                     </tr>
                     );

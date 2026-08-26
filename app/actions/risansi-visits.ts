@@ -34,23 +34,7 @@ async function callerRepId(session: {
   return repId;
 }
 
-// Cached check: does opportunities.secondary_rep_id exist?
-let _oppHasSecondaryRep: boolean | null = null;
-async function opportunitiesHasSecondaryRep(): Promise<boolean> {
-  if (_oppHasSecondaryRep !== null) return _oppHasSecondaryRep;
-  try {
-    const { rows } = await risansiPool.query(
-      `SELECT 1 FROM information_schema.columns
-       WHERE table_name = 'opportunities' AND column_name = 'secondary_rep_id' LIMIT 1`,
-    );
-    _oppHasSecondaryRep = rows.length > 0;
-  } catch {
-    _oppHasSecondaryRep = false;
-  }
-  return _oppHasSecondaryRep;
-}
-
-// Insert an auto-created opportunity, including secondary_rep_id only if the column exists.
+// Insert an auto-created opportunity.
 async function insertAutoOpp(fields: Record<string, unknown>) {
   const cols = Object.keys(fields);
   const ph   = cols.map((_, i) => `$${i + 1}`);
@@ -803,9 +787,6 @@ export async function submitVisit(visitId: string) {
   );
   const primaryRepId   = clientRepRes.rows[0]?.user_id ?? repId;
   console.log('submitVisit repId resolved:', { repId, primaryRepId });
-  const secondaryRepId = clientRepRes.rows[1]?.user_id ?? null;
-  const hasSecondary   = await opportunitiesHasSecondaryRep();
-  const secondaryField = hasSecondary ? { secondary_rep_id: secondaryRepId } : {};
 
   // 1. Close the visit
   await risansiPool.query(
@@ -827,9 +808,7 @@ export async function submitVisit(visitId: string) {
     await insertAutoOpp({
       client_id:    visit.client_id,
       rep_id:       primaryRepId,
-      ...secondaryField,
       visit_id:     visitId,
-      equipment_id: equip.id,
       product:      `${equip.supplier} ${equip.model ?? ''} replacement`.trim(),
       product_type: oppProductType(equip.pump_type),
       stage:        'Suspect',
