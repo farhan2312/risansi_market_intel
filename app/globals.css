@@ -95,6 +95,7 @@
   --neg-strong: #FCA5A5;
   --warn:      #FBBF24;
   --warn-soft: rgba(251, 191, 36, 0.15);
+  --warn-strong: #FCD34D;
   --info:      #60A5FA;
   --info-soft: rgba(96, 165, 250, 0.15);
   --purple:    #A78BFA;
@@ -314,6 +315,12 @@ body {
   --neg-strong: #991B1B;
   --warn:      #D97706;
   --warn-soft: #FEF3C7;
+  /* Six components referenced var(--warn-strong, #92400E) before this existed,
+     so every one of them silently took the fallback — a dark brown that sits at
+     about 2.2:1 on the dark-mode paper and is unreadable there. The light value
+     is that same brown, so defining it changes nothing in light mode and fixes
+     all six in dark. */
+  --warn-strong: #92400E;
   --info:      #2563EB;
   --info-soft: #DBEAFE;
   --purple:    #7C3AED;
