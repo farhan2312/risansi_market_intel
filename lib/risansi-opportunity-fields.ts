@@ -63,11 +63,15 @@ export const ALL_STAGES = [
 export type OppStage = typeof ALL_STAGES[number];
 
 /**
- * How far along the line a stage sits. Suspect is 0 because it is a siding
- * BEFORE the enquiry is live, so it carries less than a Prospect, not more.
+ * How far along the line a stage sits.
+ *
+ * Suspect shares Prospect's rank rather than sitting below it. A parked enquiry
+ * still arrived from somewhere, so it is asked the same questions — type,
+ * source, category — plus the one that explains the parking. Ranking it lower
+ * would have hidden exactly the fields Source was added to capture.
  */
 export const STAGE_RANK: Record<OppStage, number> = {
-  Suspect: 0, Prospect: 1, Quoted: 2, Negotiating: 3, 'On Hold': 3,
+  Suspect: 1, Prospect: 1, Quoted: 2, Negotiating: 3, 'On Hold': 3,
   Won: 4, Lost: 4, Dropped: 4,
 };
 

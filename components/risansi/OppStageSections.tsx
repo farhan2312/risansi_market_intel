@@ -19,7 +19,7 @@ import { OppField, OppFieldRead, FIELD_GRID, type FieldValues } from './OppField
 // Both come from one catalogue, so a field cannot appear in both or neither.
 
 export function OppStageSections({
-  stage, values, onChange, optionsFor, usdRate, readOnlyCarried = false, children,
+  stage, values, onChange, optionsFor, usdRate, mode = 'advance', children,
 }: {
   stage: OppStage;
   values: FieldValues;
@@ -27,14 +27,22 @@ export function OppStageSections({
   /** Runtime option lists the catalogue cannot hold — competitors, drop reasons. */
   optionsFor?: (f: OppFieldDef) => readonly string[] | undefined;
   usdRate?: number;
-  /** Creating from scratch: there is no earlier data, so the section is hidden. */
-  readOnlyCarried?: boolean;
+  /**
+   * 'advance' — the opportunity exists; earlier data is context, read-only until
+   *   Edit is pressed.
+   * 'create'  — nothing exists yet, so everything up to the chosen stage is being
+   *   filled for the first time and every field is open.
+   */
+  mode?: 'advance' | 'create';
   /** Line items, documents, sales orders — whatever this stage attaches. */
   children?: ReactNode;
 }) {
   const carried = fieldsCarriedInto(stage);
   const now     = fieldsNewAt(stage);
+  const creating = mode === 'create';
+  // Nothing is "already recorded" when the record does not exist yet.
   const [editingCarried, setEditingCarried] = useState(false);
+  const carriedOpen = creating || editingCarried;
 
   // Something carried in that this stage now demands is worth surfacing rather
   // than leaving buried in a collapsed section — it is the one case where the
@@ -43,17 +51,21 @@ export function OppStageSections({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {carried.length > 0 && !readOnlyCarried && (
+      {carried.length > 0 && (
         <section>
           <header style={HEAD}>
-            <span style={TITLE}>Already recorded</span>
-            <span style={SUB}>captured earlier in this deal</span>
-            <button type="button" onClick={() => setEditingCarried(v => !v)} style={EDIT}>
-              {editingCarried ? 'Done editing' : 'Edit'}
-            </button>
+            <span style={TITLE}>{creating ? 'The enquiry' : 'Already recorded'}</span>
+            <span style={SUB}>
+              {creating ? 'asked for every opportunity' : 'captured earlier in this deal'}
+            </span>
+            {!creating && (
+              <button type="button" onClick={() => setEditingCarried(v => !v)} style={EDIT}>
+                {editingCarried ? 'Done editing' : 'Edit'}
+              </button>
+            )}
           </header>
 
-          {missingCarried.length > 0 && (
+          {missingCarried.length > 0 && !creating && (
             <div style={WARN}>
               {missingCarried.length === 1 ? 'This is' : 'These are'} needed before you can save at{' '}
               {stage}: <strong>{missingCarried.map(f => f.label).join(', ')}</strong>.
@@ -63,7 +75,7 @@ export function OppStageSections({
 
           <div style={{ ...FIELD_GRID, ...PANEL }}>
             {carried.map(f => (
-              editingCarried || missingCarried.includes(f)
+              carriedOpen || missingCarried.includes(f)
                 ? <OppField
                     key={f.name} field={f} value={values[f.name] ?? ''}
                     onChange={onChange} usdRate={usdRate} options={optionsFor?.(f)}
@@ -76,10 +88,10 @@ export function OppStageSections({
 
       <section>
         <header style={HEAD}>
-          <span style={TITLE}>{readOnlyCarried ? 'New opportunity' : `Now — ${stage}`}</span>
+          <span style={TITLE}>{creating ? stage : `Now — ${stage}`}</span>
           <span style={SUB}>{STAGE_HINT[stage]}</span>
         </header>
-        <div style={{ ...FIELD_GRID, ...PANEL, ...ACTIVE }}>
+        <div style={{ ...FIELD_GRID, ...PANEL, ...(creating ? {} : ACTIVE) }}>
           {now.map(f => (
             <OppField
               key={f.name} field={f} value={values[f.name] ?? ''}

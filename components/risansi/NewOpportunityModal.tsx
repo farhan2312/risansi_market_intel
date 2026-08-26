@@ -4,22 +4,34 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
 import { useRouter } from 'next/navigation';
 import { createPipelineOpportunity } from '@/app/actions/risansi';
 import {
-  fieldsNewAt, requiredFieldNames, labelsFor, STAGE_HINT,
+  OPP_FIELDS, isFieldVisible, requiredFieldNames, labelsFor, stageHasQuote,
 } from '@/lib/risansi-opportunity-fields';
 import { OppStageSections } from './OppStageSections';
+import { QuoteLineItems, emptyItem, itemsAreBlank, type QuoteItem } from './QuoteLineItems';
 import type { FieldValues } from './OppFields';
+
+/** The only stages an opportunity may be raised at. */
+const START_STAGES = ['Prospect', 'Suspect', 'Quoted'] as const;
+type StartStage = typeof START_STAGES[number];
+
+const START_BLURB: Record<StartStage, string> = {
+  Prospect: 'An enquiry has come in.',
+  Suspect:  'Parked — budgetary or an expansion further out.',
+  Quoted:   'A quotation has already gone out.',
+};
 
 // Raising an opportunity.
 //
-// It always starts as a PROSPECT — an enquiry has arrived. That is the only way
-// in, so the form no longer opens with a stage picker; there is nothing to pick.
-// A deal that is already quoted or already won is created here and then moved
-// on, which takes one click and leaves an honest trail through the stage log
-// rather than a record that claims to have been born Won.
+// It may start at Prospect, Suspect or Quoted — the three states something can
+// genuinely be in the moment you first hear about it. Not Won or Lost: those are
+// outcomes, and a record that claims to have been born Won leaves no trail of
+// how it got there.
 //
-// The old form was a two-step wizard whose second step appeared or vanished
-// depending on the stage chosen on the first. With one entry stage there is one
-// step, and the questions are the six that describe an enquiry.
+// Picking a stage decides how much is asked. The catalogue knows which fields
+// each stage carries, so Prospect asks the enquiry block, Suspect adds why it is
+// parked, and Quoted adds the quote header, its line items and the document.
+// That is the "fill everything up to that stage" rule, read from one place
+// rather than re-encoded in the form.
 
 interface ClientResult {
   id: string; legal_name: string; code: string;
@@ -98,7 +110,7 @@ export function NewOpportunityModal(props: NewOpportunityModalProps) {
         <div style={{ padding: '16px 20px', background: '#0A3D8F', color: '#fff', position: 'sticky', top: 0, zIndex: 1 }}>
           <div style={{ fontSize: 15, fontWeight: 700 }}>New Opportunity</div>
           <div style={{ fontSize: 11.5, opacity: 0.9, marginTop: 3 }}>
-            Opens as a Prospect — {STAGE_HINT.Prospect}
+            Choose where it starts — everything up to that stage is asked here
           </div>
         </div>
 
@@ -164,7 +176,10 @@ function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess }: {
   onBack: () => void; onSuccess: () => void;
 }) {
   const router = useRouter();
+  const [stage, setStage]   = useState<StartStage>('Prospect');
   const [values, setValues] = useState<FieldValues>({});
+  const [items, setItems]   = useState<QuoteItem[]>([emptyItem()]);
+  const [pdfs, setPdfs]     = useState<File[]>([]);
   const [busy, setBusy]     = useState(false);
   const [error, setError]   = useState('');
 
@@ -173,7 +188,7 @@ function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess }: {
     setError('');
   }, []);
 
-  const required = requiredFieldNames('Prospect');
+  const required = requiredFieldNames(stage);
   const missing  = required.filter(n => !values[n]?.trim());
 
   const submit = async () => {
@@ -185,9 +200,43 @@ function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess }: {
     try {
       const fd = new FormData();
       fd.set('client_id', client.id);
-      fd.set('stage', 'Prospect');
-      for (const f of fieldsNewAt('Prospect')) fd.set(f.name, values[f.name] ?? '');
-      await createPipelineOpportunity(fd);
+      fd.set('stage', stage);
+      // Everything visible at the chosen stage, not just the last block — the
+      // whole point of picking Quoted is that the enquiry answers come too.
+      for (const f of OPP_FIELDS) {
+        if (isFieldVisible(f, stage)) fd.set(f.name, values[f.name] ?? '');
+      }
+      if (stageHasQuote(stage) && !itemsAreBlank(items)) {
+        fd.set('items_json', JSON.stringify(items));
+      }
+
+      const created = await createPipelineOpportunity(fd);
+
+      // The quotation PDF has nowhere to go until the row exists. The record is
+      // saved by this point, so a failed upload must say so plainly rather than
+      // reading as though the whole thing was lost.
+      const newId = (created as { id?: string | number } | undefined)?.id;
+      if (pdfs.length && newId) {
+        const failed: string[] = [];
+        for (const f of pdfs) {
+          try {
+            const pf = new FormData();
+            pf.set('file', f);
+            const up = await fetch(`/api/risansi/opportunities/${newId}/quotation`, { method: 'POST', body: pf });
+            if (!up.ok) {
+              const j = await up.json().catch(() => ({} as { error?: string }));
+              failed.push(`${f.name} — ${j?.error || (up.status === 413 ? 'too large' : `failed (${up.status})`)}`);
+            }
+          } catch { failed.push(`${f.name} — network error`); }
+        }
+        if (failed.length) {
+          window.alert(
+            `Opportunity created, but ${failed.length} document(s) could not be attached:\n\n`
+            + `${failed.join('\n')}\n\nAdd them from the opportunity card.`,
+          );
+        }
+      }
+
       onSuccess();
       router.refresh();
     } catch (err) {
@@ -213,12 +262,21 @@ function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess }: {
         )}
       </div>
 
-      {/* readOnlyCarried: nothing precedes a Prospect, so there is no context
-          section to draw — only the questions this stage asks. */}
+      <StagePicker value={stage} onChange={setStage} />
+
+      {/* create mode: nothing precedes this record, so every field up to the
+          chosen stage is open rather than shown as read-only context. */}
       <OppStageSections
-        stage="Prospect" values={values} onChange={onChange}
-        usdRate={usdRate} readOnlyCarried
-      />
+        stage={stage} values={values} onChange={onChange}
+        usdRate={usdRate} mode="create"
+      >
+        {stageHasQuote(stage) && (
+          <>
+            <QuoteLineItems items={items} onChange={setItems} />
+            <QuotationPicker files={pdfs} onChange={setPdfs} />
+          </>
+        )}
+      </OppStageSections>
 
       {error && <div style={ERR}>{error}</div>}
 
@@ -228,6 +286,79 @@ function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess }: {
           {busy ? 'Creating…' : 'Create Opportunity'}
         </button>
       </div>
+    </div>
+  );
+}
+
+function StagePicker({ value, onChange }: { value: StartStage; onChange: (s: StartStage) => void }) {
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <label style={LBL}>Starting stage</label>
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${START_STAGES.length}, 1fr)`, gap: 8 }}>
+        {START_STAGES.map(s => {
+          const on = s === value;
+          return (
+            <button
+              key={s} type="button" onClick={() => onChange(s)}
+              aria-pressed={on}
+              style={{
+                textAlign: 'left', padding: '9px 11px', borderRadius: 7, cursor: 'pointer',
+                fontFamily: 'inherit',
+                border: `1px solid ${on ? '#0A3D8F' : 'var(--line-strong)'}`,
+                background: on ? '#EBF1FB' : 'var(--bg-paper)',
+              }}
+            >
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: on ? '#0A3D8F' : 'var(--fg)' }}>{s}</div>
+              <div style={{ fontSize: 10.5, color: 'var(--fg-3)', marginTop: 2, lineHeight: 1.35 }}>
+                {START_BLURB[s]}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function QuotationPicker({ files, onChange }: { files: File[]; onChange: (f: File[]) => void }) {
+  const ref = useRef<HTMLInputElement>(null);
+  return (
+    <div style={{ marginTop: 12 }}>
+      <label style={LBL}>Quotation document</label>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <input
+          ref={ref} type="file" accept="application/pdf,.pdf" multiple style={{ display: 'none' }}
+          onChange={e => {
+            const picked = Array.from(e.target.files ?? []);
+            e.target.value = '';
+            onChange([...files, ...picked.filter(p => !files.some(f => f.name === p.name && f.size === p.size))]);
+          }}
+        />
+        <button type="button" onClick={() => ref.current?.click()} style={{ ...GHOST, padding: '7px 12px', fontSize: 12 }}>
+          ⤒ Attach PDF
+        </button>
+        <span style={{ fontSize: 10.5, color: 'var(--fg-3)' }}>
+          PDF only · uploaded once the opportunity is saved
+        </span>
+      </div>
+      {files.length > 0 && (
+        <ul style={{ listStyle: 'none', margin: '8px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {files.map(f => (
+            <li key={`${f.name}:${f.size}`} style={{
+              display: 'flex', alignItems: 'center', gap: 8, padding: '4px 9px', borderRadius: 6,
+              background: 'var(--bg-elev)', border: '1px solid var(--line)',
+            }}>
+              <span style={{ fontSize: 11.5, color: 'var(--fg-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                📄 {f.name}
+              </span>
+              <button
+                type="button" style={{ ...LINK, marginLeft: 'auto', color: 'var(--neg)' }}
+                onClick={() => onChange(files.filter(x => !(x.name === f.name && x.size === f.size)))}
+              >Remove</button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
