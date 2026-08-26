@@ -31,6 +31,9 @@ export interface CalExhibition {
   city:       string | null;
   start_date: string;   // 'YYYY-MM-DD', inclusive
   end_date:   string;   // 'YYYY-MM-DD', inclusive
+  /** Everyone on the team, including members this viewer cannot otherwise see. */
+  team_size:  number;
+  /** The attendees this viewer may see — a subset of team_size. */
   reps:       { id: string; name: string }[];
 }
 
@@ -48,9 +51,15 @@ const REP_PALETTE = [
 function exTitle(ex: CalExhibition): string {
   const place = [ex.venue, ex.city].filter(Boolean).join(', ');
   const when  = ex.start_date === ex.end_date ? ex.start_date : `${ex.start_date} to ${ex.end_date}`;
-  const who   = ex.reps.length
-    ? `${ex.reps.length} attending: ${ex.reps.map(r => r.name).join(', ')}`
-    : '';
+  // team_size is the real headcount; ex.reps is only those this viewer may see.
+  // Naming the difference is better than quietly reporting the smaller number to
+  // the one person trying to work out who is available.
+  const total = ex.team_size || ex.reps.length;
+  const named = ex.reps.map(r => r.name).join(', ');
+  const who   = !total ? ''
+    : ex.reps.length >= total ? `${total} attending: ${named}`
+    : named ? `${total} attending, ${ex.reps.length} you can see: ${named}`
+    : `${total} attending`;
   return [ex.name, place, when, who].filter(Boolean).join(' · ');
 }
 
@@ -189,9 +198,9 @@ export function FieldMonthCalendar({
                   }}>
                     <span aria-hidden style={{ flexShrink: 0 }}>&#9635;</span>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{ex.name}</span>
-                    {!compact && ex.reps.length > 1 && (
+                    {!compact && (ex.team_size || ex.reps.length) > 1 && (
                       <span style={{ marginLeft: 'auto', flexShrink: 0, fontWeight: 600, opacity: 0.85 }}>
-                        {ex.reps.length}
+                        {ex.team_size || ex.reps.length}
                       </span>
                     )}
                   </div>
@@ -261,7 +270,9 @@ export function FieldMonthCalendar({
           border: '1px solid var(--line)', borderRadius: 'var(--radius)',
           display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center',
         }}>
-          <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Reps</span>
+          {legendReps.length > 0 && (
+            <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Reps</span>
+          )}
           {legendReps.map(r => (
             <span key={r.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--fg-2)' }}>
               <span style={{ width: 10, height: 10, borderRadius: 3, background: repColor(r.id), flexShrink: 0 }} />
@@ -277,10 +288,12 @@ export function FieldMonthCalendar({
               at an exhibition
             </span>
           )}
-          <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, color: 'var(--fg-3)' }}>
-            <span style={{ width: 6, height: 6, borderRadius: 999, background: '#6B7FA3', flexShrink: 0 }} />
-            dot = visit purpose
-          </span>
+          {legendReps.length > 0 && (
+            <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, color: 'var(--fg-3)' }}>
+              <span style={{ width: 6, height: 6, borderRadius: 999, background: '#6B7FA3', flexShrink: 0 }} />
+              dot = visit purpose
+            </span>
+          )}
         </div>
       )}
     </div>

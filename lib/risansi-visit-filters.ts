@@ -95,3 +95,69 @@ export async function getScopedRepNames(f: VisitFilters): Promise<string[]> {
     return rows.map(r => r.v);
   } catch { return []; }
 }
+
+/**
+ * User ids whose exhibition attendance a viewer may see, already narrowed by the
+ * active zone / tour / rep filters.
+ *
+ * Three things make this its own query rather than a reuse of the rep-name list
+ * the filter bar runs on.
+ *
+ * IDS, NOT NAMES. users.name has no unique constraint — email is the unique key —
+ * so a name list silently matches a namesake, which for an exhibition means
+ * showing a block against the wrong person.
+ *
+ * EVERY ROLE. getVisitFilterOptions restricts to rep/manager because those are
+ * the people who make visits. An exhibition team has no such restriction: the
+ * picker offers every active user and directors do get added. Scoping team
+ * members through a rep/manager list drops them from everyone's calendar but
+ * their own.
+ *
+ * AN EMPTY RESULT MEANS EMPTY. getScopedRepNames returns [] for "no filter",
+ * "filter matched nobody" and "the query threw" alike, so a caller cannot tell
+ * them apart; a zone filter matching no reps would widen the scope instead of
+ * emptying it. Here the filters are conditions inside one query, so no match is
+ * no rows.
+ *
+ * The viewer is always in the base set — a manager with no tour assignments
+ * would otherwise not see their own exhibitions — but they are subject to the
+ * filters like anyone else, so filtering to another rep hides your own blocks
+ * rather than leaving them stuck on screen.
+ */
+export async function getExhibitionScopeUserIds(
+  user: CurrentUser, f: VisitFilters,
+): Promise<number[]> {
+  const uid   = Number(user.id) || 0;
+  const admin = hasRole(user.role, 'admin');
+
+  const ownTours = `(SELECT tour_id FROM tour_assignments WHERE rep_id = ${uid}
+                     UNION SELECT tour_id FROM clients WHERE id IN (SELECT client_id FROM client_rep_access WHERE rep_id = ${uid}))`;
+
+  const conds: string[] = ['u.is_active = TRUE'];
+  if (!admin) {
+    conds.push(`(u.id = ${uid}
+                 OR EXISTS (SELECT 1 FROM tour_assignments ta
+                             WHERE ta.rep_id = u.id AND ta.tour_id IN ${ownTours}))`);
+  }
+  if (f.reps.length) conds.push(`u.name IN (${arr(f.reps)})`);
+  if (f.zones.length || f.tours.length) {
+    const zt: string[] = [];
+    if (f.zones.length) zt.push(`tr.zone IN (${arr(f.zones)})`);
+    if (f.tours.length) zt.push(`tr.name IN (${arr(f.tours)})`);
+    conds.push(`EXISTS (SELECT 1 FROM tour_assignments ta
+                          JOIN tour_routes tr ON tr.id = ta.tour_id
+                         WHERE ta.rep_id = u.id AND ${zt.join(' AND ')})`);
+  }
+
+  try {
+    const { rows } = await risansiPool.query<{ id: string }>(
+      `SELECT u.id::text AS id FROM users u WHERE ${conds.join(' AND ')}`,
+    );
+    return rows.map(r => Number(r.id)).filter(Number.isInteger);
+  } catch {
+    // An empty scope shows no blocks, which is the safe direction to fail: a
+    // missing block is a calendar that looks the way it did last week, whereas
+    // a block on the wrong person is a wrong answer.
+    return [];
+  }
+}

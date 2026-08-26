@@ -6,7 +6,7 @@ import { Topbar, Tag } from '@/components/risansi';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, clientVisibilitySql, clientScopeSql } from '@/lib/risansi-auth';
-import { parseVisitFilters, getVisitFilterOptions, getScopedRepNames } from '@/lib/risansi-visit-filters';
+import { parseVisitFilters, getVisitFilterOptions, getScopedRepNames, getExhibitionScopeUserIds } from '@/lib/risansi-visit-filters';
 import { FieldFilterBar } from '@/components/risansi/FieldFilterBar';
 import { PlannedVisitsExport } from '@/components/risansi/PlannedVisitsExport';
 import { IndiaMapWrapper } from '@/components/risansi/IndiaMapWrapper';
@@ -54,7 +54,7 @@ interface VisitFeedRow {
 // the attendee list comes back in the same pass.
 interface ExhibitionDay {
   id: string; name: string; venue: string | null; city: string | null;
-  start_date: string; end_date: string; status: string;
+  start_date: string; end_date: string; status: string; team_size: number;
   rep_id: string; rep_name: string;
 }
 
@@ -556,25 +556,27 @@ export default async function FieldActivityPage({
         : calView === 'month' ? [mGridStart, mGridEnd]
         : [weekStart, weekEndExclusive];
 
-      // Which reps' blocks this viewer may see, narrowed by the active filters.
-      const visible = filterOpts.reps;
-      const chosen  = filters.reps.length ? filters.reps : null;
-      const zoneTour = await getScopedRepNames(filters);   // [] when no zone/tour filter
-      let names = visible;
-      if (chosen)          names = names.filter(n => chosen.includes(n));
-      if (zoneTour.length) names = names.filter(n => zoneTour.includes(n));
-
-      // A rep always sees their own exhibitions even if the name lists miss them.
-      const selfId = Number(currentUser.id) || 0;
-      if (!names.length && !selfId) return [];
+      // Who this viewer may see, already narrowed by the active filters. Ids,
+      // every role, and an empty result genuinely meaning empty — see
+      // getExhibitionScopeUserIds for why each of those matters here.
+      const scopeIds = await getExhibitionScopeUserIds(currentUser, filters);
+      if (!scopeIds.length) return [];
 
       const { rows } = await risansiPool.query<ExhibitionDay>(
         `SELECT e.id::text            AS id,
                 e.name,
                 e.venue, e.city,
                 e.start_date::text     AS start_date,
-                e.end_date::text       AS end_date,
+                -- A null end is a one-day event, which is what eventDays() has
+                -- always taken it to mean. Requiring both dates would drop a
+                -- committed exhibition whose end nobody filled in, and neither
+                -- exhibition form marks that field required.
+                COALESCE(e.end_date, e.start_date)::text AS end_date,
                 e.status,
+                -- The WHOLE team, not the part this viewer can see. The block
+                -- says how many people are away; counting only the visible ones
+                -- would under-report that to exactly the person planning around it.
+                (SELECT count(*) FROM exhibition_team tt WHERE tt.exhibition_id = e.id)::int AS team_size,
                 u.id::text             AS rep_id,
                 u.name                 AS rep_name
            FROM exhibitions e
@@ -582,13 +584,12 @@ export default async function FieldActivityPage({
            JOIN users u           ON u.id = t.user_id
           WHERE e.status = ANY($1)
             AND e.start_date IS NOT NULL
-            AND e.end_date   IS NOT NULL
-            -- overlaps the visible window at all
+            -- overlaps the visible window, which is [from, to)
             AND e.start_date < $3::date
-            AND e.end_date  >= $2::date
-            AND (u.name = ANY($4) OR u.id = $5)
+            AND COALESCE(e.end_date, e.start_date) >= $2::date
+            AND u.id = ANY($4)
           ORDER BY e.start_date, e.name, u.name`,
-        [[...CALENDAR_BLOCKING_STATUSES], from, to, names, selfId],
+        [[...CALENDAR_BLOCKING_STATUSES], from, to, scopeIds],
       );
       return rows;
     }, []),
@@ -602,7 +603,8 @@ export default async function FieldActivityPage({
     for (const r of exhibitionDays) {
       const cur = byId.get(r.id) ?? {
         id: r.id, name: r.name, venue: r.venue, city: r.city,
-        start_date: r.start_date, end_date: r.end_date, reps: [],
+        start_date: r.start_date, end_date: r.end_date,
+        team_size: r.team_size, reps: [],
       };
       if (r.rep_id && !cur.reps.some(x => x.id === r.rep_id)) cur.reps.push({ id: r.rep_id, name: r.rep_name });
       byId.set(r.id, cur);
@@ -700,11 +702,16 @@ export default async function FieldActivityPage({
   // week with no visits booked would get no row at all, and the block saying
   // where they are would have nowhere to render. That is the exact mistake the
   // blocks exist to prevent, on the one view where it matters most.
-  const derivedReps = Array.from(
-    new Map([
-      ...calendarVisits
+  const visitReps = Array.from(
+    new Map(
+      calendarVisits
         .filter(v => v.rep_id)
         .map(v => [v.rep_id, { id: v.rep_id, name: v.rep_name, route: '' as string | null }] as const),
+    ).values(),
+  ).sort((a, b) => a.name.localeCompare(b.name));
+  const derivedReps = Array.from(
+    new Map([
+      ...visitReps.map(r => [r.id, r] as const),
       ...exhibitionBlocks.flatMap(ex =>
         ex.reps.map(r => [r.id, { id: r.id, name: r.name, route: null as string | null }] as const)),
     ]).values(),
@@ -714,7 +721,10 @@ export default async function FieldActivityPage({
   const colorReps = Array.from(
     new Map<string, { id: string; name: string }>([
       ...calReps.map(r => [r.id, { id: r.id, name: r.name }] as const),
-      ...derivedReps.map(r => [r.id, { id: r.id, name: r.name }] as const),
+      // Visit reps only. Exhibition attendees are week-grid rows but carry no
+      // rep colour, and rep colours are an index into this name-sorted list —
+      // adding a name shifts every colour after it for nothing.
+      ...visitReps.map(r => [r.id, { id: r.id, name: r.name }] as const),
     ]).values(),
   ).sort((a, b) => a.name.localeCompare(b.name));
   // Week-grid rows: the roster when we have it, else the reps seen in visits.
@@ -1033,12 +1043,16 @@ export default async function FieldActivityPage({
                                       fontSize: 10.5, fontWeight: 700, lineHeight: 1.4,
                                       whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                                     }}>
-                                    &#9635; {ex.name}
+                                    <span aria-hidden>&#9635;</span> {ex.name}
                                   </div>
                                 ))}
+                                {/* The dashed slot stays even under an exhibition
+                                    block: a rep at a stand can still take a visit
+                                    that day, and removing it also collapsed that
+                                    rep's row to a fraction of the others' height. */}
                                 {dayVisits.length > 0
                                   ? dayVisits.map(v => <CalendarVisitCard key={v.id} visit={v} role={role} />)
-                                  : dayEx.length === 0 && <div style={{ height: 50, margin: 2, border: '1px dashed rgba(0,0,0,0.08)', borderRadius: 4 }} />
+                                  : <div style={{ height: dayEx.length ? 28 : 50, margin: 2, border: '1px dashed rgba(0,0,0,0.08)', borderRadius: 4 }} />
                                 }
                               </td>
                             );
@@ -1060,6 +1074,17 @@ export default async function FieldActivityPage({
                       {label}
                     </div>
                   ))}
+                  {/* The month and quarter views explain the purple band in their
+                      own legend; this view has its own, so it needs the key too. */}
+                  {exhibitionBlocks.length > 0 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--fg-3)' }}>
+                      <div style={{
+                        width: 10, height: 10, borderRadius: 2, flexShrink: 0,
+                        background: 'var(--purple-soft)', border: '1px solid var(--purple)',
+                      }} />
+                      at an exhibition
+                    </div>
+                  )}
                 </div>
               </div>
             )}
