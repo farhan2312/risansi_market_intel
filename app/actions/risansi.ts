@@ -1407,6 +1407,15 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
     lost_to_competitor: (formData.get('lost_to_competitor') as string | null) || null,
     lost_reason:        (formData.get('lost_reason') as string | null) || null,
     drop_reason:        (formData.get('drop_reason') as string | null) || null,
+    // The intake block and the per-stage reasons. Each guarded below, so a form
+    // that does not ask for one leaves the stored value alone.
+    opportunity_type:     (formData.get('opportunity_type') as string | null) || null,
+    opportunity_source:   (formData.get('opportunity_source') as string | null) || null,
+    opportunity_category: (formData.get('opportunity_category') as string | null) || null,
+    client_reference:     (formData.get('client_reference') as string | null) || null,
+    suspect_reason:       (formData.get('suspect_reason') as string | null) || null,
+    hold_reason:          (formData.get('hold_reason') as string | null) || null,
+    po_date:              (formData.get('po_date') as string | null) || null,
   };
 
   // Ownership is no longer set from the Edit drawer — it's derived from the
@@ -1428,7 +1437,9 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
   // and project name. A field the form doesn't submit at all (=== null) is left
   // as it is; an explicit empty string still clears it.
   for (const k of ['product','product_type','stage','eta_text','quote_ref','quote_date',
-                   'unit_project','notes','po_number','lost_to_competitor','lost_reason']) {
+                   'unit_project','notes','po_number','lost_to_competitor','lost_reason',
+                   'opportunity_type','opportunity_source','opportunity_category',
+                   'client_reference','suspect_reason','hold_reason','po_date']) {
     if (formData.get(k) === null) delete candidates[k];
   }
   // value_cr / final_value_cr are derived from rupee inputs; guard on the source.

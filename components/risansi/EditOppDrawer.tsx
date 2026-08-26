@@ -46,6 +46,19 @@ export interface EditableOpp {
   lost_reason?: string | null;
   drop_reason?: string | null;
   quotation_link?: string | null;
+  // The intake block and per-stage reasons (migration 0061). The board and the
+  // move form read these; SELECT o.* already carries them.
+  opportunity_type?: string | null;
+  opportunity_source?: string | null;
+  opportunity_category?: string | null;
+  client_reference?: string | null;
+  suspect_reason?: string | null;
+  hold_reason?: string | null;
+  po_date?: string | null;
+  enquiry_no?: string | null;
+  enquiry_date?: string | null;
+  market?: string | null;
+  offer_value_inr?: number | string | null;
   tour_name?: string | null;
   tour_people?: string | null;   // all reps + manager on the client's tour
 }

@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { fmtCr } from '@/lib/risansi-utils';
 import { EditOppDrawer, type EditableOpp } from './EditOppDrawer';
-import { OppCompletionModal } from './OppCompletionModal';
-import { QuotedDetailsModal } from './QuotedDetailsModal';
+import { OppStageMoveModal } from './OppStageMoveModal';
+import { DIRECT_WIN_CATEGORIES, type OppStage } from '@/lib/risansi-opportunity-fields';
 import { stageHref } from '@/lib/risansi-stage-dashboard';
 
 export interface KanbanOpp extends EditableOpp {
@@ -59,10 +59,17 @@ export function OpportunityKanban({ initialOpps, stageTotals, usdRate = 86, filt
   const [dragId, setDragId]       = useState<string | null>(null);
   const [overStage, setOverStage] = useState<string | null>(null);
   const [editOpp, setEditOpp]     = useState<KanbanOpp | null>(null);
-  const [completion, setCompletion] = useState<{
-    opp: KanbanOpp; stage: 'Won' | 'Lost' | 'Dropped'; previousStage: string;
-  } | null>(null);
-  const [quotedFor, setQuotedFor] = useState<{ opp: KanbanOpp; previousStage: string } | null>(null);
+  // One modal for every destination now, so the board no longer decides which
+  // form a stage needs — the catalogue does.
+  const [moving, setMoving] = useState<{ opp: KanbanOpp; to: OppStage; previousStage: string } | null>(null);
+  const [competitors, setCompetitors] = useState<string[]>([]);
+  useEffect(() => {
+    fetch('/api/risansi/competitors')
+      .then(r => (r.ok ? r.json() : []))
+      .then((rows: { name?: string }[] | string[]) =>
+        setCompetitors(rows.map(r => (typeof r === 'string' ? r : r.name ?? '')).filter(Boolean)))
+      .catch(() => {});
+  }, []);
   const [notice, setNotice]       = useState('');
   // Per-column card filter (client id / name). Keyed by stage so each column's
   // search box filters only its own cards, not the rest of the board.
@@ -126,29 +133,31 @@ export function OpportunityKanban({ initialOpps, stageTotals, usdRate = 86, filt
       return;
     }
 
-    // Gate: Quoted is a mandatory gateway — a card can't skip to Negotiating / Won /
-    // Lost without being Quoted first (so it can never jump straight to Won/Lost).
-    if (['Negotiating', 'On Hold', 'Won', 'Lost'].includes(newStage) && !['Quoted', 'Negotiating', 'On Hold'].includes(current.stage)) {
+    // Quoted is still the gateway to Negotiating, On Hold and Lost — you cannot
+    // lose a deal you never quoted. Won is the exception: a rate contract or a
+    // repeat order is priced already, which is the whole reason for that jump.
+    const quoted = ['Quoted', 'Negotiating', 'On Hold'].includes(current.stage);
+    const directWin = newStage === 'Won'
+      && current.stage === 'Prospect'
+      && DIRECT_WIN_CATEGORIES.includes(String(current.opportunity_category ?? ''));
+
+    if (['Negotiating', 'On Hold', 'Lost'].includes(newStage) && !quoted) {
       setNotice('Move this card through Quoted first.');
       setTimeout(() => setNotice(''), 4000);
       return;
     }
-
-    // Moving to Quoted needs the quotation details — open modal, don't save yet.
-    if (newStage === 'Quoted') {
-      const previousStage = current.stage;
-      setOpps(p => p.map(o => (o.id === oppId ? { ...o, stage: newStage } : o)));
-      setQuotedFor({ opp: { ...current, stage: newStage }, previousStage });
+    if (newStage === 'Won' && !quoted && !directWin) {
+      setNotice('Only an Against Rate Contract or Repeat Order can go straight to Won.');
+      setTimeout(() => setNotice(''), 5000);
       return;
     }
 
-    // Won/Lost/Dropped each need completion details (final value + SOs, the
-    // competitor + lost reason, or the drop reason) — open the modal, don't save yet.
-    if (newStage === 'Won' || newStage === 'Lost' || newStage === 'Dropped') {
+    // Every destination that asks for something opens the one move form. The
+    // card moves optimistically so the board does not appear to ignore the drag.
+    if (['Quoted', 'Negotiating', 'On Hold', 'Won', 'Lost', 'Dropped', 'Suspect'].includes(newStage)) {
       const previousStage = current.stage;
-      // Optimistic: move the card into the column visually
       setOpps(p => p.map(o => (o.id === oppId ? { ...o, stage: newStage } : o)));
-      setCompletion({ opp: { ...current, stage: newStage }, stage: newStage, previousStage });
+      setMoving({ opp: { ...current, stage: newStage }, to: newStage as OppStage, previousStage });
       return;
     }
 
@@ -182,30 +191,6 @@ export function OpportunityKanban({ initialOpps, stageTotals, usdRate = 86, filt
       setNotice(err instanceof Error ? err.message : 'Move failed');
       setTimeout(() => { setSaveState('idle'); setNotice(''); }, 5000);
     }
-  };
-
-  const handleCompletionCancel = () => {
-    if (!completion) return;
-    const { opp, previousStage } = completion;
-    setOpps(p => p.map(o => (o.id === opp.id ? { ...o, stage: previousStage } : o)));
-    setCompletion(null);
-  };
-
-  const handleCompletionSave = () => {
-    setCompletion(null);
-    router.refresh();
-  };
-
-  const handleQuotedCancel = () => {
-    if (!quotedFor) return;
-    const { opp, previousStage } = quotedFor;
-    setOpps(p => p.map(o => (o.id === opp.id ? { ...o, stage: previousStage } : o)));
-    setQuotedFor(null);
-  };
-
-  const handleQuotedSave = () => {
-    setQuotedFor(null);
-    router.refresh();
   };
 
   // Cards within a column are ordered by creation date, newest first, so the
@@ -464,21 +449,18 @@ export function OpportunityKanban({ initialOpps, stageTotals, usdRate = 86, filt
 
       {editOpp && <EditOppDrawer opp={editOpp} canEdit={editOpp.can_edit !== false} usdRate={usdRate} onClose={() => setEditOpp(null)} />}
 
-      {completion && (
-        <OppCompletionModal
-          opp={completion.opp}
-          stage={completion.stage}
-          onSave={handleCompletionSave}
-          onCancel={handleCompletionCancel}
-        />
-      )}
-
-      {quotedFor && (
-        <QuotedDetailsModal
-          opp={quotedFor.opp}
+      {moving && (
+        <OppStageMoveModal
+          opp={{ ...moving.opp, stage: moving.previousStage }}
+          target={moving.to}
           usdRate={usdRate}
-          onSave={handleQuotedSave}
-          onCancel={handleQuotedCancel}
+          competitors={competitors}
+          onCancel={() => {
+            // Put the card back where it came from — the move never happened.
+            setOpps(p => p.map(o => (o.id === moving.opp.id ? { ...o, stage: moving.previousStage } : o)));
+            setMoving(null);
+          }}
+          onDone={() => setMoving(null)}
         />
       )}
 
