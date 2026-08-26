@@ -75,8 +75,8 @@ interface MapClient {
 interface StatsRow {
   // Activity over the visible period — what the tiles show.
   visits: number; clients: number; completed: number; missed: number;
-  // Coverage of the client base — still needed by the Overdue tab and its table.
-  overdue: number;
+  // Coverage of the client base — the second tile row, and the Overdue tab.
+  total_active: number; visited_90: number; overdue: number; never_visited: number;
 }
 
 // ── Constants ──────────────────────────────────────────────────
@@ -431,13 +431,23 @@ export default async function FieldActivityPage({
         [statsFrom, statsTo],
       );
 
-      // Coverage, kept because the Overdue tab counts and paginates on it. Not
-      // shown in the tiles any more — it answers a different question from the
-      // calendar and was the source of the mismatch.
-      const { rows: cov } = await risansiPool.query<{ overdue: string }>(
-        `SELECT COUNT(*) FILTER (WHERE c.status = 'ACTIVE'
+      // Coverage of the client base. A deliberately different question from the
+      // row above — how much of the territory has been touched, rather than what
+      // happened this month — so it keeps its own fixed 90-day window and its own
+      // tour-based scoping, and the labels say so. Conflating the two is what made
+      // the old single row read as broken.
+      const { rows: cov } = await risansiPool.query<{
+        total_active: string; visited_90: string; overdue: string; never_visited: string;
+      }>(
+        `SELECT
+           COUNT(*) FILTER (WHERE c.status = 'ACTIVE')::text                     AS total_active,
+           COUNT(*) FILTER (WHERE c.status = 'ACTIVE'
+             AND c.last_visit_date >= CURRENT_DATE - INTERVAL '90 days')::text   AS visited_90,
+           COUNT(*) FILTER (WHERE c.status = 'ACTIVE'
              AND (c.last_visit_date IS NULL
-               OR c.last_visit_date < CURRENT_DATE - INTERVAL '90 days'))::text AS overdue
+               OR c.last_visit_date < CURRENT_DATE - INTERVAL '90 days'))::text  AS overdue,
+           COUNT(*) FILTER (WHERE c.status = 'ACTIVE'
+             AND c.last_visit_date IS NULL)::text                                AS never_visited
            FROM clients c
           WHERE c.deleted_at IS NULL${cVisAnd}${filters.clientAnd}`,
       );
@@ -447,9 +457,13 @@ export default async function FieldActivityPage({
         clients:   Number(r?.clients   ?? 0),
         completed: Number(r?.completed ?? 0),
         missed:    Number(r?.missed    ?? 0),
-        overdue:   Number(cov[0]?.overdue ?? 0),
+        total_active:  Number(cov[0]?.total_active  ?? 0),
+        visited_90:    Number(cov[0]?.visited_90    ?? 0),
+        overdue:       Number(cov[0]?.overdue       ?? 0),
+        never_visited: Number(cov[0]?.never_visited ?? 0),
       };
-    }, { visits: 0, clients: 0, completed: 0, missed: 0, overdue: 0 }),
+    }, { visits: 0, clients: 0, completed: 0, missed: 0,
+         total_active: 0, visited_90: 0, overdue: 0, never_visited: 0 }),
 
     // 7. Visit Reports — submitted visits with related aggregates (only when tab open).
     //    Rep scope is parameterized; search/purpose/rep filtering happens client-side.
@@ -624,12 +638,24 @@ export default async function FieldActivityPage({
           <PlannedVisitsExport reps={calendarReps} />
         </div>
 
-        {/* Stats strip */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+        {/* Activity — tracks the calendar's period and the selected rep. */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 10 }}>
           <StatCard label="Visits"          value={stats.visits} />
           <StatCard label="Clients Covered" value={stats.clients}   color="var(--pos)" />
           <StatCard label="Completed"       value={stats.completed} color="var(--pos)" />
           <StatCard label="Missed"          value={stats.missed}    color="var(--neg)" />
+        </div>
+
+        {/* Coverage — the client base, on its own fixed window. Captioned because
+            the two rows answer different questions and sit inches apart. */}
+        <div style={{ fontSize: 10.5, color: 'var(--fg-3)', marginBottom: 6 }}>
+          Client coverage · active clients only · last 90 days, not the period above
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+          <StatCard small label="Active Clients"  value={stats.total_active} />
+          <StatCard small label="Visited (90d)"   value={stats.visited_90}    color="var(--pos)" />
+          <StatCard small label="Overdue (90d+)"  value={stats.overdue}       color="var(--warn)" />
+          <StatCard small label="Never Visited"   value={stats.never_visited} color="var(--neg)" />
         </div>
 
         {/* AssignVisit drawer — always mounted so overdue-row buttons can open it
@@ -1139,16 +1165,16 @@ function InternationalPanel({ clients }: { clients: MapClient[] }) {
   );
 }
 
-function StatCard({ label, value, color }: { label: string; value: number; color?: string }) {
+function StatCard({ label, value, color, small }: { label: string; value: number; color?: string; small?: boolean }) {
   return (
     <div style={{
       background: 'var(--bg-paper)', border: '1px solid var(--line)',
-      borderRadius: 'var(--radius)', padding: '14px 16px',
+      borderRadius: 'var(--radius)', padding: small ? '9px 14px' : '14px 16px',
     }}>
-      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fg-3)', fontWeight: 600 }}>
+      <div style={{ fontSize: small ? 9.5 : 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fg-3)', fontWeight: 600 }}>
         {label}
       </div>
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 28, fontWeight: 700, color: color ?? 'var(--fg)', lineHeight: 1.1, marginTop: 4 }}>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: small ? 19 : 28, fontWeight: 700, color: color ?? 'var(--fg)', lineHeight: 1.1, marginTop: small ? 2 : 4 }}>
         {value.toLocaleString('en-IN')}
       </div>
     </div>
