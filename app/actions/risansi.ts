@@ -56,8 +56,9 @@ function quotedItemHasData(it: object): boolean {
  * Excel export, the opportunity drawer and the quote summary keep reading one
  * column instead of joining. Nothing else may write them. Delete + re-insert
  * runs in a transaction so a failed insert can't leave a quote with no history
- * at all. revised_offer_value_usd was retired with the other USD columns — it
- * was never populated on any row.
+ * at all. revised_offer_value_usd was retired with the other USD columns: its
+ * six rows were each the rupee figure divided by the conversion rate, so the
+ * column never held anything its rupee twin did not.
  *
  * Only call this when the caller actually submitted a revision list; an empty
  * array from a form that HAS the field means "the user removed them all".
