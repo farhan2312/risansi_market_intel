@@ -1,13 +1,19 @@
 'use client';
 
 import { useState, useEffect, type CSSProperties } from 'react';
-import { STAGE_TONE, stageTone } from '@/lib/risansi-stage-tone';
+import { STAGE_TONE } from '@/lib/risansi-stage-tone';
 import { useRouter } from 'next/navigation';
 import { OfferRevisionsList } from './OfferRevisionsField';
 import type { OfferRevision } from '@/lib/risansi-offer-revisions';
 import { updateOpportunity, deleteOpportunity } from '@/app/actions/risansi';
 import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
-import { DROP_REASONS, PRODUCT_TYPES } from '@/lib/risansi-opportunity-fields';
+import {
+  DROP_REASONS, LOST_COMPETITOR_TAIL, OPP_FIELDS, isFieldVisible,
+  type OppStage, type OppFieldDef,
+} from '@/lib/risansi-opportunity-fields';
+import { OppStageSections } from './OppStageSections';
+import type { FieldValues } from './OppFields';
+
 import { MonthYearSelect } from './MonthYearSelect';
 import { SalesOrderList } from './SalesOrderList';
 import { SalesOrderManager } from './SalesOrderManager';
@@ -15,6 +21,11 @@ import { PurchaseOrderManager } from './PurchaseOrderManager';
 import { QuotationPdfManager } from './QuotationPdfManager';
 import { ChangeOppClient } from './ChangeOppClient';
 import { OppRemarksLog } from './OppRemarksLog';
+
+/** Crores → the whole rupee figure the money inputs take. */
+const inrOfCr = (cr: unknown) =>
+  cr != null && cr !== '' ? String(Math.round(parseFloat(String(cr)) * 10_000_000)) : '';
+
 
 // A quotation exists from Quoted onward — the PDF can be viewed/replaced/deleted
 // at any of these stages (even a locked Won/Lost, if the viewer may edit).
@@ -77,10 +88,29 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: { 
   const [quoteItems, setQuoteItems] = useState<QItem[]>([]);
   const [quoteMeta, setQuoteMeta]   = useState<QMeta | null>(null);
   const [revisions, setRevisions]   = useState<OfferRevision[]>([]);
-  // Seeded SYNCHRONOUSLY from the opp row (it carries unit_project via SELECT
-  // o.*). Seeding from the async quote-meta fetch instead would let an early
-  // save write a blank over the stored value before the fetch resolved.
-  const [unitProject, setUnitProject] = useState(opp.unit_project ?? '');
+  // Seeded SYNCHRONOUSLY from the opp row, which carries every field via
+  // SELECT o.*. Seeding from the async quote-meta fetch instead would let an
+  // early save write a blank over a stored value before the fetch resolved.
+  //
+  // Controlled, because OppStageSections renders controlled inputs. The form
+  // relied on new FormData(e.currentTarget), which cannot see a value the shared
+  // field components hold in state.
+  const [values, setValues] = useState<FieldValues>(() => {
+    const v: FieldValues = {};
+    for (const f of OPP_FIELDS) {
+      if (f.name === 'final_value_inr') { v[f.name] = inrOfCr(opp.final_value_cr ?? opp.value_cr); continue; }
+      if (f.name === 'offer_value_inr') { v[f.name] = opp.offer_value_inr != null ? String(opp.offer_value_inr) : ''; continue; }
+      const raw = (opp as unknown as Record<string, unknown>)[f.name];
+      v[f.name] = raw == null ? '' : String(raw);
+    }
+    return v;
+  });
+  const setValue = (name: string, value: string) =>
+    setValues(cur => ({ ...cur, [name]: value }));
+  const optionsFor = (f: OppFieldDef) =>
+    f.name === 'drop_reason' ? DROP_REASONS
+    : f.name === 'lost_to_competitor' ? LOST_COMPETITOR_TAIL
+    : undefined;
   // Final value is controlled so the Sales-Order coverage preview stays live
   // while the user types it during a Won transition. (value_cr/final_value_cr
   // are Crores; the field takes rupees.)
@@ -104,6 +134,13 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: { 
     setLoading(true); setError('');
     try {
       const fd = new FormData(e.currentTarget);
+      // The catalogue fields live in state, so they are written in by hand.
+      // Anything still rendered as a native input — the sales-order list — is
+      // already in fd from the form element.
+      fd.set('stage', stage);
+      for (const f of OPP_FIELDS) {
+        if (isFieldVisible(f, stage as OppStage)) fd.set(f.name, values[f.name] ?? '');
+      }
       // Ownership is derived from the client's tour, not set here — the form
       // sends no rep_id, and updateOpportunity leaves the existing owner intact.
       await updateOpportunity(Number(opp.id), fd);
@@ -340,114 +377,25 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: { 
               )}
             </div>
 
-            {/* Product + Project — the two full-width identifiers, up top. */}
-            <div>
-              <label style={LABEL_STYLE}>Product / Description *</label>
-              <input name="product" required defaultValue={opp.product ?? ''} style={INPUT_STYLE} />
-            </div>
-
-            <div>
-              <label style={LABEL_STYLE}>Project Name / Unit</label>
-              <input name="unit_project" value={unitProject} onChange={e => setUnitProject(e.target.value)}
-                placeholder="e.g. Balrampur Chini — Unit 2, Spent Wash" style={INPUT_STYLE} />
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div>
-                <label style={LABEL_STYLE}>Product Type</label>
-                <select name="product_type" defaultValue={opp.product_type ?? 'PCP'} style={INPUT_STYLE}>
-                  {PRODUCT_TYPES.map(t => <option key={t}>{t}</option>)}
-                  {/* Keep a legacy value rather than silently switching the row on save. */}
-                  {opp.product_type && !PRODUCT_TYPES.includes(opp.product_type as typeof PRODUCT_TYPES[number]) && (
-                    <option value={opp.product_type}>{opp.product_type}</option>
-                  )}
-                </select>
-              </div>
-              <div>
-                <label style={LABEL_STYLE}>Probability</label>
-                <select name="probability_code" defaultValue={opp.probability_code ?? ''} style={INPUT_STYLE}>
-                  <option value="">—</option>
-                  {PROBABILITY_CODES.map(c => <option key={c.code} value={c.code}>{probabilityCodeLabel(c)}</option>)}
-                  {opp.probability_code && !PROBABILITY_CODES.some(c => c.code === opp.probability_code) && (
-                    <option value={opp.probability_code}>{opp.probability_code}</option>
-                  )}
-                </select>
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div>
-                <label style={LABEL_STYLE}>Value (₹)</label>
-                <input name="value_inr" type="number" step="1" min="0" inputMode="numeric" defaultValue={inrFrom(opp.value_cr)} style={INPUT_STYLE} />
-                <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3 }}>Full amount in rupees</div>
-              </div>
-              <div>
-                <label style={LABEL_STYLE}>Expected Close</label>
-                <MonthYearSelect name="eta_text" value={opp.eta_text} />
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div>
-                <label style={LABEL_STYLE}>Quote Ref</label>
-                <input name="quote_ref" defaultValue={opp.quote_ref ?? ''} style={INPUT_STYLE} />
-              </div>
-              <div>
-                <label style={LABEL_STYLE}>Quote Date</label>
-                <input name="quote_date" type="date" defaultValue={opp.quote_date ?? ''} style={INPUT_STYLE} />
-              </div>
-            </div>
+            {/* Every catalogue field for this stage, from one definition. This
+                was a hand-written grid that had drifted from the create form —
+                a product type offered in one was rejected by the other. */}
+            <OppStageSections
+              stage={stage as OppStage}
+              values={values}
+              onChange={setValue}
+              optionsFor={optionsFor}
+              usdRate={usdRate}
+            />
 
             {/* Quotation PDF — manage it at any stage from Quoted onward. */}
             {(QUOTED_PLUS.includes(opp.stage) || opp.quotation_link) && (
               <QuotationPdfManager oppId={Number(opp.id)} initialLink={opp.quotation_link ?? null} canEdit />
             )}
 
-            {/* Won fields */}
-            {stage === 'Won' && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div>
-                  <label style={LABEL_STYLE}>Final Value (₹)</label>
-                  <input name="final_value_inr" type="number" step="1" inputMode="numeric" value={finalInr} onChange={e => setFinalInr(e.target.value)} style={INPUT_STYLE} />
-                  <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3 }}>Full amount in rupees</div>
-                </div>
-                <div>
-                  <label style={LABEL_STYLE}>PO Number</label>
-                  <input name="po_number" defaultValue={opp.po_number ?? ''} style={INPUT_STYLE} />
-                </div>
-              </div>
-            )}
-
             {/* Sales Orders — required to move this opportunity to Won. */}
             {stage === 'Won' && opp.stage !== 'Won' && (
               <SalesOrderList finalValueInr={parseFloat(finalInr) || null} />
-            )}
-
-            {/* Lost fields */}
-            {stage === 'Lost' && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div>
-                  <label style={LABEL_STYLE}>Lost To (competitor)</label>
-                  <input name="lost_to_competitor" defaultValue={opp.lost_to_competitor ?? ''} placeholder="e.g. Roto, Netzsch" style={INPUT_STYLE} />
-                </div>
-                <div>
-                  <label style={LABEL_STYLE}>Lost Reason</label>
-                  <input name="lost_reason" defaultValue={opp.lost_reason ?? ''} placeholder="Price / Technical / OEM tied" style={INPUT_STYLE} />
-                </div>
-              </div>
-            )}
-
-            {/* Drop reason — required on the move into Dropped (the server
-                enforces it), so the select is marked required here too. */}
-            {stage === 'Dropped' && (
-              <div>
-                <label style={LABEL_STYLE}>Drop Reason{opp.stage !== 'Dropped' ? ' *' : ''}</label>
-                <select name="drop_reason" required={opp.stage !== 'Dropped'}
-                  defaultValue={opp.drop_reason ?? ''} style={INPUT_STYLE}>
-                  <option value="">— Select reason —</option>
-                  {DROP_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
-                </select>
-              </div>
             )}
 
             {/* Tour — an opportunity belongs to the client's tour and all its
@@ -461,11 +409,6 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: { 
               <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3 }}>
                 Belongs to the client&apos;s tour — all its reps can work it.
               </div>
-            </div>
-
-            <div>
-              <label style={LABEL_STYLE}>Notes</label>
-              <textarea name="notes" rows={3} defaultValue={opp.notes ?? ''} style={{ ...INPUT_STYLE, resize: 'vertical' }} />
             </div>
 
             <QuotedItemsSection items={quoteItems} meta={quoteMeta} revisions={revisions} usdRate={usdRate} />

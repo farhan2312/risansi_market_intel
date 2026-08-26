@@ -1357,6 +1357,12 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
 
   const valueInr = parseMoneyInput(formData.get('value_inr'))       ?? NaN;
   const finalInr = parseMoneyInput(formData.get('final_value_inr')) ?? NaN;
+  // The forms stopped asking for a separate Value: an enquiry has no value until
+  // it is quoted, and after that the Total Offer IS the value. createPipeline-
+  // Opportunity already falls back this way; without the same fallback here, a
+  // Prospect moved to Quoted kept value_cr = NULL and showed ₹0 on the board
+  // while carrying a real offer.
+  const offerForValue = parseMoneyInput(formData.get('offer_value_inr')) ?? NaN;
   // Probability is entered as the RIL code (1–4); the numeric % is derived from
   // it. When the form omits the field entirely (e.g. OppCompletionModal marking
   // Won), both are left untouched — see the preserve guard below.
@@ -1391,7 +1397,8 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
     product:            (formData.get('product') as string | null)?.trim() || null,
     product_type:       (formData.get('product_type') as string | null) || 'PCP',
     stage:              (formData.get('stage') as string | null) || 'Suspect',
-    value_cr:           valueInr > 0 ? valueInr / 10_000_000 : null,
+    value_cr:           valueInr > 0 ? valueInr / 10_000_000
+                        : offerForValue > 0 ? offerForValue / 10_000_000 : null,
     probability:        pctForProbabilityCode(probCode),
     probability_code:   probCode,
     eta_text:           (formData.get('eta_text') as string | null) || null,
@@ -1443,7 +1450,10 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
     if (formData.get(k) === null) delete candidates[k];
   }
   // value_cr / final_value_cr are derived from rupee inputs; guard on the source.
-  if (formData.get('value_inr') === null)       delete candidates.value_cr;
+  // Leave value_cr alone only when NEITHER source was submitted.
+  if (formData.get('value_inr') === null && formData.get('offer_value_inr') === null) {
+    delete candidates.value_cr;
+  }
   if (formData.get('final_value_inr') === null) delete candidates.final_value_cr;
   // Probability: only write when a code is actually chosen. A blank/absent code
   // leaves the stored code AND the numeric % untouched — so editing one of the
