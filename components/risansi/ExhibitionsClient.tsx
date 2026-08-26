@@ -333,8 +333,13 @@ function Empty({ hasAny, onCreate, canCreate }: { hasAny: boolean; onCreate: () 
   );
 }
 
+// Columns follow the width. A fixed '1fr 1fr' ignores the container entirely,
+// so widening the shell produced wider fields and exactly the same number of
+// rows — which is not what "less scrolling" means. With auto-fit a row given
+// three fields lays them out three-across when there is room, and a narrow
+// container gets one clean column instead of two cramped ones.
 function Row({ children }: { children: React.ReactNode }) {
-  return <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>{children}</div>;
+  return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>{children}</div>;
 }
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
@@ -381,7 +386,7 @@ const BTN_GHOST: CSSProperties = {
 const BACKDROP: CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(10,22,40,0.35)', zIndex: 300 };
 const MODAL: CSSProperties = {
   position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
-  width: 620, maxWidth: 'calc(100vw - 32px)', background: 'var(--bg-paper)',
+  width: 780, maxWidth: 'calc(100vw - 32px)', background: 'var(--bg-paper)',
   borderRadius: 12, zIndex: 301, boxShadow: '0 20px 60px rgba(10,22,40,0.25)', overflow: 'hidden',
 };
 const MODAL_HEAD: CSSProperties = {

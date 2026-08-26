@@ -200,7 +200,7 @@ const OVERLAY: CSSProperties = {
   display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '8vh 16px 16px',
 };
 const MODAL: CSSProperties = {
-  width: '100%', maxWidth: 480, background: 'var(--bg-paper)',
+  width: '100%', maxWidth: 620, background: 'var(--bg-paper)',
   border: '1px solid var(--line-strong)', borderRadius: 10,
   boxShadow: '0 20px 60px rgba(0,0,0,0.3)', maxHeight: '84vh', overflowY: 'auto',
 };

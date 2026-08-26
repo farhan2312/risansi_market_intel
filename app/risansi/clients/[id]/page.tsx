@@ -12,6 +12,7 @@ import { getUsdRate } from '@/lib/risansi-settings';
 import { OfferRevisionsList } from '@/components/risansi/OfferRevisionsField';
 import type { OfferRevision } from '@/lib/risansi-offer-revisions';
 import { hasRole, getCurrentUser, canViewClient } from '@/lib/risansi-auth';
+import { isLegacyQuotation, quotationHref, quotationLinkCount } from '@/lib/risansi-quotation-link';
 import { ClientActionButtons, PipelineOppBtn } from '@/components/risansi/ClientActionButtons';
 import { AddContactButton } from '@/components/risansi/AddContactButton';
 import { EditContactButton } from '@/components/risansi/EditContactButton';
@@ -150,6 +151,8 @@ interface Opportunity {
   value_cr: string; probability: number | null;
   final_value_cr?: string | null; so_sum_cr?: number;
   quotation_link?: string | null; quote_ref?: string | null;
+  /** Quotation PDFs held by the portal. Not the same as quotation_link being set. */
+  doc_count?: number;
   offer_value_inr?: number | null;
   /** Every re-price of this quote, oldest first. See migration 0041. */
   revisions?: OfferRevision[] | null;
@@ -365,11 +368,13 @@ export default async function ClientProfilePage({
         id: string; product: string; stage: string;
         value_cr: string; probability: number | null;
         final_value_cr: string | null; so_sum_cr: number;
-        quotation_link: string | null; quote_ref: string | null;
+        quotation_link: string | null; quote_ref: string | null; doc_count: number;
         offer_value_inr: number | null; revisions: OfferRevision[] | null;
       }>(
         `SELECT id, product, stage, value_cr::text, probability,
                 final_value_cr::text, quotation_link, quote_ref,
+                (SELECT count(*) FROM opportunity_quotation_files qf
+                  WHERE qf.opportunity_id = opportunities.id)::int AS doc_count,
                 offer_value_inr::float8 AS offer_value_inr,
                 (SELECT COALESCE(SUM(so.so_value_cr), 0) FROM opportunity_sales_orders so WHERE so.opportunity_id = opportunities.id)::float8 AS so_sum_cr,
                 -- Revised-offer history, oldest first, as JSON so one query
@@ -584,7 +589,17 @@ export default async function ClientProfilePage({
   const winRatePct    = decidedCount > 0 ? Math.round((wonCount / decidedCount) * 100) : null;
   const quotedPlusVal = allOpps.filter(o => ['Quoted', 'Negotiating', 'On Hold', 'Won'].includes(o.stage)).reduce((s, o) => s + (Number(o.value_cr) || 0), 0);
   const wonValTotal   = wonOpps.reduce((s, o) => s + (o.final_value_cr != null ? Number(o.final_value_cr) : Number(o.value_cr)), 0);
-  const quotesOnFile  = allOpps.filter(o => o.quotation_link).length;
+  // Split rather than summed. Counting a SharePoint url from before uploads
+  // existed as "with quotation" put 679 records into a number that is supposed
+  // to say how many quotations this portal actually holds. Both are worth
+  // knowing, so both are shown.
+  //
+  // Counted from the documents table rather than from the link, because
+  // syncQuotationLink leaves a legacy url in place when a PDF is uploaded onto
+  // one of those opportunities — so the link says SharePoint while the document
+  // is right here, and that will get commoner as reps work through the backlog.
+  const quotesAttached = allOpps.filter(o => (o.doc_count ?? 0) > 0).length;
+  const quotesLegacy   = allOpps.filter(o => (o.doc_count ?? 0) === 0 && isLegacyQuotation(o.quotation_link)).length;
   const STAGE_HUE: Record<string, string> = {
     Suspect: '#6B7FA3', Prospect: '#1A5CB8', Quoted: '#D97706', Negotiating: '#F97316',
     'On Hold': '#7C3AED', Won: '#0E9F6E', Lost: '#E02424', Dropped: '#64748B',
@@ -1328,7 +1343,8 @@ export default async function ClientProfilePage({
                 <div style={PANEL_H}>
                   <span style={PANEL_TITLE}>Quotation Pipeline</span>
                   <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
-                    {allOpps.length} opp{allOpps.length === 1 ? '' : 's'} · {quotesOnFile} with quotation
+                    {allOpps.length} opp{allOpps.length === 1 ? '' : 's'} · {quotesAttached} attached
+                    {quotesLegacy > 0 && ` · ${quotesLegacy} legacy`}
                   </span>
                 </div>
                 <div style={{ padding: 14 }}>
@@ -1438,12 +1454,17 @@ export default async function ClientProfilePage({
                         )}
                       </div>
                       <div style={{ flexShrink: 0, marginLeft: 8, textAlign: 'right' }}>
-                        {o.quotation_link ? (
+                        {((o.doc_count ?? 0) > 0 ? `/api/risansi/opportunities/${o.id}/quotation` : quotationHref(o.quotation_link)) ? (
                           <a
-                            href={o.quotation_link}
+                            href={(o.doc_count ?? 0) > 0
+                              ? `/api/risansi/opportunities/${o.id}/quotation`
+                              : quotationHref(o.quotation_link)!}
                             target="_blank"
                             rel="noopener noreferrer"
-                            title="View quotation"
+                            title={(o.doc_count ?? 0) > 0
+                              ? `Open the attached quotation${(o.doc_count ?? 0) > 1 ? ` (${o.doc_count} documents)` : ''}`
+                              : `Legacy quotation link${quotationLinkCount(o.quotation_link) > 1
+                                  ? ` (first of ${quotationLinkCount(o.quotation_link)})` : ''} — opens SharePoint`}
                             style={{
                               fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 500,
                               color: isWon ? 'var(--pos)' : 'var(--brand-blue)', textDecoration: 'none',

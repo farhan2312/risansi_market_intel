@@ -9,6 +9,7 @@ import { fmtCr, fmtUsdFromCr } from '@/lib/risansi-utils';
 import { getUsdRate } from '@/lib/risansi-settings';
 import { fmtUsdFromInr } from '@/lib/risansi-offer-revisions';
 import { parseOppFilters, buildOppFilter, oppFilterQuery } from '@/lib/risansi-opp-filters';
+import { quotationHref, isLegacyQuotation, quotationLinkCount } from '@/lib/risansi-quotation-link';
 import {
   stageFromSlug, STAGE_COLOR, STAGE_BLURB, STAGE_COLUMNS, ageBasisSql, summariseStage,
 } from '@/lib/risansi-stage-dashboard';
@@ -38,6 +39,7 @@ interface Row {
   so_sum_cr: number; so_numbers: string | null; po_number: string | null;
   lost_to_competitor: string | null; lost_reason: string | null; drop_reason: string | null;
   quotation_link: string | null;
+  doc_count: number;
   age_days: number | null;
 }
 
@@ -92,6 +94,7 @@ export default async function StageDashboardPage({ params, searchParams }: {
              (SELECT COALESCE(SUM(s.so_value_cr), 0) FROM opportunity_sales_orders s WHERE s.opportunity_id = o.id)::float8 AS so_sum_cr,
              (SELECT string_agg(s.so_number, ', ' ORDER BY s.so_date, s.id) FROM opportunity_sales_orders s WHERE s.opportunity_id = o.id) AS so_numbers,
              o.po_number, o.lost_to_competitor, o.lost_reason, o.drop_reason, o.quotation_link,
+             (SELECT count(*) FROM opportunity_quotation_files qf WHERE qf.opportunity_id = o.id)::int AS doc_count,
              -- Age from the stage's own reference date. opportunity_stage_log is
              -- empty today (migration 0042 created it after years of swallowed
              -- writes), so 'entered' degrades to created_at rather than to null.
@@ -343,14 +346,53 @@ export default async function StageDashboardPage({ params, searchParams }: {
 
 // ── Cell rendering ─────────────────────────────────────────────
 
+// A quotation recorded before uploads existed: an external url on someone's
+// OneDrive, or just a document name. Marked so the row does not read as though
+// the portal holds the file.
+function LegacyMark({ count }: { count?: number }) {
+  return (
+    <span
+      title={count && count > 1
+        ? `${count} legacy quotation links on this opportunity — open the opportunity to see them all`
+        : 'Recorded before quotation uploads existed'}
+      style={{
+        fontSize: 8.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase',
+        color: 'var(--warn-strong, #92400E)', border: '1px solid var(--warn-strong, #92400E)',
+        borderRadius: 3, padding: '0 3px', opacity: 0.8, whiteSpace: 'nowrap',
+      }}>
+      {count && count > 1 ? `legacy ×${count}` : 'legacy'}
+    </span>
+  );
+}
+
 function renderCell(r: Row, key: string, usdRate: number, inr: (v: number | null | undefined) => string) {
   switch (key) {
     case 'client_name':
       return <a href={`/risansi/clients/${r.client_id}`} style={{ color: 'var(--fg)', textDecoration: 'none', fontWeight: 500 }}>{r.client_name}</a>;
-    case 'quote_ref':
-      return r.quotation_link
-        ? <a href={r.quotation_link} target="_blank" rel="noreferrer" style={{ color: 'var(--brand-blue, #1A5CB8)', textDecoration: 'none', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{r.quote_ref ?? '—'} ↗</a>
-        : <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{r.quote_ref ?? '—'}</span>;
+    case 'quote_ref': {
+      // The quote reference is the label; the stored link decides whether it is
+      // one. A document name with no address used to be linked here too, and
+      // since it is not a url the browser resolved it against the stage page.
+      // An attached PDF wins over a legacy url, because syncQuotationLink will
+      // not overwrite one — so an opportunity that had a SharePoint link and has
+      // since had its quotation uploaded still stores the SharePoint url. Reading
+      // the link alone would send the rep to OneDrive past a PDF sitting right here.
+      const attached = r.doc_count > 0;
+      const href = attached ? `/api/risansi/opportunities/${r.id}/quotation` : quotationHref(r.quotation_link);
+      const legacy = !attached && isLegacyQuotation(r.quotation_link);
+      const ref = <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{r.quote_ref ?? '—'}</span>;
+      if (!href) return legacy ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>{ref}<LegacyMark /></span> : ref;
+      return (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <a href={href} target="_blank" rel="noreferrer"
+            title={legacy ? 'Legacy quotation link — opens SharePoint' : 'Open the attached quotation'}
+            style={{ color: 'var(--brand-blue, #1A5CB8)', textDecoration: 'none', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+            {r.quote_ref ?? '—'} ↗
+          </a>
+          {legacy && <LegacyMark count={quotationLinkCount(r.quotation_link)} />}
+        </span>
+      );
+    }
     case 'value_cr':
       return fmtCr(r.value_cr);
     case 'final_cr':

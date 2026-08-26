@@ -373,8 +373,13 @@ function Field({ label, required, children }: { label: string; required?: boolea
     </div>
   );
 }
+// Columns follow the width. A fixed '1fr 1fr' ignores the container entirely,
+// so widening the shell produced wider fields and exactly the same number of
+// rows — which is not what "less scrolling" means. With auto-fit a row given
+// three fields lays them out three-across when there is room, and a narrow
+// container gets one clean column instead of two cramped ones.
 function Row({ children }: { children: React.ReactNode }) {
-  return <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>{children}</div>;
+  return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>{children}</div>;
 }
 
 // ── Styles ─────────────────────────────────────────────────────
@@ -392,7 +397,7 @@ const NEG_OUTLINE: CSSProperties = { color: 'var(--neg)', border: '1px solid var
 const NEG_SOLID: CSSProperties = { background: '#E02424', color: '#fff', border: '1px solid #E02424' };
 const ERR_BOX: CSSProperties = { padding: '9px 12px', background: 'var(--neg-soft)', border: '1px solid var(--neg)', borderRadius: 5, fontSize: 12, color: 'var(--neg-strong)', marginBottom: 12 };
 const OK_BOX: CSSProperties = { padding: '9px 12px', background: 'var(--pos-soft)', border: '1px solid var(--pos)', borderRadius: 5, fontSize: 12, color: 'var(--pos-strong)' };
-const DRAWER: CSSProperties = { position: 'fixed', top: 0, right: 0, bottom: 0, width: 480, maxWidth: '100vw', zIndex: 301, background: 'var(--bg-paper)', boxShadow: '-8px 0 40px rgba(10,22,40,0.14)', display: 'flex', flexDirection: 'column' };
+const DRAWER: CSSProperties = { position: 'fixed', top: 0, right: 0, bottom: 0, width: 600, maxWidth: '100vw', zIndex: 301, background: 'var(--bg-paper)', boxShadow: '-8px 0 40px rgba(10,22,40,0.14)', display: 'flex', flexDirection: 'column' };
 const DRAWER_H: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)', flexShrink: 0 };
 const CLOSE_BTN: CSSProperties = { width: 28, height: 28, display: 'grid', placeItems: 'center', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 16, color: 'var(--fg-3)', borderRadius: 4 };
 const SUBMIT_BTN: CSSProperties = { width: '100%', padding: '12px 0', fontSize: 14, fontWeight: 600, background: '#0A3D8F', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', marginTop: 4 };

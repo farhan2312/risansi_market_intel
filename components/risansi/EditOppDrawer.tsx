@@ -19,6 +19,7 @@ import { SalesOrderList } from './SalesOrderList';
 import { SalesOrderManager } from './SalesOrderManager';
 import { PurchaseOrderManager } from './PurchaseOrderManager';
 import { QuotationPdfManager } from './QuotationPdfManager';
+import { QuotationLinkView } from './QuotationLinkView';
 import { ChangeOppClient } from './ChangeOppClient';
 import { OppRemarksLog } from './OppRemarksLog';
 
@@ -188,7 +189,7 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: { 
       }} />
       <div className="risansi-modal" style={{
         position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-        width: 520, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh',
+        width: 820, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh',
         background: 'var(--bg-paper)', borderRadius: 12,
         zIndex: 301, display: 'flex', flexDirection: 'column',
         boxShadow: '0 20px 60px rgba(10,61,143,0.2)', overflow: 'hidden',
@@ -507,7 +508,7 @@ function QuotedItemsSection({ items, meta, revisions, usdRate }: { items: QItem[
           <OfferRevisionsList revisions={revisions} baseOfferInr={meta?.offer_value_inr ?? null} usdRate={usdRate} compact />
         </div>
       )}
-      {meta?.quotation_link && <a href={meta.quotation_link} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: '#1A5CB8', textDecoration: 'none' }}>Open quotation ↗</a>}
+      {meta?.quotation_link && <QuotationLinkView value={meta.quotation_link} label="Open quotation" />}
       {items.length > 0 && (
         <>
           <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--fg-3)', margin: '12px 0 6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Quoted Items ({items.length})</div>

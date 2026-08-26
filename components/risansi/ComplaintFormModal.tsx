@@ -193,7 +193,7 @@ function Field({ label, req, children }: { label: string; req?: boolean; childre
   );
 }
 function Row({ children }: { children: React.ReactNode }) {
-  return <div className="risansi-complaint-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>{children}</div>;
+  return <div className="risansi-complaint-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>{children}</div>;
 }
 function Toggle({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
@@ -206,7 +206,7 @@ function Toggle({ on, onClick, children }: { on: boolean; onClick: () => void; c
 }
 
 const BACKDROP: CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(10,22,40,0.35)', zIndex: 300 };
-const DRAWER: CSSProperties = { position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(520px, 100vw)', zIndex: 301, background: 'var(--bg-paper)', boxShadow: '-8px 0 40px rgba(10,22,40,0.18)', display: 'flex', flexDirection: 'column' };
+const DRAWER: CSSProperties = { position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(680px, 100vw)', zIndex: 301, background: 'var(--bg-paper)', boxShadow: '-8px 0 40px rgba(10,22,40,0.18)', display: 'flex', flexDirection: 'column' };
 const DRAWER_H: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid var(--line)', flexShrink: 0 };
 const CLOSE_BTN: CSSProperties = { width: 30, height: 30, display: 'grid', placeItems: 'center', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 16, color: 'var(--fg-3)', borderRadius: 4 };
 const LBL: CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 };

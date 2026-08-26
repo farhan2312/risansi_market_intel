@@ -45,7 +45,7 @@ export function AddRepButton() {
       {open && (
         <>
           <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(10,22,40,0.35)', zIndex: 300 }} />
-          <div className="risansi-modal" style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: 480, background: 'var(--bg-paper)', borderRadius: 12, zIndex: 301, boxShadow: '0 20px 60px rgba(10,61,143,0.2)', overflow: 'hidden' }}>
+          <div className="risansi-modal" style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: 620, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh', background: 'var(--bg-paper)', borderRadius: 12, zIndex: 301, boxShadow: '0 20px 60px rgba(10,61,143,0.2)', overflowX: 'hidden', overflowY: 'auto' }}>
             <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: 15, fontWeight: 600 }}>Add New Rep</span>
               <button onClick={() => setOpen(false)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--fg-3)', lineHeight: 1 }}>×</button>

@@ -227,7 +227,7 @@ export default async function VisitReportPage({
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', background: 'var(--bg)' }}>
-        <div style={{ maxWidth: 920, margin: '0 auto', padding: '24px 24px 60px' }}>
+        <div style={{ maxWidth: 1180, margin: '0 auto', padding: '24px 24px 60px' }}>
 
           {/* Header */}
           <div style={{

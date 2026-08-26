@@ -51,7 +51,7 @@ export function AddContactDrawer({
 
       {/* Slide-in drawer */}
       <div className="risansi-drawer" style={{
-        position: 'fixed', top: 0, right: 0, bottom: 0, width: 480, zIndex: 50,
+        position: 'fixed', top: 0, right: 0, bottom: 0, width: 560, maxWidth: '100vw', zIndex: 50,
         background: 'var(--bg-paper)', boxShadow: '-8px 0 40px rgba(10,22,40,0.14)',
         display: 'flex', flexDirection: 'column',
       }}>

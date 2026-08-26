@@ -4,6 +4,25 @@ import ExcelJS from 'exceljs';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, canViewClient } from '@/lib/risansi-auth';
 import { appLink, absoluteLink } from '@/lib/risansi-app-url';
+import { parseQuotationLink, quotationRecordLabel } from '@/lib/risansi-quotation-link';
+
+// The quotation as label/value rows: an attached document as one absolute link,
+// a legacy record as one row per url, and a name-only record as the name with no
+// address, because there is none and a blank cell would lose the fact that a
+// quotation was issued at all.
+function quotationLinkRows(stored: string | null | undefined): [string, string][] {
+  const q = parseQuotationLink(stored);
+  if (q.kind === 'upload') return [['Quotation Link', absoluteLink(q.appPath!)]];
+  if (q.kind === 'legacy-name') return [['Quotation Document', q.label]];
+  if (q.kind === 'legacy-link') {
+    const rows = q.urls.map((u, i) => [
+      q.urls.length > 1 ? `Quotation Link ${i + 1}` : 'Quotation Link', u,
+    ] as [string, string]);
+    if (q.label) rows.push(['Quotation Document', q.label]);
+    return rows;
+  }
+  return [];
+}
 
 export const runtime = 'nodejs';
 
@@ -179,7 +198,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     ['Pump Model', txt(opp.pump_model)],
     ['Pump Qty', opp.pump_qty ?? ''],
     ['Documents Attached', docs.length],
-    ['Quotation Link', absoluteLink(txt(opp.quotation_link))],
+    ['Quotation Record', quotationRecordLabel(txt(opp.quotation_link))],
+    // One row per url. This sheet is the full account of a single opportunity,
+    // so a second SharePoint link is listed rather than folded into the first —
+    // 39 opportunities carry one, and until now none of them showed it anywhere.
+    ...quotationLinkRows(txt(opp.quotation_link)),
   ]);
 
   section('Outcome');
@@ -330,7 +353,21 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       const url = appLink(`/api/risansi/opportunities/${oppId}/quotation/${x.id}`);
       return { text: url, hyperlink: url };
     } },
-  ], docs, 'No quotation documents are attached.');
+  // A flat "nothing attached" contradicts the Summary sheet whenever the
+  // Quotation Link three rows up is populated, which it is on 689 opportunities.
+  // Say which of the two situations this is.
+  ], docs, (() => {
+    const q = parseQuotationLink(txt(opp.quotation_link));
+    if (q.kind === 'legacy-link') {
+      return `No documents are held in the portal. This quotation is recorded as ${
+        q.urls.length > 1 ? `${q.urls.length} legacy links` : 'a legacy link'
+      } — see Quotation Link on the Summary sheet.`;
+    }
+    if (q.kind === 'legacy-name') {
+      return `No documents are held in the portal. A quotation is on record as “${q.label}”, with no file and no address.`;
+    }
+    return 'No quotation documents are attached.';
+  })());
 
   sheet('Stage History', [
     { h: 'When', w: 20, f: x => txt(x.changed_at).slice(0, 16).replace('T', ' ') },

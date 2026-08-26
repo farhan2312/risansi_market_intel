@@ -345,7 +345,7 @@ function Overview({ exhibition: ex, users, canManage }: { exhibition: Exhibition
   }
 
   return (
-    <div style={{ ...PANEL, padding: 18, maxWidth: 720 }}>
+    <div style={{ ...PANEL, padding: 18, maxWidth: 960 }}>
       <form action={async fd => {
         setErr('');
         try { await updateExhibition(ex.id, fd); setEdit(false); router.refresh(); }
@@ -1327,7 +1327,7 @@ function Blank({ children }: { children: React.ReactNode }) {
 }
 function Two({ children }: { children: React.ReactNode }) {
   // exh-2col collapses to a single column under 767px (app/mobile.css).
-  return <div className="exh-2col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>{children}</div>;
+  return <div className="exh-2col" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>{children}</div>;
 }
 function F({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (

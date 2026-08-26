@@ -1081,7 +1081,11 @@ export async function createPipelineOpportunity(formData: FormData) {
     negotiation_notes: s('negotiation_notes'),
     po_number: s('po_number'), final_value_cr: crOf('final_value_inr'),
     lost_to_competitor: s('lost_to_competitor'), lost_reason: s('lost_reason'),
-    quotation_link: s('quotation_link'),
+    // quotation_link is deliberately absent. No form has posted it since
+    // uploads replaced typed links, and syncQuotationLink is its only writer —
+    // reading it from the request meant a crafted POST could point an
+    // opportunity's quotation at any address it liked. A new opportunity has no
+    // quotation until a document is attached, so the column defaults to null.
     pump_model: iStr(first.pump_model) ?? s('pump_model'), pump_qty: iInt(first.pump_qty),
     // The intake block — asked wherever an opportunity is raised.
     opportunity_type: s('opportunity_type'),
@@ -1252,7 +1256,13 @@ export async function saveQuotedDetails(oppId: number, formData: FormData) {
        updated_at = NOW()
      WHERE id = $22`,
     [s('quote_ref'), s('quote_date'), s('enquiry_no'), s('enquiry_date'),
-     s('quotation_link'), offerInr,
+     // $5, quotation_link: always null, so the COALESCE above resolves to the
+     // stored value and this UPDATE can never change it. The parameter stays in
+     // place rather than being removed so the other seventeen positions keep
+     // their numbering. Uploading or removing a document is the only way the
+     // link changes, which is what "no new external links" has to mean on the
+     // server as well as in the form.
+     null, offerInr,
      s('market'), s('ril_rep'), s('qtn_prepared_by'), s('client_status_at_quote'),
      s('unit_project'), s('location'), s('qtr'), s('probability_code'),
      s('product_type'), valueCr, s('notes'),

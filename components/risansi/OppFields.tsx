@@ -107,8 +107,25 @@ export function OppFieldRead({ field, value }: { field: OppFieldDef; value: stri
   );
 }
 
+// Columns follow the width instead of being fixed at two.
+//
+// This is the half of "make the forms wider so there is less scrolling" that
+// actually removes rows. A hard '1fr 1fr' does not respond to width at all: a
+// 640px modal widened to 880 gets two 414px fields where it had two 294px
+// fields, the same number of rows and exactly the same scroll height. With
+// auto-fit the extra width becomes a third column, and the 15 carried fields on
+// a move to Won fall from nine rows to seven.
+//
+// 230px is the floor because a select holding "Against Rate Contract" or a date
+// input with a picker glyph stops being readable below roughly that. Fields
+// marked `full` span '1 / -1', which keeps meaning "the whole row" under any
+// column count, so nothing needed changing there.
+//
+// On phones app/mobile.css:64 collapses every inline grid to one column unless
+// the template string contains repeat(2..7 — which this does not — so the phone
+// layout is single-column, exactly as '1fr 1fr' already resolved to.
 export const FIELD_GRID: CSSProperties = {
-  display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12,
+  display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 12,
 };
 
 const LBL: CSSProperties = {

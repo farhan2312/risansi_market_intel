@@ -399,5 +399,5 @@ function TimeRow({ label, who, when, accent }: { label: string; who: string | nu
 
 const LBL: CSSProperties = { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--fg-3)', marginBottom: 5 };
 const OVERLAY: CSSProperties = { position: 'fixed', inset: 0, zIndex: 400, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '6vh 16px 16px' };
-const MODAL: CSSProperties = { width: '100%', maxWidth: 560, background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', borderRadius: 10, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', maxHeight: '88vh', overflowY: 'auto' };
+const MODAL: CSSProperties = { width: '100%', maxWidth: 680, background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', borderRadius: 10, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', maxHeight: '88vh', overflowY: 'auto' };
 const BTN_GHOST: CSSProperties = { padding: '7px 14px', fontSize: 12, fontFamily: 'inherit', background: 'none', border: '1px solid var(--line-strong)', color: 'var(--fg-2)', borderRadius: 6, cursor: 'pointer' };

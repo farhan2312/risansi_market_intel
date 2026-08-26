@@ -324,7 +324,7 @@ function joinDt(no: string | null, dt: string | null): string | null {
 }
 
 const BACKDROP: CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(10,22,40,0.35)', zIndex: 300 };
-const DRAWER: CSSProperties = { position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(560px, 100vw)', zIndex: 301, background: 'var(--bg-paper)', boxShadow: '-8px 0 40px rgba(10,22,40,0.18)', display: 'flex', flexDirection: 'column' };
+const DRAWER: CSSProperties = { position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(720px, 100vw)', zIndex: 301, background: 'var(--bg-paper)', boxShadow: '-8px 0 40px rgba(10,22,40,0.18)', display: 'flex', flexDirection: 'column' };
 const DRAWER_H: CSSProperties = { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, padding: '12px 16px', borderBottom: '1px solid var(--line)', flexShrink: 0 };
 const CLOSE_BTN: CSSProperties = { width: 30, height: 30, display: 'grid', placeItems: 'center', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 16, color: 'var(--fg-3)', borderRadius: 4, flexShrink: 0 };
 const SECTION: CSSProperties = { fontSize: 10, fontWeight: 700, color: '#0A3D8F', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 };

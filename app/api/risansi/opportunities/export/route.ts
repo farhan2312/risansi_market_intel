@@ -4,7 +4,10 @@ import ExcelJS from 'exceljs';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, clientScopeSql } from '@/lib/risansi-auth';
 import { DROP_REASONS, PRODUCT_TYPES as OPP_PRODUCT_TYPES } from '@/lib/risansi-opportunity-fields';
-import { absoluteLink } from '@/lib/risansi-app-url';
+import { absoluteLink, APP_URL } from '@/lib/risansi-app-url';
+import {
+  quotationCellText, quotationHref, quotationRecordLabel,
+} from '@/lib/risansi-quotation-link';
 
 export const runtime = 'nodejs';
 
@@ -195,7 +198,15 @@ export async function GET(req: Request) {
   for (const s of sos) { const a = soByOpp.get(s.opportunity_id) ?? []; a.push(s); soByOpp.set(s.opportunity_id, a); }
 
   // Column catalogue. `list`/`date`/`num` drive the strict validation applied below.
-  type Col = { h: string; w: number; f: (r: Row) => string | number; fmt?: string; list?: string; date?: boolean; num?: boolean; link?: boolean };
+  // `href` exists because the text of a link cell and its target are not always
+  // the same string. An opportunity can carry two SharePoint urls in one field,
+  // and a cell holds one hyperlink: the text shows both so neither is lost, the
+  // hyperlink points at the first.
+  type Col = {
+    h: string; w: number; f: (r: Row) => string | number;
+    fmt?: string; list?: string; date?: boolean; num?: boolean;
+    link?: boolean; href?: (r: Row) => string | null;
+  };
   const so = (r: Row, i: number, part: 'num' | 'date' | 'val') => {
     const s = (soByOpp.get(r.id) ?? [])[i];
     if (!s) return '';
@@ -249,7 +260,18 @@ export async function GET(req: Request) {
     // like /api/risansi/opportunities/26/quotation, which is dead the moment the
     // sheet leaves the browser — prefixing the portal origin is what makes the
     // quote openable from the spreadsheet.
-    { h: 'Quotation Link', w: 34, f: r => absoluteLink(r.quotation_link), link: true },
+    //
+    // What kind of record it is, as its own column, because "has a quotation"
+    // and "this portal holds the PDF" are different facts and Power BI cannot
+    // tell them apart from a url. Documents (above) already counts uploads only.
+    { h: 'Quotation Record', w: 18, f: r => quotationRecordLabel(r.quotation_link) },
+    {
+      h: 'Quotation Link', w: 34, link: true,
+      // Every url, one per line, so the 39 opportunities carrying a second
+      // quotation do not silently export as though they carried one.
+      f: r => quotationCellText(r.quotation_link, { origin: APP_URL }),
+      href: r => { const h = quotationHref(r.quotation_link); return h ? absoluteLink(h) : null; },
+    },
     { h: 'Created By', w: 16, f: r => r.created_by ?? '' },
     { h: 'Created On', w: 12, f: r => (r.created_at ? r.created_at.slice(0, 10) : '') },
     { h: 'Updated On', w: 12, f: r => (r.updated_at ? r.updated_at.slice(0, 10) : '') },
@@ -308,11 +330,14 @@ export async function GET(req: Request) {
     COLS.forEach((c, i) => {
       const cell = row.getCell(i + 1);
       const v = c.f(r);
-      // A clickable hyperlink when the value really is one. The 12 legacy rows
-      // holding a bare filename rather than a url fall through to plain text —
-      // better a visibly dead string than a link that pretends to work.
-      if (c.link && typeof v === 'string' && /^https?:\/\//i.test(v)) {
-        cell.value = { text: v, hyperlink: v };
+      // A clickable hyperlink when there is really somewhere to go. The 10
+      // legacy rows holding a document name rather than a url fall through to
+      // plain text — better a visibly dead string than a link that pretends to
+      // work. Testing the href rather than the text is what stops a two-url
+      // value being handed to Excel whole, newlines and all.
+      const href = c.href ? c.href(r) : (typeof v === 'string' ? v : '');
+      if (c.link && href && /^https?:\/\//i.test(href) && typeof v === 'string') {
+        cell.value = { text: v, hyperlink: href };
         cell.font = { color: { argb: 'FF1A5CB8' }, underline: true };
       } else {
         cell.value = v;

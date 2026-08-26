@@ -202,7 +202,7 @@ export function ClientFormDrawer({ mode, client, existingContacts, allowCodeEdit
       {/* Slide-in drawer — 560px */}
       <div style={{
         position: 'fixed', top: 0, right: 0, bottom: 0,
-        width: 560, maxWidth: '100vw', zIndex: 50,
+        width: 720, maxWidth: '100vw', zIndex: 50,
         background: 'var(--bg-paper)',
         boxShadow: '-8px 0 40px rgba(10,22,40,0.14)',
         display: 'flex', flexDirection: 'column',
@@ -614,8 +614,13 @@ function Section({ label, count, children }: { label: string; count?: number; ch
   );
 }
 
+// Columns follow the width. A fixed '1fr 1fr' ignores the container entirely,
+// so widening the shell produced wider fields and exactly the same number of
+// rows — which is not what "less scrolling" means. With auto-fit a row given
+// three fields lays them out three-across when there is room, and a narrow
+// container gets one clean column instead of two cramped ones.
 function Row({ children }: { children: React.ReactNode }) {
-  return <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>{children}</div>;
+  return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>{children}</div>;
 }
 
 function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {

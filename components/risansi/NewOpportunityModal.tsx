@@ -103,7 +103,7 @@ export function NewOpportunityModal(props: NewOpportunityModalProps) {
         display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
       }}>
       <div className="risansi-modal" style={{
-        width: 640, maxWidth: '100%', maxHeight: '92vh', overflowY: 'auto',
+        width: 880, maxWidth: '100%', maxHeight: '92vh', overflowY: 'auto',
         background: 'var(--bg-paper)', color: 'var(--fg)', borderRadius: 12,
         boxShadow: '0 24px 64px rgba(10,61,143,0.25)',
       }}>

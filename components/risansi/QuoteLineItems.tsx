@@ -62,8 +62,14 @@ export function QuoteLineItems({ items, onChange, sumLabel = true }: {
         )}
       </div>
 
+      {/* The floor below which eight columns stop being readable and the row
+          scrolls sideways instead. It was 720, which no form was ever wide
+          enough to satisfy — the stage-move modal offered 680 and the create
+          modal 600, so this table was in permanent horizontal scroll in both.
+          At the current widths (840 and 780 of usable room) it now fits, and
+          620 keeps it honest on a tablet rather than pretending it still does. */}
       <div style={{ overflowX: 'auto' }}>
-        <div style={{ minWidth: 720 }}>
+        <div style={{ minWidth: 620 }}>
           <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: 6, marginBottom: 4 }}>
             {COLS.map(c => <div key={c.key} style={HEAD}>{c.label}</div>)}
             <div />
@@ -110,6 +116,12 @@ const HEAD: CSSProperties = {
   letterSpacing: '0.04em', color: 'var(--fg-3)',
 };
 const INPUT: CSSProperties = {
+  // Defensive, not load-bearing: a grid item defaults to min-width: auto, so a
+  // long value or placeholder can push its own track wider than its fr share and
+  // shove the row into horizontal scroll. Measured in the browser, the eight
+  // tracks resolve well inside the container without it — the scroll this
+  // component used to show came from the minWidth floor below, not from here.
+  minWidth: 0,
   width: '100%', boxSizing: 'border-box', padding: '6px 8px', fontSize: 12,
   fontFamily: 'inherit', background: 'var(--bg-sunk)', border: '1px solid var(--line-strong)',
   borderRadius: 5, color: 'var(--fg)', outline: 'none',
