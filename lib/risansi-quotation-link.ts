@@ -25,6 +25,15 @@
 // Nothing here discards anything. The stored text is left exactly as it is and
 // read more carefully instead, which is what turns those 39 second links back
 // into something a rep can click.
+//
+// The legacy set is CLOSED. createOpportunity and updateOpportunity no longer
+// read quotation_link from the request, so the only writer left is
+// syncQuotationLink, which writes a path it builds itself. That is what makes
+// the assumptions below safe rather than lucky: every external url this parser
+// will ever see is one of the 689 already in the table, and all of them were
+// checked — none contains an internal space, none ends in punctuation, and every
+// one round-trips through new URL(). A parser facing arbitrary future input
+// would need to be stricter than this one is.
 
 /** Matches a url up to the first whitespace or angle/quote delimiter. */
 const URL_RE = /https?:\/\/[^\s<>"']+/gi;
@@ -57,14 +66,18 @@ export function parseQuotationLink(stored: string | null | undefined): Quotation
   const v = (stored ?? '').trim();
   if (!v) return EMPTY;
 
-  // An in-app path is unambiguous and cannot contain anything else. A leading
-  // '//' is excluded deliberately: '//evil.com/x' is a protocol-relative url, so
-  // treating it as an in-app path would put an off-site address in an href that
-  // every reader believes points inside the portal. Nothing writes that shape
-  // today — syncQuotationLink is the only writer and it builds the path itself —
-  // but this function is what decides whether a value is safe to link, so the
-  // check belongs here rather than in the trust of its callers.
-  if (v.startsWith('/') && !v.startsWith('//')) {
+  // An in-app path is unambiguous and cannot contain anything else — but the
+  // SECOND character decides whether it is in-app at all. '//evil.com/x' is a
+  // protocol-relative url, and a browser normalises a backslash to a forward
+  // slash for http(s), so '/\evil.com/x' resolves off-site in exactly the same
+  // way. Either would put an outside address in an href that every reader
+  // believes points inside the portal.
+  //
+  // Nothing can write those shapes today: syncQuotationLink is the only writer
+  // left and it builds the path itself. The check lives here anyway, because
+  // this function is what decides whether a value is safe to put in an href, and
+  // that decision should not rest on the good behaviour of its callers.
+  if (v.startsWith('/') && v[1] !== '/' && v[1] !== '\\') {
     return { kind: 'upload', appPath: v, urls: [], label: '' };
   }
 
@@ -76,19 +89,6 @@ export function parseQuotationLink(stored: string | null | undefined): Quotation
 
   if (urls.length) return { kind: 'legacy-link', appPath: null, urls, label };
   return { kind: 'legacy-name', appPath: null, urls: [], label };
-}
-
-/**
- * Does this opportunity have a document the app actually holds?
- *
- * The distinction the counts care about. A SharePoint url is a note about where
- * a quotation lives on someone's OneDrive; it is not a document on file here,
- * it can rot without the app knowing, and it is not covered by any of the access
- * rules the portal enforces. Counting the two together made "quotes on file"
- * read 679 higher than the number of quotations this system can actually produce.
- */
-export function hasAttachedDocument(stored: string | null | undefined): boolean {
-  return parseQuotationLink(stored).kind === 'upload';
 }
 
 /** A record that predates uploads: an external url, or a name with no address. */
@@ -123,14 +123,59 @@ export function quotationLinkCount(stored: string | null | undefined): number {
  * portal holds from quotations that live on someone's OneDrive. Deliberately a
  * closed vocabulary — no document names, no urls — because a Power BI slicer
  * built on this should have five entries, not nine hundred.
+ *
+ * `docCount` is the row count from opportunity_quotation_files and it decides
+ * the answer whenever it is above zero. The stored link cannot: syncQuotationLink
+ * will not overwrite a legacy url, so an opportunity that had a SharePoint link
+ * and has since had its quotation uploaded still stores the SharePoint url.
+ * Reading the string alone labels that row "Legacy link" while the PDF sits in
+ * the portal — and as reps work through the 678, that becomes the common case
+ * rather than the exception.
  */
-export function quotationRecordLabel(stored: string | null | undefined): string {
+export function quotationRecordLabel(
+  stored: string | null | undefined, opts?: { docCount?: number },
+): string {
+  const docs = opts?.docCount ?? 0;
   const q = parseQuotationLink(stored);
+  if (docs > 0) {
+    const kept = q.kind === 'legacy-link' || q.kind === 'legacy-name';
+    return kept ? 'Attached (legacy kept)' : 'Attached';
+  }
   switch (q.kind) {
     case 'upload':      return 'Attached';
     case 'legacy-link': return q.urls.length > 1 ? `Legacy link (${q.urls.length})` : 'Legacy link';
     case 'legacy-name': return 'Name only';
     default:            return '';
+  }
+}
+
+/**
+ * Where a spreadsheet should send someone for this opportunity's quotation.
+ *
+ * The document the portal holds wins, and the legacy record is kept in the cell
+ * text underneath rather than being dropped — the whole point being that neither
+ * one disappears. Returns an absolute address, because a relative path is dead
+ * the moment the sheet leaves the browser.
+ */
+export function quotationExportLink(
+  stored: string | null | undefined,
+  opts: { docCount?: number; oppId: number | string; origin: string },
+): { text: string; href: string | null } {
+  const origin = opts.origin.replace(/\/+$/, '');
+  const q = parseQuotationLink(stored);
+  const portal = `${origin}/api/risansi/opportunities/${opts.oppId}/quotation`;
+
+  if ((opts.docCount ?? 0) > 0) {
+    const legacy = q.kind === 'legacy-link' ? q.urls
+      : q.kind === 'legacy-name' ? [`${q.label} (no file)`]
+      : [];
+    return { text: [portal, ...legacy].join('\n'), href: portal };
+  }
+  switch (q.kind) {
+    case 'upload':      return { text: `${origin}${q.appPath}`, href: `${origin}${q.appPath}` };
+    case 'legacy-link': return { text: q.urls.join('\n'), href: q.urls[0] ?? null };
+    case 'legacy-name': return { text: `${q.label} (no file)`, href: null };
+    default:            return { text: '', href: null };
   }
 }
 

@@ -74,6 +74,33 @@ export function QuotationLinkView({ value, compact, label }: {
   );
 }
 
+/**
+ * The legacy badge on its own, for rows that render the link themselves.
+ *
+ * Client 360 hangs the quotation off the deal value and the stage table hangs it
+ * off the quote reference, so neither can use the view above — but both still
+ * have to say that a SharePoint url is not a document this portal holds. Without
+ * it the only difference between the two is a title attribute, which a phone
+ * never shows.
+ */
+export function LegacyMark({ count, noFile }: { count?: number; noFile?: boolean }) {
+  const many = (count ?? 0) > 1;
+  return (
+    <span
+      title={noFile
+        ? 'A quotation is on record here, but no file was attached and no address was recorded.'
+        : many
+          ? `${count} legacy quotation links on this opportunity — open it to see them all`
+          : 'Recorded before quotation uploads existed — opens SharePoint'}
+      style={{
+        ...CHIP, fontSize: 8.5, padding: '0 3px', opacity: 0.8,
+        color: 'var(--warn-strong, #92400E)', borderColor: 'var(--warn-strong, #92400E)',
+      }}>
+      {noFile ? 'no file' : many ? `legacy ×${count}` : 'legacy'}
+    </span>
+  );
+}
+
 function Chip({ children, tone }: { children: ReactNode; tone: 'legacy' | 'muted' }) {
   return (
     <span style={{

@@ -6,22 +6,34 @@ import { getCurrentUser, canViewClient } from '@/lib/risansi-auth';
 import { appLink, absoluteLink } from '@/lib/risansi-app-url';
 import { parseQuotationLink, quotationRecordLabel } from '@/lib/risansi-quotation-link';
 
-// The quotation as label/value rows: an attached document as one absolute link,
-// a legacy record as one row per url, and a name-only record as the name with no
-// address, because there is none and a blank cell would lose the fact that a
-// quotation was issued at all.
-function quotationLinkRows(stored: string | null | undefined): [string, string][] {
+// The quotation as label/value rows: the document the portal holds first, then
+// every legacy address on its own row, then any document name that came with
+// them. A name-only record still gets a row, because there is no address to give
+// and a blank cell would lose the fact that a quotation was issued at all.
+//
+// docCount decides which is primary. syncQuotationLink never overwrites a legacy
+// url, so an opportunity can hold PDFs and still store the SharePoint link it had
+// before them; reading the link alone would send the reader to OneDrive past a
+// document that is right here.
+function quotationLinkRows(
+  stored: string | null | undefined, oppId: number | string, docCount: number,
+): [string, string][] {
   const q = parseQuotationLink(stored);
-  if (q.kind === 'upload') return [['Quotation Link', absoluteLink(q.appPath!)]];
-  if (q.kind === 'legacy-name') return [['Quotation Document', q.label]];
+  const rows: [string, string][] = [];
+
+  if (docCount > 0) rows.push(['Quotation Link', appLink(`/api/risansi/opportunities/${oppId}/quotation`)]);
+  else if (q.kind === 'upload') rows.push(['Quotation Link', absoluteLink(q.appPath!)]);
+
   if (q.kind === 'legacy-link') {
-    const rows = q.urls.map((u, i) => [
-      q.urls.length > 1 ? `Quotation Link ${i + 1}` : 'Quotation Link', u,
-    ] as [string, string]);
-    if (q.label) rows.push(['Quotation Document', q.label]);
-    return rows;
+    const label = docCount > 0 || q.urls.length > 1 ? 'Legacy Quotation Link' : 'Quotation Link';
+    q.urls.forEach((u, i) => rows.push([
+      q.urls.length > 1 ? `${label} ${i + 1}` : label, u,
+    ]));
   }
-  return [];
+  if (q.label && (q.kind === 'legacy-link' || q.kind === 'legacy-name')) {
+    rows.push(['Quotation Document', q.kind === 'legacy-name' ? `${q.label} (no file)` : q.label]);
+  }
+  return rows;
 }
 
 export const runtime = 'nodejs';
@@ -198,11 +210,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     ['Pump Model', txt(opp.pump_model)],
     ['Pump Qty', opp.pump_qty ?? ''],
     ['Documents Attached', docs.length],
-    ['Quotation Record', quotationRecordLabel(txt(opp.quotation_link))],
+    ['Quotation Record', quotationRecordLabel(txt(opp.quotation_link), { docCount: docs.length })],
     // One row per url. This sheet is the full account of a single opportunity,
     // so a second SharePoint link is listed rather than folded into the first —
     // 39 opportunities carry one, and until now none of them showed it anywhere.
-    ...quotationLinkRows(txt(opp.quotation_link)),
+    ...quotationLinkRows(txt(opp.quotation_link), oppId, docs.length),
   ]);
 
   section('Outcome');

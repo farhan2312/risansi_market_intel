@@ -13,6 +13,7 @@ import { OfferRevisionsList } from '@/components/risansi/OfferRevisionsField';
 import type { OfferRevision } from '@/lib/risansi-offer-revisions';
 import { hasRole, getCurrentUser, canViewClient } from '@/lib/risansi-auth';
 import { isLegacyQuotation, quotationHref, quotationLinkCount } from '@/lib/risansi-quotation-link';
+import { LegacyMark } from '@/components/risansi/QuotationLinkView';
 import { ClientActionButtons, PipelineOppBtn } from '@/components/risansi/ClientActionButtons';
 import { AddContactButton } from '@/components/risansi/AddContactButton';
 import { EditContactButton } from '@/components/risansi/EditContactButton';
@@ -1479,6 +1480,19 @@ export default async function ClientProfilePage({
                           }}>
                             {formatRev(Number(o.value_cr) * 1e7)}
                           </span>
+                        )}
+                        {/* A legacy record has to look different from a document
+                            the portal holds, or the 679 of them keep reading as
+                            attachments. A name-only record has nothing to link at
+                            all, so without this badge it would vanish from the row
+                            while the panel header above still counted it. */}
+                        {(o.doc_count ?? 0) === 0 && isLegacyQuotation(o.quotation_link) && (
+                          <div style={{ marginTop: 2 }}>
+                            <LegacyMark
+                              count={quotationLinkCount(o.quotation_link)}
+                              noFile={quotationLinkCount(o.quotation_link) === 0}
+                            />
+                          </div>
                         )}
                         {Number(o.value_cr) > 0 && (
                           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 400, color: 'var(--fg-3)', marginTop: 1 }}>

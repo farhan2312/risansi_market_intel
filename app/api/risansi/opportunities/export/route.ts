@@ -4,10 +4,8 @@ import ExcelJS from 'exceljs';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, clientScopeSql } from '@/lib/risansi-auth';
 import { DROP_REASONS, PRODUCT_TYPES as OPP_PRODUCT_TYPES } from '@/lib/risansi-opportunity-fields';
-import { absoluteLink, APP_URL } from '@/lib/risansi-app-url';
-import {
-  quotationCellText, quotationHref, quotationRecordLabel,
-} from '@/lib/risansi-quotation-link';
+import { APP_URL } from '@/lib/risansi-app-url';
+import { quotationExportLink, quotationRecordLabel } from '@/lib/risansi-quotation-link';
 
 export const runtime = 'nodejs';
 
@@ -29,6 +27,34 @@ const LOST_REASONS  = [
   'Relationship — Existing supplier', 'Budget — Project cancelled', 'Delivery — Timeline mismatch',
   'No decision — Deferred', 'Other',
 ];
+
+// One array behind the hidden Lists sheet: it decides the column letter, the
+// header, the values written, and the validation range that points at them.
+//
+// The ranges used to be hand-written next to each column and they drift. This is
+// the second time: PRODUCT_TYPES outgrew $B$2:$B$7 when a seventh type arrived
+// and was patched into a computed range on its own, and DROP_REASONS then
+// outgrew $H$2:$H$6 when the pipeline rework added 'Inquiry Regret' and
+// 'Incorrect entry / Duplicate' — so the sheet wrote both values into column H
+// and refused them in its own dropdown. Patching one range at a time clearly
+// does not hold; deriving every range from the array it points at does.
+const LIST_SOURCES = [
+  { header: 'Stage',        values: STAGES },
+  { header: 'ProductType',  values: PRODUCT_TYPES },
+  { header: 'ProbCode',     values: PROB_CODES },
+  { header: 'Market',       values: MARKETS },
+  { header: 'ClientStatus', values: CLIENT_STATUS },
+  { header: 'Quarter',      values: QUARTERS },
+  { header: 'LostReason',   values: LOST_REASONS },
+  { header: 'DropReason',   values: DROP_REASONS },
+] as const satisfies readonly { header: string; values: readonly string[] }[];
+
+const listRange = (values: readonly string[]) => {
+  const i = LIST_SOURCES.findIndex(sr => sr.values === values);
+  if (i < 0) throw new Error('listRange: that list is not in LIST_SOURCES');
+  const col = String.fromCharCode(65 + i);
+  return `Lists!$${col}$2:$${col}$${1 + values.length}`;
+};
 
 // Value buckets on value_cr (Crores) — same constants as the pipeline filter, so
 // they inline safely (no params).
@@ -222,22 +248,22 @@ export async function GET(req: Request) {
     { h: 'Industry', w: 16, f: r => r.industry ?? '' },
     { h: 'Tour', w: 16, f: r => r.tour_name ?? '' },
     { h: 'Reps / Manager in Tour', w: 30, f: r => r.tour_people ?? '' },
-    { h: 'Stage', w: 13, f: r => r.stage ?? '', list: 'Lists!$A$2:$A$9' },
+    { h: 'Stage', w: 13, f: r => r.stage ?? '', list: listRange(STAGES) },
     { h: 'Product / Description', w: 30, f: r => r.product ?? '' },
     { h: 'Project Name / Unit', w: 26, f: r => r.unit_project ?? '' },
-    { h: 'Product Type', w: 13, f: r => r.product_type ?? '', list: `Lists!$B$2:$B$${1 + PRODUCT_TYPES.length}` },
+    { h: 'Product Type', w: 13, f: r => r.product_type ?? '', list: listRange(PRODUCT_TYPES) },
     { h: 'Value (₹)', w: 14, f: r => rupees(r.value_cr), fmt: '#,##0', num: true },
-    { h: 'Probability Code', w: 14, f: r => r.probability_code ?? '', list: 'Lists!$C$2:$C$5' },
+    { h: 'Probability Code', w: 14, f: r => r.probability_code ?? '', list: listRange(PROB_CODES) },
     { h: 'Probability %', w: 11, f: r => (r.probability ?? ''), num: true },
     { h: 'Expected Close', w: 14, f: r => r.eta_text ?? '' },
     { h: 'Quote No.', w: 16, f: r => r.quote_ref ?? '' },
     { h: 'Quote Date', w: 13, f: r => r.quote_date ?? '', date: true },
     { h: 'Enquiry No.', w: 16, f: r => r.enquiry_no ?? '' },
     { h: 'Enquiry Date', w: 13, f: r => r.enquiry_date ?? '', date: true },
-    { h: 'Market', w: 11, f: r => r.market ?? '', list: 'Lists!$D$2:$D$3' },
-    { h: 'Client Status', w: 12, f: r => r.client_status_at_quote ?? '', list: 'Lists!$E$2:$E$3' },
+    { h: 'Market', w: 11, f: r => r.market ?? '', list: listRange(MARKETS) },
+    { h: 'Client Status', w: 12, f: r => r.client_status_at_quote ?? '', list: listRange(CLIENT_STATUS) },
     { h: 'Qtn. Prepared By', w: 16, f: r => r.qtn_prepared_by ?? '' },
-    { h: 'Quarter', w: 9,  f: r => r.qtr ?? '', list: 'Lists!$F$2:$F$5' },
+    { h: 'Quarter', w: 9,  f: r => r.qtr ?? '', list: listRange(QUARTERS) },
     { h: 'Location', w: 16, f: r => r.location ?? '' },
     { h: 'Total Offer (₹)', w: 15, f: r => (r.offer_value_inr ?? ''), fmt: '#,##0', num: true },
     { h: 'Revised Offer (₹)', w: 15, f: r => (r.revised_offer_value_inr ?? ''), fmt: '#,##0', num: true },
@@ -251,26 +277,27 @@ export async function GET(req: Request) {
     { h: 'Final Value (₹)', w: 15, f: r => rupees(r.final_value_cr), fmt: '#,##0', num: true },
     { h: 'PO Number', w: 16, f: r => r.po_number ?? '' },
     { h: 'Lost To Competitor', w: 18, f: r => r.lost_to_competitor ?? '' },
-    { h: 'Lost Reason', w: 26, f: r => r.lost_reason ?? '', list: 'Lists!$G$2:$G$9' },
-    { h: 'Drop Reason', w: 28, f: r => r.drop_reason ?? '', list: 'Lists!$H$2:$H$6' },
+    { h: 'Lost Reason', w: 26, f: r => r.lost_reason ?? '', list: listRange(LOST_REASONS) },
+    { h: 'Drop Reason', w: 28, f: r => r.drop_reason ?? '', list: listRange(DROP_REASONS) },
     // Derived, so no edit validation: it is a readout of what is attached, not
     // a field anyone fills in on the reconciliation pass.
     { h: 'Documents', w: 11, f: r => r.doc_count ?? 0 },
     // Absolute, and a real Excel hyperlink. The stored value is an in-app path
-    // like /api/risansi/opportunities/26/quotation, which is dead the moment the
-    // sheet leaves the browser — prefixing the portal origin is what makes the
-    // quote openable from the spreadsheet.
-    //
     // What kind of record it is, as its own column, because "has a quotation"
     // and "this portal holds the PDF" are different facts and Power BI cannot
-    // tell them apart from a url. Documents (above) already counts uploads only.
-    { h: 'Quotation Record', w: 18, f: r => quotationRecordLabel(r.quotation_link) },
+    // tell them apart from a url. Documents (above) already counts uploads only,
+    // and doc_count is what decides both of these columns too — a row can hold
+    // PDFs and still carry the SharePoint url it had before them.
+    { h: 'Quotation Record', w: 18, f: r => quotationRecordLabel(r.quotation_link, { docCount: r.doc_count ?? 0 }) },
     {
       h: 'Quotation Link', w: 34, link: true,
-      // Every url, one per line, so the 39 opportunities carrying a second
-      // quotation do not silently export as though they carried one.
-      f: r => quotationCellText(r.quotation_link, { origin: APP_URL }),
-      href: r => { const h = quotationHref(r.quotation_link); return h ? absoluteLink(h) : null; },
+      // Absolute, because a relative path is dead the moment the sheet leaves
+      // the browser. Every address on its own line — the attached document
+      // first, then any legacy url — so the 39 opportunities carrying a second
+      // quotation do not silently export as though they carried one, and a row
+      // that has both does not lose either.
+      f: r => quotationExportLink(r.quotation_link, { docCount: r.doc_count ?? 0, oppId: r.id, origin: APP_URL }).text,
+      href: r => quotationExportLink(r.quotation_link, { docCount: r.doc_count ?? 0, oppId: r.id, origin: APP_URL }).href,
     },
     { h: 'Created By', w: 16, f: r => r.created_by ?? '' },
     { h: 'Created On', w: 12, f: r => (r.created_at ? r.created_at.slice(0, 10) : '') },
@@ -295,10 +322,9 @@ export async function GET(req: Request) {
 
   // Hidden sheet holding the dropdown option lists.
   const lists = wb.addWorksheet('Lists', { state: 'veryHidden' });
-  const listCols = [STAGES, PRODUCT_TYPES, PROB_CODES, MARKETS, CLIENT_STATUS, QUARTERS, LOST_REASONS, [...DROP_REASONS]];
-  listCols.forEach((arr, ci) => {
-    lists.getCell(1, ci + 1).value = ['Stage', 'ProductType', 'ProbCode', 'Market', 'ClientStatus', 'Quarter', 'LostReason', 'DropReason'][ci];
-    arr.forEach((v, ri) => { lists.getCell(ri + 2, ci + 1).value = v; });
+  LIST_SOURCES.forEach((src, ci) => {
+    lists.getCell(1, ci + 1).value = src.header;
+    src.values.forEach((v, ri) => { lists.getCell(ri + 2, ci + 1).value = v; });
   });
 
   const ws = wb.addWorksheet('Opportunities', { views: [{ state: 'frozen', xSplit: 3, ySplit: 3 }] });

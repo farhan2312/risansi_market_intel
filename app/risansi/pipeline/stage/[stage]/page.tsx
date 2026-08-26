@@ -10,6 +10,7 @@ import { getUsdRate } from '@/lib/risansi-settings';
 import { fmtUsdFromInr } from '@/lib/risansi-offer-revisions';
 import { parseOppFilters, buildOppFilter, oppFilterQuery } from '@/lib/risansi-opp-filters';
 import { quotationHref, isLegacyQuotation, quotationLinkCount } from '@/lib/risansi-quotation-link';
+import { LegacyMark } from '@/components/risansi/QuotationLinkView';
 import {
   stageFromSlug, STAGE_COLOR, STAGE_BLURB, STAGE_COLUMNS, ageBasisSql, summariseStage,
 } from '@/lib/risansi-stage-dashboard';
@@ -346,25 +347,6 @@ export default async function StageDashboardPage({ params, searchParams }: {
 
 // ── Cell rendering ─────────────────────────────────────────────
 
-// A quotation recorded before uploads existed: an external url on someone's
-// OneDrive, or just a document name. Marked so the row does not read as though
-// the portal holds the file.
-function LegacyMark({ count }: { count?: number }) {
-  return (
-    <span
-      title={count && count > 1
-        ? `${count} legacy quotation links on this opportunity — open the opportunity to see them all`
-        : 'Recorded before quotation uploads existed'}
-      style={{
-        fontSize: 8.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase',
-        color: 'var(--warn-strong, #92400E)', border: '1px solid var(--warn-strong, #92400E)',
-        borderRadius: 3, padding: '0 3px', opacity: 0.8, whiteSpace: 'nowrap',
-      }}>
-      {count && count > 1 ? `legacy ×${count}` : 'legacy'}
-    </span>
-  );
-}
-
 function renderCell(r: Row, key: string, usdRate: number, inr: (v: number | null | undefined) => string) {
   switch (key) {
     case 'client_name':
@@ -381,7 +363,7 @@ function renderCell(r: Row, key: string, usdRate: number, inr: (v: number | null
       const href = attached ? `/api/risansi/opportunities/${r.id}/quotation` : quotationHref(r.quotation_link);
       const legacy = !attached && isLegacyQuotation(r.quotation_link);
       const ref = <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{r.quote_ref ?? '—'}</span>;
-      if (!href) return legacy ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>{ref}<LegacyMark /></span> : ref;
+      if (!href) return legacy ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>{ref}<LegacyMark noFile /></span> : ref;
       return (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
           <a href={href} target="_blank" rel="noreferrer"
