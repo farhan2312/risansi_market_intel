@@ -73,7 +73,10 @@ interface MapClient {
 }
 
 interface StatsRow {
-  total_active: number; visited_fy: number; overdue: number; never_visited: number;
+  // Activity over the visible period — what the tiles show.
+  visits: number; clients: number; completed: number; missed: number;
+  // Coverage of the client base — still needed by the Overdue tab and its table.
+  overdue: number;
 }
 
 // ── Constants ──────────────────────────────────────────────────
@@ -216,6 +219,15 @@ export default async function FieldActivityPage({
     const same = a.getFullYear() === b.getFullYear();
     return `${a.toLocaleDateString('en-IN', same ? { month: 'short' } : { month: 'short', year: 'numeric' })} – ${b.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}`;
   })();
+
+  // The range the KPI tiles cover: exactly what the calendar is rendering, grid
+  // cells included, so a visit visible in a trailing cell is also counted above.
+  // Pinning the tiles to a fixed 90 days while the calendar moved underneath them
+  // is half of why they looked frozen.
+  const [statsFrom, statsTo] =
+    calView === 'week'    ? [weekStart, weekEndExclusive]
+    : calView === 'quarter' ? [qGridStart, qGridEnd]
+    : [mGridStart, mGridEnd];
 
   // ── Rep lookup ───────────────────────────────────────────────
 
@@ -389,31 +401,55 @@ export default async function FieldActivityPage({
       return rows;
     }, []),
 
-    // 6. Stats
+    // 6. Stats — ACTIVITY over the period the calendar is showing.
+    //
+    // These used to count CLIENTS: active clients whose last_visit_date fell in a
+    // fixed 90-day window, scoped by the selected rep's TOUR. Three things made
+    // that read as broken next to the calendar. It counted clients while the
+    // calendar counted visits; `status = 'ACTIVE'` excluded leads and prospects,
+    // which for one rep meant 9 of the 68 clients he had actually visited; and
+    // tour membership credited him for colleagues' visits while ignoring his own
+    // off-tour work. Selecting that rep showed 5 against 82 visits on screen.
+    //
+    // Now: visits in the visible range, attributed to whoever made them.
     q<StatsRow>(async () => {
       const { rows } = await risansiPool.query<{
-        total_active: string; visited_fy: string; overdue: string; never_visited: string;
+        visits: string; clients: string; completed: string; missed: string;
       }>(
         `SELECT
-           COUNT(*) FILTER (WHERE c.status = 'ACTIVE')::text                                        AS total_active,
-           COUNT(*) FILTER (WHERE c.status = 'ACTIVE'
-             AND c.last_visit_date >= CURRENT_DATE - INTERVAL '90 days')::text                      AS visited_fy,
-           COUNT(*) FILTER (WHERE c.status = 'ACTIVE'
+           COUNT(*)::text                                                        AS visits,
+           COUNT(DISTINCT v.client_id)::text                                     AS clients,
+           COUNT(*) FILTER (WHERE v.status = 'completed')::text                  AS completed,
+           -- Still marked planned with the day gone by. Anything planned ahead of
+           -- today is simply upcoming, and counting it as missed would make every
+           -- forward plan look like a failure.
+           COUNT(*) FILTER (WHERE v.status = 'planned'
+             AND v.visit_date < CURRENT_DATE)::text                              AS missed
+         FROM visits v
+         WHERE v.visit_date >= $1 AND v.visit_date < $2
+           ${vVisAnd}${filters.visitAnd}`,
+        [statsFrom, statsTo],
+      );
+
+      // Coverage, kept because the Overdue tab counts and paginates on it. Not
+      // shown in the tiles any more — it answers a different question from the
+      // calendar and was the source of the mismatch.
+      const { rows: cov } = await risansiPool.query<{ overdue: string }>(
+        `SELECT COUNT(*) FILTER (WHERE c.status = 'ACTIVE'
              AND (c.last_visit_date IS NULL
-               OR c.last_visit_date < CURRENT_DATE - INTERVAL '90 days'))::text                     AS overdue,
-           COUNT(*) FILTER (WHERE c.status = 'ACTIVE'
-             AND c.last_visit_date IS NULL)::text                                                    AS never_visited
-         FROM clients c
-         WHERE c.deleted_at IS NULL${cVisAnd}${filters.clientAnd}`,
+               OR c.last_visit_date < CURRENT_DATE - INTERVAL '90 days'))::text AS overdue
+           FROM clients c
+          WHERE c.deleted_at IS NULL${cVisAnd}${filters.clientAnd}`,
       );
       const r = rows[0];
       return {
-        total_active:  Number(r?.total_active  ?? 0),
-        visited_fy:    Number(r?.visited_fy    ?? 0),
-        overdue:       Number(r?.overdue       ?? 0),
-        never_visited: Number(r?.never_visited ?? 0),
+        visits:    Number(r?.visits    ?? 0),
+        clients:   Number(r?.clients   ?? 0),
+        completed: Number(r?.completed ?? 0),
+        missed:    Number(r?.missed    ?? 0),
+        overdue:   Number(cov[0]?.overdue ?? 0),
       };
-    }, { total_active: 0, visited_fy: 0, overdue: 0, never_visited: 0 }),
+    }, { visits: 0, clients: 0, completed: 0, missed: 0, overdue: 0 }),
 
     // 7. Visit Reports — submitted visits with related aggregates (only when tab open).
     //    Rep scope is parameterized; search/purpose/rep filtering happens client-side.
@@ -590,10 +626,10 @@ export default async function FieldActivityPage({
 
         {/* Stats strip */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
-          <StatCard label="Total Active"     value={stats.total_active} />
-          <StatCard label="Visited (Last 90d)" value={stats.visited_fy} color="var(--pos)" />
-          <StatCard label="Overdue (90d+)"   value={stats.overdue}      color="var(--warn)" />
-          <StatCard label="Never Visited"    value={stats.never_visited} color="var(--neg)" />
+          <StatCard label="Visits"          value={stats.visits} />
+          <StatCard label="Clients Covered" value={stats.clients}   color="var(--pos)" />
+          <StatCard label="Completed"       value={stats.completed} color="var(--pos)" />
+          <StatCard label="Missed"          value={stats.missed}    color="var(--neg)" />
         </div>
 
         {/* AssignVisit drawer — always mounted so overdue-row buttons can open it
