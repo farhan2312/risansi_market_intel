@@ -950,11 +950,17 @@ export async function createPipelineOpportunity(formData: FormData) {
   const user = await requireSession();
 
   const clientId = (formData.get('client_id') as string | null)?.trim() ?? '';
-  const rawStage = (formData.get('stage')     as string | null)?.trim() ?? 'Suspect';
+  // Prospect is the only way in. An enquiry has arrived; everything else is a
+  // move from here, which the stage log records honestly rather than a record
+  // that claims to have been born Won.
+  const rawStage = (formData.get('stage')     as string | null)?.trim() ?? 'Prospect';
   const stage: CreateStage = (CREATE_STAGES as readonly string[]).includes(rawStage)
-    ? rawStage as CreateStage : 'Suspect';
-  const product  = (formData.get('product')      as string | null)?.trim() || 'New Opportunity';
-  const prodType = (formData.get('product_type') as string | null)?.trim() || 'PCP';
+    ? rawStage as CreateStage : 'Prospect';
+  // `product` (Product / Description) was retired — it duplicated Project Name /
+  // Unit and Product Type between them. The column stays NOT NULL for the 1,803
+  // rows that have one, so a new row gets the project name, or a plain marker.
+  const product  = (formData.get('unit_project') as string | null)?.trim() || 'Enquiry';
+  const prodType = (formData.get('product_type') as string | null)?.trim() || null;
 
   if (!clientId) throw new Error('Client is required.');
 
@@ -1080,6 +1086,14 @@ export async function createPipelineOpportunity(formData: FormData) {
     lost_to_competitor: s('lost_to_competitor'), lost_reason: s('lost_reason'),
     quotation_link: s('quotation_link'),
     pump_model: iStr(first.pump_model) ?? s('pump_model'), pump_qty: iInt(first.pump_qty),
+    // The intake block — asked wherever an opportunity is raised.
+    opportunity_type: s('opportunity_type'),
+    opportunity_source: s('opportunity_source'),
+    opportunity_category: s('opportunity_category'),
+    client_reference: s('client_reference'),
+    suspect_reason: s('suspect_reason'),
+    hold_reason: s('hold_reason'),
+    po_date: s('po_date'),
     notes: s('notes'), auto_created: false, created_by: user.email,
   };
 
