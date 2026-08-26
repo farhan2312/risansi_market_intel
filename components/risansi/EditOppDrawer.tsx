@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, type CSSProperties } from 'react';
+import { STAGE_TONE, stageTone } from '@/lib/risansi-stage-tone';
 import { useRouter } from 'next/navigation';
 import { OfferRevisionsList } from './OfferRevisionsField';
 import type { OfferRevision } from '@/lib/risansi-offer-revisions';
@@ -13,6 +14,7 @@ import { SalesOrderManager } from './SalesOrderManager';
 import { PurchaseOrderManager } from './PurchaseOrderManager';
 import { QuotationPdfManager } from './QuotationPdfManager';
 import { ChangeOppClient } from './ChangeOppClient';
+import { OppRemarksLog } from './OppRemarksLog';
 
 // A quotation exists from Quoted onward — the PDF can be viewed/replaced/deleted
 // at any of these stages (even a locked Won/Lost, if the viewer may edit).
@@ -66,16 +68,6 @@ export interface EditableOpp {
 interface QItem { id: number; pump_model: string | null; pump_qty: number | null; pump_speed: string | null; geared_motor_detail: string | null; motor_price: number | null; gearbox_vbelt_price: number | null; offer_value_inr: number | null; offer_value_usd: number | null; detailed_specifications: string | null; }
 interface QMeta { market?: string | null; ril_rep?: string | null; qtn_prepared_by?: string | null; client_status_at_quote?: string | null; unit_project?: string | null; location?: string | null; qtr?: string | null; probability_code?: string | null; enquiry_no?: string | null; enquiry_date?: string | null; revised_offer_date?: string | null; revised_offer_value_inr?: number | null; offer_value_inr?: number | null; quotation_link?: string | null; }
 
-const STAGE_COLORS: Record<string, string> = {
-  Suspect:     '#6B7FA3',
-  Prospect:    '#1A5CB8',
-  Quoted:      '#D97706',
-  Negotiating: '#F97316',
-  'On Hold':   '#7C3AED',
-  Won:         '#0E9F6E',
-  Lost:        '#E02424',
-  Dropped:     '#64748B',
-};
 
 export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: { opp: EditableOpp; onClose: () => void; canEdit?: boolean; usdRate?: number }) {
   const router = useRouter();
@@ -311,6 +303,8 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: { 
                 <QuotedItemsSection items={quoteItems} meta={quoteMeta} revisions={revisions} usdRate={usdRate} />
               </>
             )}
+            {/* Last, because it is history rather than something to act on. */}
+            <OppRemarksLog oppId={Number(opp.id)} />
           </div>
         ) : (
         /* Editable form */
@@ -326,8 +320,8 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: { 
                     key={s} type="button" onClick={() => setStage(s)}
                     style={{
                       padding: '6px 12px', borderRadius: 20,
-                      border: `1px solid ${stage === s ? STAGE_COLORS[s] : 'var(--line-strong)'}`,
-                      background: stage === s ? STAGE_COLORS[s] : 'white',
+                      border: `1px solid ${stage === s ? STAGE_TONE[s] : 'var(--line-strong)'}`,
+                      background: stage === s ? STAGE_TONE[s] : 'white',
                       color: stage === s ? 'white' : 'var(--fg-3)',
                       fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit',
                     }}
@@ -475,6 +469,10 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: { 
             </div>
 
             <QuotedItemsSection items={quoteItems} meta={quoteMeta} revisions={revisions} usdRate={usdRate} />
+
+            {/* History, below the fields and above the actions — it informs the
+                edit without being part of it. */}
+            <OppRemarksLog oppId={Number(opp.id)} />
 
             {error && (
               <div style={{ padding: '8px 12px', background: '#FDE8E8', border: '1px solid #F87171', borderLeft: '3px solid #E02424', borderRadius: 5, color: '#9B1C1C', fontSize: 12 }}>

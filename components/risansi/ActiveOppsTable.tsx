@@ -1,18 +1,11 @@
 'use client';
 
 import { useState, type CSSProperties } from 'react';
+import { stageTone } from '@/lib/risansi-stage-tone';
 import { useRouter } from 'next/navigation';
 import { EditOppDrawer, type EditableOpp } from './EditOppDrawer';
 import { fmtUsdFromCr } from '@/lib/risansi-utils';
 
-const STAGE_COLORS: Record<string, string> = {
-  Suspect:     '#6B7FA3',
-  Prospect:    '#1A5CB8',
-  Quoted:      '#D97706',
-  Negotiating: '#F97316',
-  Won:         '#0E9F6E',
-  Lost:        '#9CA3AF',
-};
 
 const STAGE_RANK: Record<string, number> = {
   Suspect: 0, Prospect: 1, Quoted: 2, Negotiating: 3, 'On Hold': 4, Won: 5, Lost: 6, Dropped: 7,
@@ -95,7 +88,7 @@ export function ActiveOppsTable({ opps, usdRate }: { opps: EditableOpp[]; usdRat
           </thead>
           <tbody>
             {rows.map(opp => {
-              const stageColor = STAGE_COLORS[opp.stage] ?? '#6B7FA3';
+              const stageColor = stageTone(opp.stage);
               return (
                 <tr
                   key={opp.id}
