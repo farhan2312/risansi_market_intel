@@ -5,6 +5,23 @@
 //   node scripts/pipeline-proposed.mjs       (appends the proposal)
 //
 // Planning artefact only. Nothing here changes the app.
+//
+// OUTCOME, Aug 2026. The proposal below was reviewed and mostly implemented, and
+// three of its RETIRE counts turned out to be wrong once the columns were checked
+// row by row. They are corrected in place so this file is not left claiming
+// something the database contradicts:
+//
+//   secondary_rep_id        1 row, not 0 — and on it the secondary rep is the
+//                           primary rep, so it still recorded nothing.
+//   revised_offer_value_usd 6 rows, not 0.
+//   tsm_*                   2 rows, and behind a built, working visit-form
+//                           picker. Not retired: deleting it is a product
+//                           decision, not a column cleanup.
+//
+// Migration 0062 dropped equipment_id, expected_close_date, secondary_rep_id,
+// offer_value_usd (both tables) and revised_offer_value_usd. The revised_offer_*
+// rupee pair was NOT dropped — it is a live denormalised cache the stage
+// dashboard and both exports read instead of joining.
 import path from 'node:path';
 import ExcelJS from 'exceljs';
 
@@ -77,10 +94,10 @@ const CHANGES = [
   ['FIX', 'Broken quotation links', '11 opportunities hold a bare filename (e.g. “For Panpat.pdf”) instead of a URL. They resolve to nothing and should be cleared.', '11 rows'],
   ['RETIRE', 'equipment_id', 'Never populated on any of the 1,801 opportunities.', '0 rows'],
   ['RETIRE', 'expected_close_date', 'Never populated — the free-text eta_text is used instead.', '0 rows'],
-  ['RETIRE', 'secondary_rep_id', 'Never populated.', '0 rows'],
-  ['RETIRE', 'tsm_user_id, tsm_external, tsm_external_email, tsm_notified_at', 'The TSM notification path was never adopted.', '≤1 row each'],
-  ['RETIRE', 'revised_offer_date, revised_offer_value_inr, revised_offer_value_usd', 'Superseded by the timestamped offer-revisions list (migration 0041). A quote gets re-priced more than once.', '2-3%, and 0 for USD'],
-  ['RETIRE', 'offer_value_usd (opportunity and line item)', 'Never typed — derived from the settings USD rate for display only.', '4% / 13%'],
+  ['RETIRE', 'secondary_rep_id', 'One row, on which the secondary rep is also the primary rep — so it records nothing rep_id does not.', '1 row'],
+  ['KEEP', 'tsm_user_id, tsm_external, tsm_external_email, tsm_notified_at', 'Barely used, but the visit report has a working TSM picker behind these and the action writes it. Retiring them deletes a built feature rather than a dead column — a product call.', '2 rows'],
+  ['RETIRE', 'revised_offer_date, revised_offer_value_inr, revised_offer_value_usd', 'The USD column is gone. The rupee pair is a live denormalised copy of the newest offer revision, read by the stage dashboard and both exports, so retiring it is a rewrite of every reader rather than a drop.', '42 and 46 rows; USD had 6'],
+  ['RETIRE', 'offer_value_usd (opportunity and line item)', 'Never typed — every value divides its rupee twin by a conversion rate (80 mostly, some 90 and 92), so it held nothing the rupee column did not. Two line items had USD and no rupee value and were back-filled from their opportunity total before the drop.', '4% / 13%'],
   ['KEEP', 'negotiation_notes, client_status_at_quote, qtn_prepared_by, qtr, location', 'Retired from the forms in Aug 2026 but still hold historic values read by the export and the quotation summary. Keep read-only; do not drop the columns.', 'populated on older records'],
   ['REVIEW', 'Probability', 'The RIL likelihood code is filled on 4% of opportunities overall and 0% at Prospect and Won. Either make it matter or drop it — worth your call, not mine.', '4%'],
   ['REVIEW', 'PO Number', 'Only 13% of Won deals carry one, though it is the natural proof of an order.', '13% of Won'],
