@@ -158,7 +158,18 @@ export default async function PipelinePage({
   // rep selection overrides this default rather than ANDing with it: a rep who
   // picks a colleague means "show me theirs", and ANDing the two gave an
   // unexplained empty board. Visibility is still bounded by ownerVis below.
-  const scopedRepId = !showAll && repFilts.length === 0 ? currentRepId : null;
+  // Arriving from a client: ?client=<code> narrows the board to that account.
+  // It also suspends the self-scope, for the same reason picking a colleague
+  // does — you asked for this client's opportunities, and ANDing "mine" onto it
+  // hands back an empty board with nothing to explain it. Visibility is still
+  // bounded by ownerVis below, so this widens the question, not the answer.
+  const clientCode = typeof sp.client === 'string' ? sp.client.trim() : '';
+  if (clientCode) {
+    conds.push(`c.code = $${idx}`);
+    vals.push(clientCode); idx++;
+  }
+
+  const scopedRepId = !showAll && repFilts.length === 0 && !clientCode ? currentRepId : null;
   if (scopedRepId != null) {
     // Attribution follows the client, not a per-opportunity rep_id: a rep owns
     // the opportunities of the clients they own or cover, plus anything granted

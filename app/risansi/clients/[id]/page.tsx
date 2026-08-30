@@ -1345,15 +1345,23 @@ export default async function ClientProfilePage({
                     {pipeRows.map(r => {
                       const hue = STAGE_HUE[r.stage] ?? '#6B7FA3';
                       const pct = Math.round((r.val / maxStageVal) * 100);
+                      // The whole bar opens the pipeline board on this client and
+                      // this stage. A summary that cannot be drilled into leaves
+                      // the reader retyping the client code into a filter.
                       return (
-                        <div key={r.stage} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <a
+                          key={r.stage}
+                          href={`/risansi/pipeline?client=${encodeURIComponent(client.code)}&stage=${encodeURIComponent(r.stage)}`}
+                          title={`Open ${r.count} ${r.stage} opportunit${r.count === 1 ? 'y' : 'ies'} for ${client.code}`}
+                          style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: 'inherit' }}
+                        >
                           <span style={{ width: 82, flexShrink: 0, fontSize: 11, fontWeight: 600, color: hue }}>{r.stage}</span>
                           <div style={{ flex: 1, height: 18, background: 'var(--bg-sunk)', borderRadius: 4, overflow: 'hidden' }}>
                             <div style={{ height: '100%', width: `${Math.max(pct, 3)}%`, background: `${hue}22`, borderLeft: `3px solid ${hue}` }} />
                           </div>
                           <span style={{ width: 40, flexShrink: 0, textAlign: 'right', fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>{r.count}</span>
                           <span style={{ width: 76, flexShrink: 0, textAlign: 'right', fontSize: 11, fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--fg)' }}>{formatRev(r.val * 1e7)}</span>
-                        </div>
+                        </a>
                       );
                     })}
                   </div>
@@ -1399,10 +1407,21 @@ export default async function ClientProfilePage({
                       }}
                     >
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', marginBottom: 2 }}>
-                          {`OPP-${String(o.id).padStart(4, '0')}`}{o.quote_ref ? ` · ${o.quote_ref}` : ''}
-                        </div>
-                        <div style={{ fontWeight: 500, fontSize: 12, marginBottom: 4 }}>{o.product}</div>
+                        {/* The reference and the product open the opportunity
+                            itself, on the pipeline board where it is edited. The
+                            value on the right still opens the quotation document
+                            — two different things to want, so two targets rather
+                            than one row that guesses. */}
+                        <a
+                          href={`/risansi/pipeline?client=${encodeURIComponent(client.code)}&opp=${o.id}`}
+                          title="Open this opportunity"
+                          style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}
+                        >
+                          <div style={{ fontSize: 11, color: 'var(--brand-blue)', fontFamily: 'var(--font-mono)', marginBottom: 2 }}>
+                            {`OPP-${String(o.id).padStart(4, '0')}`}{o.quote_ref ? ` · ${o.quote_ref}` : ''}
+                          </div>
+                          <div style={{ fontWeight: 500, fontSize: 12, marginBottom: 4 }}>{o.product}</div>
+                        </a>
                         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                           <Tag kind={tagKind} dot>{o.stage}</Tag>
                           {isWon && (() => {
@@ -1460,12 +1479,19 @@ export default async function ClientProfilePage({
                             {formatRev(Number(o.value_cr) * 1e7)} <span style={{ fontSize: 11 }}>↗</span>
                           </a>
                         ) : (
-                          <span style={{
-                            fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 500,
-                            color: isWon ? 'var(--pos)' : undefined,
-                          }}>
+                          // No quotation to open, so the value opens the
+                          // opportunity instead. Left as plain text it was the
+                          // one part of the row that did nothing when clicked.
+                          <a
+                            href={`/risansi/pipeline?client=${encodeURIComponent(client.code)}&opp=${o.id}`}
+                            title="No quotation attached — opens the opportunity"
+                            style={{
+                              fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 500,
+                              color: isWon ? 'var(--pos)' : 'var(--fg)', textDecoration: 'none',
+                            }}
+                          >
                             {formatRev(Number(o.value_cr) * 1e7)}
-                          </span>
+                          </a>
                         )}
                         {/* A legacy record has to look different from a document
                             the portal holds, or the 679 of them keep reading as

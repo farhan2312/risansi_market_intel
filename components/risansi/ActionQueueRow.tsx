@@ -9,6 +9,8 @@ export interface QueueTask {
   id: number;
   title: string;
   due_date: string | null;
+  /** The day it was raised. */
+  created_on?: string | null;
   priority: string | null;
   status: string;
   assigned_to_external: string | null;
@@ -18,6 +20,13 @@ export interface QueueTask {
   client_id: number | null;
   client_code: string | null;
   client_name: string | null;
+}
+
+// Both dates are plain YYYY-MM-DD, so build the Date from the parts rather than
+// letting the string be parsed as UTC midnight and shifted a day west.
+function day(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
 }
 
 const PRIORITY_DOT: Record<string, string> = {
@@ -78,13 +87,17 @@ export function ActionQueueRow({ task }: { task: QueueTask }) {
               {task.client_name}
             </a>
           )}
+          {task.created_on && (
+            <span style={{ fontFamily: 'var(--font-mono)' }} title="When this action was raised">
+              raised {day(task.created_on)}
+            </span>
+          )}
           {task.due_date && (
             <span style={{
               fontFamily: 'var(--font-mono)',
               color: isOverdue ? 'var(--neg)' : 'var(--fg-3)', fontWeight: isOverdue ? 600 : 400,
-            }}>
-              {isOverdue ? '⚠ ' : ''}
-              {new Date(task.due_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+            }} title="When this action is due">
+              {isOverdue ? '⚠ ' : ''}due {day(task.due_date)}
             </span>
           )}
           <span>→ {assignee}</span>

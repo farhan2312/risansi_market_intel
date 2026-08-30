@@ -15,6 +15,10 @@ const TASK_FROM = `
 // date→UTC-ISO round-trip when deciding overdue / formatting the day.
 const TASK_COLS = `
     t.id, t.title, t.due_date::text AS due_date, t.priority, t.status, t.assigned_to_external,
+    -- When it was raised. Cast to a date for the same reason as due_date: the
+    -- row only ever prints the day, and a timestamp would arrive as UTC and
+    -- print as yesterday for anything logged before 05:30 IST.
+    t.created_at::date::text AS created_on,
     t.resolution_note,
     c.id AS client_id, c.code AS client_code, c.legal_name AS client_name,
     COALESCE(r.name, '—') AS assigned_rep_name`;

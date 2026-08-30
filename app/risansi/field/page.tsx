@@ -262,6 +262,11 @@ export default async function FieldActivityPage({
 
   // Zone / tour / rep filters (clients aliased c, visits aliased v).
   const filters    = parseVisitFilters(sp);
+  // Coverage is an active-client idea by default — "how much of the territory
+  // has been touched". Choosing a client status makes that the question instead,
+  // so every coverage panel has to follow, or the tiles keep quoting 1,075
+  // Active while the list under them shows leads.
+  const coverStatus = filters.statuses.length ? 'TRUE' : `c.status = 'ACTIVE'`;
   const filterOpts = await getVisitFilterOptions(currentUser);
 
   // ── Queries ──────────────────────────────────────────────────
@@ -335,7 +340,7 @@ export default async function FieldActivityPage({
              '—') AS rep_name,
            NULL::text AS primary_rep_id
          FROM clients c
-         WHERE c.status = 'ACTIVE'
+         WHERE ${coverStatus}
            AND c.deleted_at IS NULL
            -- exclude future dates (planned visits that leaked into last_visit_date)
            AND (c.last_visit_date IS NULL OR c.last_visit_date <= CURRENT_DATE)
@@ -411,7 +416,8 @@ export default async function FieldActivityPage({
                       SELECT s.rep_id, 1 FROM client_secondary_reps s WHERE s.client_id = c.id) r
                 JOIN users u ON u.id = r.user_id) AS rep_name
          FROM clients c
-         WHERE c.status = 'ACTIVE' AND c.deleted_at IS NULL${cVisAnd}${filters.clientAnd}
+         WHERE ${coverStatus}
+           AND c.deleted_at IS NULL${cVisAnd}${filters.clientAnd}
          ORDER BY c.last_visit_date ASC NULLS FIRST`,
       );
       return rows;
@@ -456,13 +462,13 @@ export default async function FieldActivityPage({
         total_active: string; visited_90: string; overdue: string; never_visited: string;
       }>(
         `SELECT
-           COUNT(*) FILTER (WHERE c.status = 'ACTIVE')::text                     AS total_active,
-           COUNT(*) FILTER (WHERE c.status = 'ACTIVE'
+           COUNT(*) FILTER (WHERE ${coverStatus})::text                          AS total_active,
+           COUNT(*) FILTER (WHERE ${coverStatus}
              AND c.last_visit_date >= CURRENT_DATE - INTERVAL '90 days')::text   AS visited_90,
-           COUNT(*) FILTER (WHERE c.status = 'ACTIVE'
+           COUNT(*) FILTER (WHERE ${coverStatus}
              AND (c.last_visit_date IS NULL
                OR c.last_visit_date < CURRENT_DATE - INTERVAL '90 days'))::text  AS overdue,
-           COUNT(*) FILTER (WHERE c.status = 'ACTIVE'
+           COUNT(*) FILTER (WHERE ${coverStatus}
              AND c.last_visit_date IS NULL)::text                                AS never_visited
            FROM clients c
           WHERE c.deleted_at IS NULL${cVisAnd}${filters.clientAnd}`,
@@ -738,9 +744,13 @@ export default async function FieldActivityPage({
 
   function tabHref(t: string, extra?: Record<string, string>) {
     const p = new URLSearchParams({ tab: t, ...extra });
-    if (filters.zones.length) p.set('zone', filters.zones.join(','));
-    if (filters.tours.length) p.set('tour', filters.tours.join(','));
-    if (filters.reps.length)  p.set('rep',  filters.reps.join(','));
+    if (filters.zones.length)      p.set('zone',     filters.zones.join(','));
+    if (filters.tours.length)      p.set('tour',     filters.tours.join(','));
+    if (filters.reps.length)       p.set('rep',      filters.reps.join(','));
+    if (filters.managers.length)   p.set('manager',  filters.managers.join(','));
+    if (filters.statuses.length)   p.set('cstatus',  filters.statuses.join(','));
+    if (filters.industries.length) p.set('industry', filters.industries.join(','));
+    if (filters.vstatus.length)    p.set('vstatus',  filters.vstatus.join(','));
     return `/risansi/field?${p.toString()}`;
   }
 
@@ -799,7 +809,11 @@ export default async function FieldActivityPage({
           tab={tab}
           isRep={isRep}
           opts={filterOpts}
-          sel={{ zones: filters.zones, tours: filters.tours, reps: filters.reps }}
+          sel={{
+            zones: filters.zones, tours: filters.tours, reps: filters.reps,
+            managers: filters.managers, statuses: filters.statuses,
+            industries: filters.industries, vstatus: filters.vstatus,
+          }}
           purposes={Object.keys(PURPOSE_COLORS)}
           search={repSearch}
           purpose={repPurpose}

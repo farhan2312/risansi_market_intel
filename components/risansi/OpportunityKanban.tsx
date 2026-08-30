@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useRouter } from 'next/navigation';
 import { fmtCr } from '@/lib/risansi-utils';
 import { EditOppDrawer, type EditableOpp } from './EditOppDrawer';
@@ -59,6 +60,21 @@ export function OpportunityKanban({ initialOpps, stageTotals, usdRate = 86, filt
   const [dragId, setDragId]       = useState<string | null>(null);
   const [overStage, setOverStage] = useState<string | null>(null);
   const [editOpp, setEditOpp]     = useState<KanbanOpp | null>(null);
+
+  // Deep link: /risansi/pipeline?client=CODE&opp=123 opens that opportunity.
+  // Client 360 links here rather than reproducing the drawer, so there is one
+  // place an opportunity is read and edited instead of two that drift.
+  const searchParams = useSearchParams();
+  const deepOppId = searchParams.get('opp');
+  useEffect(() => {
+    if (!deepOppId) return;
+    const match = opps.find(o => String(o.id) === deepOppId);
+    // Only if it is on this board. A stale link, or one to an opportunity the
+    // active filters exclude, should leave the board alone rather than opening
+    // an empty drawer.
+    if (match) setEditOpp(match);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepOppId, opps.length]);
   // One modal for every destination now, so the board no longer decides which
   // form a stage needs — the catalogue does.
   const [moving, setMoving] = useState<{ opp: KanbanOpp; to: OppStage; previousStage: string } | null>(null);

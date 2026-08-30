@@ -6,11 +6,16 @@ import { MultiSelectFilter } from './MultiSelectFilter';
 import { ActiveFilterBar } from './ActiveFilterBar';
 import { DateRangeFilter } from './DateRangeFilter';
 
-// One filter row shared across the Field Activity tabs. Zone / Tour / Rep (non-rep)
-// and — on the Visit Reports tab — Search + Purpose sit on the left; the date range
-// is right-aligned. All are URL params (server-side), so they work from this single
-// row above the tabs, and Search/Purpose scope the whole reports query (not just the
-// loaded page). Reports use rsearch/rpurpose/rfrom/rto; the feed uses ffrom/fto.
+// One filter row shared across the Field Activity tabs. All are URL params
+// (server-side), so they work from this single row above the tabs, and
+// Search/Purpose scope the whole reports query rather than just the loaded page.
+// Reports use rsearch/rpurpose/rfrom/rto; the feed uses ffrom/fto.
+//
+// The filters divide into two questions people actually ask here. WHO: rep, and
+// manager for everyone a manager speaks for. WHERE AND WHAT: zone, route, client
+// status, industry, and — on the visit side only — whether a visit is planned or
+// done. Client tier is deliberately absent: 2,753 of 2,754 clients are Standard,
+// so it would be a control that never changes anything.
 
 const CTRL: CSSProperties = {
   padding: '6px 10px', borderRadius: 6, border: '1px solid var(--line-strong)',
@@ -18,11 +23,30 @@ const CTRL: CSSProperties = {
   outline: 'none', boxSizing: 'border-box',
 };
 
+export interface FieldFilterSets {
+  zones: string[]; tours: string[]; reps: string[];
+  managers: string[]; statuses: string[]; industries: string[];
+}
+
+// Client status is stored as a code. Show the words.
+const STATUS_LABEL: Record<string, string> = {
+  ACTIVE: 'Active', PROSPECTIVE_CLIENT: 'Prospective client',
+  PROSPECTIVE_LEAD: 'Lead', CLOSED: 'Closed', INACTIVE: 'Inactive', DUPLICATE: 'Duplicate',
+};
+
+// Visit status is not offered from the data: 'Planned' and 'planned' both exist
+// in the table, and a list built from DISTINCT would show the same option twice.
+// The predicate lower()s both sides, so one entry covers both spellings.
+const VISIT_STATUS = ['planned', 'checked-in', 'completed'];
+const VISIT_STATUS_LABEL: Record<string, string> = {
+  planned: 'Planned', 'checked-in': 'Checked in', completed: 'Completed',
+};
+
 export function FieldFilterBar({ tab, isRep, opts, sel, purposes, search, purpose }: {
   tab: string;
   isRep: boolean;
-  opts: { zones: string[]; tours: string[]; reps: string[] };
-  sel:  { zones: string[]; tours: string[]; reps: string[] };
+  opts: FieldFilterSets;
+  sel:  FieldFilterSets & { vstatus: string[] };
   purposes: string[];
   search: string;
   purpose: string;
@@ -54,8 +78,7 @@ export function FieldFilterBar({ tab, isRep, opts, sel, purposes, search, purpos
   const dateFrom = searchParams.get(fromParam) ?? '';
   const dateTo   = searchParams.get(toParam) ?? '';
 
-  // Nothing to show for a rep on the non-report/feed tabs → render nothing.
-  if (isRep && !showReports && !showDate) return null;
+  // A rep has no people to filter by, but Visit status still applies to them.
 
   return (
     <div style={{ marginBottom: 12 }}>
@@ -65,11 +88,27 @@ export function FieldFilterBar({ tab, isRep, opts, sel, purposes, search, purpos
         </span>
         {!isRep && (
           <>
-            <MultiSelectFilter param="zone" label="Zone" options={opts.zones} selected={sel.zones} />
-            <MultiSelectFilter param="tour" label="Tour" options={opts.tours} selected={sel.tours} />
-            <MultiSelectFilter param="rep"  label="Rep"  options={opts.reps}  selected={sel.reps} />
+            <MultiSelectFilter param="rep"     label="Rep"     options={opts.reps}     selected={sel.reps} />
+            {opts.managers.length > 0 && (
+              <MultiSelectFilter param="manager" label="Manager" options={opts.managers} selected={sel.managers} />
+            )}
+            <MultiSelectFilter param="zone"    label="Zone"    options={opts.zones}    selected={sel.zones} />
+            <MultiSelectFilter param="tour"    label="Route"   options={opts.tours}    selected={sel.tours} />
+            <MultiSelectFilter
+              param="cstatus" label="Client status"
+              options={opts.statuses.map(s => ({ value: s, label: STATUS_LABEL[s] ?? s }))}
+              selected={sel.statuses}
+            />
+            {opts.industries.length > 1 && (
+              <MultiSelectFilter param="industry" label="Industry" options={opts.industries} selected={sel.industries} />
+            )}
           </>
         )}
+        <MultiSelectFilter
+          param="vstatus" label="Visit status"
+          options={VISIT_STATUS.map(v => ({ value: v, label: VISIT_STATUS_LABEL[v] }))}
+          selected={sel.vstatus}
+        />
         {showReports && (
           <>
             <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search client or code…" style={{ ...CTRL, minWidth: 190 }} />
@@ -85,12 +124,17 @@ export function FieldFilterBar({ tab, isRep, opts, sel, purposes, search, purpos
           </div>
         )}
       </div>
-      {!isRep && (sel.zones.length + sel.tours.length + sel.reps.length > 0) && (
+      {(sel.zones.length + sel.tours.length + sel.reps.length + sel.managers.length
+        + sel.statuses.length + sel.industries.length + sel.vstatus.length > 0) && (
         <ActiveFilterBar filters={[
-          { param: 'zone', label: 'Zone', values: sel.zones },
-          { param: 'tour', label: 'Tour', values: sel.tours },
-          { param: 'rep',  label: 'Rep',  values: sel.reps },
-        ]} />
+          { param: 'rep',      label: 'Rep',           values: sel.reps },
+          { param: 'manager',  label: 'Manager',       values: sel.managers },
+          { param: 'zone',     label: 'Zone',          values: sel.zones },
+          { param: 'tour',     label: 'Route',         values: sel.tours },
+          { param: 'cstatus',  label: 'Client status', values: sel.statuses.map(s => STATUS_LABEL[s] ?? s) },
+          { param: 'industry', label: 'Industry',      values: sel.industries },
+          { param: 'vstatus',  label: 'Visit status',  values: sel.vstatus.map(v => VISIT_STATUS_LABEL[v] ?? v) },
+        ].filter(f => f.values.length > 0)} />
       )}
     </div>
   );

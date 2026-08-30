@@ -1,17 +1,34 @@
 import risansiPool from '@/lib/db-risansi';
 import { hasRole, type CurrentUser } from '@/lib/risansi-auth';
 
-// Shared zone / tour / rep filters for the visit + calendar pages.
-// Filter values are the display NAMES (zone name, tour name, rep name) — matching
-// the clients-page convention — so the removable pills read nicely. Names come
-// from trusted DB rows and are single-quote-escaped before inlining.
+// Filters for the Field Activity page: who, where, and what kind of client.
+//
+// Values are display NAMES (zone, route, person) or raw codes (client status,
+// visit status), matching the clients-page convention so the removable pills
+// read nicely. Names come from trusted DB rows and are single-quote-escaped
+// before inlining.
+//
+// TWO PREDICATES, AND THEY ARE NOT INTERCHANGEABLE. `clientAnd` assumes a
+// clients alias `c`. `visitAnd` assumes a visits alias `v` and NOTHING ELSE —
+// several visit queries on the page do not join clients at all, so every
+// client-side condition on the visit side is written as
+// `v.client_id IN (SELECT id FROM clients WHERE ...)` rather than as `c.<col>`.
+//
+// That is not tidiness. The zone and route filters used to push `c.tour_id IN
+// (...)` onto the visit side, which threw "missing FROM-clause entry for table
+// c" in the stats query — swallowed by that query's try/catch, so picking a zone
+// silently zeroed the Visits and Completed tiles instead of filtering them.
 
 export interface VisitFilters {
-  zones: string[];
-  tours: string[];
-  reps:  string[];
-  clientAnd: string;   // predicate for a clients alias `c` (zone + tour + rep-via-tour)
-  visitAnd:  string;   // predicate for a visits alias `v` joined to clients `c`
+  zones:    string[];
+  tours:    string[];   // routes
+  reps:     string[];
+  managers: string[];
+  statuses: string[];   // client status codes
+  vstatus:  string[];   // visit status codes
+  industries: string[];
+  clientAnd: string;    // predicate for a clients alias `c`
+  visitAnd:  string;    // predicate for a visits alias `v`, self-contained
   active: boolean;
 }
 
@@ -19,42 +36,82 @@ const esc  = (s: string) => s.replace(/'/g, "''");
 const arr  = (vals: string[]) => vals.map(v => `'${esc(v)}'`).join(',');
 const list = (x: unknown) => (typeof x === 'string' && x ? x.split(',').map(s => s.trim()).filter(Boolean) : []);
 
+/** Clients matching a condition, as a subquery — the visit side's only shape. */
+const clientsWhere = (cond: string) => `(SELECT id FROM clients WHERE ${cond})`;
+
+/**
+ * The people a set of named managers speak for: their reps, plus themselves.
+ *
+ * Themselves matters. Several managers own clients directly — the teams are not
+ * all big enough to have a rep underneath — so a manager filter that only looked
+ * at manager_reps would return nothing for them and read as "no data".
+ */
+const teamOf = (names: string[]) => `(
+  SELECT mr.rep_id FROM manager_reps mr
+    JOIN users mu ON mu.id = mr.manager_id AND mu.name IN (${arr(names)})
+   UNION
+  SELECT u2.id FROM users u2 WHERE u2.name IN (${arr(names)}))`;
+
 export function parseVisitFilters(sp: Record<string, string | string[] | undefined>): VisitFilters {
   const zones = list(sp.zone), tours = list(sp.tour), reps = list(sp.rep);
+  const managers = list(sp.manager), statuses = list(sp.cstatus);
+  const vstatus = list(sp.vstatus), industries = list(sp.industry);
   const c: string[] = [], v: string[] = [];
 
   if (zones.length) {
-    const p = `c.tour_id IN (SELECT id FROM tour_routes WHERE zone IN (${arr(zones)}))`;
-    c.push(p); v.push(p);
+    const inZone = `tour_id IN (SELECT id FROM tour_routes WHERE zone IN (${arr(zones)}))`;
+    c.push(`c.${inZone}`);
+    v.push(`v.client_id IN ${clientsWhere(inZone)}`);
   }
   if (tours.length) {
-    const p = `c.tour_id IN (SELECT id FROM tour_routes WHERE name IN (${arr(tours)}))`;
-    c.push(p); v.push(p);
+    const onRoute = `tour_id IN (SELECT id FROM tour_routes WHERE name IN (${arr(tours)}))`;
+    c.push(`c.${onRoute}`);
+    v.push(`v.client_id IN ${clientsWhere(onRoute)}`);
   }
   if (reps.length) {
-    // Visit rows carry the rep on v.rep_id and always did. What changed is the
-    // client side: a client now names its own reps rather than borrowing them
-    // from a route, so "clients this rep works" is a direct question instead of
-    // a hop through a route roster.
-    //
-    // Zone and tour above are untouched. A route is still an attribute of the
-    // client, so filtering by one remains meaningful — it just no longer decides
-    // who may see anything.
-    c.push(`(c.primary_rep_id IN (SELECT id FROM users WHERE name IN (${arr(reps)}))
+    // Two different questions, deliberately. On the client side: whose account is
+    // this. On the visit side: who made the call. A visit a colleague made to your
+    // client is theirs, and filtering the calendar by a rep should show the rep's
+    // own day rather than everything touching their book.
+    const named = `IN (SELECT id FROM users WHERE name IN (${arr(reps)}))`;
+    c.push(`(c.primary_rep_id ${named}
           OR c.id IN (SELECT s.client_id FROM client_secondary_reps s
                         JOIN users u ON u.id = s.rep_id WHERE u.name IN (${arr(reps)})))`);
-    v.push(`v.rep_id IN (SELECT id FROM users WHERE name IN (${arr(reps)}))`);
+    v.push(`v.rep_id ${named}`);
+  }
+  if (managers.length) {
+    const team = teamOf(managers);
+    c.push(`(c.primary_rep_id IN ${team}
+          OR c.id IN (SELECT s.client_id FROM client_secondary_reps s WHERE s.rep_id IN ${team}))`);
+    v.push(`v.rep_id IN ${team}`);
+  }
+  if (statuses.length) {
+    c.push(`c.status IN (${arr(statuses)})`);
+    v.push(`v.client_id IN ${clientsWhere(`status IN (${arr(statuses)})`)}`);
+  }
+  if (industries.length) {
+    c.push(`c.industry IN (${arr(industries)})`);
+    v.push(`v.client_id IN ${clientsWhere(`industry IN (${arr(industries)})`)}`);
+  }
+  if (vstatus.length) {
+    // Visit-side only: a client has no status of its own to match, so applying
+    // this to the client queries would silently empty the coverage panels.
+    v.push(`lower(v.status) IN (${arr(vstatus.map(x => x.toLowerCase()))})`);
   }
 
   return {
-    zones, tours, reps,
+    zones, tours, reps, managers, statuses, vstatus, industries,
     clientAnd: c.length ? ' AND ' + c.join(' AND ') : '',
     visitAnd:  v.length ? ' AND ' + v.join(' AND ') : '',
-    active: zones.length + tours.length + reps.length > 0,
+    active: zones.length + tours.length + reps.length + managers.length
+          + statuses.length + vstatus.length + industries.length > 0,
   };
 }
 
-export interface VisitFilterOptions { zones: string[]; tours: string[]; reps: string[]; }
+export interface VisitFilterOptions {
+  zones: string[]; tours: string[]; reps: string[];
+  managers: string[]; statuses: string[]; industries: string[];
+}
 
 // Options for the dropdowns, scoped to what the user may see (admin → all;
 // rep/manager → the routes their own clients sit on, and the people under them).
@@ -75,7 +132,15 @@ export async function getVisitFilterOptions(user: CurrentUser): Promise<VisitFil
   const scope = admin ? '' : ` AND tr.id IN ${ownTours}`;
   const q = async (sql: string) => { try { return (await risansiPool.query<{ v: string }>(sql)).rows.map(r => r.v); } catch { return []; } };
 
-  const [zones, tours, reps] = await Promise.all([
+  // Every option list is scoped the same way as the data it filters, so a
+  // dropdown can never offer a value that returns nothing.
+  const clientScope = admin ? '' : ` AND (c.primary_rep_id = ${uid}
+       OR c.primary_rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${uid})
+       OR c.id IN (SELECT s.client_id FROM client_secondary_reps s
+                    WHERE s.rep_id = ${uid}
+                       OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${uid})))`;
+
+  const [zones, tours, reps, managers, statuses, industries] = await Promise.all([
     q(`SELECT DISTINCT tr.zone AS v FROM tour_routes tr WHERE tr.zone IS NOT NULL AND tr.zone <> ''${scope} ORDER BY 1`),
     q(`SELECT tr.name AS v FROM tour_routes tr WHERE TRUE${scope} ORDER BY tr.name`),
     admin
@@ -88,8 +153,27 @@ export async function getVisitFilterOptions(user: CurrentUser): Promise<VisitFil
               AND u.role IN ('rep','manager')
               AND (u.id = ${uid} OR u.id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${uid}))
             ORDER BY u.name`),
+
+    // Managers worth offering: ones who actually speak for somebody's clients.
+    // A manager with no team and no book of their own would filter to nothing.
+    admin
+      ? q(`SELECT u.name AS v FROM users u
+            WHERE u.is_active = TRUE AND u.role = 'manager'
+              AND (EXISTS (SELECT 1 FROM manager_reps mr WHERE mr.manager_id = u.id)
+                   OR EXISTS (SELECT 1 FROM clients c WHERE c.primary_rep_id = u.id AND c.deleted_at IS NULL))
+            ORDER BY u.name`)
+      : q(`SELECT u.name AS v FROM users u
+            WHERE u.is_active = TRUE AND u.role = 'manager' AND u.id = ${uid}`),
+
+    // Statuses and industries present in the clients this viewer can see, so the
+    // list never offers a value that returns nothing.
+    q(`SELECT DISTINCT c.status AS v FROM clients c
+        WHERE c.deleted_at IS NULL AND c.status IS NOT NULL${clientScope} ORDER BY 1`),
+    q(`SELECT DISTINCT c.industry AS v FROM clients c
+        WHERE c.deleted_at IS NULL AND c.industry IS NOT NULL AND c.industry <> ''${clientScope}
+        ORDER BY 1`),
   ]);
-  return { zones, tours, reps };
+  return { zones, tours, reps, managers, statuses, industries };
 }
 
 // Rep NAMES assigned to a tour matching the active zone/tour filter — so those
