@@ -5,18 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { hasRole } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
-
-// DEBTOR (sheet) code → users.id. AV / MRK / SV are personal initials (confident);
-// NI / SI / VA are territory / ambiguous codes mapped on best judgment — worth a
-// sanity check with the team. The raw code is stored too, so nothing is lost.
-export const DEBTOR_USER: Record<string, number> = {
-  AV:  5,   // Anil Vankudre
-  MRK: 6,   // Madhav R Kulkarni
-  SV:  9,   // Sudhir Vichare
-  NI:  4,   // Amit Srivastava (North India)
-  SI:  10,  // Guna Sekaran (South India)
-  VA:  20,  // Vishal Gaikwad (best guess)
-};
+import { DEBTOR_USER } from '@/lib/risansi-outstanding-debtors';
 
 export interface OutstandingRow {
   client_code: string;
