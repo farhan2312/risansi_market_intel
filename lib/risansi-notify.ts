@@ -10,6 +10,7 @@
 import risansiPool from '@/lib/db-risansi';
 import { sendNotification, notifyAdminEscalation } from '@/lib/risansi-email';
 import { pushInApp } from '@/lib/risansi-inapp';
+import { REP_OWNERSHIP } from '@/lib/risansi-auth';
 
 const BRAND = '#0A3D8F';
 const RED   = '#B91C1C';
@@ -24,12 +25,36 @@ async function sysadmins(): Promise<{ id: number; name: string | null; email: st
 }
 
 /** Manager(s) on a client's tour, with email. */
-async function tourManagers(clientId: number): Promise<{ id: number; name: string | null; email: string }[]> {
-  const { rows } = await risansiPool.query<{ id: number; name: string | null; email: string }>(
-    `SELECT u.id, u.name, u.email FROM tour_assignments ta
-       JOIN users u ON u.id = ta.rep_id
-      WHERE ta.role = 'manager' AND u.is_active = TRUE AND u.email IS NOT NULL AND u.email <> ''
-        AND ta.tour_id = (SELECT tour_id FROM clients WHERE id = $1)`, [clientId]);
+// Who should hear about something happening on this client.
+//
+// Everyone responsible for it: the primary rep, anyone covering it as a
+// secondary, and the managers of any of them. Every caller already skips the
+// person who caused the event, so nobody is told about their own action.
+//
+// Note that the owner belongs in this list, which the tour version could not
+// express. There it was "managers assigned to the route", so a client owned by a
+// manager with nobody above them notified NOBODY once tours went away — and a
+// manager could be mailed about a client they had no relationship with purely
+// because the route was shared. It also missed the right people entirely for the
+// 1,186 clients that sat on no route at all.
+async function clientManagers(clientId: number): Promise<{ id: number; name: string | null; email: string }[]> {
+  const sql = REP_OWNERSHIP
+    ? `SELECT DISTINCT u.id, u.name, u.email
+         FROM users u
+        WHERE u.is_active = TRUE AND u.email IS NOT NULL AND u.email <> ''
+          AND (
+            u.id = (SELECT primary_rep_id FROM clients WHERE id = $1)
+            OR u.id IN (SELECT rep_id FROM client_secondary_reps WHERE client_id = $1)
+            OR u.id IN (
+              SELECT mr.manager_id FROM manager_reps mr
+               WHERE mr.rep_id = (SELECT primary_rep_id FROM clients WHERE id = $1)
+                  OR mr.rep_id IN (SELECT rep_id FROM client_secondary_reps WHERE client_id = $1))
+          )`
+    : `SELECT u.id, u.name, u.email FROM tour_assignments ta
+         JOIN users u ON u.id = ta.rep_id
+        WHERE ta.role = 'manager' AND u.is_active = TRUE AND u.email IS NOT NULL AND u.email <> ''
+          AND ta.tour_id = (SELECT tour_id FROM clients WHERE id = $1)`;
+  const { rows } = await risansiPool.query<{ id: number; name: string | null; email: string }>(sql, [clientId]);
   return rows;
 }
 
@@ -171,14 +196,25 @@ export async function runWeeklyManagerDigest(): Promise<number> {
     // One digest per ISO week, regardless of how many times the route is hit.
     if (!(await claimRun('manager_digest', "date_trunc('week', CURRENT_DATE)::date"))) return 0;
     const mgrs = (await risansiPool.query<{ id: number; name: string | null; email: string }>(
-      `SELECT DISTINCT u.id, u.name, u.email FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
-        WHERE ta.role = 'manager' AND u.is_active = TRUE AND u.email IS NOT NULL AND u.email <> ''`)).rows;
+      REP_OWNERSHIP
+        // Every active manager, whether or not they have a team: one who owns
+        // clients directly still needs their own digest, and under this model
+        // plenty do.
+        ? `SELECT id, name, email FROM users
+            WHERE role = 'manager' AND is_active = TRUE AND email IS NOT NULL AND email <> ''`
+        : `SELECT DISTINCT u.id, u.name, u.email FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
+            WHERE ta.role = 'manager' AND u.is_active = TRUE AND u.email IS NOT NULL AND u.email <> ''`)).rows;
     for (const m of mgrs) {
       const s = (await risansiPool.query<{ open_actions: number; overdue_actions: number; open_complaints: number; visits_overdue: number }>(
         `WITH mc AS (
            SELECT c.id, c.last_visit_date FROM clients c
             WHERE c.deleted_at IS NULL
-              AND c.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = $1 AND role = 'manager'))
+              AND ${REP_OWNERSHIP
+                    ? `(c.primary_rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $1)
+                        OR c.id IN (SELECT s.client_id FROM client_secondary_reps s
+                                     WHERE s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $1))
+                        OR c.primary_rep_id = $1)`
+                    : `c.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = $1 AND role = 'manager')`})
          SELECT
            (SELECT count(*) FROM tasks t JOIN mc ON mc.id = t.client_id WHERE t.status <> 'completed')::int AS open_actions,
            (SELECT count(*) FROM tasks t JOIN mc ON mc.id = t.client_id WHERE t.status <> 'completed' AND t.due_date < CURRENT_DATE)::int AS overdue_actions,
@@ -236,7 +272,7 @@ async function nameForEmail(email: string): Promise<string | null> {
 // A rep checked in at a client → tell the tour manager(s), naming the rep.
 export async function notifyCheckIn(clientId: number, repId: number | null, actorEmail: string) {
   try {
-    const [cn, rep, mgrs] = await Promise.all([clientName(clientId), repId ? userById(repId) : Promise.resolve(null), tourManagers(clientId)]);
+    const [cn, rep, mgrs] = await Promise.all([clientName(clientId), repId ? userById(repId) : Promise.resolve(null), clientManagers(clientId)]);
     const repName = rep?.name || (await nameForEmail(actorEmail)) || 'A rep';
     for (const m of mgrs) {
       if (m.email.toLowerCase() === actorEmail.toLowerCase()) continue;
@@ -259,7 +295,7 @@ export async function notifyCheckIn(clientId: number, repId: number | null, acto
 // A rep submitted (closed) a visit report → summarise to the tour manager(s).
 export async function notifyVisitSubmitted(clientId: number, repName: string | null, actorEmail: string) {
   try {
-    const [cn, mgrs] = await Promise.all([clientName(clientId), tourManagers(clientId)]);
+    const [cn, mgrs] = await Promise.all([clientName(clientId), clientManagers(clientId)]);
     const who = repName || (await nameForEmail(actorEmail)) || 'A rep';
     for (const m of mgrs) {
       if (m.email.toLowerCase() === actorEmail.toLowerCase()) continue;
@@ -369,7 +405,7 @@ export async function notifyOppClosed(oppId: number, actorEmail: string, stage: 
     const o = (await risansiPool.query<{ client_id: number | null; rep_id: number | null; product: string | null; value_cr: string | null }>(
       `SELECT client_id, rep_id, product, COALESCE(final_value_cr, value_cr)::text AS value_cr FROM opportunities WHERE id = $1`, [oppId])).rows[0];
     if (!o || o.client_id == null) return;
-    const [cn, rep, mgrs] = await Promise.all([clientName(o.client_id), o.rep_id ? userById(o.rep_id) : Promise.resolve(null), tourManagers(o.client_id)]);
+    const [cn, rep, mgrs] = await Promise.all([clientName(o.client_id), o.rep_id ? userById(o.rep_id) : Promise.resolve(null), clientManagers(o.client_id)]);
     const recips = dedupeRecips([
       ...mgrs.map(m => ({ email: m.email, name: m.name })),
       { email: rep?.email ?? null, name: rep?.name ?? null },
@@ -400,7 +436,7 @@ export async function notifySalesOrder(oppId: number, actorEmail: string, soNumb
     const o = (await risansiPool.query<{ client_id: number | null; product: string | null }>(
       `SELECT client_id, product FROM opportunities WHERE id = $1`, [oppId])).rows[0];
     if (!o || o.client_id == null) return;
-    const [cn, mgrs] = await Promise.all([clientName(o.client_id), tourManagers(o.client_id)]);
+    const [cn, mgrs] = await Promise.all([clientName(o.client_id), clientManagers(o.client_id)]);
     const by = (await nameForEmail(actorEmail)) || actorEmail;
     for (const m of mgrs) {
       if (m.email.toLowerCase() === actorEmail.toLowerCase()) continue;
@@ -426,7 +462,7 @@ export async function notifyQuotationIssued(oppId: number, actorEmail: string) {
     const o = (await risansiPool.query<{ client_id: number | null; product: string | null; quote_ref: string | null }>(
       `SELECT client_id, product, quote_ref FROM opportunities WHERE id = $1`, [oppId])).rows[0];
     if (!o || o.client_id == null) return;
-    const [cn, mgrs] = await Promise.all([clientName(o.client_id), tourManagers(o.client_id)]);
+    const [cn, mgrs] = await Promise.all([clientName(o.client_id), clientManagers(o.client_id)]);
     const by = (await nameForEmail(actorEmail)) || actorEmail;
     for (const m of mgrs) {
       if (m.email.toLowerCase() === actorEmail.toLowerCase()) continue;
@@ -449,7 +485,7 @@ export async function notifyQuotationIssued(oppId: number, actorEmail: string) {
 // A new lead / client was created → tour manager(s), naming the creator.
 export async function notifyNewLead(clientId: number, creatorEmail: string) {
   try {
-    const [cn, mgrs] = await Promise.all([clientName(clientId), tourManagers(clientId)]);
+    const [cn, mgrs] = await Promise.all([clientName(clientId), clientManagers(clientId)]);
     const by = (await nameForEmail(creatorEmail)) || creatorEmail;
     for (const m of mgrs) {
       if (m.email.toLowerCase() === creatorEmail.toLowerCase()) continue;
@@ -545,4 +581,4 @@ function prettyDate(d?: string | null): string {
   return Number.isNaN(dt.getTime()) ? d : dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-export { firstName, tourManagers, sysadmins };
+export { firstName, clientManagers, sysadmins };

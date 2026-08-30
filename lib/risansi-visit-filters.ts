@@ -1,5 +1,5 @@
 import risansiPool from '@/lib/db-risansi';
-import { hasRole, type CurrentUser } from '@/lib/risansi-auth';
+import { hasRole, REP_OWNERSHIP, type CurrentUser } from '@/lib/risansi-auth';
 
 // Shared zone / tour / rep filters for the visit + calendar pages.
 // Filter values are the display NAMES (zone name, tour name, rep name) — matching
@@ -32,9 +32,19 @@ export function parseVisitFilters(sp: Record<string, string | string[] | undefin
     c.push(p); v.push(p);
   }
   if (reps.length) {
-    // client rows have no rep column, so scope by reps assigned to the client's tour;
-    // visit rows carry the actual rep on v.rep_id.
-    c.push(`c.tour_id IN (SELECT ta.tour_id FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id WHERE u.name IN (${arr(reps)}))`);
+    // Visit rows carry the rep on v.rep_id and always did. What changed is the
+    // client side: a client now names its own reps rather than borrowing them
+    // from a route, so "clients this rep works" is a direct question instead of
+    // a hop through tour_assignments.
+    //
+    // Zone and tour above are untouched. A route is still an attribute of the
+    // client, so filtering by one remains meaningful — it just no longer decides
+    // who may see anything.
+    c.push(REP_OWNERSHIP
+      ? `(c.primary_rep_id IN (SELECT id FROM users WHERE name IN (${arr(reps)}))
+          OR c.id IN (SELECT s.client_id FROM client_secondary_reps s
+                        JOIN users u ON u.id = s.rep_id WHERE u.name IN (${arr(reps)})))`
+      : `c.tour_id IN (SELECT ta.tour_id FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id WHERE u.name IN (${arr(reps)}))`);
     v.push(`v.rep_id IN (SELECT id FROM users WHERE name IN (${arr(reps)}))`);
   }
 
@@ -65,12 +75,22 @@ export async function getVisitFilterOptions(user: CurrentUser): Promise<VisitFil
     q(`SELECT tr.name AS v FROM tour_routes tr WHERE TRUE${scope} ORDER BY tr.name`),
     admin
       ? q(`SELECT name AS v FROM users WHERE is_active = TRUE AND role IN ('rep','manager') ORDER BY name`)
-      : q(`SELECT DISTINCT u.name AS v FROM users u
-             JOIN tour_assignments ta ON ta.rep_id = u.id
-            WHERE u.is_active = TRUE
-              AND u.role IN ('rep','manager')
-              AND ta.tour_id IN ${ownTours}
-            ORDER BY u.name`),
+      : REP_OWNERSHIP
+        // Yourself, plus anyone you manage. Sharing a route with somebody is no
+        // longer a reason to see their name in your filter bar — the hierarchy
+        // is explicit now, so the list is exactly the people whose work is yours
+        // to look at.
+        ? q(`SELECT DISTINCT u.name AS v FROM users u
+              WHERE u.is_active = TRUE
+                AND u.role IN ('rep','manager')
+                AND (u.id = ${uid} OR u.id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${uid}))
+              ORDER BY u.name`)
+        : q(`SELECT DISTINCT u.name AS v FROM users u
+               JOIN tour_assignments ta ON ta.rep_id = u.id
+              WHERE u.is_active = TRUE
+                AND u.role IN ('rep','manager')
+                AND ta.tour_id IN ${ownTours}
+              ORDER BY u.name`),
   ]);
   return { zones, tours, reps };
 }
@@ -84,14 +104,25 @@ export async function getScopedRepNames(f: VisitFilters): Promise<string[]> {
   if (f.zones.length) conds.push(`tr.zone IN (${arr(f.zones)})`);
   if (f.tours.length) conds.push(`tr.name IN (${arr(f.tours)})`);
   try {
-    const { rows } = await risansiPool.query<{ v: string }>(
-      `SELECT DISTINCT u.name AS v
-         FROM users u
-         JOIN tour_assignments ta ON ta.rep_id = u.id
-         JOIN tour_routes tr ON tr.id = ta.tour_id
-        WHERE u.is_active = TRUE AND u.role IN ('rep','manager') AND ${conds.join(' AND ')}
-        ORDER BY u.name`,
-    );
+    // Under ownership a route no longer has reps of its own — its clients do.
+    // So "who works this zone" becomes "who owns or covers a client on it",
+    // which is the same question the calendar was always trying to ask.
+    const sql = REP_OWNERSHIP
+      ? `SELECT DISTINCT u.name AS v
+           FROM users u
+           JOIN clients c ON (c.primary_rep_id = u.id
+                              OR c.id IN (SELECT s.client_id FROM client_secondary_reps s WHERE s.rep_id = u.id))
+           JOIN tour_routes tr ON tr.id = c.tour_id
+          WHERE u.is_active = TRUE AND u.role IN ('rep','manager')
+            AND c.deleted_at IS NULL AND ${conds.join(' AND ')}
+          ORDER BY u.name`
+      : `SELECT DISTINCT u.name AS v
+           FROM users u
+           JOIN tour_assignments ta ON ta.rep_id = u.id
+           JOIN tour_routes tr ON tr.id = ta.tour_id
+          WHERE u.is_active = TRUE AND u.role IN ('rep','manager') AND ${conds.join(' AND ')}
+          ORDER BY u.name`;
+    const { rows } = await risansiPool.query<{ v: string }>(sql);
     return rows.map(r => r.v);
   } catch { return []; }
 }

@@ -3,6 +3,8 @@
 // filters, ordering and the LIMIT are composed here so the Action Registry page
 // (/risansi/registry) and any future caller stay in sync.
 
+import { REP_OWNERSHIP } from '@/lib/risansi-auth';
+
 // FROM + joins shared by the row query and the count query, so both apply the
 // exact same visibility + filter WHERE against the same relations.
 const TASK_FROM = `
@@ -60,14 +62,33 @@ export interface TaskQueryOpts {
   mine?: boolean;   // scope to the caller's own actions (assigned to or created by them)
 }
 
-// Rep / manager visibility: tasks assigned to / created by / on a visit owned by
-// the user, whose client is on one of their tours, or granted via special access.
+// Rep / manager visibility for an action: it is assigned to you, you raised it,
+// it hangs off a visit you own, or you can reach its client.
+//
+// The client limb is what the ownership migration changes — own it, cover it, or
+// manage somebody who does, instead of sharing a tour with it. The first three
+// limbs are untouched and matter more than they look: an action assigned to you
+// on a client you have no relationship with is still yours to do, which is the
+// same principle as the in-flight rule on opportunities and visits.
+//
+// This does not use clientScopeSql because the parameters are positional here
+// ($1 rep, $2 email) while that helper inlines the id, and mixing the two
+// conventions inside one WHERE is how a query ends up with the wrong id in it.
 function repVisibilitySql(): string {
+  const clientLimb = REP_OWNERSHIP
+    ? `EXISTS (SELECT 1 FROM clients cl WHERE cl.id = t.client_id
+                AND (cl.primary_rep_id = $1
+                     OR cl.primary_rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $1)))
+       OR EXISTS (SELECT 1 FROM client_secondary_reps s WHERE s.client_id = t.client_id
+                   AND (s.rep_id = $1
+                        OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $1)))`
+    : `EXISTS (SELECT 1 FROM clients cl WHERE cl.id = t.client_id
+                AND cl.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = $1))`;
   return `(
     t.assigned_to_rep = $1
     OR t.created_by = $2
     OR EXISTS (SELECT 1 FROM visits vs WHERE vs.id = t.visit_id AND vs.rep_id = $1)
-    OR EXISTS (SELECT 1 FROM clients cl WHERE cl.id = t.client_id AND cl.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = $1))
+    OR ${clientLimb}
     OR EXISTS (SELECT 1 FROM client_rep_access cra WHERE cra.client_id = t.client_id AND cra.rep_id = $1)
   )`;
 }
