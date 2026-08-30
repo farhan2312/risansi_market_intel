@@ -31,19 +31,50 @@ export interface OutstandingUploadResult {
   grandTotal:   number;
 }
 
+/**
+ * Why this returns a failure instead of throwing one.
+ *
+ * Next.js redacts every error thrown out of a server action in production. The
+ * browser receives "An unexpected response was received from the server" and the
+ * real reason — the constraint, the column, the value — stays on the server where
+ * nobody reading the screen can act on it. That is exactly how this upload came
+ * to fail silently for weeks: the message existed, it just never left the box.
+ *
+ * A returned value is not redacted. So the action catches its own failure and
+ * hands back what actually went wrong, along with the Postgres error code and
+ * constraint name when there is one.
+ */
+export type OutstandingUploadOutcome =
+  | ({ ok: true } & OutstandingUploadResult)
+  | { ok: false; error: string; code?: string; detail?: string };
+
 // Full-replace upload: every monthly sheet clears ALL prior outstanding and
 // loads itself in one transaction. Amount → clients.total_outstanding; the
 // snapshot as-of date + mapped owner + raw debtor code ride along per client.
 export async function uploadOutstanding(
   rows: OutstandingRow[], asOfDate: string, filename: string,
-): Promise<OutstandingUploadResult> {
+): Promise<OutstandingUploadOutcome> {
   const session = await getServerSession(authOptions);
   const role    = session?.user?.role ?? '';
-  if (!hasRole(role, 'admin')) throw new Error('Unauthorized');
-  const email = session!.user!.email!;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(asOfDate)) throw new Error('Invalid as-of date');
+  if (!hasRole(role, 'admin')) {
+    return { ok: false, error: 'You are signed in as ' + (role || 'an unknown role') + ', which cannot upload outstanding data. An admin has to do it.' };
+  }
+  const email = session?.user?.email;
+  if (!email) return { ok: false, error: 'Your session has no email address on it. Sign out and back in, then try again.' };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(asOfDate)) {
+    return { ok: false, error: `As-of date "${asOfDate}" is not a YYYY-MM-DD date.` };
+  }
+  if (!rows.length) return { ok: false, error: 'The sheet had no rows to save.' };
 
-  const c = await risansiPool.connect();
+  let c;
+  try {
+    c = await risansiPool.connect();
+  } catch (e) {
+    // Worth its own message: a pool that cannot hand out a connection looks
+    // identical to a broken query from the outside, and the fix is different.
+    return { ok: false, error: 'Could not get a database connection: ' + msg(e) };
+  }
+  let committed = false;
   try {
     await c.query('BEGIN');
 
@@ -120,12 +151,32 @@ export async function uploadOutstanding(
     );
 
     await c.query('COMMIT');
-    revalidatePath('/risansi/admin/outstanding');
-    return { matched, skipped: skipped.length, skippedCodes: skipped, grandTotal };
+    committed = true;
+    return { ok: true, matched, skipped: skipped.length, skippedCodes: skipped, grandTotal };
   } catch (e) {
-    await c.query('ROLLBACK').catch(() => {});
-    throw e;
+    if (!committed) await c.query('ROLLBACK').catch(() => {});
+    const err = e as { code?: string; constraint?: string; detail?: string; column?: string; table?: string };
+    // Logged as well as returned: the return reaches whoever is looking at the
+    // screen, the log reaches whoever is reading Vercel later.
+    console.error('[uploadOutstanding] failed', {
+      code: err?.code, constraint: err?.constraint, table: err?.table,
+      column: err?.column, detail: err?.detail, message: msg(e),
+    });
+    return {
+      ok: false,
+      error: msg(e),
+      code: err?.code,
+      detail: [err?.constraint && `constraint ${err.constraint}`,
+               err?.table && `table ${err.table}`,
+               err?.column && `column ${err.column}`,
+               err?.detail].filter(Boolean).join(' · ') || undefined,
+    };
   } finally {
     c.release();
+    // Outside the try: a revalidate that throws must not turn a committed upload
+    // into a reported failure, which is what putting it before the return did.
+    if (committed) { try { revalidatePath('/risansi/admin/outstanding'); } catch { /* cache only */ } }
   }
 }
+
+const msg = (e: unknown) => (e instanceof Error ? e.message : String(e)) || 'Unknown error';

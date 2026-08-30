@@ -101,6 +101,15 @@ export function OutstandingUploadBox() {
         valid.map(r => ({ client_code: r.code, debtor: r.debtor, amount: r.amount })),
         asOf, fileName,
       );
+      if (!res.ok) {
+        // A returned failure carries the real reason; only a THROWN one is
+        // redacted. Show it, with the Postgres code and constraint when present.
+        setError('Save failed: ' + res.error
+          + (res.code ? ` [${res.code}]` : '')
+          + (res.detail ? ` — ${res.detail}` : ''));
+        setStage('preview');
+        return;
+      }
       setResult(res); setStage('done');
     } catch (err) {
       // Next.js redacts server-action errors in production, so the real message
