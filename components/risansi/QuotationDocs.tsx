@@ -65,7 +65,9 @@ export function useQuotationDocs(oppId: number | string, opts?: {
   // shows nothing attached, and the natural response is to upload it again.
   const refresh = useCallback(async () => {
     try {
-      const r = await fetch(`/api/risansi/opportunities/${oppId}/quotation/files`);
+      // cache: 'no-store' as well as the server's header. Belt and braces on
+      // the one request whose staleness looks exactly like a lost document.
+      const r = await fetch(`/api/risansi/opportunities/${oppId}/quotation/files`, { cache: 'no-store' });
       if (!r.ok) throw new Error(String(r.status));
       const d = (await r.json()) as { files?: QuotationDoc[] };
       setDocs(d.files ?? []);

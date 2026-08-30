@@ -25,5 +25,14 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  return NextResponse.json({ files: await listQuotationFiles(oppId) });
+  // no-store, like the two sibling quotation routes. Without it this GET has no
+  // cache directive at all, so a browser is free to serve it from its own cache
+  // under the heuristic rules — which is why a document attached a moment ago
+  // could vanish when the drawer was reopened, and why uploading it a second
+  // time "fixed" it: the POST response carries the list back directly and
+  // repaints from that rather than from this endpoint.
+  return NextResponse.json(
+    { files: await listQuotationFiles(oppId) },
+    { headers: { 'Cache-Control': 'private, no-store' } },
+  );
 }

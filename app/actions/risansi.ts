@@ -196,8 +196,8 @@ async function userCanEditOpp(
 // Cached set of columns that actually exist on the opportunities table.
 // Lets writes degrade gracefully when optional columns aren't present.
 let _oppColumns: Set<string> | null = null;
-async function opportunityColumns(): Promise<Set<string>> {
-  if (_oppColumns) return _oppColumns;
+async function opportunityColumns(refresh = false): Promise<Set<string>> {
+  if (_oppColumns && !refresh) return _oppColumns;
   try {
     const { rows } = await risansiPool.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns WHERE table_name = 'opportunities'`,
@@ -207,6 +207,40 @@ async function opportunityColumns(): Promise<Set<string>> {
     _oppColumns = new Set();
   }
   return _oppColumns;
+}
+
+/**
+ * Narrow a write to the columns the table actually has — re-reading the schema
+ * once before giving up on any it does not recognise.
+ *
+ * The re-read is the whole point. This cache is filled on the first write a
+ * server instance handles and was never invalidated, so an instance that started
+ * before a migration kept a column list from before it, and every column that
+ * migration added was quietly dropped from the INSERT or UPDATE. The write
+ * reported success and the value was never stored.
+ *
+ * That is exactly what migration 0061 caused: po_date, opportunity_type,
+ * opportunity_source, opportunity_category, client_reference, suspect_reason and
+ * hold_reason all arrived mid-session, so a PO date entered on the Won form
+ * saved on an instance with a fresh cache and vanished on one without. Saving a
+ * second time appeared to fix it only because the retry landed elsewhere.
+ *
+ * Refreshing when something is unrecognised means a new column costs one extra
+ * schema read, once per instance, and then behaves. Anything still missing after
+ * the re-read is genuinely absent and is logged rather than dropped in silence —
+ * degrading gracefully is fine, doing it invisibly is not.
+ */
+async function writableColumns(wanted: string[]): Promise<string[]> {
+  let cols = await opportunityColumns();
+  if (cols.size === 0) return wanted;          // schema unreadable: fail open, as before
+  if (wanted.some(c => !cols.has(c))) {
+    cols = await opportunityColumns(true);
+    const missing = wanted.filter(c => !cols.has(c));
+    if (missing.length && cols.size > 0) {
+      console.warn('[opportunities] these columns do not exist and will not be written:', missing.join(', '));
+    }
+  }
+  return cols.size === 0 ? wanted : wanted.filter(c => cols.has(c));
 }
 
 function auditVerb(action: string): string {
@@ -1098,8 +1132,7 @@ export async function createPipelineOpportunity(formData: FormData) {
     notes: s('notes'), auto_created: false, created_by: user.email,
   };
 
-  const existing = await opportunityColumns();
-  const cols = Object.keys(candidates).filter(c => existing.size === 0 || existing.has(c));
+  const cols = await writableColumns(Object.keys(candidates));
   const insertSql = `INSERT INTO opportunities (${cols.join(', ')}, created_at, updated_at)
        VALUES (${cols.map((_, i) => `$${i + 1}`).join(', ')}, NOW(), NOW())
      RETURNING id`;
@@ -1241,27 +1274,25 @@ export async function saveQuotedDetails(oppId: number, formData: FormData) {
        -- keeps whatever a legacy record already holds instead of blanking it on
        -- the next save. offer_value_usd was retired: USD is derived from the
        -- settings rate for display and was never typed.
-       market = $8, ril_rep = COALESCE($9, ril_rep),
-       qtn_prepared_by = COALESCE($10, qtn_prepared_by),
-       client_status_at_quote = COALESCE($11, client_status_at_quote),
-       unit_project = $12,
-       location = COALESCE($13, location),
-       qtr = COALESCE($14, qtr),
-       probability_code = $15,
-       product_type    = COALESCE($16, product_type),
-       value_cr        = COALESCE($17, value_cr),
-       notes           = COALESCE($18, notes),
-       pump_model = $19, pump_qty = $20,
-       probability = COALESCE($21, probability),
+       market = $7, ril_rep = COALESCE($8, ril_rep),
+       qtn_prepared_by = COALESCE($9, qtn_prepared_by),
+       client_status_at_quote = COALESCE($10, client_status_at_quote),
+       unit_project = $11,
+       location = COALESCE($12, location),
+       qtr = COALESCE($13, qtr),
+       probability_code = $14,
+       product_type    = COALESCE($15, product_type),
+       value_cr        = COALESCE($16, value_cr),
+       notes           = COALESCE($17, notes),
+       pump_model = $18, pump_qty = $19,
+       probability = COALESCE($20, probability),
        updated_at = NOW()
-     WHERE id = $22`,
+     WHERE id = $21`,
     [s('quote_ref'), s('quote_date'), s('enquiry_no'), s('enquiry_date'),
      // $5, quotation_link: always null, so the COALESCE above resolves to the
-     // stored value and this UPDATE can never change it. The parameter stays in
-     // place rather than being removed so the other seventeen positions keep
-     // their numbering. Uploading or removing a document is the only way the
-     // link changes, which is what "no new external links" has to mean on the
-     // server as well as in the form.
+     // stored value and this UPDATE can never change it. Uploading or removing a
+     // document is the only way the link changes, which is what "no new external
+     // links" has to mean on the server as well as in the form.
      null, offerInr,
      s('market'), s('ril_rep'), s('qtn_prepared_by'), s('client_status_at_quote'),
      s('unit_project'), s('location'), s('qtr'), s('probability_code'),
@@ -1462,8 +1493,7 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
   // OppCompletionModal (which sends no code) preserves it too.
   if (!probCode) { delete candidates.probability; delete candidates.probability_code; }
 
-  const existing = await opportunityColumns();
-  const cols = Object.keys(candidates).filter(c => existing.size === 0 || existing.has(c));
+  const cols = await writableColumns(Object.keys(candidates));
   if (cols.length === 0) return;
 
   const sets = cols.map((c, i) => `${c} = $${i + 1}`);
