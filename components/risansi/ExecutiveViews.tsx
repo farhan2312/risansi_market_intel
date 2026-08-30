@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
-import Link from 'next/link';
+import { DrillCell } from './ExecDrilldown';
+import type { DrillParams } from '@/app/actions/risansi-exec-drilldown';
 
 // ────────────────────────────────────────────────────────────────
 // Executive Review — the monthly per-TSM review dashboards, now driven by live
@@ -7,15 +8,21 @@ import Link from 'next/link';
 // selected TSM + month and renders it here.
 // ────────────────────────────────────────────────────────────────
 
-export type Row = { label: string; vals: (number | null)[]; strong?: boolean };
+// `drill` runs parallel to `vals`: one entry per column, null where that cell
+// has nothing to itemise (a grand total, a zero). Every figure on this page is a
+// sum or a count over a set of clients, and the set was the one thing the reader
+// could not see.
+export type Row = {
+  label: string; vals: (number | null)[]; strong?: boolean;
+  drill?: (DrillParams | null)[];
+};
 export interface ExecTable { headers: string[]; rows: Row[]; moneyFrom: number }
-// A clickable breakdown row inside a KPI card (e.g. "Visited (≤90d) · 42"),
-// linking through to the clients list pre-filtered to match.
-export interface ExecKpiLine { label: string; value: string; color?: string; href?: string }
+// A breakdown row inside a KPI card (e.g. "Visited (≤90d) · 42").
+export interface ExecKpiLine { label: string; value: string; color?: string; drill?: DrillParams }
 export interface ExecKpi {
   label: string; value: string; sub?: string; accent?: boolean;
-  href?: string;          // click-through for the main number
-  lines?: ExecKpiLine[];  // clickable breakdown rows below the number
+  drill?: DrillParams;    // breakdown for the main number
+  lines?: ExecKpiLine[];
 }
 export interface ExecData {
   clientsSummary:  ExecTable;
@@ -47,11 +54,15 @@ export function MiniTable({ title, note, table, full }: { title: string; note?: 
             ) : rows.map((r, ri) => (
               <tr key={ri} style={{ background: r.strong ? 'var(--bg-elev)' : 'transparent' }}>
                 <td style={{ ...TD, fontWeight: r.strong ? 700 : 500, color: 'var(--fg)', borderTop: r.strong ? '2px solid var(--line-strong)' : '1px solid var(--line)' }}>{r.label}</td>
-                {r.vals.map((v, vi) => (
-                  <td key={vi} style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: r.strong ? 700 : 400, color: v == null ? 'var(--fg-3)' : 'var(--fg)', borderTop: r.strong ? '2px solid var(--line-strong)' : '1px solid var(--line)' }}>
-                    {v == null ? '—' : (vi >= moneyFrom ? '₹' : '') + inr(v)}
-                  </td>
-                ))}
+                {r.vals.map((v, vi) => {
+                  const text = v == null ? '—' : (vi >= moneyFrom ? '₹' : '') + inr(v);
+                  const d = r.drill?.[vi];
+                  return (
+                    <td key={vi} style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: r.strong ? 700 : 400, color: v == null ? 'var(--fg-3)' : 'var(--fg)', borderTop: r.strong ? '2px solid var(--line-strong)' : '1px solid var(--line)' }}>
+                      {d && v ? <DrillCell params={d}>{text}</DrillCell> : text}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>
@@ -80,11 +91,13 @@ export function ExecutiveViews({ data, selector, periodLabel, note }: {
         {data.kpis.map(k => (
           <div key={k.label} style={{ ...PANEL, padding: '13px 15px', ...(k.accent ? { borderLeft: '4px solid var(--title)' } : {}) }}>
             <div style={METRIC_LABEL}>{k.label}</div>
-            {k.href ? (
-              <Link href={k.href} className="exec-kpi-link"
-                style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: 26, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--fg)', lineHeight: 1.1, marginTop: 4, textDecoration: 'none' }}>
-                {k.value}
-              </Link>
+            {k.drill ? (
+              <div style={{ marginTop: 4 }}>
+                <DrillCell params={k.drill}
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: 26, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--fg)', lineHeight: 1.1 }}>
+                  {k.value}
+                </DrillCell>
+              </div>
             ) : (
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 26, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--fg)', lineHeight: 1.1, marginTop: 4 }}>{k.value}</div>
             )}
@@ -98,8 +111,8 @@ export function ExecutiveViews({ data, selector, periodLabel, note }: {
                       <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: l.color ?? 'var(--fg)' }}>{l.value}</span>
                     </div>
                   );
-                  return l.href
-                    ? <Link key={l.label} href={l.href} className="exec-kpi-link" style={{ textDecoration: 'none' }}>{row}</Link>
+                  return l.drill
+                    ? <DrillCell key={l.label} params={l.drill} style={{ display: 'block', width: '100%', textDecoration: 'none' }}>{row}</DrillCell>
                     : <div key={l.label}>{row}</div>;
                 })}
               </div>

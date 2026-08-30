@@ -6,6 +6,7 @@ import { getCurrentUser, getReviewableRepIds, clientVisibilitySql, clientScopeSq
 import risansiPool from '@/lib/db-risansi';
 import { ExecutiveViews, type ExecData, type Row } from '@/components/risansi/ExecutiveViews';
 import { ExecutiveSelector, type SelRep } from '@/components/risansi/ExecutiveSelector';
+import { ExecDrilldownProvider } from '@/components/risansi/ExecDrilldown';
 import { AccountSelector, ViewSwitch, type NameOpt } from '@/components/risansi/AccountSelector';
 import { GroupReview, OemReview, type GroupReviewData, type GroupUnit, type OemReviewData } from '@/components/risansi/AccountReview';
 import { CLIENT_STATUS_COLORS } from '@/lib/risansi-client-status';
@@ -224,15 +225,6 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   const tsm = (sp.tsm && reps.some(r => r.id === sp.tsm)) ? sp.tsm : (reps[0]?.id ?? '');
   const tsmName = reps.find(r => r.id === tsm)?.name ?? '—';
 
-  // KPI numbers below link through to the clients list, scoped to this same TSM
-  // (via the "rep" filter, which matches on ownership the same way `tourF`
-  // does) plus whatever status/visit filter the clicked number represents.
-  const clientsLink = (params: Record<string, string>): string => {
-    const p = tsmName !== '—' ? { ...params, rep: tsmName } : params;
-    const qs = new URLSearchParams(p).toString();
-    return `/risansi/clients${qs ? `?${qs}` : ''}`;
-  };
-
   // The review is scoped to the current fiscal year to date (Apr→Mar) — there is
   // no month picker any more. selMonths is every month of the current FY up to
   // now, so the month-scoped sections (revenue, quotation, offers, attendance,
@@ -396,17 +388,32 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   const clientRows: Row[] = CATS.map(cat => ({ label: cat, vals: [cmMap[cat] ?? 0] }));
   const cmTotal = clients.reduce((s, r) => s + Number(r.nn), 0);
   clientRows.push({ label: 'Grand Total', vals: [cmTotal], strong: true });
+  for (const r of clientRows) {
+    if (!r.strong) r.drill = [{ kind: 'clients_by_type', tsm, key: r.label }];
+  }
 
   const tMap = Object.fromEntries(turnover.map(r => [r.bucket, r]));
   const turnRows: Row[] = TURN_ORDER.filter(b => tMap[b]).map(b => {
     const r = tMap[b];
-    return { label: b, vals: [Number(r.clients), n(r.fyc), n(r.f1), n(r.f2), n(r.f3)] };
+    return {
+      label: b,
+      vals: [Number(r.clients), n(r.fyc), n(r.f1), n(r.f2), n(r.f3)],
+      drill: (['clients', 'fyc', 'f1', 'f2', 'f3'] as const).map(col => ({
+        kind: 'turnover' as const, tsm, key: b, col,
+      })),
+    };
   });
   const tt = turnover.reduce((a, r) => { a.c += +r.clients; a.fyc += n(r.fyc); a.f1 += n(r.f1); a.f2 += n(r.f2); a.f3 += n(r.f3); return a; }, { c: 0, fyc: 0, f1: 0, f2: 0, f3: 0 });
   turnRows.push({ label: 'Grand Total', vals: [tt.c, tt.fyc, tt.f1, tt.f2, tt.f3], strong: true });
 
   const qMap = Object.fromEntries(quotation.map(r => [r.channel, r]));
-  const quoteRows: Row[] = CATS.filter(cat => qMap[cat]).map(cat => ({ label: cat, vals: [n(qMap[cat].active), n(qMap[cat].won), n(qMap[cat].active) + n(qMap[cat].won)] }));
+  const quoteRows: Row[] = CATS.filter(cat => qMap[cat]).map(cat => ({
+    label: cat,
+    vals: [n(qMap[cat].active), n(qMap[cat].won), n(qMap[cat].active) + n(qMap[cat].won)],
+    drill: (['active', 'won', 'total'] as const).map(col => ({
+      kind: 'quotation' as const, tsm, key: cat, col,
+    })),
+  }));
   const qt = quotation.reduce((a, r) => { a.a += n(r.active); a.w += n(r.won); return a; }, { a: 0, w: 0 });
   quoteRows.push({ label: 'Grand Total', vals: [qt.a, qt.w, qt.a + qt.w], strong: true });
 
@@ -414,11 +421,22 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   const STAGE_TO_OFFER: Record<string, string> = { Quoted: 'Active', Negotiating: 'Active', 'On Hold': 'Hold-Active', Won: 'Order Received', Lost: 'Order Lost by RIL', Dropped: 'Requirement Closed' };
   const offerAgg: Record<string, number> = { Active: 0, 'Hold-Active': 0, 'Order Lost by RIL': 0, 'Order Received': 0, 'Requirement Closed': 0 };
   for (const r of offers) { const lbl = STAGE_TO_OFFER[r.stage]; if (lbl) offerAgg[lbl] += n(r.val); }
-  const offerRows: Row[] = ['Active', 'Hold-Active', 'Order Lost by RIL', 'Order Received', 'Requirement Closed'].map(l => ({ label: l, vals: [offerAgg[l]] }));
+  const offerRows: Row[] = ['Active', 'Hold-Active', 'Order Lost by RIL', 'Order Received', 'Requirement Closed']
+    .map(l => ({ label: l, vals: [offerAgg[l]], drill: [{ kind: 'offer_status' as const, tsm, key: l }] }));
   offerRows.push({ label: 'Grand Total', vals: [Object.values(offerAgg).reduce((a, b) => a + b, 0)], strong: true });
 
   const MON = (m: string) => new Date(m + '-01').toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
-  const attRows: Row[] = attendance.map(r => ({ label: MON(r.mon), vals: [Number(r.days), Number(r.clients)] }));
+  // Visit days and Clients are different sets: one lists the visits, the other
+  // the clients they were made to, and a month with two calls on one client has
+  // a different count in each column.
+  const attRows: Row[] = attendance.map(r => ({
+    label: MON(r.mon),
+    vals: [Number(r.days), Number(r.clients)],
+    drill: [
+      { kind: 'attendance_visits' as const, tsm, key: r.mon },
+      { kind: 'attendance_clients' as const, tsm, key: r.mon },
+    ],
+  }));
   const at = attendance.reduce((a, r) => { a.d += +r.days; return a; }, { d: 0 });
   attRows.push({ label: 'Total', vals: [at.d, null], strong: true });
 
@@ -429,32 +447,34 @@ export default async function ExecutiveReviewPage({ searchParams }: {
     offerStatus:     { headers: ['Offer status', 'Total Offer Value (INR)'], rows: offerRows, moneyFrom: 0 },
     attendance:      { headers: ['Month', 'Visit days', 'Clients'], rows: attRows, moneyFrom: 99 },
     kpis: [
-      { label: 'Order in Hand', value: fmtMoney(n(kpiRow?.total_business)), sub: 'won · not yet in a sales order', accent: true },
-      { label: 'Revenue', value: fmtMoney(n(kpiRow?.revenue)), sub: 'invoiced · FY to date' },
+      { label: 'Order in Hand', value: fmtMoney(n(kpiRow?.total_business)), sub: 'won · not yet in a sales order', accent: true,
+        drill: { kind: 'order_in_hand', tsm } },
+      { label: 'Revenue', value: fmtMoney(n(kpiRow?.revenue)), sub: 'invoiced · FY to date',
+        drill: { kind: 'revenue', tsm } },
       {
         label: 'Active Clients',
         value: (kpiRow ? Number(kpiRow.active_clients) : 0).toLocaleString('en-IN'),
-        href: clientsLink({ status: 'ACTIVE' }),
+        drill: { kind: 'active_clients', tsm },
         lines: [
           { label: 'Visited (≤90d)', value: (kpiRow ? Number(kpiRow.active_visited) : 0).toLocaleString('en-IN'),
-            color: 'var(--pos)', href: clientsLink({ status: 'ACTIVE', visit: 'visited' }) },
+            color: 'var(--pos)', drill: { kind: 'active_visited', tsm } },
           { label: 'Overdue (90d+)', value: (kpiRow ? Number(kpiRow.active_overdue) : 0).toLocaleString('en-IN'),
-            color: 'var(--warn)', href: clientsLink({ status: 'ACTIVE', visit: 'overdue' }) },
+            color: 'var(--warn)', drill: { kind: 'active_overdue', tsm } },
           { label: 'Never Visited', value: (kpiRow ? Number(kpiRow.active_never) : 0).toLocaleString('en-IN'),
-            color: 'var(--neg)', href: clientsLink({ status: 'ACTIVE', visit: 'never' }) },
+            color: 'var(--neg)', drill: { kind: 'active_never', tsm } },
         ],
       },
       {
         label: 'Prospective',
         value: (kpiRow ? Number(kpiRow.prospective) : 0).toLocaleString('en-IN'),
-        href: clientsLink({ status: 'PROSPECTIVE_LEAD,PROSPECTIVE_CLIENT' }),
+        drill: { kind: 'prospective', tsm },
         lines: [
           { label: 'Visited (≤90d)', value: (kpiRow ? Number(kpiRow.prospective_visited) : 0).toLocaleString('en-IN'),
-            color: 'var(--pos)', href: clientsLink({ status: 'PROSPECTIVE_LEAD,PROSPECTIVE_CLIENT', visit: 'visited' }) },
+            color: 'var(--pos)', drill: { kind: 'prospective_visited', tsm } },
           { label: 'Prospective-Lead', value: (kpiRow ? Number(kpiRow.prospective_lead) : 0).toLocaleString('en-IN'),
-            color: CLIENT_STATUS_COLORS.PROSPECTIVE_LEAD[0], href: clientsLink({ status: 'PROSPECTIVE_LEAD' }) },
+            color: CLIENT_STATUS_COLORS.PROSPECTIVE_LEAD[0], drill: { kind: 'prospective_lead', tsm } },
           { label: 'Prospective-Client', value: (kpiRow ? Number(kpiRow.prospective_client) : 0).toLocaleString('en-IN'),
-            color: CLIENT_STATUS_COLORS.PROSPECTIVE_CLIENT[0], href: clientsLink({ status: 'PROSPECTIVE_CLIENT' }) },
+            color: CLIENT_STATUS_COLORS.PROSPECTIVE_CLIENT[0], drill: { kind: 'prospective_client', tsm } },
         ],
       },
     ],
@@ -487,6 +507,7 @@ export default async function ExecutiveReviewPage({ searchParams }: {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ position: 'sticky', top: 0, zIndex: 10 }}><Topbar crumbs={['Risansi', 'Executive Review']} /></div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>
+        <ExecDrilldownProvider tsm={tsm} scope={accountScope}>
         <ExecutiveViews
           data={data}
           periodLabel={periodLabel}
@@ -496,6 +517,7 @@ export default async function ExecutiveReviewPage({ searchParams }: {
             <ExecutiveSelector reps={reps} tsm={tsm} scope={accountScope} />
           </div>}
         />
+        </ExecDrilldownProvider>
       </div>
     </div>
   );
