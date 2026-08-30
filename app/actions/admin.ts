@@ -19,25 +19,11 @@ async function requireSysadmin() {
   return session.user;
 }
 
-async function auditTourAssignment(userId: number, adminEmail: string | null | undefined) {
-  try {
-    await risansiPool.query(
-      `INSERT INTO assignment_audit (entity_type, entity_id, action, changed_by, changed_at)
-       VALUES ('tour_assignment', $1, 'update', $2, NOW())`,
-      [userId, adminEmail ?? null],
-    );
-  } catch { /* best-effort */ }
-}
-
 export async function approveUser(formData: FormData) {
   const admin    = await requireSysadmin();
   const id       = parseInt(formData.get('id') as string); // users.id
   const role     = formData.get('role') as string;
   const safeRole = VALID_ROLES.includes(role) ? role : 'rep';
-
-  // Only rep & manager roles receive tour assignments.
-  // (tour_assignments.role has a CHECK constraint allowing only 'rep'|'manager'.)
-  const linksRep = safeRole === 'rep' || safeRole === 'manager';
 
   // The user record IS the person now — just flip status + role.
   await risansiPool.query(
@@ -49,27 +35,10 @@ export async function approveUser(formData: FormData) {
     [safeRole, id],
   );
 
-  // Assign tours. The role stored on each assignment mirrors the user's role
-  // ('rep' or 'manager'). Idempotent via the (tour_id, rep_id) unique key.
-  const tourIds = formData.getAll('tour_ids[]')
-    .map(v => parseInt(v as string, 10))
-    .filter(n => !isNaN(n));
-
-  if (linksRep && tourIds.length > 0) {
-    for (const tourId of tourIds) {
-      try {
-        await risansiPool.query(
-          `INSERT INTO tour_assignments (tour_id, rep_id, role, assigned_by)
-           VALUES ($1, $2, $3, $4)
-           ON CONFLICT (tour_id, rep_id) DO UPDATE SET
-             role        = EXCLUDED.role,
-             assigned_by = EXCLUDED.assigned_by`,
-          [tourId, id, safeRole, admin.email],
-        );
-      } catch { /* skip a bad tour id, keep the rest */ }
-    }
-    await auditTourAssignment(id, admin.email);
-  }
+  // Approving no longer assigns routes. It read tour_ids[] from the form, but no
+  // form has sent that field for some time, and a route grants nothing now — an
+  // approved rep gets their access from the clients they own, which is set on
+  // Reps & Managers.
 
   revalidatePath('/admin');
   revalidatePath('/risansi/admin/reps');

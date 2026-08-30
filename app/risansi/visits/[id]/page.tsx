@@ -98,7 +98,7 @@ export default async function VisitReportPage({
     myRepId = repRes.rows[0]?.id ?? null;
   }
   // A submitted report is "Closed" but re-openable for the window by anyone
-  // authorised to edit it — the assigned rep, a manager on their tour, or an
+  // authorised to edit it — the assigned rep, a manager above them, or an
   // admin/sysadmin — not the rep alone.
   const visitRepId  = visit.rep_id != null ? Number(visit.rep_id) : null;
   const canEditVisit = await canEditVisitReport({ role: session.user.role ?? null, repId: myRepId }, visitRepId);

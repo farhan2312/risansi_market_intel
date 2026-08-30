@@ -32,7 +32,7 @@ export async function loadOpp(oppId: number): Promise<OppRef | null> {
 }
 
 // Mirror of userCanEditOpp in app/actions/risansi.ts — tour-based: admin always,
-// or anyone who can see the client (a rep/manager on its tour, special-access).
+// or anyone who can see the client (owner, covering rep, their manager, special-access).
 export async function canEditOpp(
   user: CurrentUser, oppRepId: number | null, clientId: number | null,
 ): Promise<boolean> {

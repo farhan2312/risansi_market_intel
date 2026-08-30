@@ -37,13 +37,12 @@ export default async function AdminPage() {
         u.route,
         u.rep_code,
         u.target_cr::float                          AS target_cr,
-        COUNT(DISTINCT ta.tour_id)::int             AS tours_count,
+        (SELECT COUNT(*)::int FROM manager_reps mr WHERE mr.manager_id = u.id) AS team_count,
         COUNT(DISTINCT c.id)::int                   AS clients_count
       FROM users u
-      LEFT JOIN tour_assignments ta ON ta.rep_id = u.id
       -- Clients this person actually works, rather than everything on a route
-      -- they happen to share. The tours_count above still reads tour_assignments
-      -- because it is reporting on the old structure while it still exists.
+      -- they happen to share. The route count this replaced reported on a
+      -- structure that no longer decides anything.
       LEFT JOIN clients c ON c.deleted_at IS NULL
                          AND (c.primary_rep_id = u.id
                               OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = u.id))

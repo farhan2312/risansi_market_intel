@@ -58,15 +58,6 @@ export const requireSession = cache(async () => {
   return session;
 });
 
-/** Tour ids assigned to a rep/manager. (tour_assignments.rep_id holds a users.id.) */
-export async function getRepTours(repId: number): Promise<number[]> {
-  const res = await risansiPool.query<{ tour_id: number }>(
-    `SELECT tour_id FROM tour_assignments WHERE rep_id = $1`,
-    [repId],
-  );
-  return res.rows.map(r => r.tour_id);
-}
-
 // ── Current user + visibility (post-unification on `users`) ───────
 
 export interface CurrentUser {
@@ -113,41 +104,19 @@ function intOrNull(v: unknown): number | null {
 }
 
 /**
- * Which ownership model is in force.
- *
- * Tours are being replaced by a primary rep and optional secondaries held on the
- * client itself. Both rules live here through the changeover so the switch is an
- * environment variable rather than a deploy — if the new mapping turns out wrong
- * in real use, REP_OWNERSHIP=0 restores the old behaviour in seconds and no data
- * has to be reconstructed, because tour_assignments is still populated.
- *
- * Remove this, and the tour branch below, once the new rule has held for a while.
- */
-export const REP_OWNERSHIP = process.env.REP_OWNERSHIP !== '0';
-
-/**
  * The clients a person may see, as SQL.
  *
- * Under the ownership model that is: I am the primary rep, I am a secondary rep,
- * I manage somebody who is either, or an admin granted me the client directly.
- * Managers reach clients through their team rather than through a route, and one
- * level only — a manager under a manager inherits nothing, because the tours this
- * replaces were never a hierarchy and inventing one would be a guess.
+ * I am the primary rep, I am a secondary rep, I manage somebody who is either,
+ * or an admin granted me the client directly. Managers reach clients through
+ * their team rather than through a route, and one level only — a manager under a
+ * manager inherits nothing, because the tours this replaced were never a
+ * hierarchy and inventing one would be a guess.
  *
- * Under the tour model it is the older question: is this client on a route I am
- * assigned to.
- *
- * Admins are unrestricted under both and get null, meaning no predicate at all.
- * A signed-out or unlinked user gets 'FALSE' rather than an empty string, so a
- * missing id can never widen a query instead of narrowing it.
+ * Admins are unrestricted and get null, meaning no predicate at all. A signed-out
+ * or unlinked user gets 'FALSE' rather than an empty string, so a missing id can
+ * never widen a query instead of narrowing it.
  */
 function clientRuleSql(uid: number, clientIdCol: string): string {
-  if (!REP_OWNERSHIP) {
-    return `(${clientIdCol} IN (
-      SELECT id FROM clients
-       WHERE tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = ${uid})
-    ) OR ${clientIdCol} IN (SELECT client_id FROM client_rep_access WHERE rep_id = ${uid}))`;
-  }
   return `(${clientIdCol} IN (
       SELECT c2.id FROM clients c2
        WHERE c2.primary_rep_id = ${uid}
@@ -216,26 +185,19 @@ export async function canViewClient(user: CurrentUser, clientId: number): Promis
   // make the account yours. The record stays reachable from the lists that scope
   // with clientScopeSql; the client page itself does not open.
   const { rows } = await risansiPool.query<{ ok: boolean }>(
-    REP_OWNERSHIP
-      ? `SELECT (EXISTS (
-           SELECT 1 FROM clients c
-            WHERE c.id = $1
-              AND (c.primary_rep_id = $2
-                   OR c.primary_rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $2))
-         ) OR EXISTS (
-           SELECT 1 FROM client_secondary_reps s
-            WHERE s.client_id = $1
-              AND (s.rep_id = $2
-                   OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $2))
-         ) OR EXISTS (
-           SELECT 1 FROM client_rep_access WHERE client_id = $1 AND rep_id = $2
-         )) AS ok`
-      : `SELECT (EXISTS (
-           SELECT 1 FROM clients c
-           WHERE c.id = $1 AND c.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = $2)
-         ) OR EXISTS (
-           SELECT 1 FROM client_rep_access WHERE client_id = $1 AND rep_id = $2
-         )) AS ok`,
+    `SELECT (EXISTS (
+       SELECT 1 FROM clients c
+        WHERE c.id = $1
+          AND (c.primary_rep_id = $2
+               OR c.primary_rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $2))
+     ) OR EXISTS (
+       SELECT 1 FROM client_secondary_reps s
+        WHERE s.client_id = $1
+          AND (s.rep_id = $2
+               OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $2))
+     ) OR EXISTS (
+       SELECT 1 FROM client_rep_access WHERE client_id = $1 AND rep_id = $2
+     )) AS ok`,
     [clientId, uid],
   );
   return rows[0]?.ok ?? false;
@@ -255,7 +217,7 @@ export async function hasSpecialClientAccess(repId: number, clientId: number): P
 
 /**
  * Can this user access a single complaint? admin/sysadmin always; otherwise
- * when they raised it, it's assigned to them, or its client is on their tour.
+ * when they raised it, it's assigned to them, or they work its client.
  * Mirrors the complaints page visibility predicate.
  */
 export async function canAccessComplaint(user: CurrentUser, complaintId: number): Promise<boolean> {
@@ -278,25 +240,33 @@ export function complaintVisibilitySql(user: CurrentUser, alias = 'cm'): string 
   const uid = intOrNull(user.id);
   if (uid == null) return 'FALSE';
   const email = (user.email ?? '').replace(/'/g, "''").toLowerCase();
+  // The client limb goes through clientRuleSql rather than spelling itself out,
+  // which is how it came to be left behind on the route rule while everything
+  // else moved: a complaint on a client you own was invisible unless you also
+  // happened to share a route with it.
   return `(
     ${alias}.assigned_to_user = ${uid}
     OR lower(${alias}.created_by) = '${email}'
-    OR ${alias}.client_id IN (SELECT id FROM clients WHERE tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = ${uid}))
-    OR ${alias}.client_id IN (SELECT client_id FROM client_rep_access WHERE rep_id = ${uid})
+    OR ${clientRuleSql(uid, `${alias}.client_id`)}
   )`;
 }
 
 /**
- * Every rep id that shares at least one tour with this manager, plus the
- * manager themselves. Used to build the "who can I assign to" set and to
- * validate assignments server-side.
+ * The people a manager may act for: their team, plus themselves. Drives "who can
+ * I assign to", the rep dropdown, the visit-report edit gate, the quotation-file
+ * gate and the Executive Review scope.
+ *
+ * This used to mean "everybody who shares a route with me", which was symmetric
+ * — so a peer manager on the same route counted as assignable, and a rep on a
+ * busy shared route inherited a dozen colleagues nobody had put them under. The
+ * hierarchy is explicit now, so the answer is exactly the reps beneath them.
+ *
+ * A manager with no team gets just themselves, which is right: several of them
+ * own clients directly and have nobody underneath.
  */
 export async function getManagerAssignableReps(managerRepId: number): Promise<number[]> {
   const res = await risansiPool.query<{ rep_id: number }>(
-    `SELECT DISTINCT ta2.rep_id
-       FROM tour_assignments ta1
-       JOIN tour_assignments ta2 ON ta1.tour_id = ta2.tour_id
-      WHERE ta1.rep_id = $1`,
+    `SELECT rep_id FROM manager_reps WHERE manager_id = $1`,
     [managerRepId],
   );
 
@@ -308,10 +278,9 @@ export async function getManagerAssignableReps(managerRepId: number): Promise<nu
 /**
  * Whose Executive Review may this user open?
  *   admin / sysadmin → null (no restriction — every TSM)
- *   manager          → the reps on the tours they're assigned to, plus
- *                      themselves (getManagerAssignableReps). Note this is
- *                      symmetric on shared tours, so a manager also sees a peer
- *                      manager who works the same tour.
+ *   manager          → their team plus themselves (getManagerAssignableReps).
+ *                      No longer symmetric: a peer manager is not on your team
+ *                      merely because you both work the same territory.
  *   rep              → themselves only
  * Returns the allowed users.id list, or null meaning "no restriction". An empty
  * array means "nobody" (a user with no linked id), which callers must treat as
@@ -326,8 +295,8 @@ export async function getReviewableRepIds(user: CurrentUser): Promise<number[] |
 }
 
 /**
- * Who may fill or correct a visit report: the assigned rep, a manager who
- * shares one of that rep's tours, or admin/sysadmin. Same shape as the
+ * Who may fill or correct a visit report: the assigned rep, a manager that rep
+ * reports to, or admin/sysadmin. Same shape as the
  * opportunity edit gate (userCanEditOpp) so record editing stays consistent
  * across the app. The 30-day re-open window is applied on top of this, not
  * inside it — this answers "is this person allowed at all?", the window answers

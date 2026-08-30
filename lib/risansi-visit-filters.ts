@@ -1,5 +1,5 @@
 import risansiPool from '@/lib/db-risansi';
-import { hasRole, REP_OWNERSHIP, type CurrentUser } from '@/lib/risansi-auth';
+import { hasRole, type CurrentUser } from '@/lib/risansi-auth';
 
 // Shared zone / tour / rep filters for the visit + calendar pages.
 // Filter values are the display NAMES (zone name, tour name, rep name) — matching
@@ -35,16 +35,14 @@ export function parseVisitFilters(sp: Record<string, string | string[] | undefin
     // Visit rows carry the rep on v.rep_id and always did. What changed is the
     // client side: a client now names its own reps rather than borrowing them
     // from a route, so "clients this rep works" is a direct question instead of
-    // a hop through tour_assignments.
+    // a hop through a route roster.
     //
     // Zone and tour above are untouched. A route is still an attribute of the
     // client, so filtering by one remains meaningful — it just no longer decides
     // who may see anything.
-    c.push(REP_OWNERSHIP
-      ? `(c.primary_rep_id IN (SELECT id FROM users WHERE name IN (${arr(reps)}))
+    c.push(`(c.primary_rep_id IN (SELECT id FROM users WHERE name IN (${arr(reps)}))
           OR c.id IN (SELECT s.client_id FROM client_secondary_reps s
-                        JOIN users u ON u.id = s.rep_id WHERE u.name IN (${arr(reps)})))`
-      : `c.tour_id IN (SELECT ta.tour_id FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id WHERE u.name IN (${arr(reps)}))`);
+                        JOIN users u ON u.id = s.rep_id WHERE u.name IN (${arr(reps)})))`);
     v.push(`v.rep_id IN (SELECT id FROM users WHERE name IN (${arr(reps)}))`);
   }
 
@@ -59,14 +57,22 @@ export function parseVisitFilters(sp: Record<string, string | string[] | undefin
 export interface VisitFilterOptions { zones: string[]; tours: string[]; reps: string[]; }
 
 // Options for the dropdowns, scoped to what the user may see (admin → all;
-// rep/manager → only their tours' zones/tours and reps who share a tour).
+// rep/manager → the routes their own clients sit on, and the people under them).
 export async function getVisitFilterOptions(user: CurrentUser): Promise<VisitFilterOptions> {
   const admin = hasRole(user.role, 'admin');
   const uid   = Number(user.id) || 0;
-  // Tours the user may see: their own tours PLUS the tours of any client granted
-  // to them by special access (tourless granted clients contribute nothing).
-  const ownTours = `(SELECT tour_id FROM tour_assignments WHERE rep_id = ${uid}
-                     UNION SELECT tour_id FROM clients WHERE id IN (SELECT client_id FROM client_rep_access WHERE rep_id = ${uid}))`;
+  // Routes the user may see. A roster no longer decides this: the routes worth
+  // offering are the ones their own clients actually sit on, so a shared route
+  // stops putting a colleague's territory in the dropdown. Clients with no route
+  // contribute nothing, which is correct — there is no route to filter by.
+  const ownTours = `(SELECT c.tour_id FROM clients c
+                      WHERE c.tour_id IS NOT NULL AND c.deleted_at IS NULL
+                        AND (c.primary_rep_id = ${uid}
+                             OR c.primary_rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${uid})
+                             OR c.id IN (SELECT s.client_id FROM client_secondary_reps s
+                                          WHERE s.rep_id = ${uid}
+                                             OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${uid}))
+                             OR c.id IN (SELECT client_id FROM client_rep_access WHERE rep_id = ${uid})))`;
   const scope = admin ? '' : ` AND tr.id IN ${ownTours}`;
   const q = async (sql: string) => { try { return (await risansiPool.query<{ v: string }>(sql)).rows.map(r => r.v); } catch { return []; } };
 
@@ -75,22 +81,14 @@ export async function getVisitFilterOptions(user: CurrentUser): Promise<VisitFil
     q(`SELECT tr.name AS v FROM tour_routes tr WHERE TRUE${scope} ORDER BY tr.name`),
     admin
       ? q(`SELECT name AS v FROM users WHERE is_active = TRUE AND role IN ('rep','manager') ORDER BY name`)
-      : REP_OWNERSHIP
-        // Yourself, plus anyone you manage. Sharing a route with somebody is no
-        // longer a reason to see their name in your filter bar — the hierarchy
-        // is explicit now, so the list is exactly the people whose work is yours
-        // to look at.
-        ? q(`SELECT DISTINCT u.name AS v FROM users u
-              WHERE u.is_active = TRUE
-                AND u.role IN ('rep','manager')
-                AND (u.id = ${uid} OR u.id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${uid}))
-              ORDER BY u.name`)
-        : q(`SELECT DISTINCT u.name AS v FROM users u
-               JOIN tour_assignments ta ON ta.rep_id = u.id
-              WHERE u.is_active = TRUE
-                AND u.role IN ('rep','manager')
-                AND ta.tour_id IN ${ownTours}
-              ORDER BY u.name`),
+      // Yourself, plus anyone you manage. Sharing a route with somebody is no
+      // longer a reason to see their name in your filter bar — the hierarchy is
+      // explicit, so the list is exactly the people whose work is yours to look at.
+      : q(`SELECT DISTINCT u.name AS v FROM users u
+            WHERE u.is_active = TRUE
+              AND u.role IN ('rep','manager')
+              AND (u.id = ${uid} OR u.id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${uid}))
+            ORDER BY u.name`),
   ]);
   return { zones, tours, reps };
 }
@@ -104,23 +102,16 @@ export async function getScopedRepNames(f: VisitFilters): Promise<string[]> {
   if (f.zones.length) conds.push(`tr.zone IN (${arr(f.zones)})`);
   if (f.tours.length) conds.push(`tr.name IN (${arr(f.tours)})`);
   try {
-    // Under ownership a route no longer has reps of its own — its clients do.
-    // So "who works this zone" becomes "who owns or covers a client on it",
-    // which is the same question the calendar was always trying to ask.
-    const sql = REP_OWNERSHIP
-      ? `SELECT DISTINCT u.name AS v
+    // A route has no reps of its own — its clients do. So "who works this zone"
+    // is "who owns or covers a client on it", which is the question the calendar
+    // was always trying to ask.
+    const sql = `SELECT DISTINCT u.name AS v
            FROM users u
            JOIN clients c ON (c.primary_rep_id = u.id
                               OR c.id IN (SELECT s.client_id FROM client_secondary_reps s WHERE s.rep_id = u.id))
            JOIN tour_routes tr ON tr.id = c.tour_id
           WHERE u.is_active = TRUE AND u.role IN ('rep','manager')
             AND c.deleted_at IS NULL AND ${conds.join(' AND ')}
-          ORDER BY u.name`
-      : `SELECT DISTINCT u.name AS v
-           FROM users u
-           JOIN tour_assignments ta ON ta.rep_id = u.id
-           JOIN tour_routes tr ON tr.id = ta.tour_id
-          WHERE u.is_active = TRUE AND u.role IN ('rep','manager') AND ${conds.join(' AND ')}
           ORDER BY u.name`;
     const { rows } = await risansiPool.query<{ v: string }>(sql);
     return rows.map(r => r.v);
@@ -150,10 +141,10 @@ export async function getScopedRepNames(f: VisitFilters): Promise<string[]> {
  * emptying it. Here the filters are conditions inside one query, so no match is
  * no rows.
  *
- * The viewer is always in the base set — a manager with no tour assignments
- * would otherwise not see their own exhibitions — but they are subject to the
- * filters like anyone else, so filtering to another rep hides your own blocks
- * rather than leaving them stuck on screen.
+ * The viewer is always in the base set — a manager with nobody under them would
+ * otherwise not see their own exhibitions — but they are subject to the filters
+ * like anyone else, so filtering to another rep hides your own blocks rather
+ * than leaving them stuck on screen.
  */
 export async function getExhibitionScopeUserIds(
   user: CurrentUser, f: VisitFilters,
@@ -161,23 +152,28 @@ export async function getExhibitionScopeUserIds(
   const uid   = Number(user.id) || 0;
   const admin = hasRole(user.role, 'admin');
 
-  const ownTours = `(SELECT tour_id FROM tour_assignments WHERE rep_id = ${uid}
-                     UNION SELECT tour_id FROM clients WHERE id IN (SELECT client_id FROM client_rep_access WHERE rep_id = ${uid}))`;
-
   const conds: string[] = ['u.is_active = TRUE'];
   if (!admin) {
+    // Yourself plus your team. Sharing a route with somebody used to put their
+    // exhibition blocks on your calendar, which on a busy shared route meant a
+    // rep watching half the office travel; the hierarchy is explicit now.
     conds.push(`(u.id = ${uid}
-                 OR EXISTS (SELECT 1 FROM tour_assignments ta
-                             WHERE ta.rep_id = u.id AND ta.tour_id IN ${ownTours}))`);
+                 OR u.id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${uid}))`);
   }
   if (f.reps.length) conds.push(`u.name IN (${arr(f.reps)})`);
   if (f.zones.length || f.tours.length) {
     const zt: string[] = [];
     if (f.zones.length) zt.push(`tr.zone IN (${arr(f.zones)})`);
     if (f.tours.length) zt.push(`tr.name IN (${arr(f.tours)})`);
-    conds.push(`EXISTS (SELECT 1 FROM tour_assignments ta
-                          JOIN tour_routes tr ON tr.id = ta.tour_id
-                         WHERE ta.rep_id = u.id AND ${zt.join(' AND ')})`);
+    // A route has no reps of its own, so "who works this zone" resolves through
+    // the clients sitting on it — the same shape as getScopedRepNames, so the
+    // calendar's rows and its blocks cannot disagree about who belongs here.
+    conds.push(`EXISTS (SELECT 1 FROM clients c
+                          JOIN tour_routes tr ON tr.id = c.tour_id
+                         WHERE c.deleted_at IS NULL
+                           AND (c.primary_rep_id = u.id
+                                OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = u.id))
+                           AND ${zt.join(' AND ')})`);
   }
 
   try {

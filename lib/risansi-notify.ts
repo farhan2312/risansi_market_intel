@@ -10,7 +10,6 @@
 import risansiPool from '@/lib/db-risansi';
 import { sendNotification, notifyAdminEscalation } from '@/lib/risansi-email';
 import { pushInApp } from '@/lib/risansi-inapp';
-import { REP_OWNERSHIP } from '@/lib/risansi-auth';
 
 const BRAND = '#0A3D8F';
 const RED   = '#B91C1C';
@@ -38,23 +37,18 @@ async function sysadmins(): Promise<{ id: number; name: string | null; email: st
 // because the route was shared. It also missed the right people entirely for the
 // 1,186 clients that sat on no route at all.
 async function clientManagers(clientId: number): Promise<{ id: number; name: string | null; email: string }[]> {
-  const sql = REP_OWNERSHIP
-    ? `SELECT DISTINCT u.id, u.name, u.email
-         FROM users u
-        WHERE u.is_active = TRUE AND u.email IS NOT NULL AND u.email <> ''
-          AND (
-            u.id = (SELECT primary_rep_id FROM clients WHERE id = $1)
-            OR u.id IN (SELECT rep_id FROM client_secondary_reps WHERE client_id = $1)
-            OR u.id IN (
-              SELECT mr.manager_id FROM manager_reps mr
-               WHERE mr.rep_id = (SELECT primary_rep_id FROM clients WHERE id = $1)
-                  OR mr.rep_id IN (SELECT rep_id FROM client_secondary_reps WHERE client_id = $1))
-          )`
-    : `SELECT u.id, u.name, u.email FROM tour_assignments ta
-         JOIN users u ON u.id = ta.rep_id
-        WHERE ta.role = 'manager' AND u.is_active = TRUE AND u.email IS NOT NULL AND u.email <> ''
-          AND ta.tour_id = (SELECT tour_id FROM clients WHERE id = $1)`;
-  const { rows } = await risansiPool.query<{ id: number; name: string | null; email: string }>(sql, [clientId]);
+  const { rows } = await risansiPool.query<{ id: number; name: string | null; email: string }>(
+    `SELECT DISTINCT u.id, u.name, u.email
+       FROM users u
+      WHERE u.is_active = TRUE AND u.email IS NOT NULL AND u.email <> ''
+        AND (
+          u.id = (SELECT primary_rep_id FROM clients WHERE id = $1)
+          OR u.id IN (SELECT rep_id FROM client_secondary_reps WHERE client_id = $1)
+          OR u.id IN (
+            SELECT mr.manager_id FROM manager_reps mr
+             WHERE mr.rep_id = (SELECT primary_rep_id FROM clients WHERE id = $1)
+                OR mr.rep_id IN (SELECT rep_id FROM client_secondary_reps WHERE client_id = $1))
+        )`, [clientId]);
   return rows;
 }
 
@@ -189,32 +183,26 @@ export async function runAdminOverdueEscalation(): Promise<number> {
   } catch (e) { console.error('[cron] admin escalation failed', e); return 0; }
 }
 
-// 4. Weekly digest to each manager — a snapshot of their tours.
+// 4. Weekly digest to each manager — a snapshot of their team's clients.
 export async function runWeeklyManagerDigest(): Promise<number> {
   let sent = 0;
   try {
     // One digest per ISO week, regardless of how many times the route is hit.
     if (!(await claimRun('manager_digest', "date_trunc('week', CURRENT_DATE)::date"))) return 0;
+    // Every active manager, whether or not they have a team: one who owns clients
+    // directly still needs their own digest, and plenty do.
     const mgrs = (await risansiPool.query<{ id: number; name: string | null; email: string }>(
-      REP_OWNERSHIP
-        // Every active manager, whether or not they have a team: one who owns
-        // clients directly still needs their own digest, and under this model
-        // plenty do.
-        ? `SELECT id, name, email FROM users
-            WHERE role = 'manager' AND is_active = TRUE AND email IS NOT NULL AND email <> ''`
-        : `SELECT DISTINCT u.id, u.name, u.email FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
-            WHERE ta.role = 'manager' AND u.is_active = TRUE AND u.email IS NOT NULL AND u.email <> ''`)).rows;
+      `SELECT id, name, email FROM users
+        WHERE role = 'manager' AND is_active = TRUE AND email IS NOT NULL AND email <> ''`)).rows;
     for (const m of mgrs) {
       const s = (await risansiPool.query<{ open_actions: number; overdue_actions: number; open_complaints: number; visits_overdue: number }>(
         `WITH mc AS (
            SELECT c.id, c.last_visit_date FROM clients c
             WHERE c.deleted_at IS NULL
-              AND ${REP_OWNERSHIP
-                    ? `(c.primary_rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $1)
-                        OR c.id IN (SELECT s.client_id FROM client_secondary_reps s
-                                     WHERE s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $1))
-                        OR c.primary_rep_id = $1)`
-                    : `c.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = $1 AND role = 'manager')`})
+              AND (c.primary_rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $1)
+                   OR c.id IN (SELECT s.client_id FROM client_secondary_reps s
+                                WHERE s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $1))
+                   OR c.primary_rep_id = $1))
          SELECT
            (SELECT count(*) FROM tasks t JOIN mc ON mc.id = t.client_id WHERE t.status <> 'completed')::int AS open_actions,
            (SELECT count(*) FROM tasks t JOIN mc ON mc.id = t.client_id WHERE t.status <> 'completed' AND t.due_date < CURRENT_DATE)::int AS overdue_actions,

@@ -47,25 +47,21 @@ export async function createRep(formData: FormData) {
   );
   const newUserId = rows[0].id;
 
-  // Optionally assign the new rep/manager to tours in the same step (capability 1).
-  const tourIds = (() => {
-    try {
-      const arr = JSON.parse((formData.get('tour_ids') as string) || '[]');
-      return Array.isArray(arr) ? arr.map(n => parseInt(String(n), 10)).filter(Number.isInteger) : [];
-    } catch { return []; }
-  })();
-  if ((role === 'rep' || role === 'manager') && tourIds.length > 0) {
-    for (const tid of tourIds) {
-      await risansiPool.query(
-        `INSERT INTO tour_assignments (tour_id, rep_id, role, assigned_by, assigned_at)
-         VALUES ($1, $2, $3, $4, NOW())`,
-        [tid, newUserId, role, session.user?.email ?? null],
-      );
-    }
+  // Optionally put them under a manager in the same step. This replaced an
+  // "assign tours" picker, which by then granted nothing: a route stopped being
+  // the thing that decides who sees what, so offering it here told the admin
+  // they were setting up access when they were setting up a label.
+  const managerId = parseInt((formData.get('manager_id') as string | null) ?? '', 10);
+  if ((role === 'rep' || role === 'manager') && Number.isInteger(managerId) && managerId !== newUserId) {
+    await risansiPool.query(
+      `INSERT INTO manager_reps (manager_id, rep_id, added_by)
+       VALUES ($1, $2, (SELECT id FROM users WHERE lower(email) = lower($3)))
+       ON CONFLICT DO NOTHING`,
+      [managerId, newUserId, session.user?.email ?? ''],
+    );
   }
 
   revalidatePath('/risansi/admin/reps');
-  revalidatePath('/risansi/admin/tours');
 }
 
 export async function updateRep(repId: number, formData: FormData) {

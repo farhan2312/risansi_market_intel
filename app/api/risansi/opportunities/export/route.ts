@@ -129,7 +129,7 @@ export async function GET(req: Request) {
   if (scope) conds.push(scope);
   if (stageFilts.length)    { conds.push(`o.stage = ANY($${idx}::text[])`);            vals.push(stageFilts);    idx++; }
   if (prodTypeFilts.length) { conds.push(`o.product_type = ANY($${idx}::text[])`);     vals.push(prodTypeFilts); idx++; }
-  if (repFilts.length)      { conds.push(`EXISTS (SELECT 1 FROM tour_assignments ta JOIN users u2 ON u2.id = ta.rep_id WHERE ta.tour_id = c.tour_id AND u2.name = ANY($${idx}::text[]))`); vals.push(repFilts); idx++; }
+  if (repFilts.length)      { conds.push(`EXISTS (SELECT 1 FROM users u2 WHERE u2.name = ANY($${idx}::text[]) AND (c.primary_rep_id = u2.id OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = u2.id)))`); vals.push(repFilts); idx++; }
   if (indFilts.length)      { conds.push(`c.industry = ANY($${idx}::text[])`);          vals.push(indFilts);      idx++; }
   if (ctypeFilts.length)    { conds.push(`c.client_type = ANY($${idx}::text[])`);       vals.push(ctypeFilts);    idx++; }
   if (probFilts.length)     { conds.push(`o.probability_code = ANY($${idx}::text[])`);  vals.push(probFilts);     idx++; }
@@ -169,12 +169,15 @@ export async function GET(req: Request) {
               c.code AS client_code, c.legal_name AS client_name,
               c.client_type, c.industry,
               tr.name AS tour_name,
-              -- Tour-based: an opportunity belongs to the client's tour and all
-              -- its reps (managers marked). No single "owner rep".
-              (SELECT string_agg(u.name || CASE WHEN ta.role = 'manager' THEN ' (mgr)' ELSE '' END, ', '
-                                 ORDER BY (ta.role = 'manager'), u.name)
-                 FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
-                WHERE ta.tour_id = c.tour_id) AS tour_people,
+              -- The people who work the client: its owner, then anyone covering
+              -- it. There IS a single owner now, and the column says which.
+              (SELECT string_agg(u.name || CASE WHEN r.rank = 1 THEN ' (cover)' ELSE '' END, ', '
+                                 ORDER BY r.rank, u.name)
+                 FROM (SELECT c2.primary_rep_id AS user_id, 0 AS rank FROM clients c2
+                        WHERE c2.id = c.id AND c2.primary_rep_id IS NOT NULL
+                       UNION ALL
+                       SELECT sr.rep_id, 1 FROM client_secondary_reps sr WHERE sr.client_id = c.id) r
+                 JOIN users u ON u.id = r.user_id) AS tour_people,
               o.stage, o.product, o.unit_project, o.product_type,
               o.value_cr::float8 AS value_cr, o.probability_code, o.probability, o.eta_text,
               o.quote_ref, o.quote_date::text AS quote_date, o.enquiry_no, o.enquiry_date::text AS enquiry_date,
@@ -247,7 +250,7 @@ export async function GET(req: Request) {
     { h: 'Client Type', w: 16, f: r => r.client_type ?? '' },
     { h: 'Industry', w: 16, f: r => r.industry ?? '' },
     { h: 'Tour', w: 16, f: r => r.tour_name ?? '' },
-    { h: 'Reps / Manager in Tour', w: 30, f: r => r.tour_people ?? '' },
+    { h: 'Owner / Covering reps', w: 30, f: r => r.tour_people ?? '' },
     { h: 'Stage', w: 13, f: r => r.stage ?? '', list: listRange(STAGES) },
     { h: 'Product / Description', w: 30, f: r => r.product ?? '' },
     { h: 'Project Name / Unit', w: 26, f: r => r.unit_project ?? '' },

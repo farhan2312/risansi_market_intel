@@ -326,9 +326,12 @@ export default async function FieldActivityPage({
              ELSE (CURRENT_DATE - c.last_visit_date)
            END AS days_overdue,
            COALESCE(
-             (SELECT string_agg(u.name, ', ' ORDER BY u.name)
-                FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
-                WHERE ta.tour_id = c.tour_id),
+             (SELECT string_agg(u.name, ', ' ORDER BY r.rank, u.name)
+                FROM (SELECT c2.primary_rep_id AS user_id, 0 AS rank FROM clients c2
+                       WHERE c2.id = c.id AND c2.primary_rep_id IS NOT NULL
+                      UNION ALL
+                      SELECT s.rep_id, 1 FROM client_secondary_reps s WHERE s.client_id = c.id) r
+                JOIN users u ON u.id = r.user_id),
              '—') AS rep_name,
            NULL::text AS primary_rep_id
          FROM clients c
@@ -401,9 +404,12 @@ export default async function FieldActivityPage({
            c.last_visit_date::text,
            EXTRACT(DAY FROM NOW() - c.last_visit_date)::int AS days_since,
            c.tier,
-           (SELECT string_agg(u.name, ', ' ORDER BY u.name)
-              FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
-                WHERE ta.tour_id = c.tour_id) AS rep_name
+           (SELECT string_agg(u.name, ', ' ORDER BY r.rank, u.name)
+                FROM (SELECT c2.primary_rep_id AS user_id, 0 AS rank FROM clients c2
+                       WHERE c2.id = c.id AND c2.primary_rep_id IS NOT NULL
+                      UNION ALL
+                      SELECT s.rep_id, 1 FROM client_secondary_reps s WHERE s.client_id = c.id) r
+                JOIN users u ON u.id = r.user_id) AS rep_name
          FROM clients c
          WHERE c.status = 'ACTIVE' AND c.deleted_at IS NULL${cVisAnd}${filters.clientAnd}
          ORDER BY c.last_visit_date ASC NULLS FIRST`,
@@ -444,7 +450,7 @@ export default async function FieldActivityPage({
       // Coverage of the client base. A deliberately different question from the
       // row above — how much of the territory has been touched, rather than what
       // happened this month — so it keeps its own fixed 90-day window and its own
-      // tour-based scoping, and the labels say so. Conflating the two is what made
+      // client-based scoping, and the labels say so. Conflating the two is what made
       // the old single row read as broken.
       const { rows: cov } = await risansiPool.query<{
         total_active: string; visited_90: string; overdue: string; never_visited: string;
@@ -537,7 +543,7 @@ export default async function FieldActivityPage({
     //    whole run, so their calendar should say so rather than reading as free.
     //
     //    Scope is by REP rather than by client, because an exhibition has no
-    //    client and so none of the tour-based visit scoping applies to it. The
+    //    client and so none of the client-based visit scoping applies to it. The
     //    set of reps is the same one the filter bar offers this viewer, which is
     //    already "reps whose work you may see", plus the viewer themselves — a
     //    manager with no tour assignments would otherwise not see their own.
@@ -633,7 +639,7 @@ export default async function FieldActivityPage({
   // Activities tab — scope EVERY non-admin, not just reps. Managers (non-admin)
   // used to fall through to the empty scope and receive the whole company's task
   // register. clientScopeSql returns null for admins (no restriction) and the
-  // tour-based predicate for rep/manager (uid inlined, injection-safe); a person
+  // ownership predicate for rep/manager (uid inlined, injection-safe); a person
   // always also sees tasks assigned to or created by them, including client-less
   // ones the tour predicate wouldn't match.
   const taskScope      = clientScopeSql(currentUser, 't.client_id');

@@ -18,7 +18,7 @@ async function requireEmail(): Promise<string> {
  * May the current user change/delete this task? A session alone was the whole
  * check before, so any rep could complete or delete any team's tasks by id.
  * Allowed if: admin+, the task's creator, its assigned rep, or someone who can
- * see the task's client (tour-based). Throws otherwise.
+ * see the task's client. Throws otherwise.
  */
 async function assertCanManageTask(taskId: number): Promise<void> {
   const user = await getCurrentUser();
@@ -109,13 +109,13 @@ export async function addTask({
   assignedToExternalEmail?: string | null;
 }) {
   // Authorise: the caller must be able to see this client (admins/sysadmins always
-  // can; reps only for clients on their tours). This also gates the outbound
+  // can; reps only for clients they work). This also gates the outbound
   // external-assignee email so it can't be used to send from an arbitrary client.
   const user = await getCurrentUser();
   if (!user.email) throw new Error('Unauthorized');
 
   // Tour membership is the usual test but not the only legitimate route in. Reps
-  // routinely file visits for clients that are not on their tour, and 1,279
+  // routinely file visits for clients they do not own, and 1,279
   // clients carry no tour at all — for those, canViewClient is false for every
   // non-admin, so the rep filling in the report could not raise an action on it.
   // Whoever may fill in a visit report may also raise an action against it, so

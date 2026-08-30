@@ -4,7 +4,7 @@
 // /risansi/pipeline/stage/[stage] answer questions about the same rows through
 // the same filters, so they must build the same predicate. Without this a stage
 // page would have had to reimplement all of it — the same nine filters, the same
-// tour-based rep attribution, the same value buckets — and any later fix would
+// the same rep attribution, the same value buckets — and any later fix would
 // have had to land twice, or silently not.
 //
 // STATUS: the stage dashboards build from here. The board still carries its own
@@ -18,7 +18,6 @@
 // different set of aliases to scope.
 
 import { soCoverageSql, isSoCoverage } from './risansi-pipeline-brackets';
-import { REP_OWNERSHIP } from '@/lib/risansi-auth';
 
 export type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -93,7 +92,7 @@ export interface BuiltFilter {
  * both in scope, which every caller joins.
  *
  * `scopedRepId` is the viewer's own rep id when the board is in self-scope, else
- * null. Self-scope is tour-based attribution — a rep owns the opportunities of
+ * null. Self-scope follows the client — a rep owns the opportunities of
  * the clients on their tour(s), plus any client granted to them by special
  * access — not a per-opportunity rep_id. An explicit rep selection REPLACES the
  * self-scope rather than ANDing with it: a rep who picks a colleague means "show
@@ -109,28 +108,21 @@ export function buildOppFilter(f: OppFilters, scopedRepId: number | null, startI
     // opportunity's own rep_id is deliberately not consulted here — that is the
     // in-flight rule, which clientScopeSql applies at the page level; this filter
     // answers a different question, which is whose territory the deal sits in.
-    conds.push(REP_OWNERSHIP
-      ? `(c.primary_rep_id = $${idx}
+    conds.push(`(c.primary_rep_id = $${idx}
            OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = $${idx})
-           OR c.id IN (SELECT client_id FROM client_rep_access WHERE rep_id = $${idx}))`
-      : `(c.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = $${idx})
            OR c.id IN (SELECT client_id FROM client_rep_access WHERE rep_id = $${idx}))`);
     vals.push(scopedRepId); idx++;
   }
   if (f.stage.length)    { conds.push(`o.stage = ANY($${idx}::text[])`);           vals.push(f.stage);    idx++; }
   if (f.prodType.length) { conds.push(`o.product_type = ANY($${idx}::text[])`);    vals.push(f.prodType); idx++; }
   if (f.rep.length) {
-    // Picking a rep shows the opportunities of the clients that rep works. Under
-    // tours this had to mean "clients on a route they are on", which caught every
-    // other rep's clients on a shared route; now it is the clients they actually
-    // own or cover.
-    conds.push(REP_OWNERSHIP
-      ? `EXISTS (SELECT 1 FROM users u2
+    // Picking a rep shows the opportunities of the clients that rep works: the
+    // ones they own or cover. Under tours this had to mean "clients on a route
+    // they are on", which caught every other rep's clients on a shared route.
+    conds.push(`EXISTS (SELECT 1 FROM users u2
                   WHERE u2.name = ANY($${idx}::text[])
                     AND (c.primary_rep_id = u2.id
-                         OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = u2.id)))`
-      : `EXISTS (SELECT 1 FROM tour_assignments ta JOIN users u2 ON u2.id = ta.rep_id
-                   WHERE ta.tour_id = c.tour_id AND u2.name = ANY($${idx}::text[]))`);
+                         OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = u2.id)))`);
     vals.push(f.rep); idx++;
   }
   if (f.industry.length) { conds.push(`c.industry = ANY($${idx}::text[])`);        vals.push(f.industry); idx++; }

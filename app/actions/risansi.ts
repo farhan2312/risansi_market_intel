@@ -4,7 +4,7 @@ import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { getManagerAssignableReps, hasRole, getCurrentUser, canViewClient, hasSpecialClientAccess, REP_OWNERSHIP, type RisansiRole } from '@/lib/risansi-auth';
+import { getManagerAssignableReps, hasRole, getCurrentUser, canViewClient, hasSpecialClientAccess, type RisansiRole } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 import { recordAudit } from '@/lib/audit';
 import { normalizeClientName, uniqueLeadCode } from '@/lib/risansi-lead-code';
@@ -143,22 +143,24 @@ async function resolveAssignableRepId(
   if (role === 'manager' && typeof user.repId === 'number') {
     const allowed = await getManagerAssignableReps(user.repId);
     if (!allowed.includes(repId)) {
-      throw new Error('You can only assign to people in your assigned tours.');
+      throw new Error('You can only assign to people on your team.');
     }
   }
 
   return repId;
 }
 
-// Responsible reps/managers now derive from the client's tour (tour_assignments);
-// there is no direct client→rep assignment table any more. A client is put on a
-// tour via clients.tour_id (set in add/updateClient and the Tour Mapping admin).
+// Responsible people come from the client itself: clients.primary_rep_id names
+// the one owner, client_secondary_reps names anyone covering it, and manager_reps
+// puts a manager above them. Ownership is edited on Reps & Managers. The client's
+// route survives as clients.tour_id but no longer grants anybody anything.
 
 // Can this user move / edit an opportunity owned by `oppRepId`?
-//   admin/sysadmin → always · assigned rep → own · manager → reps sharing a tour.
+//   admin/sysadmin → always · assigned rep → own · manager → their own team.
 // An opportunity belongs to the client's TOUR, not one owner: anyone who can SEE
 // the client (a rep/manager on its tour, a special-access grantee, or admin) may
-// edit it. `clientId` is what makes this tour-based — pass it wherever possible.
+// edit it. `clientId` is what widens this beyond the assigned rep — pass it
+// wherever possible.
 // The oppRepId fast-path and the manager fallback remain for callers that don't.
 // Read-guard for an opportunity's sub-records (SOs/POs). These are exported
 // server actions = callable endpoints, so without this anyone could enumerate a
@@ -783,18 +785,15 @@ async function notifyVisitPlan(opts: {
     if (plannerIsRep) {
       // Who to tell that a rep has planned a visit: the managers of the people
       // who work this client. The tour version bailed out entirely when the
-      // client had no route — true of 1,186 clients — so those visits were
+      // client had no route — true of 1,186 clients — so those visits used to be
       // planned in silence.
       const mgrs = (await risansiPool.query<{ id: number; name: string | null; email: string | null }>(
-        REP_OWNERSHIP
-          ? `SELECT DISTINCT u.id, u.name, u.email FROM users u
-              WHERE u.is_active AND u.id IN (
-                SELECT mr.manager_id FROM manager_reps mr
-                 WHERE mr.rep_id = (SELECT primary_rep_id FROM clients WHERE id = $1)
-                    OR mr.rep_id IN (SELECT rep_id FROM client_secondary_reps WHERE client_id = $1))`
-          : `SELECT u.id, u.name, u.email FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
-              WHERE ta.tour_id = (SELECT tour_id FROM clients WHERE id = $1) AND ta.role = 'manager'`,
-        [REP_OWNERSHIP ? clientId : client.tour_id])).rows;
+        `SELECT DISTINCT u.id, u.name, u.email FROM users u
+          WHERE u.is_active AND u.id IN (
+            SELECT mr.manager_id FROM manager_reps mr
+             WHERE mr.rep_id = (SELECT primary_rep_id FROM clients WHERE id = $1)
+                OR mr.rep_id IN (SELECT rep_id FROM client_secondary_reps WHERE client_id = $1))`,
+        [clientId])).rows;
       const inAppMgrs: number[] = [];
       for (const m of mgrs) {
         if (!m.email || m.email.toLowerCase() === plannerEmail.toLowerCase()) continue;
@@ -1210,14 +1209,10 @@ export async function createPipelineOpportunity(formData: FormData) {
     }
   }
 
-  // Under rep ownership the owner is never guessed — the client names it — so
-  // this note only fires on the tour path, which is kept for rollback. Left in
-  // place rather than deleted: while both models can be switched between, the
-  // log has to be able to say which one decided.
-  const ownerNote = user.role !== 'rep' && derived.ambiguous && derived.basis === 'roster-order'
-    ? ' · owner inferred from tour roster order (tour has no designated rep)'
-    : '';
-  await logActivity('pipeline', clientId, `created opportunity: ${product} · ${stage} · ₹${value ?? 0} Cr${ownerNote}`, user.email!);
+  // The owner is never guessed now — the client names it — so the log no longer
+  // has to caveat where the name came from. The note this replaced explained a
+  // tour roster tie-break that cannot happen any more.
+  await logActivity('pipeline', clientId, `created opportunity: ${product} · ${stage} · ₹${value ?? 0} Cr`, user.email!);
   revalidatePath('/risansi/pipeline');
   revalidatePath('/risansi');
   // The new id lets the caller attach a quotation PDF to the record it just
@@ -1361,7 +1356,7 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
   );
   if (!cur[0]) throw new Error('Opportunity not found');
 
-  // Tour-based edit rights — anyone who can see the client (its tour) or admin.
+  // Edit rights follow the client: anyone who can see it, or an admin.
   if (!(await userCanEditOpp(user, cur[0].rep_id, cur[0].client_id))) {
     throw new Error('You do not have permission to edit this opportunity.');
   }
@@ -1748,7 +1743,7 @@ export async function updateVisitPlan(visitId: string, formData: FormData) {
       if (role === 'manager' && typeof user.repId === 'number') {
         const allowed = await getManagerAssignableReps(user.repId);
         if (!allowed.includes(parsed)) {
-          throw new Error('You can only assign to people in your assigned tours.');
+          throw new Error('You can only assign to people on your team.');
         }
       }
       repId = parsed;

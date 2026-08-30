@@ -225,7 +225,7 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   const tsmName = reps.find(r => r.id === tsm)?.name ?? '—';
 
   // KPI numbers below link through to the clients list, scoped to this same TSM
-  // (via the "rep" filter, which matches tour_assignments the same way `tourF`
+  // (via the "rep" filter, which matches on ownership the same way `tourF`
   // does) plus whatever status/visit filter the clicked number represents.
   const clientsLink = (params: Record<string, string>): string => {
     const p = tsmName !== '—' ? { ...params, rep: tsmName } : params;

@@ -31,8 +31,8 @@ export default async function NewVisitPage() {
     return rows[0] ?? null;
   }, null);
 
-  // Active clients the user may see (tour-based: admin → all, rep/manager →
-  // clients on their tours). Used as the "start visit" picker list.
+  // Active clients the user may see (admin → all, rep/manager → the clients
+  // they own, cover or manage). Used as the "start visit" picker list.
   const me = await getCurrentUser();
   const cVis = clientVisibilitySql(me, 'c');
   const clients = await q<ClientOption[]>(async () => {

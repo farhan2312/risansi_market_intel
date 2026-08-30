@@ -87,7 +87,7 @@ export async function GET(req: Request) {
     where.push(`(c.legal_name ILIKE $${vals.length} OR c.code ILIKE $${vals.length})`);
   }
 
-  // Tour-based visibility, exactly as the page applies it — an export must never
+  // The same visibility the page applies — an export must never
   // show a row the page would have withheld.
   const scope = clientScopeSql(user, 'v.client_id', OWN_OPEN.visit('v'));
   if (scope) where.push(scope);

@@ -18,14 +18,14 @@ export interface UserRow {
   route:          string | null;
   rep_code:       string | null;
   target_cr:      number | null;
-  tours_count:    number;
+  team_count:     number;
   clients_count:  number;
 }
 
 const ROLES = ['rep', 'manager', 'admin', 'sysadmin'];
 
 // Account + access management for every user. Lives on /admin (sysadmin only).
-// Tour assignment is handled separately on Tours & Reps.
+// Ownership and teams are handled separately on Reps & Managers.
 export function UsersManager({ users }: { users: UserRow[] }) {
   const router = useRouter();
   const [editing, setEditing] = useState<UserRow | null>(null);
@@ -81,7 +81,7 @@ export function UsersManager({ users }: { users: UserRow[] }) {
           <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
               <tr style={{ background: 'var(--bg-elev)' }}>
-                {['User', 'Role', 'Status', 'Active', 'Zone / Route', 'Tours', 'Clients', ''].map(h => (
+                {['User', 'Role', 'Status', 'Active', 'Zone / Route', 'Team', 'Clients', ''].map(h => (
                   <th key={h} style={TH}>{h}</th>
                 ))}
               </tr>
@@ -108,7 +108,7 @@ export function UsersManager({ users }: { users: UserRow[] }) {
                     <div>{u.zone ?? '—'}</div>
                     {u.route && <div style={{ fontSize: 10, color: 'var(--fg-3)' }}>{u.route}</div>}
                   </td>
-                  <td data-label="Tours" style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>{u.tours_count || '—'}</td>
+                  <td data-label="Team" style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>{u.team_count || '—'}</td>
                   <td data-label="Clients" style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>{u.clients_count || '—'}</td>
                   <td data-label="" style={{ ...TD, whiteSpace: 'nowrap', textAlign: 'right' }}>
                     <RowActions

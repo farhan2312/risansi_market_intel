@@ -160,10 +160,11 @@ export default async function PipelinePage({
   // unexplained empty board. Visibility is still bounded by ownerVis below.
   const scopedRepId = !showAll && repFilts.length === 0 ? currentRepId : null;
   if (scopedRepId != null) {
-    // Tour-based attribution: a rep owns the opportunities of the clients on
-    // their tour(s), not a per-opportunity rep_id — PLUS any client granted to
-    // them by special access. (Matches the revenue scope and ownerVis below.)
-    conds.push(`(c.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = $${idx})
+    // Attribution follows the client, not a per-opportunity rep_id: a rep owns
+    // the opportunities of the clients they own or cover, plus anything granted
+    // to them by special access. (Matches the revenue scope and ownerVis below.)
+    conds.push(`(c.primary_rep_id = $${idx}
+                 OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = $${idx})
                  OR c.id IN (SELECT client_id FROM client_rep_access WHERE rep_id = $${idx}))`);
     vals.push(scopedRepId); idx++;
   }
@@ -177,10 +178,12 @@ export default async function PipelinePage({
     vals.push(prodTypeFilts); idx++;
   }
   if (repFilts.length > 0) {
-    // Picking a rep shows the opportunities of clients on that rep's tour(s),
-    // not opps stored against that rep — a tour can have several reps.
-    conds.push(`EXISTS (SELECT 1 FROM tour_assignments ta JOIN users u2 ON u2.id = ta.rep_id
-                          WHERE ta.tour_id = c.tour_id AND u2.name = ANY($${idx}::text[]))`);
+    // Picking a rep shows the opportunities of the clients that rep works — the
+    // ones they own or cover — not opps merely stored against their id.
+    conds.push(`EXISTS (SELECT 1 FROM users u2
+                          WHERE u2.name = ANY($${idx}::text[])
+                            AND (c.primary_rep_id = u2.id
+                                 OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = u2.id)))`);
     vals.push(repFilts); idx++;
   }
   if (indFilts.length > 0) {
@@ -233,13 +236,16 @@ export default async function PipelinePage({
   const revVals: (string | number | string[])[] = [];
   let rIdx = 1;
   if (scopedRepId != null) {
-    revConds.push(`(c.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = $${rIdx})
+    revConds.push(`(c.primary_rep_id = $${rIdx}
+                    OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = $${rIdx})
                     OR c.id IN (SELECT client_id FROM client_rep_access WHERE rep_id = $${rIdx}))`);
     revVals.push(scopedRepId); rIdx++;
   }
   if (repFilts.length > 0) {
-    revConds.push(`EXISTS (SELECT 1 FROM tour_assignments ta JOIN users u2 ON u2.id = ta.rep_id
-                            WHERE ta.tour_id = c.tour_id AND u2.name = ANY($${rIdx}::text[]))`);
+    revConds.push(`EXISTS (SELECT 1 FROM users u2
+                            WHERE u2.name = ANY($${rIdx}::text[])
+                              AND (c.primary_rep_id = u2.id
+                                   OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = u2.id)))`);
     revVals.push(repFilts); rIdx++;
   }
   if (indFilts.length > 0) {
@@ -267,7 +273,7 @@ export default async function PipelinePage({
     const c: string[] = [];
     const v: (string | number | string[])[] = [];
     if (prodTypeFilts.length)   { c.push(`${a}.product_type = ANY($${v.length + 1}::text[])`);                                 v.push(prodTypeFilts); }
-    if (repFilts.length)        { c.push(`${a}.client_id IN (SELECT c2.id FROM clients c2 JOIN tour_assignments ta ON ta.tour_id = c2.tour_id JOIN users u2 ON u2.id = ta.rep_id WHERE u2.name = ANY($${v.length + 1}::text[]))`);  v.push(repFilts); }
+    if (repFilts.length)        { c.push(`${a}.client_id IN (SELECT c2.id FROM clients c2 JOIN users u2 ON u2.name = ANY($${v.length + 1}::text[]) AND (c2.primary_rep_id = u2.id OR c2.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = u2.id)))`);  v.push(repFilts); }
     if (indFilts.length)        { c.push(`${a}.client_id IN (SELECT id FROM clients WHERE industry = ANY($${v.length + 1}::text[]))`); v.push(indFilts); }
     if (ctypeFilts.length)      { c.push(`${a}.client_id IN (SELECT id FROM clients WHERE client_type = ANY($${v.length + 1}::text[]))`); v.push(ctypeFilts); }
     if (probFilts.length)       { c.push(`${a}.probability_code = ANY($${v.length + 1}::text[])`);                             v.push(probFilts); }
@@ -300,9 +306,9 @@ export default async function PipelinePage({
   // limited to 200 rows, which is why that column reads far below the truth.
   const wonC: string[] = ["o.stage = 'Won'"];
   const wonV: (string | number | string[])[] = [];
-  if (scopedRepId != null)  { wonC.push(`(o.client_id IN (SELECT c2.id FROM clients c2 JOIN tour_assignments ta ON ta.tour_id = c2.tour_id WHERE ta.rep_id = $${wonV.length + 1}) OR o.client_id IN (SELECT client_id FROM client_rep_access WHERE rep_id = $${wonV.length + 1}))`); wonV.push(scopedRepId); }
+  if (scopedRepId != null)  { wonC.push(`(o.client_id IN (SELECT c2.id FROM clients c2 WHERE c2.primary_rep_id = $${wonV.length + 1} OR c2.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = $${wonV.length + 1})) OR o.client_id IN (SELECT client_id FROM client_rep_access WHERE rep_id = $${wonV.length + 1}))`); wonV.push(scopedRepId); }
   if (prodTypeFilts.length) { wonC.push(`o.product_type = ANY($${wonV.length + 1}::text[])`);                                wonV.push(prodTypeFilts); }
-  if (repFilts.length)      { wonC.push(`o.client_id IN (SELECT c2.id FROM clients c2 JOIN tour_assignments ta ON ta.tour_id = c2.tour_id JOIN users u2 ON u2.id = ta.rep_id WHERE u2.name = ANY($${wonV.length + 1}::text[]))`); wonV.push(repFilts); }
+  if (repFilts.length)      { wonC.push(`o.client_id IN (SELECT c2.id FROM clients c2 JOIN users u2 ON u2.name = ANY($${wonV.length + 1}::text[]) AND (c2.primary_rep_id = u2.id OR c2.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = u2.id)))`); wonV.push(repFilts); }
   if (indFilts.length)      { wonC.push(`o.client_id IN (SELECT id FROM clients WHERE industry = ANY($${wonV.length + 1}::text[]))`); wonV.push(indFilts); }
   if (ctypeFilts.length)    { wonC.push(`o.client_id IN (SELECT id FROM clients WHERE client_type = ANY($${wonV.length + 1}::text[]))`); wonV.push(ctypeFilts); }
   if (probFilts.length)     { wonC.push(`o.probability_code = ANY($${wonV.length + 1}::text[])`);                            wonV.push(probFilts); }
@@ -311,18 +317,23 @@ export default async function PipelinePage({
   const wonWhere = `WHERE ${wonC.join(' AND ')}${ownerVisAnd}`;
 
   // Per-opportunity edit permission, evaluated in SQL:
-  //   admin/sysadmin → all · assigned rep → own · manager → reps sharing a tour.
+  //   admin/sysadmin → all · assigned rep → own · anyone who works the client.
   // Params are appended AFTER the filter args so the filter $-indices are unchanged.
   const ceRoleIdx = vals.length + 1;
   const ceRepIdx  = vals.length + 2;
   vals.push(role, currentRepId ?? 0);
-  // Tour-based: an opportunity belongs to the client's tour, so anyone on that
-  // tour (or with special access, or admin) can edit it — matches userCanEditOpp.
+  // An opportunity is editable by whoever works its client — the owner, anyone
+  // covering it, or a manager above them — which is what userCanEditOpp answers
+  // in TypeScript. Sharing a route with the client used to be enough; it is not.
   const CAN_EDIT_CASE = `
         CASE
           WHEN $${ceRoleIdx} IN ('admin','sysadmin') THEN TRUE
           WHEN o.rep_id = $${ceRepIdx} THEN TRUE
-          WHEN EXISTS (SELECT 1 FROM tour_assignments ta WHERE ta.tour_id = c.tour_id AND ta.rep_id = $${ceRepIdx}) THEN TRUE
+          WHEN c.primary_rep_id = $${ceRepIdx} THEN TRUE
+          WHEN c.primary_rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $${ceRepIdx}) THEN TRUE
+          WHEN EXISTS (SELECT 1 FROM client_secondary_reps s WHERE s.client_id = c.id
+                        AND (s.rep_id = $${ceRepIdx}
+                             OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $${ceRepIdx}))) THEN TRUE
           WHEN EXISTS (SELECT 1 FROM client_rep_access cra WHERE cra.client_id = c.id AND cra.rep_id = $${ceRepIdx}) THEN TRUE
           ELSE FALSE
         END AS can_edit`;
@@ -344,8 +355,15 @@ export default async function PipelinePage({
                o.enquiry_date::text        AS enquiry_date,
                o.revised_offer_date::text  AS revised_offer_date,
                (SELECT COALESCE(SUM(so.so_value_cr), 0) FROM opportunity_sales_orders so WHERE so.opportunity_id = o.id)::float8 AS so_sum_cr,
-               (SELECT string_agg(u2.name || CASE WHEN ta2.role = 'manager' THEN ' (mgr)' ELSE '' END, ', ' ORDER BY (ta2.role = 'manager'), u2.name)
-                  FROM tour_assignments ta2 JOIN users u2 ON u2.id = ta2.rep_id WHERE ta2.tour_id = c.tour_id) AS tour_people,
+               -- Owner first, then whoever covers the account. Still keyed
+               -- tour_people because the drawer reads that name; the people in
+               -- it are the client's own now, not a shared route's roster.
+               (SELECT string_agg(u2.name || CASE WHEN r2.rank = 1 THEN ' (cover)' ELSE '' END, ', ' ORDER BY r2.rank, u2.name)
+                  FROM (SELECT c2.primary_rep_id AS user_id, 0 AS rank FROM clients c2
+                         WHERE c2.id = c.id AND c2.primary_rep_id IS NOT NULL
+                        UNION ALL
+                        SELECT s.rep_id, 1 FROM client_secondary_reps s WHERE s.client_id = c.id) r2
+                  JOIN users u2 ON u2.id = r2.user_id) AS tour_people,
                c.legal_name AS client_name, c.code AS client_code, c.industry,
                COALESCE(r.name, '—') AS rep_name,
                (SELECT tr.name FROM tour_routes tr WHERE tr.id = c.tour_id) AS tour_name,
@@ -385,8 +403,15 @@ export default async function PipelinePage({
                o.enquiry_date::text        AS enquiry_date,
                o.revised_offer_date::text  AS revised_offer_date,
                (SELECT COALESCE(SUM(so.so_value_cr), 0) FROM opportunity_sales_orders so WHERE so.opportunity_id = o.id)::float8 AS so_sum_cr,
-               (SELECT string_agg(u2.name || CASE WHEN ta2.role = 'manager' THEN ' (mgr)' ELSE '' END, ', ' ORDER BY (ta2.role = 'manager'), u2.name)
-                  FROM tour_assignments ta2 JOIN users u2 ON u2.id = ta2.rep_id WHERE ta2.tour_id = c.tour_id) AS tour_people,
+               -- Owner first, then whoever covers the account. Still keyed
+               -- tour_people because the drawer reads that name; the people in
+               -- it are the client's own now, not a shared route's roster.
+               (SELECT string_agg(u2.name || CASE WHEN r2.rank = 1 THEN ' (cover)' ELSE '' END, ', ' ORDER BY r2.rank, u2.name)
+                  FROM (SELECT c2.primary_rep_id AS user_id, 0 AS rank FROM clients c2
+                         WHERE c2.id = c.id AND c2.primary_rep_id IS NOT NULL
+                        UNION ALL
+                        SELECT s.rep_id, 1 FROM client_secondary_reps s WHERE s.client_id = c.id) r2
+                  JOIN users u2 ON u2.id = r2.user_id) AS tour_people,
                c.legal_name AS client_name, c.code AS client_code, c.industry,
                COALESCE(r.name, '—') AS rep_name,
                (SELECT tr.name FROM tour_routes tr WHERE tr.id = c.tour_id) AS tour_name,
@@ -475,12 +500,15 @@ export default async function PipelinePage({
     }, []),
 
     q<string[]>(async () => {
-      // Reps that belong to at least one tour — the rep filter is tour-based, so
-      // a rep with no tour would match no clients and never surface anything.
+      // Anyone who owns or covers at least one client. A name matching no
+      // clients would filter the board to nothing, so it does not belong in the
+      // list — the old version had the same intent but asked about routes.
       const { rows } = await risansiPool.query<{ name: string }>(
         `SELECT DISTINCT u.name FROM users u
-           JOIN tour_assignments ta ON ta.rep_id = u.id
-          WHERE u.is_active = TRUE ORDER BY u.name`,
+          WHERE u.is_active = TRUE
+            AND (EXISTS (SELECT 1 FROM clients c WHERE c.primary_rep_id = u.id AND c.deleted_at IS NULL)
+                 OR EXISTS (SELECT 1 FROM client_secondary_reps s WHERE s.rep_id = u.id))
+          ORDER BY u.name`,
       );
       return rows.map(r => r.name);
     }, []),

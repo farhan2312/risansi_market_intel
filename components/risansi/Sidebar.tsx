@@ -53,7 +53,7 @@ const SALES_NAV: NavItem[] = [
   { id: 'complaints',href: '/risansi/complaints', label: 'Complaints',   Icon: IcAlert },
   { id: 'exhibitions', href: '/risansi/exhibitions', label: 'Exhibitions', Icon: IcList },
   // Open to every role — scoped server-side: admins see every TSM/account,
-  // managers the reps on their tours, reps only themselves.
+  // managers their own team, reps only themselves.
   { id: 'exec-review', href: '/risansi/executive-review', label: 'Executive Review', Icon: IcDash },
 ];
 

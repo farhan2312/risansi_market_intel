@@ -28,7 +28,7 @@ export async function PATCH(
   // Ownership. This MUST match two other things or the board lies to the user:
   // the CAN_EDIT_CASE that decides whether a card is draggable at all, and
   // userCanEditOpp, which guards the same move made through the Edit drawer.
-  // Both are tour-based — you can edit the opportunities of clients on your
+  // Both follow the client — you can edit the opportunities of clients you
   // tour(s), or granted to you directly. This route used to check only
   // `o.rep_id = you`, which is far narrower: 984 opportunities across 11 reps
   // and managers were draggable in the UI and 403'd by the server, so the card

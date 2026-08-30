@@ -300,7 +300,7 @@ export async function saveVisitField(
   }
   const isCorrection = !!visit?.submitted_at;
 
-  // Who may edit: the assigned rep, a manager on their tour, or admin/sysadmin.
+  // Who may edit: the assigned rep, a manager above them, or admin/sysadmin.
   const myRepId = await callerRepId(session);
   if (!(await canEditVisitReport({ role: callerRole(session), repId: myRepId }, visit.rep_id))) {
     throw new Error('You do not have permission to edit this visit report.');
