@@ -94,6 +94,7 @@ export function OutstandingUploadBox() {
   const handleSave = async () => {
     const valid = rows.filter(r => r.status === 'valid');
     if (!valid.length || !asOf) return;
+    setError('');
     setStage('saving');
     try {
       const res = await uploadOutstanding(
@@ -102,7 +103,17 @@ export function OutstandingUploadBox() {
       );
       setResult(res); setStage('done');
     } catch (err) {
-      setError('Save failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+      // Next.js redacts server-action errors in production, so the real message
+      // never reaches the browser — it arrives as "An unexpected response was
+      // received from the server". Saying that verbatim tells the user nothing,
+      // so a redacted failure gets the explanation that actually fits: the save
+      // is one transaction, so nothing was half-written and it is safe to retry.
+      const raw = err instanceof Error ? err.message : '';
+      const redacted = /unexpected response/i.test(raw)
+        || Boolean((err as { digest?: string })?.digest);
+      setError(redacted
+        ? 'Save failed on the server. Nothing was changed — the upload is a single transaction, so the previous snapshot is still intact. Try again, and if it keeps failing send this file over.'
+        : 'Save failed: ' + (raw || 'Unknown error'));
       setStage('preview');
     }
   };
@@ -150,9 +161,17 @@ export function OutstandingUploadBox() {
 
   // ── preview ──
   if (stage === 'preview') {
-    const validCount = rows.filter(r => r.status === 'valid').length;
-    const invalid    = rows.length - validCount;
-    const total      = rows.filter(r => r.status === 'valid').reduce((s, r) => s + r.amount, 0);
+    const valid   = rows.filter(r => r.status === 'valid');
+    const invalid = rows.length - valid.length;
+    // Deduplicated, because that is what the save does and what the database
+    // ends up holding: one row per client code, the last occurrence winning.
+    // Summing every row instead double-counts a client listed twice and shows a
+    // total the snapshot will never match.
+    const byCode  = new Map<string, number>();
+    for (const r of valid) byCode.set(r.code.trim().toUpperCase(), r.amount);
+    const validCount = byCode.size;
+    const dupes      = valid.length - byCode.size;
+    const total      = [...byCode.values()].reduce((sum, a) => sum + a, 0);
     return (
       <div style={CARD}>
         <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
@@ -168,9 +187,15 @@ export function OutstandingUploadBox() {
             </button>
           </div>
         </div>
+        {error && <div style={{ margin: '14px 20px 0', ...ERR }}>⚠ {error}</div>}
         <div style={{ padding: '10px 20px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <span style={CHIP_POS}>✓ {validCount} ready</span>
           {invalid > 0 && <span style={CHIP_NEG}>✗ {invalid} unmatched (skipped)</span>}
+          {dupes > 0 && (
+            <span style={CHIP_NEG} title="The same client code appears more than once in the sheet. The last figure for each client is the one stored.">
+              ⚠ {dupes} duplicate code{dupes !== 1 ? 's' : ''} — last value wins
+            </span>
+          )}
           <span style={CHIP_MONO}>Total: ₹{total.toLocaleString('en-IN')}</span>
         </div>
         <div style={{ overflowX: 'auto', maxHeight: 420, overflowY: 'auto' }}>

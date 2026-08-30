@@ -57,28 +57,59 @@ export async function uploadOutstanding(
            OR outstanding_debtor_code IS NOT NULL`,
     );
 
-    // 2. Apply the new sheet, matching on client code.
-    let matched = 0, grandTotal = 0;
-    const skipped: string[] = [];
+    // 2. Apply the new sheet in ONE statement, matching on client code.
+    //
+    //    This used to be one UPDATE per row inside the loop, which is one network
+    //    round trip per row against a Postgres in another region. 210 rows fitted
+    //    inside the 10s cap vercel.json puts on app/**; 294 did not, and the
+    //    upload failed with nothing on screen to say so. Measured on the same
+    //    data: 294 serial updates 4529ms, this one statement 37ms.
+    //
+    //    Two sheet rows can carry the same client code. The loop let the last one
+    //    win; a set-based UPDATE joined against both would pick one arbitrarily,
+    //    so they are collapsed here first, keeping that same last-wins rule.
+    const wanted = new Map<string, { amount: number; ownerId: number | null; debtor: string | null }>();
     for (const r of rows) {
       const code = (r.client_code ?? '').trim().toUpperCase();
       if (!code) continue;
-      const debtor  = (r.debtor ?? '').trim().toUpperCase();
-      const ownerId = DEBTOR_USER[debtor] ?? null;
-      const amount  = Number(r.amount) || 0;
-      const res = await c.query(
-        `UPDATE clients
-            SET total_outstanding = $2, outstanding_as_of = $3,
-                outstanding_owner_id = $4, outstanding_debtor_code = $5
-          WHERE UPPER(code) = $1 AND deleted_at IS NULL`,
-        [code, amount, asOfDate, ownerId, debtor || null],
-      );
-      if (res.rowCount && res.rowCount > 0) { matched++; grandTotal += amount; }
-      else skipped.push(code);
+      const debtor = (r.debtor ?? '').trim().toUpperCase();
+      wanted.set(code, {
+        amount:  Number(r.amount) || 0,
+        ownerId: DEBTOR_USER[debtor] ?? null,
+        debtor:  debtor || null,
+      });
     }
 
-    const status = skipped.length === rows.length ? 'failed'
-                 : skipped.length > 0             ? 'partial' : 'success';
+    const codes   = [...wanted.keys()];
+    const amounts = codes.map(k => wanted.get(k)!.amount);
+    const owners  = codes.map(k => wanted.get(k)!.ownerId);
+    const debtors = codes.map(k => wanted.get(k)!.debtor);
+
+    const applied = codes.length
+      ? await c.query<{ code: string; amount: string }>(
+          `UPDATE clients cl
+              SET total_outstanding       = v.amount,
+                  outstanding_as_of       = $2::date,
+                  outstanding_owner_id    = v.owner_id,
+                  outstanding_debtor_code = v.debtor
+             FROM (SELECT * FROM unnest($1::text[], $3::numeric[], $4::int[], $5::text[])
+                     AS t(code, amount, owner_id, debtor)) v
+            WHERE UPPER(cl.code) = v.code AND cl.deleted_at IS NULL
+        RETURNING v.code AS code, v.amount::text AS amount`,
+          [codes, asOfDate, amounts, owners, debtors],
+        )
+      : { rows: [] as { code: string; amount: string }[] };
+
+    const hit        = new Set(applied.rows.map(r => r.code));
+    const matched    = hit.size;
+    const grandTotal = applied.rows.reduce((sum, r) => sum + Number(r.amount), 0);
+    const skipped    = codes.filter(k => !hit.has(k));
+
+    // Compared against the codes actually attempted, not the raw row count —
+    // blank-code rows are dropped above and would otherwise make a fully
+    // successful upload look partial.
+    const status = matched === 0 && codes.length > 0 ? 'failed'
+                 : skipped.length > 0                ? 'partial' : 'success';
 
     await c.query(
       `INSERT INTO outstanding_upload_log
