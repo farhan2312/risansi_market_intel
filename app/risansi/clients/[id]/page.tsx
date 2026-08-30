@@ -12,6 +12,9 @@ import { getUsdRate } from '@/lib/risansi-settings';
 import { OfferRevisionsList } from '@/components/risansi/OfferRevisionsField';
 import type { OfferRevision } from '@/lib/risansi-offer-revisions';
 import { hasRole, getCurrentUser, canViewClient } from '@/lib/risansi-auth';
+import {
+  clientPrimaryRepSql, clientRepNamesSql, clientSecondaryNamesSql, clientManagerNamesSql,
+} from '@/lib/risansi-client-rep';
 import { isLegacyQuotation, quotationHref, quotationLinkCount } from '@/lib/risansi-quotation-link';
 import { LegacyMark } from '@/components/risansi/QuotationLinkView';
 import { ClientActionButtons, PipelineOppBtn } from '@/components/risansi/ClientActionButtons';
@@ -55,7 +58,7 @@ interface Client {
   tcd: number | null; klpd: number | null;
   // Reps (DB columns + joined)
   primary_rep_id: string | null; primary_rep_name: string | null;
-  owner_name: string | null;
+  owner_name: string | null; secondary_rep_names: string | null;
   rep_name: string | null; manager_name: string | null;
   rep_zone: string | null; rep_route: string | null; rep_email: string | null;
   secondary_rep_joined: string | null; secondary_rep_zone: string | null; secondary_rep_route: string | null;
@@ -186,44 +189,19 @@ export default async function ClientProfilePage({
       `SELECT c.*,
               -- The ONE rep who owns new work here. A viewer with a direct
               -- special-access grant owns what they file (the server assigns
-              -- them), so resolve to them. Otherwise the tour's designated
-              -- owner, else its FIRST active rep by (assigned_at, rep_id) —
-              -- matching resolveClientPrimaryRep. (The old HAVING count(*) = 1
-              -- returned null for any multi-rep tour, falsely blocking creation.)
-              -- Distinct from rep_name below, which lists the whole roster.
+              -- them), so resolve to them; otherwise the client's own owner.
+              -- Distinct from rep_name below, which names everyone working it.
               CASE
                 WHEN $2::int IS NOT NULL
                  AND EXISTS (SELECT 1 FROM client_rep_access a WHERE a.client_id = c.id AND a.rep_id = $2::int)
                 THEN (SELECT u.name FROM users u WHERE u.id = $2::int)
-                ELSE (SELECT u.name FROM users u WHERE u.id = COALESCE(
-                   (SELECT pu.id FROM tour_routes tr
-                      JOIN users pu ON pu.id = tr.primary_rep_id AND pu.is_active
-                     WHERE tr.id = c.tour_id),
-                   (SELECT ta.rep_id FROM tour_assignments ta
-                      JOIN users ru ON ru.id = ta.rep_id AND ru.is_active
-                     WHERE ta.tour_id = c.tour_id AND ta.role = 'rep'
-                     ORDER BY ta.assigned_at, ta.rep_id LIMIT 1),
-                   -- Manager-only tour (one-person team): the manager owns the work.
-                   (SELECT ta.rep_id FROM tour_assignments ta
-                      JOIN users ru ON ru.id = ta.rep_id AND ru.is_active
-                     WHERE ta.tour_id = c.tour_id AND ta.role = 'manager'
-                     ORDER BY ta.assigned_at, ta.rep_id LIMIT 1)
-                 ))
+                ELSE (SELECT u.name FROM users u WHERE u.id = ${clientPrimaryRepSql('c.id')})
               END AS owner_name,
-              COALESCE(
-                (SELECT string_agg(u.name, ', ' ORDER BY u.name)
-                   FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
-                  WHERE ta.tour_id = c.tour_id AND ta.role = 'rep'),
-                '—') AS rep_name,
-              (SELECT string_agg(u.name, ', ' ORDER BY u.name)
-                 FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
-                WHERE ta.tour_id = c.tour_id AND ta.role = 'rep') AS primary_rep_name,
-              (SELECT string_agg(u.name, ', ' ORDER BY u.name)
-                 FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
-                WHERE ta.tour_id = c.tour_id AND ta.role = 'manager') AS manager_name,
-              (SELECT ta.rep_id FROM tour_assignments ta
-                WHERE ta.tour_id = c.tour_id
-                ORDER BY (ta.role = 'rep') DESC, ta.assigned_at, ta.rep_id LIMIT 1) AS primary_rep_id,
+              COALESCE(${clientRepNamesSql('c.id')}, '—') AS rep_name,
+              (SELECT u.name FROM users u WHERE u.id = ${clientPrimaryRepSql('c.id')}) AS primary_rep_name,
+              ${clientSecondaryNamesSql('c.id')} AS secondary_rep_names,
+              ${clientManagerNamesSql('c.id')} AS manager_name,
+              ${clientPrimaryRepSql('c.id')} AS primary_rep_id,
               tr.name AS tour_name,
               tr.zone AS tour_zone,
               (SELECT name FROM users WHERE id = c.outstanding_owner_id) AS outstanding_owner_name
@@ -653,21 +631,27 @@ export default async function ClientProfilePage({
               {client.since_year && <><span style={{ margin: '0 8px' }}>·</span>Customer since {client.since_year}</>}
             </div>
 
-            {/* Responsible people — reps + manager, derived from the client's tour */}
+            {/* Responsible people. Owner and cover are shown apart rather than as
+                one "Reps" list: a rep looking at this needs to know at a glance
+                whether the account is theirs or whether they are backing someone
+                up, and a joined string cannot say which. */}
             <div style={{ display: 'flex', gap: 16, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              {/* Reps on the tour */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 500 }}>Reps</span>
-                {client.rep_name && client.rep_name !== '—' ? (
-                  <span style={{ fontSize: 12, fontWeight: 500 }}>{client.rep_name}</span>
+                <span style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 500 }}>Owner</span>
+                {client.primary_rep_name ? (
+                  <span style={{ fontSize: 12, fontWeight: 500 }}>{client.primary_rep_name}</span>
                 ) : (
                   <span style={{ fontSize: 12, color: 'var(--neg)' }}>Unassigned</span>
                 )}
-                {/* No edit affordance — reps are derived from the client's tour,
-                    not set on the client. Change the tour to change the reps. */}
               </div>
 
-              {/* Manager(s) on the tour */}
+              {client.secondary_rep_names && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 500 }}>Also covers</span>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--fg-2)' }}>{client.secondary_rep_names}</span>
+                </div>
+              )}
+
               {client.manager_name && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 500 }}>Manager</span>
@@ -725,7 +709,10 @@ export default async function ClientProfilePage({
             clientCode={client.code}
             industry={client.industry ?? ''}
             repId={client.primary_rep_id ?? null}
-            repName={client.rep_name ?? client.primary_rep_name ?? ''}
+            // repName is the owner alone, not the joined list: repId names one
+            // person, and prefilling a form with one id and two names is how a
+            // visit ends up filed against somebody who was only covering it.
+            repName={client.primary_rep_name ?? ''}
             ownerName={client.owner_name ?? null}
             reps={reps}
             clientData={client}

@@ -92,21 +92,13 @@ export async function setUsdRate(formData: FormData): Promise<void> {
   revalidatePath('/risansi/pipeline');
 }
 
-function parseIntArray(raw: FormDataEntryValue | null): number[] {
-  try {
-    const parsed = JSON.parse((raw as string) || '[]');
-    return Array.isArray(parsed)
-      ? [...new Set(parsed.map(n => parseInt(String(n), 10)).filter(n => Number.isInteger(n) && n > 0))]
-      : [];
-  } catch {
-    return [];
-  }
-}
-
 // ── deleteUser ─────────────────────────────────────────────────
 // Removes a user. Guards against deleting someone who still owns clients,
-// visits, or opportunities unless `force` is set. On delete we also clear
-// their tour assignments (client_assignments cascades via the users FK).
+// visits, or opportunities unless `force` is set.
+//
+// A forced delete does not orphan anything: clients.primary_rep_id is ON DELETE
+// SET NULL, so their book surfaces in the Unassigned tab rather than vanishing,
+// and their secondary and team rows cascade away.
 
 export async function deleteUser(formData: FormData): Promise<void> {
   const actor = await requireSysadmin();
@@ -127,7 +119,7 @@ export async function deleteUser(formData: FormData): Promise<void> {
       clients: string; visits: string; opps: string;
     }>(
       `SELECT
-         (SELECT COUNT(*) FROM clients WHERE tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = $1))::text AS clients,
+         (SELECT COUNT(*) FROM clients WHERE primary_rep_id = $1 AND deleted_at IS NULL)::text AS clients,
          (SELECT COUNT(*) FROM visits        WHERE rep_id = $1)::text       AS visits,
          (SELECT COUNT(*) FROM opportunities WHERE rep_id = $1)::text       AS opps`,
       [id],
@@ -141,7 +133,8 @@ export async function deleteUser(formData: FormData): Promise<void> {
       if (visits)  parts.push(`${visits} visit${visits !== 1 ? 's' : ''}`);
       if (opps)    parts.push(`${opps} opportunit${opps !== 1 ? 'ies' : 'y'}`);
       throw new Error(
-        `Cannot delete — this user still owns ${parts.join(', ')}. Reassign them first, or use force delete.`,
+        `Cannot delete — this user still owns ${parts.join(', ')}. Hand their book to someone `
+        + `else with Move clients on Reps & Managers, or use force delete.`,
       );
     }
   }
@@ -157,122 +150,8 @@ export async function deleteUser(formData: FormData): Promise<void> {
   revalidatePath('/risansi/admin/reps');
 }
 
-// ── setUserTours ───────────────────────────────────────────────
-// Replace the full set of tours a user is assigned to. `tour_ids` is a JSON
-// array of tour_routes.id. `role` is the assignment role ('rep'|'manager').
-
-export async function setUserTours(formData: FormData): Promise<void> {
-  const actor = await requireSysadmin();
-  const userId = parseInt(formData.get('user_id') as string, 10);
-  const role = (formData.get('role') as string | null)?.trim() === 'manager' ? 'manager' : 'rep';
-  const tourIds = parseIntArray(formData.get('tour_ids'));
-
-  if (!Number.isInteger(userId) || userId <= 0) throw new Error('Invalid user id');
-
-  const { rows: before } = await risansiPool.query<{ tour_id: number }>(
-    'SELECT tour_id FROM tour_assignments WHERE rep_id = $1', [userId],
-  );
-  const beforeIds = before.map(r => r.tour_id);
-
-  await risansiPool.query('DELETE FROM tour_assignments WHERE rep_id = $1', [userId]);
-  for (const tourId of tourIds) {
-    await risansiPool.query(
-      `INSERT INTO tour_assignments (tour_id, rep_id, role, assigned_by, assigned_at)
-       VALUES ($1, $2, $3, (SELECT id FROM users WHERE lower(email) = lower($4)), NOW())
-       ON CONFLICT (tour_id, rep_id) DO UPDATE SET role = EXCLUDED.role`,
-      [tourId, userId, role, actor],
-    );
-  }
-
-  await audit('tour_assignment', userId, 'update', { tour_ids: beforeIds }, { tour_ids: tourIds, role }, actor);
-
-  revalidatePath('/risansi/admin/reps');
-  revalidatePath('/admin');
-}
-
-// ── assignUserToTour ───────────────────────────────────────────
-// Add (or update the role of) a single user↔tour assignment.
-
-export async function assignUserToTour(formData: FormData): Promise<void> {
-  const actor = await requireSysadmin();
-  const tourId = parseInt(formData.get('tour_id') as string, 10);
-  const userId = parseInt(formData.get('user_id') as string, 10);
-
-  if (!Number.isInteger(tourId) || tourId <= 0) throw new Error('Invalid tour id');
-  if (!Number.isInteger(userId) || userId <= 0) throw new Error('Please select a user');
-
-  // The tour role follows the user's account role (set on the Reps & Managers
-  // tab) — managers join as 'manager', everyone else as 'rep'. It is never
-  // chosen per-tour.
-  const { rows: ur } = await risansiPool.query<{ role: string }>('SELECT role FROM users WHERE id = $1', [userId]);
-  const role = ur[0]?.role === 'manager' ? 'manager' : 'rep';
-
-  await risansiPool.query(
-    `INSERT INTO tour_assignments (tour_id, rep_id, role, assigned_by, assigned_at)
-     VALUES ($1, $2, $3, (SELECT id FROM users WHERE lower(email) = lower($4)), NOW())
-     ON CONFLICT (tour_id, rep_id) DO UPDATE SET role = EXCLUDED.role`,
-    [tourId, userId, role, actor],
-  );
-
-  await audit('tour_assignment', tourId, 'add', null, { user_id: userId, role }, actor);
-
-  revalidatePath('/risansi/admin/reps');
-}
-
-// ── removeUserFromTour ─────────────────────────────────────────
-
-export async function removeUserFromTour(formData: FormData): Promise<void> {
-  const actor = await requireSysadmin();
-  const tourId = parseInt(formData.get('tour_id') as string, 10);
-  const userId = parseInt(formData.get('user_id') as string, 10);
-
-  if (!Number.isInteger(tourId) || tourId <= 0) throw new Error('Invalid tour id');
-  if (!Number.isInteger(userId) || userId <= 0) throw new Error('Invalid user id');
-
-  await risansiPool.query(
-    'DELETE FROM tour_assignments WHERE tour_id = $1 AND rep_id = $2',
-    [tourId, userId],
-  );
-
-  await audit('tour_assignment', tourId, 'remove', { user_id: userId }, null, actor);
-
-  revalidatePath('/risansi/admin/reps');
-}
-
-
-// ── mapClients ─────────────────────────────────────────────────
-// Bulk-attach clients to a tour. Clients are linked to reps/managers only
-// through their tour (the tour is the bridge), so mapping a client just sets
-// its tour_id. A tour is required.
-
-export async function mapClients(formData: FormData): Promise<void> {
-  const actor = await requireSysadmin();
-  const clientIds = parseIntArray(formData.get('client_ids'));
-  const rawTour = formData.get('tour_id') as string | null;
-  const tourId = rawTour && rawTour !== '' ? parseInt(rawTour, 10) : null;
-
-  if (clientIds.length === 0) throw new Error('Select at least one client');
-  // Owners now come from the tour, so mapping a client = putting it on a tour.
-  if (!tourId) throw new Error('Select a tour to assign these clients to');
-
-  for (const clientId of clientIds) {
-    await risansiPool.query(
-      `UPDATE clients SET
-         tour_id    = $1,
-         updated_at = NOW()
-       WHERE id = $2`,
-      [tourId, clientId],
-    );
-
-    await audit(
-      'client_tour', clientId, 'update',
-      null,
-      { tour_id: tourId },
-      actor,
-    );
-  }
-
-  revalidatePath('/risansi/admin/unassigned');
-  revalidatePath('/risansi/admin/clients');
-  revalidatePath('/risansi/clients');
-}
+// The four tour actions that used to live here — setUserTours, assignUserToTour,
+// removeUserFromTour and mapClients — went out with the tours tab they served.
+// Ownership is a property of the client now, so it is written by
+// app/actions/risansi-ownership.ts, which is admin-gated and returns its
+// failures instead of throwing them.

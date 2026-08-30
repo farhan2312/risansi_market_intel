@@ -71,7 +71,8 @@ const SYSADMIN_ITEM: NavItem = {
 };
 
 const SYSADMIN_NAV: NavItem[] = [
-  { id: 'reps-admin',     href: '/risansi/admin/reps',     label: 'Tours & Reps',    Icon: IcMap },
+  { id: 'reps-admin',     href: '/risansi/admin/reps',     label: 'Reps & Managers', Icon: IcTeam },
+  { id: 'recover-admin',  href: '/risansi/admin/recoverable', label: 'Recoverable',  Icon: IcUndo },
   { id: 'bugs-admin',     href: '/risansi/admin/bugs',     label: 'Bugs',            Icon: IcBug },
   { id: 'audit-admin',    href: '/risansi/admin/audit',    label: 'Audit Log',       Icon: IcClipboard },
   { id: 'settings-admin', href: '/risansi/admin/settings', label: 'Settings',        Icon: IcGear },
@@ -81,8 +82,10 @@ const SYSADMIN_NAV: NavItem[] = [
 const PATH_TO_ID: [string, string][] = [
   ['/admin',                    'access'],
   ['/risansi/admin/users',      'access'],   // legacy route → redirects to /admin
-  ['/risansi/admin/tours',      'tours-admin'],
-  ['/risansi/admin/unassigned', 'unassigned-admin'],
+  // Both of these redirect into Reps & Managers, so they light the same lamp.
+  ['/risansi/admin/tours',      'reps-admin'],
+  ['/risansi/admin/unassigned', 'reps-admin'],
+  ['/risansi/admin/recoverable', 'recover-admin'],
   ['/risansi/admin/audit',      'audit-admin'],
   ['/risansi/admin/settings',   'settings-admin'],
   ['/risansi/executive-review', 'exec-review'],
@@ -299,3 +302,5 @@ function IcClipboard(){ return ic(<><rect x="3" y="3" width="10" height="11" rx=
 function IcGear()     { return ic(<><circle cx="8" cy="8" r="2"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.5 1.5M11.5 11.5L13 13M13 3l-1.5 1.5M4.5 11.5L3 13"/></>)(); }
 function IcAlert()    { return ic(<><path d="M8 2 1.5 13.5h13z"/><path d="M8 6.5v3M8 11.5h.01"/></>)(); }
 function IcBug()      { return ic(<><path d="M5.5 6.5a2.5 2.5 0 0 1 5 0v3a2.5 2.5 0 0 1-5 0z"/><path d="M8 4V2.5M6 4.8 4.6 3.4M10 4.8l1.4-1.4M5.3 8H2.8M10.7 8h2.5M5.3 11 3.9 12.4M10.7 11l1.4 1.4"/></>)(); }
+function IcTeam()     { return ic(<><circle cx="5.5" cy="6" r="2.3"/><circle cx="11" cy="6.5" r="1.9"/><path d="M1.5 13.5c0-2.3 1.8-3.8 4-3.8s4 1.5 4 3.8"/><path d="M10.5 10c2 0 4 1.3 4 3.5"/></>)(); }
+function IcUndo()     { return ic(<><path d="M2.5 7.5A5.5 5.5 0 1 1 4 12"/><path d="M2 4v3.5h3.5"/></>)(); }

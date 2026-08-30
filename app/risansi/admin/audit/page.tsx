@@ -48,7 +48,7 @@ const PAGE_LABELS: Record<string, string> = {
   '/risansi/complaints': 'Complaints',
   '/risansi/visits/:id': 'Visit detail',
   '/risansi/mobile': 'Mobile dashboard',
-  '/risansi/admin/reps': 'Tours & Reps',
+  '/risansi/admin/reps': 'Reps & Managers',
   '/risansi/admin/clients': 'Client Master',
   '/risansi/admin/revenue': 'Revenue Upload',
   '/risansi/admin/audit': 'Audit Log',

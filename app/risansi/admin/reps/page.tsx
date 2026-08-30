@@ -1,132 +1,212 @@
+import type { CSSProperties } from 'react';
 import { Topbar } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser } from '@/lib/risansi-auth';
-import { AccessDenied } from '../_components/AccessDenied';
-import { type RepData } from '@/components/risansi/RepRow';
-import { RepsZoneFilter } from '@/components/risansi/RepsZoneFilter';
+import { getCurrentUser, hasRole } from '@/lib/risansi-auth';
 import { AddRepButton } from '@/components/risansi/AddRepButton';
-import { AddTourButton } from '@/components/risansi/AddTourButton';
-import { RepsToursTabs } from '@/components/risansi/RepsToursTabs';
-import { ToursClient, type TourMappingRow, type AssignableUser } from '../tours/ToursClient';
-import { UnassignedClient, type UnassignedRow, type TourOption } from '../unassigned/UnassignedClient';
+import {
+  TeamMatrix, UnassignedClients, MoveClients,
+  type Person, type UnownedClient,
+} from '@/components/risansi/OwnershipAdmin';
 
 export const dynamic = 'force-dynamic';
 
+// Reps & Managers.
+//
+// This page used to administer tours, which is the thing the ownership model
+// replaced. Routes are not managed here any more and have no tab: a route is an
+// attribute of a client, so it is edited on the client. What is left is the three
+// questions this page actually exists to answer — who works here, who reports to
+// whom, and which clients still have nobody.
+
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
-  try { return await fn(); } catch (err) { console.error('[admin/system]', err); return fallback; }
+  try { return await fn(); } catch (e) { console.error('[admin/reps]', e); return fallback; }
 }
 
-// Single System Admin hub: create/manage reps & managers, tours, tour membership,
-// and which clients belong to a tour. All four capabilities on one page, in tabs.
-export default async function SystemAdminPage() {
+const TABS = [
+  { id: 'reps',       label: 'Reps' },
+  { id: 'teams',      label: 'Teams' },
+  { id: 'unassigned', label: 'Unassigned' },
+] as const;
+type TabId = typeof TABS[number]['id'];
+
+export default async function RepsAndManagersPage({
+  searchParams,
+}: { searchParams: Promise<{ [k: string]: string | string[] | undefined }> }) {
   const me = await getCurrentUser();
-  if (me.role !== 'sysadmin') {
-    return <AccessDenied crumbs={['System Admin', 'Tours & Reps']} />;
+  if (!hasRole(me.role, 'admin')) {
+    return (
+      <div>
+        <Topbar crumbs={['Admin', 'Reps & Managers']} />
+        <div style={{ padding: 24, fontSize: 14, color: 'var(--fg-2)' }}>
+          You need admin access to manage reps and teams.
+        </div>
+      </div>
+    );
   }
 
-  const [reps, toursMapping, assignableUsers, unassignedClients, tourOpts, counts] = await Promise.all([
-    // Reps & managers (with tour-based client counts) for the Reps tab + Add Tour primary-rep picker.
-    q<RepData[]>(async () => (await risansiPool.query<RepData>(`
-      SELECT r.*,
-        (SELECT COUNT(DISTINCT c2.id) FROM clients c2
-          WHERE c2.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = r.id)
-            AND c2.deleted_at IS NULL AND c2.status = 'ACTIVE')::text AS client_count,
-        COUNT(DISTINCT v.id) FILTER (WHERE v.visit_date >= CURRENT_DATE - INTERVAL '30 days')::text AS visits_last_30d,
-        MAX(v.visit_date)::text AS last_visit_date
-      FROM users r
-      LEFT JOIN visits v ON v.rep_id = r.id
-      GROUP BY r.id
-      ORDER BY r.zone ASC, r.name ASC`)).rows, []),
+  const sp = await searchParams;
+  const raw = typeof sp.tab === 'string' ? sp.tab : 'reps';
+  const tab: TabId = (TABS.some(t => t.id === raw) ? raw : 'reps') as TabId;
 
-    // Tours with their members (for the Tours tab — assign/remove reps & managers, set primary).
-    q<TourMappingRow[]>(async () => (await risansiPool.query<TourMappingRow>(`
-      SELECT tr.id::int AS id, tr.name, tr.zone,
-        (SELECT COUNT(*) FROM clients c WHERE c.tour_id = tr.id AND c.deleted_at IS NULL)::int AS client_count,
-        COALESCE(json_agg(json_build_object('user_id', u.id, 'name', u.name, 'role', ta.role) ORDER BY u.name)
-          FILTER (WHERE u.id IS NOT NULL), '[]') AS members
-      FROM tour_routes tr
-      LEFT JOIN tour_assignments ta ON ta.tour_id = tr.id
-      LEFT JOIN users u ON u.id = ta.rep_id
-      GROUP BY tr.id, tr.name, tr.zone
-      ORDER BY tr.zone ASC NULLS LAST, tr.name ASC`)).rows, []),
+  const [people, pairs, unowned] = await Promise.all([
+    // Owned and covered are counted separately on purpose: a rep's own book and
+    // the accounts they merely back up are different numbers, and adding them
+    // together is what made the old per-rep counts sum to more than the client base.
+    q<Person[]>(async () => (await risansiPool.query<Person>(`
+      SELECT u.id::int AS id, u.name, u.role,
+             (SELECT count(*)::int FROM clients c
+               WHERE c.primary_rep_id = u.id AND c.deleted_at IS NULL) AS owned,
+             (SELECT count(*)::int FROM client_secondary_reps s
+                JOIN clients c ON c.id = s.client_id AND c.deleted_at IS NULL
+               WHERE s.rep_id = u.id) AS covered,
+             (SELECT count(*)::int FROM manager_reps mr WHERE mr.manager_id = u.id) AS team
+        FROM users u
+       WHERE u.is_active = TRUE AND u.role IN ('rep','manager')
+       ORDER BY u.role DESC, u.name ASC`)).rows, []),
 
-    q<AssignableUser[]>(async () => (await risansiPool.query<AssignableUser>(`
-      SELECT id::int AS id, name, email, zone, role FROM users
-      WHERE is_active = TRUE AND role IN ('rep','manager') ORDER BY name ASC`)).rows, []),
+    q<{ manager_id: number; rep_id: number }[]>(async () => (await risansiPool.query<{ manager_id: number; rep_id: number }>(
+      'SELECT manager_id::int, rep_id::int FROM manager_reps')).rows, []),
 
-    // Clients needing a tour (for the Clients tab).
-    q<UnassignedRow[]>(async () => (await risansiPool.query<UnassignedRow>(`
-      SELECT c.id::int AS id, c.code, c.legal_name, c.industry, c.zone, c.status, c.tour_id::int AS tour_id,
-        (NOT EXISTS (SELECT 1 FROM tour_assignments ta WHERE ta.tour_id = c.tour_id AND ta.role = 'rep')) AS no_owner,
-        (c.tour_id IS NULL) AS no_tour
-      FROM clients c
-      WHERE c.deleted_at IS NULL
-        AND (NOT EXISTS (SELECT 1 FROM tour_assignments ta WHERE ta.tour_id = c.tour_id AND ta.role = 'rep') OR c.tour_id IS NULL)
-      ORDER BY c.legal_name ASC LIMIT 2000`)).rows, []),
-
-    q<TourOption[]>(async () => (await risansiPool.query<TourOption>(`
-      SELECT id::int AS id, name, zone FROM tour_routes ORDER BY name ASC`)).rows, []),
-
-    q<{ no_owner: number; no_tour: number; both: number; needing: number }>(async () => {
-      const { rows } = await risansiPool.query<{ no_owner: string; no_tour: string; both: string; needing: string }>(`
-        SELECT
-          COUNT(*) FILTER (WHERE no_owner)::text             AS no_owner,
-          COUNT(*) FILTER (WHERE no_tour)::text              AS no_tour,
-          COUNT(*) FILTER (WHERE no_owner AND no_tour)::text AS both,
-          COUNT(*) FILTER (WHERE no_owner OR  no_tour)::text AS needing
-        FROM (
-          SELECT
-            (NOT EXISTS (SELECT 1 FROM tour_assignments ta WHERE ta.tour_id = c.tour_id AND ta.role = 'rep')) AS no_owner,
-            (c.tour_id IS NULL) AS no_tour
-          FROM clients c WHERE c.deleted_at IS NULL
-        ) s`);
-      return {
-        no_owner: Number(rows[0]?.no_owner ?? 0), no_tour: Number(rows[0]?.no_tour ?? 0),
-        both: Number(rows[0]?.both ?? 0), needing: Number(rows[0]?.needing ?? 0),
-      };
-    }, { no_owner: 0, no_tour: 0, both: 0, needing: 0 }),
+    // Clients with nobody. Those carrying history come first — they are the ones
+    // costing something while they sit here.
+    q<UnownedClient[]>(async () => (await risansiPool.query<UnownedClient>(`
+      SELECT c.id::int AS id, c.code, c.legal_name AS name, c.status,
+             (SELECT count(*)::int FROM opportunities o WHERE o.client_id = c.id) AS opps,
+             (SELECT count(*)::int FROM visits v WHERE v.client_id = c.id) AS visits
+        FROM clients c
+       WHERE c.deleted_at IS NULL
+         AND c.primary_rep_id IS NULL
+         AND NOT EXISTS (SELECT 1 FROM client_secondary_reps s WHERE s.client_id = c.id)
+       ORDER BY (SELECT count(*) FROM opportunities o WHERE o.client_id = c.id) DESC,
+                (SELECT count(*) FROM visits v WHERE v.client_id = c.id) DESC,
+                c.code
+       LIMIT 1000`)).rows, []),
   ]);
 
-  const repCount = reps.filter(r => r.role === 'rep' || r.role === 'manager').length;
+  // The matrix's rows are managers, but its columns are everyone: a manager can
+  // sit under another manager, and four of them already do.
+  const managers = people.filter(p => p.role === 'manager');
+  const withHistory = unowned.filter(c => c.opps || c.visits).length;
 
-  const actionBar = (button: React.ReactNode) => (
-    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>{button}</div>
-  );
+  const tabHref = (t: string) => `/risansi/admin/reps?tab=${t}`;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
-        <Topbar crumbs={['System Admin', 'Tours & Reps']} />
-      </div>
+    <div>
+      <Topbar crumbs={['Admin', 'Reps & Managers']} />
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>
-        <div style={{ marginBottom: 18 }}>
-          <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>
-            Tours &amp; Reps
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>
-            {repCount} rep{repCount !== 1 ? 's' : ''}/manager{repCount !== 1 ? 's' : ''} · {tourOpts.length} tour{tourOpts.length !== 1 ? 's' : ''} · {counts.needing} client{counts.needing !== 1 ? 's' : ''} need a tour
-          </div>
+      <div style={{ padding: '18px 22px 0' }}>
+        <div style={S.stats}>
+          <Stat n={people.length} l="reps and managers" />
+          <Stat n={people.reduce((s, p) => s + p.owned, 0)} l="clients owned" />
+          <Stat n={pairs.length} l="team links" />
+          <Stat n={unowned.length} l="unassigned" warn={unowned.length > 0} />
         </div>
 
-        <RepsToursTabs tabs={[
-          {
-            value: 'reps',
-            label: `Reps & Managers (${repCount})`,
-            content: <>{actionBar(<AddRepButton />)}<RepsZoneFilter reps={reps} /></>,
-          },
-          {
-            value: 'tours',
-            label: `Tours (${tourOpts.length})`,
-            content: <>{actionBar(<AddTourButton />)}<ToursClient tours={toursMapping} users={assignableUsers} /></>,
-          },
-          {
-            value: 'clients',
-            label: `Clients → Tours (${counts.needing})`,
-            content: <UnassignedClient clients={unassignedClients} tours={tourOpts} counts={counts} />,
-          },
-        ]} />
+        <nav style={S.tabs}>
+          {TABS.map(t => (
+            <a key={t.id} href={tabHref(t.id)} aria-current={tab === t.id}
+              style={{ ...S.tab, ...(tab === t.id ? S.tabOn : null) }}>
+              {t.label}
+              {t.id === 'unassigned' && unowned.length > 0 && (
+                <span style={S.badge}>{unowned.length}</span>
+              )}
+            </a>
+          ))}
+        </nav>
+      </div>
+
+      <div style={{ padding: '16px 22px 40px' }}>
+        {tab === 'reps' && (
+          <>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginBottom: 12 }}>
+              <AddRepButton />
+            </div>
+            {/* Its own block rather than a flex item: open, this is a full panel,
+                and it would be squeezed into a button-sized column up there. */}
+            <MoveClients people={people} />
+            <div style={S.card}>
+              <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+                <thead>
+                  <tr>
+                    <th style={S.th}>Name</th><th style={S.th}>Role</th>
+                    <th style={{ ...S.th, textAlign: 'right' }}>Owns</th>
+                    <th style={{ ...S.th, textAlign: 'right' }}>Covers</th>
+                    <th style={S.th}>Reports to</th>
+                    <th style={S.th}>Team</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {people.map(p => {
+                    const above = managers.filter(m => pairs.some(x => x.manager_id === m.id && x.rep_id === p.id));
+                    const below = people.filter(r => pairs.some(x => x.manager_id === p.id && x.rep_id === r.id));
+                    return (
+                      <tr key={p.id}>
+                        <td style={{ ...S.td, fontWeight: 600 }}>{p.name}</td>
+                        <td style={{ ...S.td, fontSize: 11.5, color: 'var(--fg-3)' }}>{p.role}</td>
+                        <td style={{ ...S.td, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{p.owned}</td>
+                        <td style={{ ...S.td, textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>
+                          {p.covered || '—'}
+                        </td>
+                        <td style={{ ...S.td, fontSize: 12, color: 'var(--fg-2)' }}>
+                          {above.length ? above.map(m => m.name).join(', ')
+                            : <span style={{ color: 'var(--fg-4)' }}>manages themselves</span>}
+                        </td>
+                        <td style={{ ...S.td, fontSize: 12, color: 'var(--fg-2)' }}>
+                          {below.length ? below.map(r => r.name).join(', ') : <span style={{ color: 'var(--fg-4)' }}>—</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
+        {tab === 'teams' && <TeamMatrix managers={managers} reps={people} pairs={pairs} />}
+
+        {tab === 'unassigned' && (
+          <>
+            {withHistory > 0 && (
+              <p style={{ fontSize: 12.5, color: 'var(--warn-strong)', margin: '0 0 12px' }}>
+                {withHistory} of these carry opportunities or visits. Until someone owns them, only
+                admins can see that work.
+              </p>
+            )}
+            <UnassignedClients clients={unowned} reps={people} />
+          </>
+        )}
       </div>
     </div>
   );
 }
+
+function Stat({ n, l, warn }: { n: number; l: string; warn?: boolean }) {
+  return (
+    <div style={S.stat}>
+      <span style={{ ...S.statN, color: warn ? 'var(--warn-strong)' : 'var(--fg)' }}>{n}</span>
+      <span style={S.statL}>{l}</span>
+    </div>
+  );
+}
+
+const S: Record<string, CSSProperties> = {
+  stats: { display: 'flex', gap: 1, background: 'var(--line)', border: '1px solid var(--line)',
+           borderRadius: 'var(--radius)', overflow: 'hidden', marginBottom: 16, flexWrap: 'wrap' },
+  stat:  { background: 'var(--bg-paper)', padding: '11px 18px', minWidth: 118, flex: '1 1 118px' },
+  statN: { display: 'block', fontFamily: 'var(--font-mono)', fontSize: 21, fontWeight: 500 },
+  statL: { display: 'block', fontSize: 11, color: 'var(--fg-3)', marginTop: 1 },
+  tabs:  { display: 'flex', gap: 4, borderBottom: '1px solid var(--line)' },
+  tab:   { padding: '9px 15px', fontSize: 13, fontWeight: 500, color: 'var(--fg-3)',
+           textDecoration: 'none', borderBottom: '2px solid transparent', display: 'inline-flex',
+           alignItems: 'center', gap: 7 },
+  tabOn: { color: 'var(--accent)', fontWeight: 600, borderBottomColor: 'var(--accent)' },
+  badge: { fontFamily: 'var(--font-mono)', fontSize: 10.5, fontWeight: 600, padding: '1px 6px',
+           borderRadius: 999, background: 'var(--warn-soft)', color: 'var(--warn-strong)' },
+  card:  { background: 'var(--bg-paper)', border: '1px solid var(--line)',
+           borderRadius: 'var(--radius)', overflow: 'auto' },
+  th:    { padding: '9px 12px', textAlign: 'left', fontSize: 10, fontWeight: 600, letterSpacing: '0.07em',
+           textTransform: 'uppercase', color: 'var(--fg-3)', borderBottom: '1px solid var(--line)',
+           background: 'var(--bg-elev)', whiteSpace: 'nowrap' },
+  td:    { padding: '9px 12px', fontSize: 13, borderBottom: '1px solid var(--line-2)' },
+};

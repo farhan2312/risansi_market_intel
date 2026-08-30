@@ -8,7 +8,7 @@ import { useTheme } from 'next-themes';
 import {
   LayoutGrid, Building2, MapPinned, Receipt, Menu, X,
   GitBranch, RadioTower, ListChecks, Upload, Users, KeyRound,
-  Map as MapIcon, ClipboardList, Settings, Sun, Moon, LogOut, AlertTriangle, ListTodo, Gauge,
+  Network, ArchiveRestore, ClipboardList, Settings, Sun, Moon, LogOut, AlertTriangle, ListTodo, Gauge,
   Store, BarChart3, Wallet, Bug,
 } from 'lucide-react';
 
@@ -47,8 +47,9 @@ const MORE_ADMIN: Item[] = [
 ];
 
 const MORE_SYSADMIN: Item[] = [
-  { href: '/risansi/admin/reps',     label: 'Tours & Reps',   Icon: MapIcon },
-  { href: '/admin',                  label: 'Users & Access', Icon: Users },
+  { href: '/risansi/admin/reps',        label: 'Reps & Managers', Icon: Network },
+  { href: '/risansi/admin/recoverable', label: 'Recoverable',     Icon: ArchiveRestore },
+  { href: '/admin',                     label: 'Users & Access',  Icon: Users },
   { href: '/risansi/admin/bugs',     label: 'Bugs',           Icon: Bug },
   { href: '/risansi/admin/audit',    label: 'Audit Log',      Icon: ClipboardList },
   { href: '/risansi/admin/settings', label: 'Settings',       Icon: Settings },

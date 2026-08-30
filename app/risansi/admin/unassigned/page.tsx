@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 
-// Unassigned Clients is now the "Clients → Tours" tab on the System Admin hub.
+// Unassigned clients are a tab on Reps & Managers.
 export default function UnassignedAdminPage() {
-  redirect('/risansi/admin/reps?tab=clients');
+  redirect('/risansi/admin/reps?tab=unassigned');
 }

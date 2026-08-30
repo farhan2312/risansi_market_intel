@@ -72,6 +72,42 @@ export function clientRepNamesSql(clientExpr: string): string {
              JOIN users u ON u.id = r.user_id)`;
 }
 
+/**
+ * The people covering a client alongside its owner, as a name list.
+ *
+ * Deliberately separate from clientRepNamesSql: a rep asked to tell their own
+ * accounts from the ones they merely back up cannot do it from a single joined
+ * string, and running the two together is what made "Reps" on the client header
+ * read as a list of equals when it never was one.
+ */
+export function clientSecondaryNamesSql(clientExpr: string): string {
+  if (!REP_OWNERSHIP) return 'NULL::text';
+  return `(SELECT string_agg(u.name, ', ' ORDER BY u.name)
+             FROM client_secondary_reps s
+             JOIN users u ON u.id = s.rep_id AND u.is_active
+            WHERE s.client_id = ${clientExpr})`;
+}
+
+/**
+ * The managers who can see a client, as a name list.
+ *
+ * Under tours this was the roster's manager rows. Under ownership it is whoever
+ * sits above the people who work it — which is the same question the visibility
+ * rule answers, so the header cannot claim a manager the access rule would deny.
+ */
+export function clientManagerNamesSql(clientExpr: string): string {
+  if (!REP_OWNERSHIP) {
+    return `(SELECT string_agg(u.name, ', ' ORDER BY u.name)
+               FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
+              WHERE ta.tour_id = (SELECT tour_id FROM clients WHERE id = ${clientExpr})
+                AND ta.role = 'manager')`;
+  }
+  return `(SELECT string_agg(DISTINCT u.name, ', ')
+             FROM manager_reps mr
+             JOIN users u ON u.id = mr.manager_id AND u.is_active
+            WHERE mr.rep_id IN (SELECT r.user_id FROM (${clientRepIdsSql(clientExpr)}) r))`;
+}
+
 /** How the owner was arrived at — surfaced so callers can explain themselves. */
 export type RepBasis =
   | 'primary-rep'    // the client says so — the only basis under rep ownership

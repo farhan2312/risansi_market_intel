@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 
-// Tour Mapping is now a tab on the consolidated System Admin hub.
+// Tours are no longer administered as their own thing. A route is an attribute
+// of a client now, and this page's real successor is Reps & Managers.
 export default function ToursAdminPage() {
-  redirect('/risansi/admin/reps?tab=tours');
+  redirect('/risansi/admin/reps');
 }
