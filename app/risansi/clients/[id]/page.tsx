@@ -1073,6 +1073,7 @@ export default async function ClientProfilePage({
               clientId={Number(client.id)}
               actions={clientActions}
               reps={reps.map(r => ({ id: Number(r.id), name: r.name, zone: r.route }))}
+              ownerRepId={client.primary_rep_id ? Number(client.primary_rep_id) : null}
             />
 
             {/* Visit Timeline */}

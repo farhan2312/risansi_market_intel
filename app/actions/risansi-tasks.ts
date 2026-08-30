@@ -145,6 +145,14 @@ export async function addTask({
 
   const external      = assignedToExternal?.trim() || null;
   const externalEmail = assignedToExternalEmail?.trim() || null;
+
+  // Somebody has to be doing it. Enforced here and not only in the form: the
+  // form is one caller, and an action with nobody on it is invisible in the one
+  // list people actually read — their own.
+  if (!assignedToRep && !external) {
+    throw new Error('Choose who is doing this — a rep in the system, or a named person outside it.');
+  }
+
   // An external assignee (not in the system) must come with a valid email.
   if (external && !assignedToRep) {
     if (!externalEmail) throw new Error('An email is required for a person outside the system.');

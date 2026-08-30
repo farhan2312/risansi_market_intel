@@ -12,10 +12,18 @@ export interface ActionRep { id: number; name: string; zone?: string | null }
 // Client 360 activity register. An action is assigned either to a rep in the
 // system (dropdown) or to an external person — and an external person must have
 // an email so they can be notified the same way in-system reps are.
-export function AddActionForm({ visitId, clientId, reps, onAdded, triggerLabel = '+ Add Action Point' }: {
+//
+// Somebody must be named. There used to be an "— Unassigned —" option, and it is
+// how ten actions ended up belonging to nobody: an unassigned action shows in the
+// registry under a heading that makes it somebody else's problem by construction,
+// and appears in nobody's own list, which is the only list people actually read.
+// `defaultRepId` preselects the obvious answer — the visit's rep, or the client's
+// owner — so naming someone costs nothing in the common case.
+export function AddActionForm({ visitId, clientId, reps, defaultRepId, onAdded, triggerLabel = '+ Add Action Point' }: {
   visitId?: number | null;
   clientId: number;
   reps: ActionRep[];
+  defaultRepId?: number | null;
   onAdded: () => void;
   triggerLabel?: string;
 }) {
@@ -27,19 +35,24 @@ export function AddActionForm({ visitId, clientId, reps, onAdded, triggerLabel =
   const [dueDate, setDueDate]     = useState('');
   const [priority, setPriority]   = useState('Medium');
   const [mode, setMode]           = useState<'internal' | 'external'>('internal');
-  const [repId, setRepId]         = useState('');
+  const preset = defaultRepId != null && reps.some(r => r.id === defaultRepId) ? String(defaultRepId) : '';
+  const [repId, setRepId]         = useState(preset);
   const [external, setExternal]   = useState('');
   const [extEmail, setExtEmail]   = useState('');
 
   const reset = () => {
     setTitle(''); setDesc(''); setDueDate(''); setPriority('Medium');
-    setMode('internal'); setRepId(''); setExternal(''); setExtEmail(''); setError('');
+    setMode('internal'); setRepId(preset); setExternal(''); setExtEmail(''); setError('');
   };
   const close = () => { setOpen(false); reset(); };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!title.trim()) { setError('An action title is required.'); return; }
+    if (mode === 'internal' && !repId) {
+      setError('Choose who is doing this. An action with nobody on it is nobody\u2019s job.');
+      return;
+    }
     if (mode === 'external') {
       if (!external.trim()) { setError('Enter the external person’s name.'); return; }
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(extEmail.trim())) { setError('Enter a valid email for the external person.'); return; }
@@ -128,8 +141,11 @@ export function AddActionForm({ visitId, clientId, reps, onAdded, triggerLabel =
             </div>
 
             {mode === 'internal' ? (
-              <select value={repId} onChange={e => setRepId(e.target.value)} style={INP}>
-                <option value="">— Unassigned —</option>
+              <select
+                value={repId} onChange={e => setRepId(e.target.value)} required
+                style={{ ...INP, ...(repId ? null : { borderColor: 'var(--neg)' }) }}
+              >
+                <option value="">— Choose a person —</option>
                 {reps.map(r => (
                   <option key={r.id} value={r.id}>{r.name}{r.zone ? ` · ${r.zone}` : ''}</option>
                 ))}
@@ -146,7 +162,10 @@ export function AddActionForm({ visitId, clientId, reps, onAdded, triggerLabel =
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <Button type="button" variant="outline" size="sm" onClick={close}>Cancel</Button>
-            <Button type="submit" size="sm" disabled={loading || !title.trim()}>
+            <Button
+              type="submit" size="sm"
+              disabled={loading || !title.trim() || (mode === 'internal' && !repId)}
+            >
               {loading ? 'Adding…' : 'Add Action'}
             </Button>
           </div>

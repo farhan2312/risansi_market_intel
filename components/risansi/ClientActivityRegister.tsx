@@ -28,10 +28,12 @@ const PRIORITY_COLOR: Record<string, string> = { High: '#DC2626', Medium: '#B453
 // The Client 360 "Activity Register": every action item logged for this client
 // (via a visit or added directly here), plus a New Activity button that opens
 // the same action form used in the visit report.
-export function ClientActivityRegister({ clientId, actions, reps }: {
+export function ClientActivityRegister({ clientId, actions, reps, ownerRepId }: {
   clientId: number;
   actions: ActionItem[];
   reps: ActionRep[];
+  /** The client's owner, preselected in the new-action form. */
+  ownerRepId?: number | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<number | null>(null);
@@ -133,6 +135,7 @@ export function ClientActivityRegister({ clientId, actions, reps }: {
         <AddActionForm
           clientId={clientId}
           reps={reps}
+          defaultRepId={ownerRepId ?? null}
           onAdded={() => router.refresh()}
           triggerLabel="+ New Activity"
         />

@@ -6,7 +6,7 @@ import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, hasRole } from '@/lib/risansi-auth';
 import {
   buildTasksQuery, buildTasksCountQuery, TASK_DUE_BUCKETS,
-  RESP_EXTERNAL, RESP_UNASSIGNED, type TaskFilters,
+  RESP_EXTERNAL, type TaskFilters,
 } from '@/lib/risansi-action-queue';
 
 export const dynamic = 'force-dynamic';
@@ -71,7 +71,9 @@ export default async function ActionRegistryPage({
     q<string[]>(async () => (await risansiPool.query<{ v: string }>(
       `SELECT DISTINCT u.name AS v FROM tasks t JOIN users u ON u.id = t.assigned_to_rep ORDER BY 1`)).rows.map(r => r.v), []),
   ]);
-  const responsibleOptions = [...respOpts, RESP_EXTERNAL, RESP_UNASSIGNED];
+  // No "Unassigned" option: every action names somebody now, so the filter
+  // could only ever return an empty list and imply the data was missing.
+  const responsibleOptions = [...respOpts, RESP_EXTERNAL];
 
   const blocked = !isAdmin && repId == null;
 

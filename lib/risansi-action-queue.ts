@@ -44,12 +44,11 @@ function dueBucketSql(label: string): string {
 
 // Two responsible-filter sentinels beyond the rep names.
 export const RESP_EXTERNAL   = 'External';
-export const RESP_UNASSIGNED = 'Unassigned';
 
 export interface TaskFilters {
   status?:      string[];   // task.status values
   priority?:    string[];   // task.priority values
-  responsible?: string[];   // rep names, plus RESP_EXTERNAL / RESP_UNASSIGNED
+  responsible?: string[];   // rep names, plus RESP_EXTERNAL
   due?:         string[];   // TASK_DUE_BUCKETS labels
 }
 
@@ -110,11 +109,10 @@ function buildWhere(opts: TaskQueryOpts): { where: string; params: (string | num
   if (f.priority?.length) { conds.push(`t.priority = ANY($${params.length + 1}::text[])`); params.push(f.priority); }
 
   if (f.responsible?.length) {
-    const names = f.responsible.filter(v => v !== RESP_EXTERNAL && v !== RESP_UNASSIGNED);
+    const names = f.responsible.filter(v => v !== RESP_EXTERNAL);
     const parts: string[] = [];
     if (names.length) { parts.push(`r.name = ANY($${params.length + 1}::text[])`); params.push(names); }
     if (f.responsible.includes(RESP_EXTERNAL))   parts.push(`t.assigned_to_external IS NOT NULL`);
-    if (f.responsible.includes(RESP_UNASSIGNED)) parts.push(`(t.assigned_to_rep IS NULL AND t.assigned_to_external IS NULL)`);
     if (parts.length) conds.push(`(${parts.join(' OR ')})`);
   }
 

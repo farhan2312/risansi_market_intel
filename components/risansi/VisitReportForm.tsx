@@ -1386,6 +1386,7 @@ export function VisitReportForm({
             visitId={Number(visit.id)}
             clientId={Number(visit.client_id)}
             reps={reps}
+            defaultRepId={visit.rep_id ? Number(visit.rep_id) : null}
             onAdded={() => router.refresh()}
           />
         )}
