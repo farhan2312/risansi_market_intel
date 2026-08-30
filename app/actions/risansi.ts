@@ -1091,7 +1091,7 @@ export async function createPipelineOpportunity(formData: FormData) {
 
   if (!primaryRepId) {
     throw new Error(
-      'This client is not on a tour with an assigned rep, so the opportunity would have no owner. Put the client on a tour first, then create the opportunity.',
+      'This client has no rep assigned, so the opportunity would have no owner. Set a primary rep on the client first — Admin › Reps & Managers › Unassigned lists every client waiting for one.',
     );
   }
 
@@ -1200,9 +1200,10 @@ export async function createPipelineOpportunity(formData: FormData) {
     }
   }
 
-  // Flag a guessed owner in the log. When the tour has several reps and none is
-  // designated, the pick is roster order — recording that is the difference
-  // between a decision and an artefact nobody can later tell apart.
+  // Under rep ownership the owner is never guessed — the client names it — so
+  // this note only fires on the tour path, which is kept for rollback. Left in
+  // place rather than deleted: while both models can be switched between, the
+  // log has to be able to say which one decided.
   const ownerNote = user.role !== 'rep' && derived.ambiguous && derived.basis === 'roster-order'
     ? ' · owner inferred from tour roster order (tour has no designated rep)'
     : '';

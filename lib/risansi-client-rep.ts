@@ -12,9 +12,13 @@
 // only falls back to the roster, so a tour that has been curated is respected.
 
 import risansiPool from '@/lib/db-risansi';
+import { REP_OWNERSHIP } from '@/lib/risansi-auth';
 
 /** How the owner was arrived at — surfaced so callers can explain themselves. */
-export type RepBasis = 'tour-owner' | 'sole-rep' | 'creator-on-tour' | 'roster-order' | 'none';
+export type RepBasis =
+  | 'primary-rep'    // the client says so — the only basis under rep ownership
+  | 'secondary-rep'  // no primary yet, but the person filing already covers this client
+  | 'tour-owner' | 'sole-rep' | 'creator-on-tour' | 'roster-order' | 'none';
 
 export interface ResolvedRep {
   repId: number | null;
@@ -36,6 +40,29 @@ export async function resolveClientPrimaryRep(
   clientId: number | string,
   creatorRepId?: number | null,
 ): Promise<ResolvedRep> {
+  if (REP_OWNERSHIP) {
+    // Under rep ownership there is nothing to resolve: the client names its
+    // owner. is_active still matters — deactivating someone is a flag flip, not
+    // a delete, so their primary_rep_id rows outlive them and new work would
+    // otherwise be parked on a person who has left.
+    const { rows } = await risansiPool.query<{ primary_rep: number | null; covering: number | null }>(
+      `SELECT (SELECT u.id FROM users u WHERE u.id = c.primary_rep_id AND u.is_active) AS primary_rep,
+              (SELECT s.rep_id FROM client_secondary_reps s
+                 JOIN users su ON su.id = s.rep_id AND su.is_active
+                WHERE s.client_id = c.id AND s.rep_id = $2 LIMIT 1) AS covering
+         FROM clients c WHERE c.id = $1`,
+      [clientId, creatorRepId ?? null],
+    );
+    const r = rows[0];
+    if (!r) return { repId: null, basis: 'none', ambiguous: false };
+    if (r.primary_rep != null) return { repId: r.primary_rep, basis: 'primary-rep', ambiguous: false };
+    // No primary yet — one of the deliberately unassigned clients. If whoever is
+    // filing already covers it as a secondary, they own what they file rather
+    // than the record being refused outright.
+    if (r.covering != null) return { repId: r.covering, basis: 'secondary-rep', ambiguous: false };
+    return { repId: null, basis: 'none', ambiguous: false };
+  }
+
   // Deactivating a user is a flag flip, not a delete: tour_routes.primary_rep_id
   // and tour_assignments rows both survive it. Filtering on is_active here stops
   // new work being parked on someone who has left.
