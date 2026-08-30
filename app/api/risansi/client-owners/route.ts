@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
+import { clientRepIdsSql } from '@/lib/risansi-client-rep';
 
 // Returns the current owner user ids for a client, from client_assignments.
 //   GET /api/risansi/client-owners?clientId=123  →  { owner_ids: [1, 4, 9] }
@@ -20,9 +21,7 @@ export async function GET(request: Request) {
     }
 
     const { rows } = await risansiPool.query<{ user_id: number }>(
-      `SELECT ta.rep_id AS user_id FROM tour_assignments ta
-        WHERE ta.tour_id = (SELECT tour_id FROM clients WHERE id = $1)
-        ORDER BY ta.assigned_at ASC`,
+      `SELECT user_id FROM (${clientRepIdsSql('$1')}) r ORDER BY r.rank, r.ord NULLS FIRST`,
       [clientId],
     );
     return NextResponse.json({ owner_ids: rows.map(r => r.user_id) });

@@ -14,6 +14,64 @@
 import risansiPool from '@/lib/db-risansi';
 import { REP_OWNERSHIP } from '@/lib/risansi-auth';
 
+/**
+ * The people who work a client, as SQL — for use as a subquery.
+ *
+ * Six call sites asked this question in six different shapes, all through
+ * tour_assignments, which is the same duplication this module was written to end
+ * for the single-owner case. `clientExpr` is whatever identifies the client in
+ * the surrounding query, usually `c.id` or a literal placeholder.
+ *
+ * Primary first, then secondaries alphabetically — so a caller that renders the
+ * first name it gets shows the owner rather than whoever happens to sort first.
+ * Managers are excluded on purpose: they can see the client, but they do not
+ * work it, and a list captioned "owners" should not imply otherwise.
+ */
+export function clientRepIdsSql(clientExpr: string): string {
+  if (!REP_OWNERSHIP) {
+    return `SELECT ta.rep_id AS user_id, 0 AS rank, ta.assigned_at AS ord
+              FROM tour_assignments ta
+             WHERE ta.tour_id = (SELECT tour_id FROM clients WHERE id = ${clientExpr})`;
+  }
+  return `SELECT c2.primary_rep_id AS user_id, 0 AS rank, NULL::timestamptz AS ord
+            FROM clients c2 WHERE c2.id = ${clientExpr} AND c2.primary_rep_id IS NOT NULL
+           UNION ALL
+          SELECT s.rep_id, 1, s.added_at
+            FROM client_secondary_reps s WHERE s.client_id = ${clientExpr}`;
+}
+
+/**
+ * The one rep who owns a client, as a scalar subquery.
+ *
+ * Four call sites reproduced the old precedence inline — designated tour owner,
+ * else first rep by assignment order, else the manager on a one-person team —
+ * which is exactly the guessing the ownership model removes. Under it the answer
+ * is a column, and `is_active` still matters because deactivating someone leaves
+ * their rows behind.
+ */
+export function clientPrimaryRepSql(clientExpr: string): string {
+  if (!REP_OWNERSHIP) {
+    return `COALESCE(
+      (SELECT pu.id FROM tour_routes tr JOIN users pu ON pu.id = tr.primary_rep_id AND pu.is_active
+        WHERE tr.id = (SELECT tour_id FROM clients WHERE id = ${clientExpr})),
+      (SELECT ta.rep_id FROM tour_assignments ta JOIN users ru ON ru.id = ta.rep_id AND ru.is_active
+        WHERE ta.tour_id = (SELECT tour_id FROM clients WHERE id = ${clientExpr}) AND ta.role = 'rep'
+        ORDER BY ta.assigned_at, ta.rep_id LIMIT 1),
+      (SELECT ta.rep_id FROM tour_assignments ta JOIN users ru ON ru.id = ta.rep_id AND ru.is_active
+        WHERE ta.tour_id = (SELECT tour_id FROM clients WHERE id = ${clientExpr}) AND ta.role = 'manager'
+        ORDER BY ta.assigned_at, ta.rep_id LIMIT 1))`;
+  }
+  return `(SELECT u.id FROM clients c9 JOIN users u ON u.id = c9.primary_rep_id AND u.is_active
+            WHERE c9.id = ${clientExpr})`;
+}
+
+/** The same people as a comma-separated name list, for a table cell. */
+export function clientRepNamesSql(clientExpr: string): string {
+  return `(SELECT string_agg(u.name, ', ' ORDER BY r.rank, u.name)
+             FROM (${clientRepIdsSql(clientExpr)}) r
+             JOIN users u ON u.id = r.user_id)`;
+}
+
 /** How the owner was arrived at — surfaced so callers can explain themselves. */
 export type RepBasis =
   | 'primary-rep'    // the client says so — the only basis under rep ownership

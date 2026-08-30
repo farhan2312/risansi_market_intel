@@ -1,14 +1,13 @@
 import { clientVisibilitySql, type CurrentUser } from './risansi-auth';
 import { PROSPECTIVE_STATUSES } from './risansi-client-status';
+import { clientRepIdsSql, clientRepNamesSql } from '@/lib/risansi-client-rep';
 
 // Shared filter logic for the Client 360 list. The list page and the Excel
 // export both build their WHERE from buildClientFilter() so the export always
 // matches exactly what the filtered view shows.
 
-// Owners aggregated from the tour the client sits on (tour_assignments).
-export const OWNERS_SUBQUERY = `(SELECT string_agg(u.name, ', ' ORDER BY u.name)
-     FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
-                WHERE ta.tour_id = c.tour_id)`;
+// The reps who work the client: primary first, then anyone covering it.
+export const OWNERS_SUBQUERY = clientRepNamesSql('c.id');
 
 // Lifetime revenue (INR) per client, joined as rev.lifetime_rev.
 export const REV_JOIN = `LEFT JOIN (
@@ -89,8 +88,8 @@ export function buildClientFilter(
   if (repFilts.length) {
     const rIdx = params.push(repFilts);
     whereConditions.push(
-      `EXISTS (SELECT 1 FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
-                WHERE ta.tour_id = c.tour_id AND u.name = ANY($${rIdx}::text[]))`,
+      `EXISTS (SELECT 1 FROM (${clientRepIdsSql('c.id')}) r
+                JOIN users u ON u.id = r.user_id WHERE u.name = ANY($${rIdx}::text[]))`,
     );
   }
   if (fyFilts.length)   whereConditions.push(`c.since_year = ANY($${params.push(fyFilts)}::text[])`);

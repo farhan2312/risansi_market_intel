@@ -4,7 +4,7 @@ import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { getManagerAssignableReps, hasRole, getCurrentUser, canViewClient, hasSpecialClientAccess, type RisansiRole } from '@/lib/risansi-auth';
+import { getManagerAssignableReps, hasRole, getCurrentUser, canViewClient, hasSpecialClientAccess, REP_OWNERSHIP, type RisansiRole } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 import { recordAudit } from '@/lib/audit';
 import { normalizeClientName, uniqueLeadCode } from '@/lib/risansi-lead-code';
@@ -12,7 +12,7 @@ import {
   isProspectiveStatus, isLeadCode, CLIENT_STATUSES,
   allowedStatusesForCode, clientStatusLabel,
 } from '@/lib/risansi-client-status';
-import { resolveClientPrimaryRep } from '@/lib/risansi-client-rep';
+import { resolveClientPrimaryRep, clientPrimaryRepSql } from '@/lib/risansi-client-rep';
 import { parseSalesOrdersJson, inrToCr, type SoInput, type SalesOrder } from '@/lib/risansi-sales-orders';
 import { parseOfferRevisionsJson, type OfferRevisionInput } from '@/lib/risansi-offer-revisions';
 import { poInrToCr, type PurchaseOrder } from '@/lib/risansi-purchase-orders';
@@ -781,10 +781,20 @@ async function notifyVisitPlan(opts: {
     const plannerIsRep = planner?.id != null && repId != null && planner.id === repId;
 
     if (plannerIsRep) {
-      if (client.tour_id == null) return;
+      // Who to tell that a rep has planned a visit: the managers of the people
+      // who work this client. The tour version bailed out entirely when the
+      // client had no route — true of 1,186 clients — so those visits were
+      // planned in silence.
       const mgrs = (await risansiPool.query<{ id: number; name: string | null; email: string | null }>(
-        `SELECT u.id, u.name, u.email FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
-          WHERE ta.tour_id = $1 AND ta.role = 'manager'`, [client.tour_id])).rows;
+        REP_OWNERSHIP
+          ? `SELECT DISTINCT u.id, u.name, u.email FROM users u
+              WHERE u.is_active AND u.id IN (
+                SELECT mr.manager_id FROM manager_reps mr
+                 WHERE mr.rep_id = (SELECT primary_rep_id FROM clients WHERE id = $1)
+                    OR mr.rep_id IN (SELECT rep_id FROM client_secondary_reps WHERE client_id = $1))`
+          : `SELECT u.id, u.name, u.email FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
+              WHERE ta.tour_id = (SELECT tour_id FROM clients WHERE id = $1) AND ta.role = 'manager'`,
+        [REP_OWNERSHIP ? clientId : client.tour_id])).rows;
       const inAppMgrs: number[] = [];
       for (const m of mgrs) {
         if (!m.email || m.email.toLowerCase() === plannerEmail.toLowerCase()) continue;
@@ -1417,9 +1427,7 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
     repId = cur[0].rep_id ?? null;
     if (!repId && cur[0].client_id) {
       const { rows: cRows } = await risansiPool.query<{ primary_rep_id: number | null }>(
-        `SELECT (SELECT ta.rep_id FROM tour_assignments ta
-                  WHERE ta.tour_id = (SELECT tour_id FROM clients WHERE id = $1) AND ta.role = 'rep'
-                  ORDER BY ta.assigned_at, ta.rep_id LIMIT 1) AS primary_rep_id`,
+        `SELECT ${clientPrimaryRepSql('$1')} AS primary_rep_id`,
         [cur[0].client_id],
       );
       repId = cRows[0]?.primary_rep_id ?? null;

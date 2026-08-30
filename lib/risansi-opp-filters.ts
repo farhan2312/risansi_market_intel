@@ -18,6 +18,7 @@
 // different set of aliases to scope.
 
 import { soCoverageSql, isSoCoverage } from './risansi-pipeline-brackets';
+import { REP_OWNERSHIP } from '@/lib/risansi-auth';
 
 export type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -104,17 +105,32 @@ export function buildOppFilter(f: OppFilters, scopedRepId: number | null, startI
   let idx = startIdx;
 
   if (scopedRepId != null) {
-    conds.push(`(c.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = $${idx})
-                 OR c.id IN (SELECT client_id FROM client_rep_access WHERE rep_id = $${idx}))`);
+    // "My pipeline": the clients this person works, plus anything granted. The
+    // opportunity's own rep_id is deliberately not consulted here — that is the
+    // in-flight rule, which clientScopeSql applies at the page level; this filter
+    // answers a different question, which is whose territory the deal sits in.
+    conds.push(REP_OWNERSHIP
+      ? `(c.primary_rep_id = $${idx}
+           OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = $${idx})
+           OR c.id IN (SELECT client_id FROM client_rep_access WHERE rep_id = $${idx}))`
+      : `(c.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = $${idx})
+           OR c.id IN (SELECT client_id FROM client_rep_access WHERE rep_id = $${idx}))`);
     vals.push(scopedRepId); idx++;
   }
   if (f.stage.length)    { conds.push(`o.stage = ANY($${idx}::text[])`);           vals.push(f.stage);    idx++; }
   if (f.prodType.length) { conds.push(`o.product_type = ANY($${idx}::text[])`);    vals.push(f.prodType); idx++; }
   if (f.rep.length) {
-    // A tour can have several reps, so picking a rep shows the opportunities of
-    // the clients on that rep's tour(s), not opps stored against that rep.
-    conds.push(`EXISTS (SELECT 1 FROM tour_assignments ta JOIN users u2 ON u2.id = ta.rep_id
-                          WHERE ta.tour_id = c.tour_id AND u2.name = ANY($${idx}::text[]))`);
+    // Picking a rep shows the opportunities of the clients that rep works. Under
+    // tours this had to mean "clients on a route they are on", which caught every
+    // other rep's clients on a shared route; now it is the clients they actually
+    // own or cover.
+    conds.push(REP_OWNERSHIP
+      ? `EXISTS (SELECT 1 FROM users u2
+                  WHERE u2.name = ANY($${idx}::text[])
+                    AND (c.primary_rep_id = u2.id
+                         OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = u2.id)))`
+      : `EXISTS (SELECT 1 FROM tour_assignments ta JOIN users u2 ON u2.id = ta.rep_id
+                   WHERE ta.tour_id = c.tour_id AND u2.name = ANY($${idx}::text[]))`);
     vals.push(f.rep); idx++;
   }
   if (f.industry.length) { conds.push(`c.industry = ANY($${idx}::text[])`);        vals.push(f.industry); idx++; }

@@ -1,5 +1,6 @@
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, clientVisibilitySql } from '@/lib/risansi-auth';
+import { clientPrimaryRepSql } from '@/lib/risansi-client-rep';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -26,20 +27,7 @@ export async function GET(request: Request) {
                 WHEN $3::int IS NOT NULL
                  AND EXISTS (SELECT 1 FROM client_rep_access a WHERE a.client_id = c.id AND a.rep_id = $3::int)
                 THEN (SELECT u.name FROM users u WHERE u.id = $3::int)
-                ELSE (SELECT u.name FROM users u WHERE u.id = COALESCE(
-                   (SELECT pu.id FROM tour_routes tr
-                      JOIN users pu ON pu.id = tr.primary_rep_id AND pu.is_active
-                     WHERE tr.id = c.tour_id),
-                   (SELECT ta.rep_id FROM tour_assignments ta
-                      JOIN users ru ON ru.id = ta.rep_id AND ru.is_active
-                     WHERE ta.tour_id = c.tour_id AND ta.role = 'rep'
-                     ORDER BY ta.assigned_at, ta.rep_id LIMIT 1),
-                   -- Manager-only tour (one-person team): the manager owns the work.
-                   (SELECT ta.rep_id FROM tour_assignments ta
-                      JOIN users ru ON ru.id = ta.rep_id AND ru.is_active
-                     WHERE ta.tour_id = c.tour_id AND ta.role = 'manager'
-                     ORDER BY ta.assigned_at, ta.rep_id LIMIT 1)
-                 ))
+                ELSE (SELECT u.name FROM users u WHERE u.id = ${clientPrimaryRepSql('c.id')})
               END                                                            AS owner_name
        FROM clients c
        WHERE c.deleted_at IS NULL
