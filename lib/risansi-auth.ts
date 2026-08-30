@@ -100,62 +100,142 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser> => {
 // All ids below come from the trusted session (integers), so inlining them
 // into SQL is injection-safe and keeps callers free of param-index juggling.
 function intOrNull(v: unknown): number | null {
+  // null, undefined and '' are all rejected explicitly, and the result must be
+  // positive. Number(null) and Number('') are both 0, and Number.isInteger(0) is
+  // true — so the obvious version hands back a user id of 0 for someone who has
+  // no id at all. Every caller here turns that into a predicate like
+  // `primary_rep_id = 0`, which matches nothing only because no row happens to
+  // carry id 0. That is luck rather than a rule, and the callers all document
+  // themselves as returning FALSE for an unlinked user, so make it true.
+  if (v === null || v === undefined || v === '') return null;
   const n = Number(v);
-  return Number.isInteger(n) ? n : null;
+  return Number.isInteger(n) && n > 0 ? n : null;
 }
 
 /**
- * SQL predicate restricting a `clients` query (aliased `alias`) to what the
- * user may SEE. Visibility is TOUR-based, plus any direct SPECIAL-ACCESS grant:
- *   rep / manager → clients whose tour is one of the tours they're on
- *                   (tour_assignments), OR clients an admin has granted them
- *                   direct access to (client_rep_access). Rep and manager are
- *                   identical here; the difference is only which tours each is on.
- *   admin / +     → everything (returns null = no restriction)
- * A user with no linked id, or a client neither on their tour nor granted, is
- * not visible ('FALSE').
+ * Which ownership model is in force.
+ *
+ * Tours are being replaced by a primary rep and optional secondaries held on the
+ * client itself. Both rules live here through the changeover so the switch is an
+ * environment variable rather than a deploy — if the new mapping turns out wrong
+ * in real use, REP_OWNERSHIP=0 restores the old behaviour in seconds and no data
+ * has to be reconstructed, because tour_assignments is still populated.
+ *
+ * Remove this, and the tour branch below, once the new rule has held for a while.
  */
+export const REP_OWNERSHIP = process.env.REP_OWNERSHIP !== '0';
+
+/**
+ * The clients a person may see, as SQL.
+ *
+ * Under the ownership model that is: I am the primary rep, I am a secondary rep,
+ * I manage somebody who is either, or an admin granted me the client directly.
+ * Managers reach clients through their team rather than through a route, and one
+ * level only — a manager under a manager inherits nothing, because the tours this
+ * replaces were never a hierarchy and inventing one would be a guess.
+ *
+ * Under the tour model it is the older question: is this client on a route I am
+ * assigned to.
+ *
+ * Admins are unrestricted under both and get null, meaning no predicate at all.
+ * A signed-out or unlinked user gets 'FALSE' rather than an empty string, so a
+ * missing id can never widen a query instead of narrowing it.
+ */
+function clientRuleSql(uid: number, clientIdCol: string): string {
+  if (!REP_OWNERSHIP) {
+    return `(${clientIdCol} IN (
+      SELECT id FROM clients
+       WHERE tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = ${uid})
+    ) OR ${clientIdCol} IN (SELECT client_id FROM client_rep_access WHERE rep_id = ${uid}))`;
+  }
+  return `(${clientIdCol} IN (
+      SELECT c2.id FROM clients c2
+       WHERE c2.primary_rep_id = ${uid}
+          OR c2.primary_rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${uid})
+    )
+    OR ${clientIdCol} IN (
+      SELECT s.client_id FROM client_secondary_reps s
+       WHERE s.rep_id = ${uid}
+          OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${uid})
+    )
+    OR ${clientIdCol} IN (SELECT client_id FROM client_rep_access WHERE rep_id = ${uid}))`;
+}
+
+/**
+ * Work still in flight that this person owns, regardless of who owns the client.
+ *
+ * A rep keeps sight of their own record until it closes, and then it stops being
+ * theirs: once an opportunity is Won, Lost or Dropped — or a visit completed, or
+ * an action done — it is only reachable through the client, like everything else.
+ * So a rep finishes what they started on an account that has moved to a colleague,
+ * and does not keep a permanent window into it.
+ *
+ * This matters more than it sounds. Scoping records purely through the client
+ * would have taken 403 open opportunities, 10 visits and 19 action items out of
+ * the view of the very people working them on the day of the switch. The set
+ * drains on its own as those records close.
+ *
+ * `ownOpen` is written by the caller because only the caller knows the table:
+ * pass 'o.rep_id = :uid AND o.stage NOT IN (...)' from an opportunities query.
+ * Use the :uid placeholder; it is replaced with the integer id.
+ */
+export function clientScopeSql(
+  user: CurrentUser, clientIdCol: string, ownOpen?: string,
+): string | null {
+  if (hasRole(user.role, 'admin')) return null;
+  const uid = intOrNull(user.id);
+  if (uid == null) return 'FALSE';
+  const base = clientRuleSql(uid, clientIdCol);
+  if (!ownOpen) return base;
+  // split/join rather than a regex: the id is a verified integer, and a literal
+  // replace cannot be broken by an escape going astray on the way into the file.
+  return `(${base} OR (${ownOpen.split(':uid').join(String(uid))}))`;
+}
+
+/** The same rule against a `clients` query aliased `alias`. */
 export function clientVisibilitySql(user: CurrentUser, alias = 'c'): string | null {
   if (hasRole(user.role, 'admin')) return null;
   const uid = intOrNull(user.id);
   if (uid == null) return 'FALSE';
-  return `(${alias}.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = ${uid})
-    OR ${alias}.id IN (SELECT client_id FROM client_rep_access WHERE rep_id = ${uid}))`;
+  return clientRuleSql(uid, `${alias}.id`);
 }
 
-/**
- * SQL predicate scoping a visits/opportunities/tasks query to the clients the
- * user may SEE, keyed on that table's CLIENT-ID column (e.g. 'v.client_id',
- * 'o.client_id'). A record is visible when its client's tour is one of the
- * user's tours — i.e. fully tour-based, so a rep sees every visit/opportunity
- * for clients on their tours, not only the ones they personally own — plus any
- * client an admin has granted them direct SPECIAL access to.
- *   rep / manager → records whose client is on one of their tours, or granted
- *   admin / +     → everything (null = no restriction)
- */
-export function clientScopeSql(user: CurrentUser, clientIdCol: string): string | null {
-  if (hasRole(user.role, 'admin')) return null;
-  const uid = intOrNull(user.id);
-  if (uid == null) return 'FALSE';
-  return `(${clientIdCol} IN (
-    SELECT id FROM clients
-     WHERE tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = ${uid})
-  ) OR ${clientIdCol} IN (SELECT client_id FROM client_rep_access WHERE rep_id = ${uid}))`;
-}
+/** Ready-made open-record predicates, so the three tables spell it the same way. */
+export const OWN_OPEN = {
+  opportunity: (alias = 'o') => `${alias}.rep_id = :uid AND ${alias}.stage NOT IN ('Won','Lost','Dropped')`,
+  visit:       (alias = 'v') => `${alias}.rep_id = :uid AND ${alias}.status <> 'completed'`,
+  task:        (alias = 't') => `${alias}.assigned_to_rep = :uid AND ${alias}.status <> 'completed'`,
+} as const;
 
-/** Can this user SEE a single client? Tour-based, or a direct special-access
- *  grant (mirrors clientVisibilitySql). */
 export async function canViewClient(user: CurrentUser, clientId: number): Promise<boolean> {
   if (hasRole(user.role, 'admin')) return true;
   const uid = intOrNull(user.id);
   if (uid == null) return false;
+  // Client-level only, with no open-record limb: this answers "may I open this
+  // account", and owning a live opportunity on someone else's client does not
+  // make the account yours. The record stays reachable from the lists that scope
+  // with clientScopeSql; the client page itself does not open.
   const { rows } = await risansiPool.query<{ ok: boolean }>(
-    `SELECT (EXISTS (
-       SELECT 1 FROM clients c
-       WHERE c.id = $1 AND c.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = $2)
-     ) OR EXISTS (
-       SELECT 1 FROM client_rep_access WHERE client_id = $1 AND rep_id = $2
-     )) AS ok`,
+    REP_OWNERSHIP
+      ? `SELECT (EXISTS (
+           SELECT 1 FROM clients c
+            WHERE c.id = $1
+              AND (c.primary_rep_id = $2
+                   OR c.primary_rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $2))
+         ) OR EXISTS (
+           SELECT 1 FROM client_secondary_reps s
+            WHERE s.client_id = $1
+              AND (s.rep_id = $2
+                   OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $2))
+         ) OR EXISTS (
+           SELECT 1 FROM client_rep_access WHERE client_id = $1 AND rep_id = $2
+         )) AS ok`
+      : `SELECT (EXISTS (
+           SELECT 1 FROM clients c
+           WHERE c.id = $1 AND c.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = $2)
+         ) OR EXISTS (
+           SELECT 1 FROM client_rep_access WHERE client_id = $1 AND rep_id = $2
+         )) AS ok`,
     [clientId, uid],
   );
   return rows[0]?.ok ?? false;
