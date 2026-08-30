@@ -4,7 +4,7 @@ import { clientStatusLabel, statusDotKind, CLIENT_STATUS_FILTER_OPTIONS, CLIENT_
 import { AddClientButton } from '@/components/risansi/ClientFormDrawer';
 import { EditClientLink } from '@/components/risansi/EditClientLink';
 import { EndClientToggle } from '@/components/risansi/EndClientToggle';
-import { SpecialAccessButton, type GrantableRep } from '@/components/risansi/SpecialAccessButton';
+import { ClientOwnershipButton, type AssignableRep } from '@/components/risansi/ClientOwnershipButton';
 import risansiPool from '@/lib/db-risansi';
 import { formatLastVisitShort } from '@/lib/risansi-utils';
 import { getCurrentUser, clientVisibilitySql } from '@/lib/risansi-auth';
@@ -118,14 +118,15 @@ export default async function ClientMasterPage({
     tour_name:       string | null;
     tour_zone:       string | null;
     rep_name:        string | null;
+    owner_name:      string | null;
+    cover_count:     number;
     is_end_client:   boolean;
-    special_count:   number;
   }
 
   interface RepOption { rep_name: string; client_count: number; }
 
   // ── All queries in parallel ────────────────────────────────────
-  const [clients, total, industries, zones, tiers, repOptions, grantableReps] = await Promise.all([
+  const [clients, total, industries, zones, tiers, repOptions, assignableReps] = await Promise.all([
 
     (async (): Promise<ClientRow[]> => {
       try {
@@ -139,7 +140,8 @@ export default async function ClientMasterPage({
              tr.name AS tour_name,
              tr.zone AS tour_zone,
              COALESCE(${OWNERS_SUBQUERY}, '—') AS rep_name,
-             (SELECT COUNT(*)::int FROM client_rep_access cra WHERE cra.client_id = c.id) AS special_count
+             (SELECT u.name FROM users u WHERE u.id = c.primary_rep_id) AS owner_name,
+             (SELECT COUNT(*)::int FROM client_secondary_reps s WHERE s.client_id = c.id) AS cover_count
            FROM clients c
            LEFT JOIN tour_routes tr ON tr.id = c.tour_id
            WHERE ${whereClause}
@@ -221,14 +223,14 @@ export default async function ClientMasterPage({
       } catch { return []; }
     })(),
 
-    // Grantable reps for the Special Access picker: every active rep/manager.
-    (async (): Promise<GrantableRep[]> => {
+    // Everyone who can own or cover a client, for the ownership picker.
+    (async (): Promise<AssignableRep[]> => {
       try {
-        const { rows } = await risansiPool.query<GrantableRep>(
-          `SELECT id::text AS id, name, role, zone
+        const { rows } = await risansiPool.query<AssignableRep>(
+          `SELECT id::int AS id, name, role
              FROM users
             WHERE is_active = TRUE AND role IN ('rep', 'manager')
-            ORDER BY name ASC`,
+            ORDER BY role DESC, name ASC`,
         );
         return rows;
       } catch { return []; }
@@ -355,7 +357,7 @@ export default async function ClientMasterPage({
                     <SortableTH col="status"     label="Status"       currentSort={curSort} currentDir={curDir} />
                     <SortableTH col="tier"       label="Tier"         currentSort={curSort} currentDir={curDir} />
                     <th style={{ padding: '9px 12px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>End Client</th>
-                    <th style={{ padding: '9px 12px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>Access</th>
+                    <th style={{ padding: '9px 12px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>Owner & cover</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -425,14 +427,15 @@ export default async function ClientMasterPage({
                           <EndClientToggle clientId={c.id} value={c.is_end_client} />
                         </td>
 
-                        {/* Special access */}
-                        <td style={{ ...TD, textAlign: 'center' }}>
-                          <SpecialAccessButton
+                        {/* Who works it */}
+                        <td style={TD}>
+                          <ClientOwnershipButton
                             clientId={Number(c.id)}
-                            clientName={c.legal_name}
                             clientCode={c.code}
-                            reps={grantableReps}
-                            initialCount={c.special_count}
+                            clientName={c.legal_name}
+                            reps={assignableReps}
+                            ownerName={c.owner_name}
+                            coverCount={c.cover_count}
                           />
                         </td>
 

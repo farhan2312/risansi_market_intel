@@ -223,3 +223,109 @@ export async function restoreClient(clientId: number): Promise<Outcome> {
     return { ok: true, message: 'Restored. It has no owner until you set one.' };
   } catch (e) { return fail(e); }
 }
+
+// ── one client's people, read and written together ────────────────
+
+export interface ClientOwnership {
+  primaryRepId: number | null;
+  primaryRepName: string | null;
+  secondary: { id: number; name: string }[];
+  managers: string[];
+}
+
+/** Who works this client. Admin-only, like everything else that can change it. */
+export async function getClientOwnership(clientId: number): Promise<ClientOwnership | null> {
+  if (!(await requireAdmin())) return null;
+  if (!Number.isInteger(clientId) || clientId <= 0) return null;
+  try {
+    const { rows } = await risansiPool.query<{
+      primary_rep_id: number | null; primary_rep_name: string | null;
+      secondary: { id: number; name: string }[] | null; managers: string[] | null;
+    }>(
+      `SELECT c.primary_rep_id,
+              (SELECT u.name FROM users u WHERE u.id = c.primary_rep_id) AS primary_rep_name,
+              (SELECT json_agg(json_build_object('id', u.id, 'name', u.name) ORDER BY u.name)
+                 FROM client_secondary_reps s JOIN users u ON u.id = s.rep_id
+                WHERE s.client_id = c.id) AS secondary,
+              (SELECT array_agg(DISTINCT u.name)
+                 FROM manager_reps mr JOIN users u ON u.id = mr.manager_id AND u.is_active
+                WHERE mr.rep_id = c.primary_rep_id
+                   OR mr.rep_id IN (SELECT rep_id FROM client_secondary_reps WHERE client_id = c.id)) AS managers
+         FROM clients c WHERE c.id = $1 AND c.deleted_at IS NULL`,
+      [clientId]);
+    const r = rows[0];
+    if (!r) return null;
+    return {
+      primaryRepId: r.primary_rep_id,
+      primaryRepName: r.primary_rep_name,
+      secondary: r.secondary ?? [],
+      managers: r.managers ?? [],
+    };
+  } catch { return null; }
+}
+
+/**
+ * Set a client's owner and covering reps in one transaction.
+ *
+ * One call rather than a primary write plus N secondary writes, because the two
+ * halves constrain each other: promoting a covering rep to owner has to drop
+ * their covering row in the same breath, and a form that saved the pieces
+ * separately could leave a client listing the same person twice if the second
+ * request never arrived.
+ */
+export async function setClientOwnership(
+  clientId: number, primaryRepId: number | null, secondaryRepIds: number[],
+): Promise<Outcome> {
+  const me = await requireAdmin();
+  if (!me) return { ok: false, error: 'Only an admin can change who works a client.' };
+  if (!Number.isInteger(clientId) || clientId <= 0) return { ok: false, error: 'Invalid client.' };
+
+  // A person cannot both own and cover the same account.
+  const secondary = [...new Set(secondaryRepIds.filter(n => Number.isInteger(n) && n > 0))]
+    .filter(n => n !== primaryRepId);
+
+  const c = await risansiPool.connect();
+  try {
+    await c.query('BEGIN');
+    const r = await c.query(
+      'UPDATE clients SET primary_rep_id = $2, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL',
+      [clientId, primaryRepId]);
+    if (!r.rowCount) {
+      await c.query('ROLLBACK');
+      return { ok: false, error: 'That client no longer exists, or has been archived.' };
+    }
+    // Replace the covering set wholesale: the form sends the list it wants, and
+    // diffing it here would just be the same delete-then-insert with more ways
+    // to disagree with what the user is looking at.
+    await c.query('DELETE FROM client_secondary_reps WHERE client_id = $1', [clientId]);
+    for (const repId of secondary) {
+      await c.query(
+        `INSERT INTO client_secondary_reps (client_id, rep_id, added_by)
+         VALUES ($1, $2, (SELECT id FROM users WHERE lower(email) = lower($3)))
+         ON CONFLICT DO NOTHING`,
+        [clientId, repId, me.email]);
+    }
+    await c.query('COMMIT');
+    touch();
+    revalidatePath(`/risansi/clients/${clientId}`);
+    return {
+      ok: true,
+      message: primaryRepId == null
+        ? 'Owner cleared — this client is now unassigned.'
+        : `Saved. ${secondary.length ? `${secondary.length} covering rep${secondary.length === 1 ? '' : 's'}.` : 'No covering reps.'}`,
+    };
+  } catch (e) {
+    await c.query('ROLLBACK').catch(() => {});
+    return fail(e);
+  } finally { c.release(); }
+}
+
+/** Everyone who can own or cover a client, for the pickers. */
+export async function listAssignableReps(): Promise<{ id: number; name: string; role: string }[]> {
+  if (!(await requireAdmin())) return [];
+  try {
+    return (await risansiPool.query<{ id: number; name: string; role: string }>(
+      `SELECT id::int AS id, name, role FROM users
+        WHERE is_active = TRUE AND role IN ('rep','manager') ORDER BY role DESC, name`)).rows;
+  } catch { return []; }
+}

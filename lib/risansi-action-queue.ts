@@ -86,7 +86,6 @@ function repVisibilitySql(): string {
     OR t.created_by = $2
     OR EXISTS (SELECT 1 FROM visits vs WHERE vs.id = t.visit_id AND vs.rep_id = $1)
     OR ${clientLimb}
-    OR EXISTS (SELECT 1 FROM client_rep_access cra WHERE cra.client_id = t.client_id AND cra.rep_id = $1)
   )`;
 }
 

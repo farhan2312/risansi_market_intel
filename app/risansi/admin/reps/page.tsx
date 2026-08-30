@@ -4,8 +4,8 @@ import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, hasRole } from '@/lib/risansi-auth';
 import { AddRepButton } from '@/components/risansi/AddRepButton';
 import {
-  TeamMatrix, UnassignedClients, MoveClients,
-  type Person, type UnownedClient,
+  TeamMatrix, UnassignedClients, MoveClients, RepClients,
+  type Person, type UnownedClient, type RepClient,
 } from '@/components/risansi/OwnershipAdmin';
 
 export const dynamic = 'force-dynamic';
@@ -24,6 +24,7 @@ async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
 
 const TABS = [
   { id: 'reps',       label: 'Reps' },
+  { id: 'clients',    label: 'Clients' },
   { id: 'teams',      label: 'Teams' },
   { id: 'unassigned', label: 'Unassigned' },
 ] as const;
@@ -47,6 +48,10 @@ export default async function RepsAndManagersPage({
   const sp = await searchParams;
   const raw = typeof sp.tab === 'string' ? sp.tab : 'reps';
   const tab: TabId = (TABS.some(t => t.id === raw) ? raw : 'reps') as TabId;
+
+  // Which rep the Clients tab is showing. Falls back to the first person with a
+  // book, so the tab opens on something rather than on an empty picker.
+  const repParam = typeof sp.rep === 'string' ? Number(sp.rep) : NaN;
 
   const [people, pairs, unowned] = await Promise.all([
     // Owned and covered are counted separately on purpose: a rep's own book and
@@ -87,6 +92,34 @@ export default async function RepsAndManagersPage({
   // sit under another manager, and four of them already do.
   const managers = people.filter(p => p.role === 'manager');
   const withHistory = unowned.filter(c => c.opps || c.visits).length;
+
+  const selectedRep = people.find(r => r.id === repParam)
+    ?? people.find(r => r.owned > 0 || r.covered > 0)
+    ?? people[0];
+
+  // Owned and covered in one list, each row saying which it is — that is the
+  // question this tab exists to answer, and two separate tables would make the
+  // reader do the merge themselves.
+  const repClients = tab === 'clients' && selectedRep
+    ? await q<RepClient[]>(async () => (await risansiPool.query<RepClient>(`
+        SELECT c.id::int AS id, c.code, c.legal_name AS name, c.status,
+               'primary' AS relation,
+               (SELECT count(*)::int FROM opportunities o WHERE o.client_id = c.id) AS opps,
+               (SELECT count(*)::int FROM client_secondary_reps s WHERE s.client_id = c.id) AS cover_count,
+               (SELECT u.name FROM users u WHERE u.id = c.primary_rep_id) AS owner_name
+          FROM clients c
+         WHERE c.deleted_at IS NULL AND c.primary_rep_id = $1
+        UNION ALL
+        SELECT c.id::int, c.code, c.legal_name, c.status,
+               'covering' AS relation,
+               (SELECT count(*)::int FROM opportunities o WHERE o.client_id = c.id),
+               (SELECT count(*)::int FROM client_secondary_reps s WHERE s.client_id = c.id),
+               (SELECT u.name FROM users u WHERE u.id = c.primary_rep_id)
+          FROM clients c
+          JOIN client_secondary_reps s ON s.client_id = c.id AND s.rep_id = $1
+         WHERE c.deleted_at IS NULL
+         ORDER BY 5, 2`, [selectedRep.id])).rows, [])
+    : [];
 
   const tabHref = (t: string) => `/risansi/admin/reps?tab=${t}`;
 
@@ -161,6 +194,12 @@ export default async function RepsAndManagersPage({
               </table>
             </div>
           </>
+        )}
+
+        {tab === 'clients' && (
+          selectedRep
+            ? <RepClients people={people} selected={selectedRep} clients={repClients} />
+            : <p style={{ fontSize: 13, color: 'var(--fg-2)' }}>No active reps or managers yet.</p>
         )}
 
         {tab === 'teams' && <TeamMatrix managers={managers} reps={people} pairs={pairs} />}

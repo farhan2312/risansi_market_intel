@@ -4,7 +4,7 @@ import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { getManagerAssignableReps, hasRole, getCurrentUser, canViewClient, hasSpecialClientAccess, type RisansiRole } from '@/lib/risansi-auth';
+import { getManagerAssignableReps, hasRole, getCurrentUser, canViewClient, type RisansiRole } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 import { recordAudit } from '@/lib/audit';
 import { normalizeClientName, uniqueLeadCode } from '@/lib/risansi-lead-code';
@@ -478,6 +478,53 @@ function parseDeletedIds(raw: FormDataEntryValue | null): number[] {
 
 // ── Client: update client details ─────────────────────────────
 
+/**
+ * Write a client's primary rep and covering reps from a submitted form.
+ *
+ * Shared by add and update so the two cannot drift: a create that sets an owner
+ * and an edit that quietly does not is exactly how clients ended up unassigned
+ * without anybody noticing.
+ *
+ * An absent secondary_rep_ids field leaves the covering list alone; a present
+ * one replaces it, including with an empty list. That distinction is why the
+ * form posts JSON rather than a multi-select, which sends nothing when empty.
+ */
+async function saveClientOwnership(clientId: number, formData: FormData, actorEmail: string): Promise<void> {
+  const rawPrimary = formData.get('primary_rep_id');
+  if (rawPrimary !== null) {
+    const primary = rawPrimary === '' ? null : parseInt(String(rawPrimary), 10);
+    await risansiPool.query(
+      'UPDATE clients SET primary_rep_id = $2, updated_at = NOW() WHERE id = $1',
+      [clientId, Number.isInteger(primary as number) ? primary : null],
+    );
+  }
+
+  const rawSecondary = formData.get('secondary_rep_ids');
+  if (rawSecondary === null) return;
+  let ids: number[] = [];
+  try {
+    const parsed = JSON.parse(String(rawSecondary) || '[]');
+    if (Array.isArray(parsed)) {
+      ids = [...new Set(parsed.map(n => parseInt(String(n), 10)).filter(n => Number.isInteger(n) && n > 0))];
+    }
+  } catch { ids = []; }
+
+  // Never both owner and cover on the same client.
+  const { rows } = await risansiPool.query<{ primary_rep_id: number | null }>(
+    'SELECT primary_rep_id FROM clients WHERE id = $1', [clientId]);
+  const owner = rows[0]?.primary_rep_id ?? null;
+
+  await risansiPool.query('DELETE FROM client_secondary_reps WHERE client_id = $1', [clientId]);
+  for (const repId of ids.filter(n => n !== owner)) {
+    await risansiPool.query(
+      `INSERT INTO client_secondary_reps (client_id, rep_id, added_by)
+       VALUES ($1, $2, (SELECT id FROM users WHERE lower(email) = lower($3)))
+       ON CONFLICT DO NOTHING`,
+      [clientId, repId, actorEmail],
+    );
+  }
+}
+
 export async function updateClient(clientId: number, formData: FormData): Promise<void> {
   const session = await getServerSession(authOptions);
   if (!hasRole(session?.user?.role, 'admin')) {
@@ -600,8 +647,7 @@ export async function updateClient(clientId: number, formData: FormData): Promis
     clientTx.release();
   }
 
-  // Owners (flat multi-owner model) + legacy shim + audit.
-  // Owners derive from the client's tour (set via tour_id above); no direct sync.
+  await saveClientOwnership(clientId, formData, email);
 
   // Save contacts
   await saveContacts(
@@ -1090,13 +1136,12 @@ export async function createPipelineOpportunity(formData: FormData) {
     throw new Error('Your account is not linked to a user record. Please contact the system administrator.');
   }
 
+  // A rep owns what they file. For anyone else the client names the owner, and
+  // resolveClientPrimaryRep falls back to the filer when they cover a client
+  // nobody owns yet — which is the case the special-access branch here used to
+  // handle, before covering reps could be assigned from the interface.
   const derived = await resolveClientPrimaryRep(clientId, creatorRepId);
-  // A special-access grantee (rep OR manager) owns what they file for a granted
-  // client, exactly like a rep filing their own — independent of the tour. This
-  // stops a manager grantee's opportunity from being handed to a stranger's tour
-  // rep (or blocked outright on a tour-less client).
-  const special = creatorRepId != null && await hasSpecialClientAccess(creatorRepId, Number(clientId));
-  const primaryRepId = (user.role === 'rep' || special) ? creatorRepId : derived.repId;
+  const primaryRepId = user.role === 'rep' ? creatorRepId : derived.repId;
 
   if (!primaryRepId) {
     throw new Error(
@@ -2091,8 +2136,7 @@ export async function addClient(formData: FormData): Promise<void> {
 
   const clientId = result.rows[0].id;
 
-  // Owners (flat multi-owner model) + legacy shim + audit.
-  // Owners derive from the client's tour (set via tour_id above); no direct sync.
+  await saveClientOwnership(clientId, formData, email);
 
   // Save contacts
   await saveContacts(

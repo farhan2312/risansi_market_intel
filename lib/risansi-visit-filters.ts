@@ -71,8 +71,7 @@ export async function getVisitFilterOptions(user: CurrentUser): Promise<VisitFil
                              OR c.primary_rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${uid})
                              OR c.id IN (SELECT s.client_id FROM client_secondary_reps s
                                           WHERE s.rep_id = ${uid}
-                                             OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${uid}))
-                             OR c.id IN (SELECT client_id FROM client_rep_access WHERE rep_id = ${uid})))`;
+                                             OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${uid}))))`;
   const scope = admin ? '' : ` AND tr.id IN ${ownTours}`;
   const q = async (sql: string) => { try { return (await risansiPool.query<{ v: string }>(sql)).rows.map(r => r.v); } catch { return []; } };
 

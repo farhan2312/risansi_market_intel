@@ -164,8 +164,7 @@ export default async function PipelinePage({
     // the opportunities of the clients they own or cover, plus anything granted
     // to them by special access. (Matches the revenue scope and ownerVis below.)
     conds.push(`(c.primary_rep_id = $${idx}
-                 OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = $${idx})
-                 OR c.id IN (SELECT client_id FROM client_rep_access WHERE rep_id = $${idx}))`);
+                 OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = $${idx}))`);
     vals.push(scopedRepId); idx++;
   }
 
@@ -237,8 +236,7 @@ export default async function PipelinePage({
   let rIdx = 1;
   if (scopedRepId != null) {
     revConds.push(`(c.primary_rep_id = $${rIdx}
-                    OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = $${rIdx})
-                    OR c.id IN (SELECT client_id FROM client_rep_access WHERE rep_id = $${rIdx}))`);
+                    OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = $${rIdx}))`);
     revVals.push(scopedRepId); rIdx++;
   }
   if (repFilts.length > 0) {
@@ -306,7 +304,7 @@ export default async function PipelinePage({
   // limited to 200 rows, which is why that column reads far below the truth.
   const wonC: string[] = ["o.stage = 'Won'"];
   const wonV: (string | number | string[])[] = [];
-  if (scopedRepId != null)  { wonC.push(`(o.client_id IN (SELECT c2.id FROM clients c2 WHERE c2.primary_rep_id = $${wonV.length + 1} OR c2.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = $${wonV.length + 1})) OR o.client_id IN (SELECT client_id FROM client_rep_access WHERE rep_id = $${wonV.length + 1}))`); wonV.push(scopedRepId); }
+  if (scopedRepId != null)  { wonC.push(`o.client_id IN (SELECT c2.id FROM clients c2 WHERE c2.primary_rep_id = $${wonV.length + 1} OR c2.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = $${wonV.length + 1}))`); wonV.push(scopedRepId); }
   if (prodTypeFilts.length) { wonC.push(`o.product_type = ANY($${wonV.length + 1}::text[])`);                                wonV.push(prodTypeFilts); }
   if (repFilts.length)      { wonC.push(`o.client_id IN (SELECT c2.id FROM clients c2 JOIN users u2 ON u2.name = ANY($${wonV.length + 1}::text[]) AND (c2.primary_rep_id = u2.id OR c2.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = u2.id)))`); wonV.push(repFilts); }
   if (indFilts.length)      { wonC.push(`o.client_id IN (SELECT id FROM clients WHERE industry = ANY($${wonV.length + 1}::text[]))`); wonV.push(indFilts); }
@@ -334,7 +332,6 @@ export default async function PipelinePage({
           WHEN EXISTS (SELECT 1 FROM client_secondary_reps s WHERE s.client_id = c.id
                         AND (s.rep_id = $${ceRepIdx}
                              OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $${ceRepIdx}))) THEN TRUE
-          WHEN EXISTS (SELECT 1 FROM client_rep_access cra WHERE cra.client_id = c.id AND cra.rep_id = $${ceRepIdx}) THEN TRUE
           ELSE FALSE
         END AS can_edit`;
 

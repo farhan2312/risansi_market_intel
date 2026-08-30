@@ -74,9 +74,19 @@ export function ClientFormDrawer({ mode, client, existingContacts, allowCodeEdit
   // status options recompute when it flips between LEAD_ and a real code.
   const [codeDraft, setCodeDraft]   = useState<string>(client?.code ?? '');
 
-  // Tours (dropdown bound to tour_routes) + current owners (multi-owner picker)
+  // Route (an attribute of the client) and the people who work it.
   const [tours, setTours]   = useState<Array<{ id: string; name: string; zone: string | null }>>([]);
   const [tourId, setTourId] = useState<string>(client?.tour_id != null ? String(client.tour_id) : '');
+
+  // Ownership. A client with no primary rep is visible to admins only, so asking
+  // for one at creation is the difference between a client that works and one
+  // that silently lands in the Unassigned tab for somebody to find later.
+  const [people, setPeople] = useState<Array<{ id: string; name: string; role: string }>>([]);
+  const [primaryRep, setPrimaryRep] = useState<string>(
+    (client as { primary_rep_id?: number | string | null } | undefined)?.primary_rep_id != null
+      ? String((client as { primary_rep_id?: number | string | null }).primary_rep_id) : '');
+  const [coverReps, setCoverReps] = useState<string[]>(
+    ((client as { secondary_rep_ids?: (number | string)[] } | undefined)?.secondary_rep_ids ?? []).map(String));
 
   const [contacts, setContacts] = useState<ContactRow[]>(
     (existingContacts ?? []).map((c: any) => ({
@@ -111,6 +121,15 @@ export function ClientFormDrawer({ mode, client, existingContacts, allowCodeEdit
     fetch('/api/risansi/tours')
       .then(r => r.json())
       .then(d => setTours(Array.isArray(d) ? d : []))
+      .catch(() => {});
+  }, []);
+
+  // Reps and managers for the ownership pickers.
+  useEffect(() => {
+    fetch('/api/risansi/reps')
+      .then(r => r.json())
+      .then((d: Array<{ id: string; name: string; role: string }>) =>
+        setPeople(Array.isArray(d) ? d.filter(u => u.role === 'rep' || u.role === 'manager') : []))
       .catch(() => {});
   }, []);
 
@@ -517,8 +536,51 @@ export function ClientFormDrawer({ mode, client, existingContacts, allowCodeEdit
                   placeholder='e.g. 2019 or 21-22' style={INP} />
               </Field>
             </Row>
-            {/* Responsible reps/managers are set on Reps & Managers, not here;
-                there is no separate owner assignment any more. */}
+            <Row>
+              <Field label="Primary rep — owns the account">
+                <select name="primary_rep_id" style={INP}
+                  value={primaryRep} onChange={e => setPrimaryRep(e.target.value)}>
+                  <option value="">— Nobody yet —</option>
+                  {people.map(u => (
+                    <option key={u.id} value={u.id}>
+                      {u.name}{u.role === 'manager' ? ' · manager' : ''}
+                    </option>
+                  ))}
+                </select>
+                <div style={HINT}>
+                  {primaryRep
+                    ? 'New visits and opportunities are filed against them by default.'
+                    : 'Without one this client is visible to admins only, and waits in Reps & Managers → Unassigned.'}
+                </div>
+              </Field>
+              <Field label="Also covers — optional">
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, padding: 7, border: '1px solid var(--line-strong)', borderRadius: 6, maxHeight: 104, overflowY: 'auto' }}>
+                  {people.filter(u => u.id !== primaryRep).length === 0
+                    ? <span style={{ fontSize: 11.5, color: 'var(--fg-3)' }}>Nobody else to add.</span>
+                    : people.filter(u => u.id !== primaryRep).map(u => {
+                        const on = coverReps.includes(u.id);
+                        return (
+                          <button key={u.id} type="button"
+                            onClick={() => setCoverReps(v => on ? v.filter(x => x !== u.id) : [...v, u.id])}
+                            style={{
+                              padding: '3px 9px', borderRadius: 999, fontSize: 11.5, cursor: 'pointer', fontFamily: 'inherit',
+                              border: `1px solid ${on ? '#0A3D8F' : 'var(--line-strong)'}`,
+                              background: on ? 'var(--accent-soft, rgba(26,92,184,0.10))' : 'var(--bg-paper)',
+                              color: on ? 'var(--title)' : 'var(--fg-2)',
+                            }}>
+                            {on ? '✓ ' : ''}{u.name}
+                          </button>
+                        );
+                      })}
+                </div>
+                <div style={HINT}>Same access as the primary, but never the default owner of new work.</div>
+              </Field>
+            </Row>
+            {/* Sent as JSON because a multi-select posts nothing when empty, and
+                "no covering reps" has to be distinguishable from "field absent"
+                so an edit can clear the list. */}
+            <input type="hidden" name="secondary_rep_ids"
+              value={JSON.stringify(coverReps.filter(id => id !== primaryRep).map(Number))} />
           </Section>
 
           {/* ── 5. Contacts ── */}

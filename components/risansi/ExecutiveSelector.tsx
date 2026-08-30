@@ -7,8 +7,15 @@ export interface SelRep { id: string; name: string }
 
 // TSM picker for the Executive Review page. The review is scoped to the current
 // fiscal year to date and turnover spans full FYs, so there is no month picker.
-export function ExecutiveSelector({ reps, tsm }: {
-  reps: SelRep[]; tsm: string;
+//
+// The Accounts control decides which of a TSM's clients the whole review counts.
+// It defaults to the ones they OWN, because that is the book they are answerable
+// for — folding in accounts they merely cover would credit them with revenue and
+// visits belonging to a colleague's client, and on a rep who covers a lot it
+// moves every number on the page at once. Covering work is real work, so it can
+// be added back; it is a deliberate choice rather than the default.
+export function ExecutiveSelector({ reps, tsm, scope }: {
+  reps: SelRep[]; tsm: string; scope: 'own' | 'all';
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -23,6 +30,23 @@ export function ExecutiveSelector({ reps, tsm }: {
   // A rep may only review themselves, so there is nothing to pick — show the
   // name as static text rather than a one-option dropdown. (The server scopes
   // the roster and validates the tsm param; this is presentation only.)
+  const accounts = (
+    <label>
+      <span style={LBL}>Accounts</span>
+      <select
+        value={scope}
+        onChange={e => update('scope', e.target.value === 'all' ? 'all' : '')}
+        style={{ ...SEL, minWidth: 200 }}
+      >
+        <option value="own">Primary only</option>
+        <option value="all">Primary + secondary</option>
+      </select>
+    </label>
+  );
+
+  // A rep may only review themselves, so there is nothing to pick — show the
+  // name as static text rather than a one-option dropdown. (The server scopes
+  // the roster and validates the tsm param; this is presentation only.)
   if (reps.length <= 1) {
     const only = reps[0];
     return (
@@ -33,6 +57,7 @@ export function ExecutiveSelector({ reps, tsm }: {
             {only?.name ?? '—'}
           </div>
         </div>
+        {accounts}
       </div>
     );
   }
@@ -45,6 +70,7 @@ export function ExecutiveSelector({ reps, tsm }: {
           {reps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
       </label>
+      {accounts}
     </div>
   );
 }

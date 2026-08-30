@@ -41,7 +41,7 @@ const FY_EXPR = (col: string) => `CASE WHEN EXTRACT(MONTH FROM ${col}) >= 4
   ELSE LPAD(((EXTRACT(YEAR FROM ${col})::int - 1) % 100)::text,2,'0')||'-'||LPAD((EXTRACT(YEAR FROM ${col})::int % 100)::text,2,'0') END`;
 
 export default async function ExecutiveReviewPage({ searchParams }: {
-  searchParams: Promise<{ tsm?: string; month?: string; months?: string; view?: string; ctype?: string; name?: string; tview?: string }>;
+  searchParams: Promise<{ tsm?: string; month?: string; months?: string; view?: string; ctype?: string; name?: string; tview?: string; scope?: string }>;
 }) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) redirect('/api/auth/signin');
@@ -273,11 +273,24 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   // (the Client 360 drill-through links below intersect correctly, so the counts
   // would also disagree). No-op for admins (visAnd = '') and for a rep viewing
   // themselves (their tours are already a subset of their own visibility).
-  // The clients this person works. Was "clients on any route they are on",
-  // which on a shared route pulled in every other rep's accounts too.
+  // Which of this TSM's clients the review counts.
+  //
+  // Default is the accounts they OWN. That is the book they are answerable for,
+  // and it is the honest denominator for every ratio on the page — counting an
+  // account they merely cover would credit them with a colleague's revenue and
+  // visits, and for a rep who covers a lot it shifts every figure at once.
+  // "Primary + secondary" adds the covered accounts back, because covering an
+  // account is real work and sometimes the thing being reviewed.
+  //
+  // Either way the result is still intersected with the VIEWER's own visibility
+  // (visAnd): widening which of the subject's accounts to count must never
+  // widen what the person looking is allowed to see.
+  const accountScope: 'own' | 'all' = sp.scope === 'all' ? 'all' : 'own';
+  const tsmId = Number(tsm);
+  const ownsF = `c.primary_rep_id = ${tsmId}`;
+  const coversF = `c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = ${tsmId})`;
   const tourF = tsm
-    ? `((c.primary_rep_id = ${Number(tsm)}
-         OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = ${Number(tsm)}))${visAnd})`
+    ? `((${accountScope === 'all' ? `${ownsF} OR ${coversF}` : ownsF})${visAnd})`
     : 'FALSE';
 
   // Attendance counts visits by rep and never touches `clients`, so tourF can't
@@ -480,7 +493,7 @@ export default async function ExecutiveReviewPage({ searchParams }: {
           note={note}
           selector={<div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
             <ViewSwitch />
-            <ExecutiveSelector reps={reps} tsm={tsm} />
+            <ExecutiveSelector reps={reps} tsm={tsm} scope={accountScope} />
           </div>}
         />
       </div>

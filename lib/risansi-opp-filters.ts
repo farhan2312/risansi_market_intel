@@ -109,8 +109,7 @@ export function buildOppFilter(f: OppFilters, scopedRepId: number | null, startI
     // in-flight rule, which clientScopeSql applies at the page level; this filter
     // answers a different question, which is whose territory the deal sits in.
     conds.push(`(c.primary_rep_id = $${idx}
-           OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = $${idx})
-           OR c.id IN (SELECT client_id FROM client_rep_access WHERE rep_id = $${idx}))`);
+           OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = $${idx}))`);
     vals.push(scopedRepId); idx++;
   }
   if (f.stage.length)    { conds.push(`o.stage = ANY($${idx}::text[])`);           vals.push(f.stage);    idx++; }

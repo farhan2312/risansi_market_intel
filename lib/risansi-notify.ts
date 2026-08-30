@@ -492,29 +492,6 @@ export async function notifyNewLead(clientId: number, creatorEmail: string) {
     });
   } catch (e) { console.error('[notify] new lead failed', e); }
 }
-
-// A rep was granted special access to a client → tell that rep.
-export async function notifySpecialAccess(clientId: number, repId: number, grantorEmail: string) {
-  try {
-    const [cn, rep] = await Promise.all([clientName(clientId), userById(repId)]);
-    if (!rep?.email || rep.email.toLowerCase() === grantorEmail.toLowerCase()) return;
-    const by = (await nameForEmail(grantorEmail)) || grantorEmail;
-    await sendNotification({
-      to: rep.email, section: 'Client Access', accent: BRAND, greetingName: firstName(rep.name),
-      subject: `You've been given access to ${cn ?? 'a client'}`,
-      intro: `${by} granted you direct access to ${cn ?? 'a client'}. You can now log visits and opportunities for them.`,
-      meta: [['Client', cn ?? '—'], ['Granted by', by]],
-      ctaLabel: 'Open the client', ctaPath: '/risansi/clients',
-    });
-    await pushInApp([repId], {
-      kind: 'special_access', section: 'Client Access', actor: grantorEmail,
-      title: `You've been given access to ${cn ?? 'a client'}`, link: `/risansi/clients/${clientId}`,
-      entityType: 'client', entityId: String(clientId),
-    });
-  } catch (e) { console.error('[notify] special access failed', e); }
-}
-
-// A bug was filed → all system admins, naming the reporter.
 export async function notifyBugReported(a: { title: string; severity?: string | null; reporterName?: string | null; reporterEmail?: string | null; pageUrl?: string | null }) {
   try {
     const admins = await sysadmins();

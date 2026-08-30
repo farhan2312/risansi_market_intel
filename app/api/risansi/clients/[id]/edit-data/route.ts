@@ -16,7 +16,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
   const client = (await risansiPool.query(
     `SELECT id, code, legal_name, trade_name, group_name, industry, is_sugar, google_maps_url,
-            tour_id, client_type, market_type, is_tender, is_end_client, capacity_bracket,
+            tour_id, primary_rep_id,
+            -- The form replaces the covering list wholesale, so it has to open
+            -- holding the current one; without this an edit for any other reason
+            -- would silently clear every covering rep on save.
+            COALESCE((SELECT array_agg(s.rep_id) FROM client_secondary_reps s
+                       WHERE s.client_id = clients.id), '{}') AS secondary_rep_ids,
+            client_type, market_type, is_tender, is_end_client, capacity_bracket,
             tcd, klpd, status, tier, since_year, country, state, city, address
        FROM clients WHERE id = $1 AND deleted_at IS NULL`,
     [clientId],

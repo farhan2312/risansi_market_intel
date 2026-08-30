@@ -59,6 +59,7 @@ interface Client {
   // Reps (DB columns + joined)
   primary_rep_id: string | null; primary_rep_name: string | null;
   owner_name: string | null; secondary_rep_names: string | null;
+  secondary_rep_ids: number[] | null;
   rep_name: string | null; manager_name: string | null;
   rep_zone: string | null; rep_route: string | null; rep_email: string | null;
   secondary_rep_joined: string | null; secondary_rep_zone: string | null; secondary_rep_route: string | null;
@@ -187,28 +188,25 @@ export default async function ClientProfilePage({
   const client = await q<Client | null>(async () => {
     const { rows } = await risansiPool.query<Client>(
       `SELECT c.*,
-              -- The ONE rep who owns new work here. A viewer with a direct
-              -- special-access grant owns what they file (the server assigns
-              -- them), so resolve to them; otherwise the client's own owner.
+              -- The ONE rep who owns new work here: the client's own owner.
               -- Distinct from rep_name below, which names everyone working it.
-              CASE
-                WHEN $2::int IS NOT NULL
-                 AND EXISTS (SELECT 1 FROM client_rep_access a WHERE a.client_id = c.id AND a.rep_id = $2::int)
-                THEN (SELECT u.name FROM users u WHERE u.id = $2::int)
-                ELSE (SELECT u.name FROM users u WHERE u.id = ${clientPrimaryRepSql('c.id')})
-              END AS owner_name,
+              (SELECT u.name FROM users u WHERE u.id = ${clientPrimaryRepSql('c.id')}) AS owner_name,
               COALESCE(${clientRepNamesSql('c.id')}, '—') AS rep_name,
               (SELECT u.name FROM users u WHERE u.id = ${clientPrimaryRepSql('c.id')}) AS primary_rep_name,
               ${clientSecondaryNamesSql('c.id')} AS secondary_rep_names,
               ${clientManagerNamesSql('c.id')} AS manager_name,
               ${clientPrimaryRepSql('c.id')} AS primary_rep_id,
+              -- Raw ids for the edit form, which replaces the covering list
+              -- wholesale and therefore has to open holding the current one.
+              COALESCE((SELECT array_agg(s.rep_id) FROM client_secondary_reps s
+                         WHERE s.client_id = c.id), '{}') AS secondary_rep_ids,
               tr.name AS tour_name,
               tr.zone AS tour_zone,
               (SELECT name FROM users WHERE id = c.outstanding_owner_id) AS outstanding_owner_name
        FROM clients c
        LEFT JOIN tour_routes tr ON tr.id = c.tour_id
        WHERE ${whereClause} AND c.deleted_at IS NULL`,
-      [id, session?.user?.repId ?? null],
+      [id],
     );
     return rows[0] ?? null;
   }, null);

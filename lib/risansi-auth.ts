@@ -106,11 +106,15 @@ function intOrNull(v: unknown): number | null {
 /**
  * The clients a person may see, as SQL.
  *
- * I am the primary rep, I am a secondary rep, I manage somebody who is either,
- * or an admin granted me the client directly. Managers reach clients through
- * their team rather than through a route, and one level only — a manager under a
- * manager inherits nothing, because the tours this replaced were never a
- * hierarchy and inventing one would be a guess.
+ * I am the primary rep, I am a secondary rep, or I manage somebody who is
+ * either. Managers reach clients through their team rather than through a route,
+ * and one level only — a manager under a manager inherits nothing, because the
+ * tours this replaced were never a hierarchy and inventing one would be a guess.
+ *
+ * There is no fourth limb. There used to be: client_rep_access held one-off
+ * grants from an admin, which is the same access a secondary rep has but
+ * recorded as an exception nobody could find or edit. Assigning a covering rep
+ * says the same thing in the place people already look.
  *
  * Admins are unrestricted and get null, meaning no predicate at all. A signed-out
  * or unlinked user gets 'FALSE' rather than an empty string, so a missing id can
@@ -126,8 +130,7 @@ function clientRuleSql(uid: number, clientIdCol: string): string {
       SELECT s.client_id FROM client_secondary_reps s
        WHERE s.rep_id = ${uid}
           OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${uid})
-    )
-    OR ${clientIdCol} IN (SELECT client_id FROM client_rep_access WHERE rep_id = ${uid}))`;
+    ))`;
 }
 
 /**
@@ -195,22 +198,8 @@ export async function canViewClient(user: CurrentUser, clientId: number): Promis
         WHERE s.client_id = $1
           AND (s.rep_id = $2
                OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $2))
-     ) OR EXISTS (
-       SELECT 1 FROM client_rep_access WHERE client_id = $1 AND rep_id = $2
      )) AS ok`,
     [clientId, uid],
-  );
-  return rows[0]?.ok ?? false;
-}
-
-/** Does this rep hold a direct special-access grant for this client? Used to
- *  own work (opportunities) they file for a granted client, independent of tour. */
-export async function hasSpecialClientAccess(repId: number, clientId: number): Promise<boolean> {
-  const rid = intOrNull(repId), cid = intOrNull(clientId);
-  if (rid == null || cid == null) return false;
-  const { rows } = await risansiPool.query<{ ok: boolean }>(
-    `SELECT EXISTS (SELECT 1 FROM client_rep_access WHERE client_id = $1 AND rep_id = $2) AS ok`,
-    [cid, rid],
   );
   return rows[0]?.ok ?? false;
 }

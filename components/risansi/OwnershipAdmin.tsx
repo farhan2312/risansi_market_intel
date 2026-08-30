@@ -6,6 +6,7 @@ import {
   setManagerRep, setPrimaryRep, moveClients, previewMove, restoreClient,
   type MovePreview,
 } from '@/app/actions/risansi-ownership';
+import { ClientOwnershipButton } from '@/components/risansi/ClientOwnershipButton';
 
 export interface Person { id: number; name: string; role: string; owned: number; covered: number; team?: number; }
 export interface UnownedClient { id: number; code: string; name: string; status: string; opps: number; visits: number; }
@@ -372,3 +373,129 @@ export function RecoverableClients({ clients }: { clients: ArchivedClient[] }) {
     </div>
   );
 }
+
+// ── One person's book: what they own, and what they cover ─────────
+
+export interface RepClient {
+  id: number; code: string; name: string; status: string;
+  relation: 'primary' | 'covering';
+  opps: number; cover_count: number; owner_name: string | null;
+}
+
+/**
+ * Every client a given rep or manager works, each row saying whether they own it
+ * or cover it.
+ *
+ * One list rather than two tables. The question people actually arrive with is
+ * "what is this person responsible for", and splitting owned from covered makes
+ * the reader merge the halves themselves — while a single joined list with no
+ * label is what made ownership ambiguous in the first place. So: one list, one
+ * column that says which.
+ */
+export function RepClients({ people, selected, clients }: {
+  people: Person[]; selected: Person; clients: RepClient[];
+}) {
+  const router = useRouter();
+  const [q, setQ] = useState('');
+  const [only, setOnly] = useState<'all' | 'primary' | 'covering'>('all');
+
+  const shown = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    return clients.filter(c =>
+      (only === 'all' || c.relation === only)
+      && (!t || c.code.toLowerCase().includes(t) || c.name.toLowerCase().includes(t)));
+  }, [clients, q, only]);
+
+  const owned = clients.filter(c => c.relation === 'primary').length;
+  const covers = clients.length - owned;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 12 }}>
+        <label>
+          <span style={{ display: 'block', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--fg-3)', marginBottom: 4 }}>
+            Rep or manager
+          </span>
+          <select
+            value={selected.id}
+            onChange={e => router.push(`/risansi/admin/reps?tab=clients&rep=${e.target.value}`)}
+            style={{ ...SEL, minWidth: 230 }}
+          >
+            {people.map(p => (
+              <option key={p.id} value={p.id}>
+                {p.name}{p.role === 'manager' ? ' · manager' : ''} — {p.owned} owned{p.covered ? `, ${p.covered} covered` : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <div style={{ display: 'flex', gap: 4 }}>
+          {([['all', `All ${clients.length}`], ['primary', `Owns ${owned}`], ['covering', `Covers ${covers}`]] as const).map(([k, label]) => (
+            <button key={k} type="button" onClick={() => setOnly(k)}
+              style={{ ...BTN, ...(only === k ? { background: '#0A3D8F', color: '#fff', borderColor: '#0A3D8F' } : null) }}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search code or name…"
+          style={{ ...SEL, width: 220, marginLeft: 'auto' }} />
+      </div>
+
+      {clients.length === 0 ? (
+        <div style={{ ...CARD, padding: '30px 20px', textAlign: 'center' }}>
+          <div style={{ fontSize: 14, fontWeight: 600 }}>{selected.name} works no clients.</div>
+          <div style={{ ...NOTE, marginTop: 5 }}>
+            Assign some from the Unassigned tab, or from Owner &amp; cover on Client Master.
+          </div>
+        </div>
+      ) : (
+        <div style={{ ...CARD, overflowX: 'auto' }}>
+          <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 760 }}>
+            <thead>
+              <tr>
+                <th style={TH}>Code</th><th style={TH}>Client</th><th style={TH}>Status</th>
+                <th style={TH}>Relation</th><th style={{ ...TH, textAlign: 'right' }}>Opps</th>
+                <th style={TH}>Owner &amp; cover</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map(c => (
+                <tr key={`${c.relation}-${c.id}`}>
+                  <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                    <a href={`/risansi/clients/${c.id}`} style={{ color: 'var(--accent)', textDecoration: 'none' }}>{c.code}</a>
+                  </td>
+                  <td style={TD}>{c.name}</td>
+                  <td style={{ ...TD, fontSize: 11.5, color: 'var(--fg-3)' }}>{c.status}</td>
+                  <td style={TD}>
+                    {c.relation === 'primary'
+                      ? <span style={{ ...PILL, background: 'var(--pos-soft)', color: 'var(--pos-strong)' }}>Owns</span>
+                      : <span style={{ ...PILL, background: 'var(--bg-sunk)', color: 'var(--fg-2)' }}>
+                          Covers{c.owner_name ? ` · ${c.owner_name} owns` : ''}
+                        </span>}
+                  </td>
+                  <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{c.opps || '—'}</td>
+                  <td style={TD}>
+                    <ClientOwnershipButton
+                      clientId={c.id} clientCode={c.code} clientName={c.name}
+                      reps={people.map(p => ({ id: p.id, name: p.name, role: p.role }))}
+                      ownerName={c.owner_name} coverCount={c.cover_count}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {shown.length !== clients.length && (
+        <p style={{ ...NOTE, marginTop: 10 }}>{shown.length} of {clients.length} shown.</p>
+      )}
+    </div>
+  );
+}
+
+const PILL: CSSProperties = {
+  display: 'inline-block', padding: '2px 8px', borderRadius: 999,
+  fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap',
+};
