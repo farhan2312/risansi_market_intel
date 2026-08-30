@@ -517,7 +517,7 @@ export function ClientFormDrawer({ mode, client, existingContacts, allowCodeEdit
                   placeholder='e.g. 2019 or 21-22' style={INP} />
               </Field>
             </Row>
-            {/* Responsible reps/managers derive from the client's Tour (above);
+            {/* Responsible reps/managers are set on Reps & Managers, not here;
                 there is no separate owner assignment any more. */}
           </Section>
 

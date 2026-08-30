@@ -3,8 +3,13 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 
-// Returns all tour routes (id, name, zone) ordered by name. Used by the
-// client form's tour dropdown and the sysadmin mappers.
+// Returns all routes (id, name, zone) ordered by name, for the client form's
+// route dropdown.
+//
+// It used to carry `reps` and `managers` columns aggregated from the route's
+// roster. Nothing consumed them — the only caller reads id/name/zone — and the
+// roster they came from stopped meaning anything when access moved onto the
+// client, so they went with the table.
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
@@ -13,13 +18,7 @@ export async function GET() {
     }
 
     const { rows } = await risansiPool.query(
-      `SELECT tr.id::text AS id, tr.name, tr.zone,
-              COALESCE((SELECT string_agg(u.name, ', ' ORDER BY u.name)
-                        FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
-                       WHERE ta.tour_id = tr.id AND ta.role = 'rep'), '')     AS reps,
-              COALESCE((SELECT string_agg(u.name, ', ' ORDER BY u.name)
-                        FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
-                       WHERE ta.tour_id = tr.id AND ta.role = 'manager'), '') AS managers
+      `SELECT tr.id::text AS id, tr.name, tr.zone
          FROM tour_routes tr
         ORDER BY tr.name ASC`,
     );

@@ -139,9 +139,10 @@ export async function deleteUser(formData: FormData): Promise<void> {
     }
   }
 
-  // Tour assignments have no cascade on users delete — remove explicitly.
-  await risansiPool.query('DELETE FROM tour_assignments WHERE rep_id = $1', [id]);
-  // client_assignments cascades via the users FK (ON DELETE CASCADE).
+  // Everything that pointed at this user either cascades or nulls out via its
+  // own FK: client_assignments, client_secondary_reps and manager_reps cascade,
+  // clients.primary_rep_id sets null. The one row that needed deleting by hand
+  // was the route assignment, and that table is gone.
   await risansiPool.query('DELETE FROM users WHERE id = $1', [id]);
 
   await audit('user', id, 'delete', userRows[0], null, actor);

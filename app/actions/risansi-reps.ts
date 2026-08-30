@@ -144,8 +144,9 @@ export async function createTour(formData: FormData) {
   revalidatePath('/risansi/admin/reps');
 }
 
-// Delete a tour. Its clients are unassigned (tour_id → NULL) and its
-// rep/manager assignments removed first, in one transaction.
+// Delete a route. Its clients lose the route (tour_id → NULL) in the same
+// transaction; nobody loses access, because a route has not granted any since
+// the ownership migration.
 export async function deleteTour(formData: FormData) {
   await requireSysadmin();
 
@@ -156,7 +157,6 @@ export async function deleteTour(formData: FormData) {
   try {
     await client.query('BEGIN');
     await client.query('UPDATE clients SET tour_id = NULL, updated_at = NOW() WHERE tour_id = $1', [id]);
-    await client.query('DELETE FROM tour_assignments WHERE tour_id = $1', [id]);
     await client.query('DELETE FROM tour_routes WHERE id = $1', [id]);
     await client.query('COMMIT');
   } catch (e) {
