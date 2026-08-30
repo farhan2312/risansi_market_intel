@@ -26,6 +26,8 @@ export interface ExhibitionFull {
   venue: string | null; city: string | null; state: string | null; country: string | null;
   industry: string | null; source: string | null;
   start_date: string | null; end_date: string | null;
+  /** The days Risansi attends — a sub-range of start_date..end_date. */
+  attend_from: string | null; attend_to: string | null;
   status: ExhibitionStatus; participation: string | null; suggested: string | null;
   estimated_cost_inr: number | null; recommendation: string | null;
   approver_id: number | null; approver_name: string | null;
@@ -35,7 +37,11 @@ export interface ExhibitionFull {
   expenses_reviewed_at: string | null; closed_at: string | null; closed_by_name: string | null;
   created_at: string | null;
 }
-export interface TeamMember { id: number; user_id: number; name: string; user_role: string; team_role: string }
+export interface TeamMember {
+  id: number; user_id: number; name: string; user_role: string; team_role: string;
+  /** The days this person attends, 'YYYY-MM-DD'. */
+  days?: string[];
+}
 export interface ApprovalRow { id: number; decision: string; actor_name: string | null; comments: string | null; created_at: string }
 export interface MeetingRow {
   id: number; client_id: number | null; company_name: string;
@@ -157,7 +163,11 @@ export function ExhibitionDetail(props: {
         <StageNudge exhibition={ex} canManage={canManage} onGoReview={() => setTab('review')} />
       )}
       {activeTab === 'overview'  && <Overview exhibition={ex} users={users} canManage={canEdit} />}
-      {activeTab === 'team'      && <TeamTab exhibitionId={ex.id} team={team} users={users} canManage={canEdit} />}
+      {activeTab === 'team'      && <TeamTab
+              exhibitionId={ex.id} team={team} users={users} canManage={canEdit}
+              attendFrom={ex.attend_from ?? ex.start_date}
+              attendTo={ex.attend_to ?? ex.end_date ?? ex.start_date}
+            />}
       {activeTab === 'meetings'  && <MeetingsTab exhibitionId={ex.id} meetings={meetings} canManage={canEdit} />}
       {activeTab === 'expenses'  && <ExpensesTab exhibitionId={ex.id} expenses={expenses} totals={totals} canManage={canEdit} />}
       {activeTab === 'review' && (
@@ -359,6 +369,11 @@ function Overview({ exhibition: ex, users, canManage }: { exhibition: Exhibition
           <Two>
             <F label="Start"><input name="start_date" type="date" defaultValue={ex.start_date ?? ''} style={INPUT} /></F>
             <F label="End"><input name="end_date" type="date" defaultValue={ex.end_date ?? ''} style={INPUT} /></F>
+            {/* The exhibition runs for its own dates; Risansi may be there for
+                only part of that. Team members pick days from THIS window, so
+                narrowing it drops anyone's days that fall outside. */}
+            <F label="Risansi attending from"><input name="attend_from" type="date" defaultValue={ex.attend_from ?? ex.start_date ?? ''} style={INPUT} /></F>
+            <F label="Risansi attending to"><input name="attend_to" type="date" defaultValue={ex.attend_to ?? ex.end_date ?? ''} style={INPUT} /></F>
           </Two>
           <Two>
             <F label="Venue"><input name="venue" defaultValue={ex.venue ?? ''} style={INPUT} /></F>
@@ -403,12 +418,37 @@ function Overview({ exhibition: ex, users, canManage }: { exhibition: Exhibition
 
 // ── Team ─────────────────────────────────────────────────────────
 
-function TeamTab({ exhibitionId, team, users, canManage }: {
+// Every day between two ISO dates, inclusive. Built from the parts so a
+// timezone never shifts a day off either end.
+function daysBetween(from: string | null, to: string | null): string[] {
+  if (!from) return [];
+  const out: string[] = [];
+  const end = to ?? from;
+  for (let d = new Date(from + 'T00:00:00'); d <= new Date(end + 'T00:00:00');
+       d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
+    out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+  }
+  return out;
+}
+
+const dayLabel = (iso: string) => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' });
+};
+
+function TeamTab({ exhibitionId, team, users, canManage, attendFrom, attendTo }: {
   exhibitionId: number; team: TeamMember[]; users: UserOpt[]; canManage: boolean;
+  attendFrom: string | null; attendTo: string | null;
 }) {
   const router = useRouter();
-  const [sel, setSel] = useState<{ userId: number; role: string }[]>(
-    team.map(t => ({ userId: t.user_id, role: t.team_role })),
+  // The days Risansi is at the stand. Each member attends some subset; nobody
+  // can attend a day the company is not there, so this is the whole universe.
+  const windowDays = daysBetween(attendFrom, attendTo);
+  const [sel, setSel] = useState<{ userId: number; role: string; days: string[] }[]>(
+    team.map(t => ({
+      userId: t.user_id, role: t.team_role,
+      days: (t.days ?? windowDays).filter(d => windowDays.includes(d)),
+    })),
   );
   const [busy, setBusy] = useState(false);
   const [err, setErr]   = useState('');
@@ -423,8 +463,18 @@ function TeamTab({ exhibitionId, team, users, canManage }: {
         ? left.map((x, i) => (i === 0 ? { ...x, role: 'Team Lead' } : x))
         : left;
     }
-    return [...s, { userId, role: s.length === 0 ? 'Team Lead' : 'Member' }];
+    // Somebody just added is assumed to be there for the whole run. That is the
+    // common case and the one that errs safely: an over-wide block costs a
+    // conversation, a missing one costs a visit booked on a day they are away.
+    return [...s, { userId, role: s.length === 0 ? 'Team Lead' : 'Member', days: [...windowDays] }];
   });
+
+  const toggleDay = (userId: number, day: string) => setSel(s => s.map(x =>
+    x.userId !== userId ? x
+      : { ...x, days: x.days.includes(day) ? x.days.filter(d => d !== day) : [...x.days, day].sort() }));
+
+  const setAllDays = (userId: number, all: boolean) => setSel(s => s.map(x =>
+    x.userId === userId ? { ...x, days: all ? [...windowDays] : [] } : x));
   const setRole = (userId: number, role: string) => setSel(s =>
     // Exactly one lead: promoting someone demotes the incumbent, which is also
     // what the server enforces, so the UI can never submit an invalid team.
@@ -449,7 +499,16 @@ function TeamTab({ exhibitionId, team, users, canManage }: {
       <div style={PANEL}>
         {team.length === 0 ? <Blank>No team assigned yet.</Blank> : team.map(t => (
           <div key={t.id} style={ROW}>
-            <span>{t.name}</span>
+            <span>
+              {t.name}
+              {t.days && (
+                <span style={{ fontSize: 11, color: 'var(--fg-3)', marginLeft: 8 }}>
+                  {t.days.length === 0 ? 'no days set'
+                    : t.days.length === 1 ? dayLabel(t.days[0])
+                    : `${t.days.length} days · ${dayLabel(t.days[0])} – ${dayLabel(t.days[t.days.length - 1])}`}
+                </span>
+              )}
+            </span>
             <span style={{ fontSize: 11, color: t.team_role === 'Team Lead' ? 'var(--title)' : 'var(--fg-3)' }}>{t.team_role}</span>
           </div>
         ))}
@@ -460,27 +519,73 @@ function TeamTab({ exhibitionId, team, users, canManage }: {
   return (
     <div style={{ ...PANEL, padding: 16 }}>
       <div style={{ fontSize: 12, color: 'var(--fg-3)', marginBottom: 10 }}>
-        Pick who is attending, and nominate one team lead.
+        Pick who is attending, nominate one team lead, and set the days each person is there.
+        {windowDays.length > 0
+          ? ` Risansi is at this exhibition on ${windowDays.length} day${windowDays.length === 1 ? '' : 's'}` +
+            ` (${dayLabel(windowDays[0])}${windowDays.length > 1 ? ` – ${dayLabel(windowDays[windowDays.length - 1])}` : ''}).` +
+            ' Only the days you tick block that person\u2019s calendar.'
+          : ' Set the exhibition dates on the Overview tab before assigning days.'}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 8, marginBottom: 14 }}>
         {users.map(u => {
           const chosen = sel.find(x => x.userId === u.id);
           return (
             <div key={u.id} style={{
-              display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px',
+              display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6, padding: '7px 10px',
               border: `1px solid ${chosen ? 'var(--brand-blue)' : 'var(--line-strong)'}`,
               background: chosen ? 'var(--accent-soft)' : 'var(--bg-paper)',
               borderRadius: 6,
             }}>
-              <input type="checkbox" checked={!!chosen} onChange={() => toggle(u.id)}
-                aria-label={`Add ${u.name} to the team`} />
-              <span style={{ flex: 1, fontSize: 13 }}>{u.name}</span>
-              {chosen && (
-                <select value={chosen.role} onChange={e => setRole(u.id, e.target.value)}
-                  aria-label={`Role for ${u.name}`}
-                  style={{ ...INPUT, width: 'auto', padding: '3px 6px', fontSize: 11 }}>
-                  {TEAM_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                </select>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                <input type="checkbox" checked={!!chosen} onChange={() => toggle(u.id)}
+                  aria-label={`Add ${u.name} to the team`} />
+                <span style={{ flex: 1, fontSize: 13 }}>{u.name}</span>
+                {chosen && (
+                  <select value={chosen.role} onChange={e => setRole(u.id, e.target.value)}
+                    aria-label={`Role for ${u.name}`}
+                    style={{ ...INPUT, width: 'auto', padding: '3px 6px', fontSize: 11 }}>
+                    {TEAM_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                )}
+              </div>
+
+              {chosen && windowDays.length > 0 && (
+                <div style={{ width: '100%', borderTop: '1px solid var(--line)', paddingTop: 7, marginTop: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 5 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--fg-3)' }}>
+                      Attending
+                    </span>
+                    <span style={{ fontSize: 10.5, color: chosen.days.length ? 'var(--fg-3)' : 'var(--neg)' }}>
+                      {chosen.days.length
+                        ? `${chosen.days.length} of ${windowDays.length} day${windowDays.length === 1 ? '' : 's'}`
+                        : 'no days — nothing blocked'}
+                    </span>
+                    <button type="button"
+                      onClick={() => setAllDays(u.id, chosen.days.length !== windowDays.length)}
+                      style={{ marginLeft: 'auto', background: 'none', border: 'none', padding: 0,
+                               fontSize: 10.5, fontFamily: 'inherit', color: 'var(--accent)', cursor: 'pointer' }}>
+                      {chosen.days.length === windowDays.length ? 'Clear all' : 'All days'}
+                    </button>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {windowDays.map(day => {
+                      const on = chosen.days.includes(day);
+                      return (
+                        <button key={day} type="button" onClick={() => toggleDay(u.id, day)}
+                          title={`${on ? 'Remove' : 'Add'} ${dayLabel(day)}`}
+                          style={{
+                            padding: '2px 7px', borderRadius: 999, fontSize: 10.5, cursor: 'pointer',
+                            fontFamily: 'inherit', whiteSpace: 'nowrap',
+                            border: `1px solid ${on ? '#0A3D8F' : 'var(--line-strong)'}`,
+                            background: on ? '#0A3D8F' : 'var(--bg-paper)',
+                            color: on ? '#fff' : 'var(--fg-2)',
+                          }}>
+                          {dayLabel(day)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               )}
             </div>
           );

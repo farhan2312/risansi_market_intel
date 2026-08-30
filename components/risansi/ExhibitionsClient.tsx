@@ -233,6 +233,18 @@ function NewExhibitionModal({ users, defaultApprover, onClose, onCreated }: {
               <Field label="End date"><input name="end_date" type="date" style={INPUT} /></Field>
             </Row>
 
+            {/* The exhibition runs for its own dates; Risansi may be at the
+                stand for only part of that, and team members pick their days
+                from this window. Blank means the whole run. */}
+            <Row>
+              <Field label="Risansi attending from"><input name="attend_from" type="date" style={INPUT} /></Field>
+              <Field label="Risansi attending to"><input name="attend_to" type="date" style={INPUT} /></Field>
+            </Row>
+            <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: -4, marginBottom: 8 }}>
+              Leave blank to attend the whole run. Team members are then assigned
+              individual days out of this window, and only those days block their calendar.
+            </div>
+
             <Row>
               <Field label="Venue"><input name="venue" style={INPUT} /></Field>
               <Field label="City"><input name="city" style={INPUT} /></Field>

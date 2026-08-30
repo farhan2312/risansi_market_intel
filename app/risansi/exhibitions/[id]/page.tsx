@@ -33,6 +33,11 @@ export default async function ExhibitionDetailPage({ params }: { params: Promise
         SELECT e.id, e.name, e.organizer, e.website, e.venue, e.city, e.state, e.country,
                e.industry, e.source,
                e.start_date::text AS start_date, e.end_date::text AS end_date,
+               -- The days Risansi is there, which may be only part of the run.
+               -- Falls back to the run itself for anything created before the
+               -- column existed, so no page has to special-case a null.
+               COALESCE(e.attend_from, e.start_date)::text AS attend_from,
+               COALESCE(e.attend_to, e.end_date, e.start_date)::text AS attend_to,
                e.status, e.participation, e.suggested,
                e.estimated_cost_inr::float8 AS estimated_cost_inr, e.recommendation,
                e.approver_id, ap.name AS approver_name,
@@ -53,7 +58,9 @@ export default async function ExhibitionDetailPage({ params }: { params: Promise
 
     q<TeamMember[]>(async () => {
       const { rows } = await risansiPool.query<TeamMember>(
-        `SELECT t.id, t.user_id, u.name, u.role AS user_role, t.team_role
+        `SELECT t.id, t.user_id, u.name, u.role AS user_role, t.team_role,
+                COALESCE((SELECT array_agg(d.day::text ORDER BY d.day)
+                            FROM exhibition_team_days d WHERE d.team_id = t.id), '{}') AS days
            FROM exhibition_team t JOIN users u ON u.id = t.user_id
           WHERE t.exhibition_id = $1
           ORDER BY (t.team_role <> 'Team Lead'), u.name`, [id]);

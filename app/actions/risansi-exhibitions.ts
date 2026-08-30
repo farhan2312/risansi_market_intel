@@ -133,6 +133,25 @@ function touch(id: number) {
 
 // ── Exhibition ───────────────────────────────────────────────────
 
+/**
+ * The days Risansi will be at the stand, checked against the exhibition's own run.
+ *
+ * Defaults to the whole run when left blank, because that is what every
+ * exhibition meant before the field existed and it is the common case. The
+ * window can only ever narrow the run, never extend past it: attending a day
+ * the exhibition is not open is not a thing.
+ */
+function attendWindow(fd: FormData, start: string | null, end: string | null): [string | null, string | null] {
+  const from = str(fd, 'attend_from') ?? start;
+  const to   = str(fd, 'attend_to')   ?? end ?? start;
+  if (!from || !to) return [from, to];
+  if (to < from) throw new Error('Risansi cannot stop attending before it starts.');
+  if (start && from < start) throw new Error(`Risansi cannot attend before the exhibition opens (${start}).`);
+  const lastDay = end ?? start;
+  if (lastDay && to > lastDay) throw new Error(`Risansi cannot attend after the exhibition closes (${lastDay}).`);
+  return [from, to];
+}
+
 export async function createExhibition(fd: FormData) {
   const user = await requireUser();
   // Proposing an exhibition is an admin act now. Everyone else contributes to
@@ -147,18 +166,20 @@ export async function createExhibition(fd: FormData) {
   const end   = str(fd, 'end_date');
   if (start && end && end < start) throw new Error('End date cannot be before the start date.');
 
+  const [attendFrom, attendTo] = attendWindow(fd, start, end);
+
   const { rows } = await risansiPool.query<{ id: number }>(
     `INSERT INTO exhibitions
        (name, organizer, website, venue, city, state, country, industry, source,
-        start_date, end_date, suggested, estimated_cost_inr, recommendation,
-        approver_id, created_by, created_by_name)
-     VALUES ($1,$2,$3,$4,$5,$6,COALESCE($7,'India'),$8,$9,$10,$11,$12,$13,$14,$15,$16,
-             (SELECT name FROM users WHERE id = $16))
+        start_date, end_date, attend_from, attend_to, suggested, estimated_cost_inr,
+        recommendation, approver_id, created_by, created_by_name)
+     VALUES ($1,$2,$3,$4,$5,$6,COALESCE($7,'India'),$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
+             (SELECT name FROM users WHERE id = $18))
      RETURNING id`,
     [
       name, str(fd, 'organizer'), str(fd, 'website'), str(fd, 'venue'),
       str(fd, 'city'), str(fd, 'state'), str(fd, 'country'), str(fd, 'industry'),
-      str(fd, 'source'), start, end, str(fd, 'suggested'),
+      str(fd, 'source'), start, end, attendFrom, attendTo, str(fd, 'suggested'),
       inr(fd, 'estimated_cost_inr'), str(fd, 'recommendation'),
       fd.get('approver_id') ? Number(fd.get('approver_id')) : null,
       user.id,
@@ -197,6 +218,8 @@ export async function updateExhibition(id: number, fd: FormData) {
     throw new Error('Use Submit or the approval decision to move to that status.');
   }
 
+  const [attendFrom, attendTo] = attendWindow(fd, start, end);
+
   await risansiPool.query(
     `UPDATE exhibitions SET
        name = COALESCE($2, name), organizer = $3, website = $4, venue = $5,
@@ -205,6 +228,7 @@ export async function updateExhibition(id: number, fd: FormData) {
        estimated_cost_inr = $14, recommendation = $15,
        status = COALESCE($16, status),
        approver_id = COALESCE($17, approver_id),
+       attend_from = $18, attend_to = $19,
        updated_at = NOW()
      WHERE id = $1`,
     [
@@ -214,13 +238,41 @@ export async function updateExhibition(id: number, fd: FormData) {
       inr(fd, 'estimated_cost_inr'), str(fd, 'recommendation'),
       status as ExhibitionStatus | null,
       fd.get('approver_id') ? Number(fd.get('approver_id')) : null,
+      attendFrom, attendTo,
     ],
   );
+
+  // Narrowing the window strands any member day now outside it. Those days are
+  // dropped rather than left to block a calendar for a date nobody is attending
+  // — but silently dropping somebody's travel is not on, so say whose.
+  let stranded: { name: string; n: number }[] = [];
+  if (attendFrom && attendTo) {
+    const { rows } = await risansiPool.query<{ name: string; n: number }>(
+      `WITH gone AS (
+         DELETE FROM exhibition_team_days d
+          USING exhibition_team t
+          WHERE d.team_id = t.id AND t.exhibition_id = $1
+            AND (d.day < $2::date OR d.day > $3::date)
+        RETURNING t.user_id)
+       SELECT u.name, count(*)::int AS n FROM gone JOIN users u ON u.id = gone.user_id
+        GROUP BY u.name ORDER BY u.name`,
+      [id, attendFrom, attendTo]);
+    stranded = rows;
+  }
+
   await recordAudit({
     action: 'exhibition_updated', entityType: 'exhibition', entityId: String(id),
-    summary: 'updated exhibition details', actorEmail: user.email,
+    summary: stranded.length
+      ? `updated exhibition details; dropped attendance days outside the new window for ${stranded.map(r => `${r.name} (${r.n})`).join(', ')}`
+      : 'updated exhibition details',
+    actorEmail: user.email,
   }).catch(() => {});
   touch(id);
+  // Returned so the form can say what happened. Dropping somebody’s travel
+  // days silently is the one outcome this must never have.
+  if (stranded.length) {
+    return `Saved. Days outside the new window were removed for ${stranded.map(r => `${r.name} (${r.n} day${r.n === 1 ? '' : 's'})`).join(', ')}.`;
+  }
 }
 
 export async function deleteExhibition(id: number) {
@@ -347,7 +399,12 @@ export async function decideExhibition(id: number, decision: Decision, comments?
 
 // ── Team ─────────────────────────────────────────────────────────
 
-export async function setExhibitionTeam(id: number, members: { userId: number; role: string }[]) {
+export async function setExhibitionTeam(
+  id: number,
+  // `days` is 'YYYY-MM-DD' strings. Omitted means the whole attending window;
+  // an empty array means on the team but attending nothing yet.
+  members: { userId: number; role: string; days?: string[] }[],
+) {
   const user = await requireUser();
   await assertCanManage(id);
 
@@ -359,9 +416,34 @@ export async function setExhibitionTeam(id: number, members: { userId: number; r
     if (st[0]) assertNotClosed(st[0].status);
   }
 
+  // The days Risansi is at the stand. A member can attend any subset of these
+  // and nothing outside them — the window is the constraint, so it is read here
+  // rather than trusted from the form.
+  const { rows: exRows } = await risansiPool.query<{ from: string | null; to: string | null }>(
+    `SELECT COALESCE(attend_from, start_date)::text AS from,
+            COALESCE(attend_to, end_date, start_date)::text AS to
+       FROM exhibitions WHERE id = $1`, [id]);
+  const win = exRows[0];
+  const windowDays = new Set<string>();
+  if (win?.from && win?.to) {
+    for (let d = new Date(win.from + 'T00:00:00'); d <= new Date(win.to + 'T00:00:00');
+         d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
+      windowDays.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+    }
+  }
+
   const clean = members
     .filter(m => Number.isInteger(m.userId) && m.userId > 0)
-    .map(m => ({ userId: m.userId, role: m.role === 'Team Lead' ? 'Team Lead' : 'Member' }));
+    .map(m => ({
+      userId: m.userId,
+      role: m.role === 'Team Lead' ? 'Team Lead' : 'Member',
+      // No days sent at all means "the whole window" — the old behaviour, and
+      // the right default for someone just added. An explicitly empty list is a
+      // different statement (on the team, days not yet decided) and is kept.
+      days: m.days === undefined
+        ? [...windowDays]
+        : m.days.filter(d => windowDays.has(d)),
+    }));
   if (clean.length && !clean.some(m => m.role === 'Team Lead')) {
     throw new Error('Nominate one team lead.');
   }
@@ -374,11 +456,20 @@ export async function setExhibitionTeam(id: number, members: { userId: number; r
     await client.query('BEGIN');
     await client.query('DELETE FROM exhibition_team WHERE exhibition_id = $1', [id]);
     for (const m of clean) {
-      await client.query(
+      const { rows } = await client.query<{ id: number }>(
         `INSERT INTO exhibition_team (exhibition_id, user_id, team_role, added_by)
-         VALUES ($1,$2,$3,$4) ON CONFLICT (exhibition_id, user_id) DO NOTHING`,
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (exhibition_id, user_id) DO UPDATE SET team_role = EXCLUDED.team_role
+         RETURNING id`,
         [id, m.userId, m.role, user.id],
       );
+      const teamId = rows[0]?.id;
+      if (!teamId) continue;
+      for (const day of [...new Set(m.days)].sort()) {
+        await client.query(
+          'INSERT INTO exhibition_team_days (team_id, day) VALUES ($1,$2::date) ON CONFLICT DO NOTHING',
+          [teamId, day]);
+      }
     }
     await client.query('COMMIT');
   } catch (e) { await client.query('ROLLBACK'); throw e; }
@@ -386,7 +477,8 @@ export async function setExhibitionTeam(id: number, members: { userId: number; r
 
   await recordAudit({
     action: 'exhibition_team_set', entityType: 'exhibition', entityId: String(id),
-    summary: `assigned ${clean.length} team member(s)`, actorEmail: user.email,
+    summary: `assigned ${clean.length} team member(s), ${clean.reduce((a, m) => a + m.days.length, 0)} attendance day(s)`,
+    actorEmail: user.email,
   }).catch(() => {});
   touch(id);
 }

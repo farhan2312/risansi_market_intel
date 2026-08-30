@@ -545,8 +545,15 @@ export default async function FieldActivityPage({
       return rows as VisitReportRow[];
     }, []),
 
-    // 8. Exhibition attendance — a team member is away at an exhibition for its
-    //    whole run, so their calendar should say so rather than reading as free.
+    // 8. Exhibition attendance — a team member away at an exhibition should not
+    //    read as free, but only on the days they are actually there.
+    //
+    //    Days come from exhibition_team_days, one row per person per day. The
+    //    block used to span the exhibition's whole run for every member, which
+    //    is right for whoever is there start to finish and wrong for everyone
+    //    flying in for a day: their calendar read busy on days they were
+    //    available, which is the same failure as reading free when they are
+    //    away, only quieter.
     //
     //    Scope is by REP rather than by client, because an exhibition has no
     //    client and so none of the client-based visit scoping applies to it. The
@@ -578,12 +585,11 @@ export default async function FieldActivityPage({
         `SELECT e.id::text            AS id,
                 e.name,
                 e.venue, e.city,
-                e.start_date::text     AS start_date,
-                -- A null end is a one-day event, which is what eventDays() has
-                -- always taken it to mean. Requiring both dates would drop a
-                -- committed exhibition whose end nobody filled in, and neither
-                -- exhibition form marks that field required.
-                COALESCE(e.end_date, e.start_date)::text AS end_date,
+                -- The block spans THIS PERSON's first and last day, not the
+                -- exhibition's. Two people on the same exhibition can now carry
+                -- different blocks, which is the point.
+                min(d.day)::text       AS start_date,
+                max(d.day)::text       AS end_date,
                 e.status,
                 -- The WHOLE team, not the part this viewer can see. The block
                 -- says how many people are away; counting only the visible ones
@@ -592,15 +598,15 @@ export default async function FieldActivityPage({
                 u.id::text             AS rep_id,
                 u.name                 AS rep_name
            FROM exhibitions e
-           JOIN exhibition_team t ON t.exhibition_id = e.id
-           JOIN users u           ON u.id = t.user_id
+           JOIN exhibition_team t      ON t.exhibition_id = e.id
+           JOIN exhibition_team_days d ON d.team_id = t.id
+           JOIN users u                ON u.id = t.user_id
           WHERE e.status = ANY($1)
-            AND e.start_date IS NOT NULL
-            -- overlaps the visible window, which is [from, to)
-            AND e.start_date < $3::date
-            AND COALESCE(e.end_date, e.start_date) >= $2::date
+            -- The person's own days overlap the visible window, which is [from, to).
+            AND d.day >= $2::date AND d.day < $3::date
             AND u.id = ANY($4)
-          ORDER BY e.start_date, e.name, u.name`,
+          GROUP BY e.id, e.name, e.venue, e.city, e.status, u.id, u.name
+          ORDER BY min(d.day), e.name, u.name`,
         [[...CALENDAR_BLOCKING_STATUSES], from, to, scopeIds],
       );
       return rows;
