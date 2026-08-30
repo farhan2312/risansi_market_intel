@@ -6,6 +6,7 @@ import { getCurrentUser, canViewClient } from '@/lib/risansi-auth';
 import { formatRev, fmtCr, formatLastVisit } from '@/lib/risansi-utils';
 import { clientStatusLabel } from '@/lib/risansi-client-status';
 import { AutoPrint } from '@/components/risansi/AutoPrint';
+import { clientRepNamesSql } from '@/lib/risansi-client-rep';
 import {
   PRINT_CSS, ROOT, C, Section, Facts, TextBlock, TH, TD, DocHeader,
 } from '@/components/risansi/print-shared';
@@ -52,9 +53,7 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
   const client = await q<Record<string, unknown> | null>(async () => {
     const { rows } = await risansiPool.query<Record<string, unknown>>(
       `SELECT c.*,
-              COALESCE((SELECT string_agg(u.name, ', ' ORDER BY u.name)
-                FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
-                WHERE ta.tour_id = c.tour_id), '—') AS rep_name,
+              COALESCE(${clientRepNamesSql('c.id')}, '—') AS rep_name,
               tr.name AS tour_name, tr.zone AS tour_zone
        FROM clients c
        LEFT JOIN tour_routes tr ON tr.id = c.tour_id

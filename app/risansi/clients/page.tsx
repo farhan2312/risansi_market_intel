@@ -264,8 +264,11 @@ export default async function ClientListPage({
         const { rows } = await risansiPool.query<RepOption>(
           `SELECT u.name AS rep_name, COUNT(DISTINCT c.id)::int AS client_count
            FROM users u
-           JOIN tour_assignments ta ON ta.rep_id = u.id
-           JOIN clients c ON c.tour_id = ta.tour_id
+           -- The reps who work these clients, rather than everyone sharing a
+           -- route with them. A two-rep route used to credit both with the whole
+           -- route's client count.
+           JOIN clients c ON (c.primary_rep_id = u.id
+                              OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = u.id))
            WHERE u.is_active = TRUE
              AND c.deleted_at IS NULL
              ${ownerVisClause}

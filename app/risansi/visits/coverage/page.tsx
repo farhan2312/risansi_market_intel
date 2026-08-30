@@ -5,6 +5,7 @@ import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, clientVisibilitySql } from '@/lib/risansi-auth';
 import { parseVisitFilters, getVisitFilterOptions } from '@/lib/risansi-visit-filters';
 import { VisitFilterControls } from '@/components/risansi/VisitFilterControls';
+import { clientRepIdsSql, clientRepNamesSql } from '@/lib/risansi-client-rep';
 
 // ── Safe query wrapper ─────────────────────────────────────────
 
@@ -54,11 +55,7 @@ export default async function CoverageMapPage({
            c.state, c.city,
            c.status, c.tier, c.last_visit_date::text,
            (CURRENT_DATE - c.last_visit_date::date)::text AS days_since,
-           COALESCE(
-             (SELECT string_agg(u.name, ', ' ORDER BY u.name)
-                FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
-               WHERE ta.tour_id = c.tour_id),
-             '—') AS rep_name
+           COALESCE(${clientRepNamesSql('c.id')}, '—') AS rep_name
          FROM clients c
          WHERE c.deleted_at IS NULL AND c.status = 'ACTIVE'${cVisAnd}${filters.clientAnd}
          ORDER BY c.last_visit_date ASC NULLS FIRST`,

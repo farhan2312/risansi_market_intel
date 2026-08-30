@@ -41,7 +41,12 @@ export default async function AdminPage() {
         COUNT(DISTINCT c.id)::int                   AS clients_count
       FROM users u
       LEFT JOIN tour_assignments ta ON ta.rep_id = u.id
-      LEFT JOIN clients c ON c.tour_id = ta.tour_id AND c.deleted_at IS NULL
+      -- Clients this person actually works, rather than everything on a route
+      -- they happen to share. The tours_count above still reads tour_assignments
+      -- because it is reporting on the old structure while it still exists.
+      LEFT JOIN clients c ON c.deleted_at IS NULL
+                         AND (c.primary_rep_id = u.id
+                              OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = u.id))
       GROUP BY u.id
       ORDER BY
         CASE u.status WHEN 'Pending' THEN 0 ELSE 1 END,

@@ -8,6 +8,7 @@ import { getCurrentUser, clientVisibilitySql } from '@/lib/risansi-auth';
 import { formatRev } from '@/lib/risansi-utils';
 import { RevenueTopClients, type RevenueClientRow } from '@/components/risansi/RevenueTopClients';
 import { UrlSelect } from '@/components/risansi/UrlSelect';
+import { clientPrimaryRepSql, clientRepNamesSql } from '@/lib/risansi-client-rep';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
@@ -199,8 +200,10 @@ export default async function RevenuePage({
                 COALESCE(SUM(crm.total_value),0)::text AS total
          FROM client_revenue_monthly crm
          JOIN clients c ON c.id = crm.client_id
-         LEFT JOIN tour_assignments ta ON ta.tour_id = c.tour_id AND ta.role = 'rep'
-         LEFT JOIN users u ON u.id = ta.rep_id
+         -- Revenue is credited to the client's own rep. Under tours this joined
+         -- every rep on the route, so a two-rep route double-counted the client's
+         -- revenue into both of their totals.
+         LEFT JOIN users u ON u.id = ${clientPrimaryRepSql('c.id')}
          WHERE c.deleted_at IS NULL AND crm.month >= $1 AND crm.month < $2${repCond}
          GROUP BY COALESCE(u.name, 'Unassigned'), u.zone, u.target_cr
          HAVING SUM(crm.total_value) > 0 ORDER BY SUM(crm.total_value) DESC LIMIT 30`,
@@ -214,11 +217,7 @@ export default async function RevenuePage({
     q<RevenueClientRow[]>(async () => {
       const [sql, params] = withRep(
         `SELECT c.id::text AS id, c.code, c.legal_name, c.industry, c.state, c.tier,
-                COALESCE(
-                  (SELECT string_agg(u.name, ', ' ORDER BY u.name)
-                     FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
-                WHERE ta.tour_id = c.tour_id),
-                  '—') AS rep_name,
+                COALESCE(${clientRepNamesSql('c.id')}, '—') AS rep_name,
                 COALESCE(SUM(crm.pump_value)  FILTER (WHERE crm.month >= $1 AND crm.month < $2),0)::text AS pump,
                 COALESCE(SUM(crm.spare_value) FILTER (WHERE crm.month >= $1 AND crm.month < $2),0)::text AS spare,
                 COALESCE(SUM(crm.total_value) FILTER (WHERE crm.month >= $1 AND crm.month < $2),0)::text AS total,

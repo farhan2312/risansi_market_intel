@@ -9,6 +9,7 @@ import risansiPool from '@/lib/db-risansi';
 import { formatLastVisitShort } from '@/lib/risansi-utils';
 import { getCurrentUser, clientVisibilitySql } from '@/lib/risansi-auth';
 import { FilterBar } from '../../clients/FilterBar';
+import { clientRepIdsSql, clientRepNamesSql } from '@/lib/risansi-client-rep';
 
 const PAGE_SIZE = 50;
 
@@ -24,10 +25,8 @@ const SORT_MAP: Record<string, string> = {
   rep:        'rep_name',
 };
 
-// Owners aggregated from the flat client_assignments many-to-many.
-const OWNERS_SUBQUERY = `(SELECT string_agg(u.name, ', ' ORDER BY u.name)
-     FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
-                WHERE ta.tour_id = c.tour_id)`;
+// The reps who work the client: primary first, then anyone covering it.
+const OWNERS_SUBQUERY = clientRepNamesSql('c.id');
 
 export default async function ClientMasterPage({
   searchParams,
@@ -84,8 +83,8 @@ export default async function ClientMasterPage({
   if (repFilts.length > 0) {
     const rIdx = params.push(repFilts);
     whereConditions.push(
-      `EXISTS (SELECT 1 FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
-                WHERE ta.tour_id = c.tour_id AND u.name = ANY($${rIdx}::text[]))`
+      `EXISTS (SELECT 1 FROM (${clientRepIdsSql('c.id')}) r
+                JOIN users u ON u.id = r.user_id WHERE u.name = ANY($${rIdx}::text[]))`
     );
   }
   if (sugarFilt === 'true')  whereConditions.push('c.is_sugar = TRUE');
@@ -206,8 +205,11 @@ export default async function ClientMasterPage({
         const { rows } = await risansiPool.query<RepOption>(
           `SELECT u.name AS rep_name, COUNT(DISTINCT c.id)::int AS client_count
            FROM users u
-           JOIN tour_assignments ta ON ta.rep_id = u.id
-           JOIN clients c ON c.tour_id = ta.tour_id
+           -- The reps who work these clients, rather than everyone sharing a
+           -- route with them. A two-rep route used to credit both with the whole
+           -- route's client count.
+           JOIN clients c ON (c.primary_rep_id = u.id
+                              OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = u.id))
            WHERE u.is_active = TRUE
              AND c.deleted_at IS NULL
              ${ownerVisClause}

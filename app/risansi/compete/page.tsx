@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, Donut, Tag, KpiCard, MultiSelectFilter, ActiveFilterBar, SortableTH } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
+import { clientRepNamesSql } from '@/lib/risansi-client-rep';
 import { getCurrentUser, clientVisibilitySql, clientScopeSql , OWN_OPEN } from '@/lib/risansi-auth';
 import { fmtCr } from '@/lib/risansi-utils';
 
@@ -208,9 +209,7 @@ export default async function CompetePage({
                 COALESCE(cib.ril_mmp,0)::text   AS ril_mmp,
                 COALESCE(cib.total_mmp,0)::text AS total_mmp,
                 (COALESCE(cib.total_mmp,0) - COALESCE(cib.ril_mmp, 0))::text AS competitor_mmp,
-                (SELECT string_agg(u.name, ', ' ORDER BY u.name)
-                   FROM tour_assignments ta JOIN users u ON u.id = ta.rep_id
-                WHERE ta.tour_id = c.tour_id) AS rep_name
+                ${clientRepNamesSql('c.id')} AS rep_name
          FROM competitor_installed_base cib
          JOIN clients c ON c.code = cib.client_code
          ${dispWhere}${cVisAnd}

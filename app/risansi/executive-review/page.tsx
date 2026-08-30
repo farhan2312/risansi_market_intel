@@ -211,9 +211,8 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   const reps = await q<SelRep[]>(async () => {
     if (allowedRepIds === null) {
       return (await risansiPool.query<SelRep>(
-        `SELECT DISTINCT u.id::text AS id, u.name FROM users u
-           JOIN tour_assignments ta ON ta.rep_id = u.id
-          WHERE u.role IN ('rep','manager') ORDER BY u.name`)).rows;
+        `SELECT u.id::text AS id, u.name FROM users u
+          WHERE u.role IN ('rep','manager') AND u.is_active ORDER BY u.name`)).rows;
     }
     if (allowedRepIds.length === 0) return [];
     return (await risansiPool.query<SelRep>(
@@ -274,8 +273,11 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   // (the Client 360 drill-through links below intersect correctly, so the counts
   // would also disagree). No-op for admins (visAnd = '') and for a rep viewing
   // themselves (their tours are already a subset of their own visibility).
+  // The clients this person works. Was "clients on any route they are on",
+  // which on a shared route pulled in every other rep's accounts too.
   const tourF = tsm
-    ? `(c.tour_id IN (SELECT tour_id FROM tour_assignments WHERE rep_id = ${Number(tsm)})${visAnd})`
+    ? `((c.primary_rep_id = ${Number(tsm)}
+         OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = ${Number(tsm)}))${visAnd})`
     : 'FALSE';
 
   // Attendance counts visits by rep and never touches `clients`, so tourF can't
