@@ -265,7 +265,7 @@ export async function notifyVisitPlanned(a: {
   const when = prettyDate(a.visitDate);
 
   const intro = a.audience === 'manager'
-    ? `${escapeHtml(a.repName || 'A rep on your tour')} has planned a visit.`
+    ? `${escapeHtml(a.repName || 'A rep on your team')} has planned a visit.`
     : `A visit has been planned for you${a.plannedBy ? ` by ${escapeHtml(a.plannedBy)}` : ''}.`;
 
   const metaRow = (label: string, value: string) => `

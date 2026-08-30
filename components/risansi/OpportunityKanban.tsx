@@ -128,7 +128,7 @@ export function OpportunityKanban({ initialOpps, stageTotals, usdRate = 86, filt
     // so a card the user couldn't move simply did nothing when dropped — which
     // is indistinguishable from a broken board. Say why.
     if (current.can_edit === false) {
-      setNotice('You can only move opportunities for clients on your tour. Ask an admin for access to this one.');
+      setNotice('You can only move opportunities for clients you own or cover. Ask an admin to add you to this one.');
       setTimeout(() => setNotice(''), 5000);
       return;
     }

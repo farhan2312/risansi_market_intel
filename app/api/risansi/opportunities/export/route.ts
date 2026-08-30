@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { join } from 'path';
 import ExcelJS from 'exceljs';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, clientScopeSql } from '@/lib/risansi-auth';
+import { getCurrentUser, clientScopeSql , OWN_OPEN } from '@/lib/risansi-auth';
 import { DROP_REASONS, PRODUCT_TYPES as OPP_PRODUCT_TYPES } from '@/lib/risansi-opportunity-fields';
 import { APP_URL } from '@/lib/risansi-app-url';
 import { quotationExportLink, quotationRecordLabel } from '@/lib/risansi-quotation-link';
@@ -125,7 +125,7 @@ export async function GET(req: Request) {
   const conds: string[] = [];
   const vals: (string | number | string[])[] = [];
   let idx = 1;
-  const scope = clientScopeSql(user, 'o.client_id');   // per-user visibility (inlined; no param)
+  const scope = clientScopeSql(user, 'o.client_id', OWN_OPEN.opportunity('o'));   // per-user visibility (inlined; no param)
   if (scope) conds.push(scope);
   if (stageFilts.length)    { conds.push(`o.stage = ANY($${idx}::text[])`);            vals.push(stageFilts);    idx++; }
   if (prodTypeFilts.length) { conds.push(`o.product_type = ANY($${idx}::text[])`);     vals.push(prodTypeFilts); idx++; }

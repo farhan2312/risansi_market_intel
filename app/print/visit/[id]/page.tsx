@@ -2,7 +2,7 @@ import { notFound, redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, clientScopeSql, canViewClient } from '@/lib/risansi-auth';
+import { getCurrentUser, clientScopeSql, canViewClient , OWN_OPEN } from '@/lib/risansi-auth';
 import { AutoPrint } from '@/components/risansi/AutoPrint';
 import {
   PRINT_CSS, ROOT, C, Section, Facts, TextBlock, TH, TD, DocHeader, RowFacts,
@@ -46,7 +46,7 @@ export default async function VisitPrintPage({ params }: { params: Promise<{ id:
   // Visibility guard — viewer must be able to SEE this visit, or (fallback) the
   // client it belongs to, so the Client-360 timeline PDF links always open.
   const viewer  = await getCurrentUser();
-  const ownPred = clientScopeSql(viewer, 'v.client_id');
+  const ownPred = clientScopeSql(viewer, 'v.client_id', OWN_OPEN.visit('v'));
   if (ownPred) {
     const { rows } = await risansiPool.query<{ ok: boolean }>(
       `SELECT (${ownPred}) AS ok FROM visits v WHERE v.id = $1`, [id],

@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, MultiSelectFilter, ActiveFilterBar } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, clientScopeSql } from '@/lib/risansi-auth';
+import { getCurrentUser, clientScopeSql , OWN_OPEN } from '@/lib/risansi-auth';
 import { getCurrentFY, fmtCr, fmtUsdFromCr } from '@/lib/risansi-utils';
 import { getUsdRate } from '@/lib/risansi-settings';
 import { PROBABILITY_CODE_OPTIONS } from '@/lib/risansi-probability-codes';
@@ -214,7 +214,7 @@ export default async function PipelinePage({
   // Per-user owner visibility — null for admin/sysadmin (no restriction).
   // Appended as raw text (integers inlined, no params) so $-indices are unchanged.
   const visUser     = await getCurrentUser();
-  const ownerVis    = clientScopeSql(visUser, 'o.client_id');
+  const ownerVis    = clientScopeSql(visUser, 'o.client_id', OWN_OPEN.opportunity('o'));
   const ownerVisAnd = ownerVis ? ` AND (${ownerVis})` : '';
   const ownerVisPo  = clientScopeSql(visUser, 'po.client_id');
   const ownerVisPoAnd = ownerVisPo ? ` AND (${ownerVisPo})` : '';

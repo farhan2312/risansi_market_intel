@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 import { getGreeting, fmtCr, formatRev, getCurrentFY } from '@/lib/risansi-utils';
-import { getCurrentUser, clientVisibilitySql, clientScopeSql } from '@/lib/risansi-auth';
+import { getCurrentUser, clientVisibilitySql, clientScopeSql , OWN_OPEN } from '@/lib/risansi-auth';
 import { EmptyState } from '@/components/risansi/EmptyState';
 import Link from 'next/link';
 
@@ -42,9 +42,9 @@ export default async function MobileDayPage() {
   const currentUser = await getCurrentUser();
   const cVis  = clientVisibilitySql(currentUser, 'c');
   const cAnd  = cVis ? ` AND (${cVis})` : '';
-  const vVis  = clientScopeSql(currentUser, 'v.client_id');
+  const vVis  = clientScopeSql(currentUser, 'v.client_id', OWN_OPEN.visit('v'));
   const vAnd  = vVis ? ` AND (${vVis})` : '';
-  const oVis  = clientScopeSql(currentUser, 'o.client_id');
+  const oVis  = clientScopeSql(currentUser, 'o.client_id', OWN_OPEN.opportunity('o'));
   const oAnd  = oVis ? ` AND (${oVis})` : '';
 
   // Fiscal year windows (dynamic, April→March).

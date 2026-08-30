@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, clientScopeSql } from '@/lib/risansi-auth';
+import { getCurrentUser, clientScopeSql , OWN_OPEN } from '@/lib/risansi-auth';
 import { AutoPrint } from '@/components/risansi/AutoPrint';
 import { C, TH, TD, DocHeader } from '@/components/risansi/print-shared';
 
@@ -55,7 +55,7 @@ export default async function PlannedVisitsPrint({ searchParams }: {
   const conds = ['v.visit_date >= $1', 'v.visit_date <= $2'];
   const params: unknown[] = [from, to];
   if (repId) { params.push(repId); conds.push(`v.rep_id = $${params.length}`); }
-  const scope = clientScopeSql(viewer, 'v.client_id');   // null for admin/sysadmin
+  const scope = clientScopeSql(viewer, 'v.client_id', OWN_OPEN.visit('v'));   // null for admin/sysadmin
   if (scope) conds.push(scope);
 
   let rows: VRow[] = [];

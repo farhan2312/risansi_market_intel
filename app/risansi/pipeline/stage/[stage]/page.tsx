@@ -4,7 +4,7 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, clientScopeSql } from '@/lib/risansi-auth';
+import { getCurrentUser, clientScopeSql , OWN_OPEN } from '@/lib/risansi-auth';
 import { fmtCr, fmtUsdFromCr } from '@/lib/risansi-utils';
 import { getUsdRate } from '@/lib/risansi-settings';
 import { fmtUsdFromInr } from '@/lib/risansi-offer-revisions';
@@ -74,7 +74,7 @@ export default async function StageDashboardPage({ params, searchParams }: {
   const built = buildOppFilter(filters, scopedRepId);
 
   const visUser = await getCurrentUser();
-  const ownerVis = clientScopeSql(visUser, 'o.client_id');
+  const ownerVis = clientScopeSql(visUser, 'o.client_id', OWN_OPEN.opportunity('o'));
   const where = [`o.stage = $${built.nextIdx}`, ...built.conds, ...(ownerVis ? [ownerVis] : [])].join(' AND ');
   const vals: (string | number | string[])[] = [...built.vals, stage];
 

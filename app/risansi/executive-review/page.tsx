@@ -2,7 +2,7 @@ import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
 import { Topbar } from '@/components/risansi';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { getCurrentUser, getReviewableRepIds, clientVisibilitySql, clientScopeSql } from '@/lib/risansi-auth';
+import { getCurrentUser, getReviewableRepIds, clientVisibilitySql, clientScopeSql , OWN_OPEN } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 import { ExecutiveViews, type ExecData, type Row } from '@/components/risansi/ExecutiveViews';
 import { ExecutiveSelector, type SelRep } from '@/components/risansi/ExecutiveSelector';
@@ -284,7 +284,7 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   // scoping it would silently drop past visits to clients that have since moved
   // off your tour.
   const isSelfReview  = me.id != null && String(me.id) === String(tsm);
-  const visitScope    = isSelfReview ? null : clientScopeSql(me, 'v.client_id');
+  const visitScope    = isSelfReview ? null : clientScopeSql(me, 'v.client_id', OWN_OPEN.visit('v'));
   const visitScopeAnd = visitScope ? ` AND (${visitScope})` : '';
 
   const [clients, turnover, quotation, offers, attendance, kpiRow] = await Promise.all([

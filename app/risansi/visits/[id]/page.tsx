@@ -2,7 +2,7 @@ import { notFound, redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, clientScopeSql, canViewClient, canEditVisitReport } from '@/lib/risansi-auth';
+import { getCurrentUser, clientScopeSql, canViewClient, canEditVisitReport , OWN_OPEN } from '@/lib/risansi-auth';
 import { Topbar } from '@/components/risansi';
 import Link from 'next/link';
 import { VisitReportForm } from '@/components/risansi/VisitReportForm';
@@ -77,7 +77,7 @@ export default async function VisitReportPage({
   // Fallback: anyone who can SEE the client (Client 360) may read its visit
   // reports too, so the Client-360 visit timeline links always open (read-only).
   const viewer  = await getCurrentUser();
-  const ownPred = clientScopeSql(viewer, 'v.client_id');
+  const ownPred = clientScopeSql(viewer, 'v.client_id', OWN_OPEN.visit('v'));
   if (ownPred) {
     const { rows: visRows } = await risansiPool.query<{ ok: boolean }>(
       `SELECT (${ownPred}) AS ok FROM visits v WHERE v.id = $1`,

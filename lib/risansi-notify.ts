@@ -189,7 +189,7 @@ export async function runWeeklyManagerDigest(): Promise<number> {
       await sendNotification({
         to: m.email, section: 'Weekly Digest', accent: BRAND, greetingName: firstName(m.name),
         subject: `Your weekly summary — ${s.overdue_actions} overdue, ${s.open_complaints} open complaints`,
-        intro: `Here's where your tours stand this week.`,
+        intro: `Here's where your team stands this week.`,
         title: 'This week at a glance',
         meta: [
           ['Open actions', String(s.open_actions)],
@@ -456,7 +456,7 @@ export async function notifyNewLead(clientId: number, creatorEmail: string) {
       await sendNotification({
         to: m.email, section: 'Clients', accent: BRAND, greetingName: firstName(m.name),
         subject: `New lead added — ${cn ?? 'client'}`,
-        intro: `${by} added a new lead on your tour.`,
+        intro: `${by} added a new lead on one of your clients.`,
         meta: [['Client', cn ?? '—'], ['Added by', by]],
         ctaLabel: 'Open Clients', ctaPath: '/risansi/clients',
       });

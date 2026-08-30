@@ -5,7 +5,7 @@ import { getServerSession } from 'next-auth/next';
 import { Topbar, Tag } from '@/components/risansi';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, clientVisibilitySql, clientScopeSql } from '@/lib/risansi-auth';
+import { getCurrentUser, clientVisibilitySql, clientScopeSql , OWN_OPEN } from '@/lib/risansi-auth';
 import { parseVisitFilters, getVisitFilterOptions, getScopedRepNames, getExhibitionScopeUserIds } from '@/lib/risansi-visit-filters';
 import { FieldFilterBar } from '@/components/risansi/FieldFilterBar';
 import { PlannedVisitsExport } from '@/components/risansi/PlannedVisitsExport';
@@ -257,7 +257,7 @@ export default async function FieldActivityPage({
   const currentUser   = await getCurrentUser();
   const cVis          = clientVisibilitySql(currentUser, 'c');
   const cVisAnd       = cVis ? ` AND (${cVis})` : '';
-  const vVis          = clientScopeSql(currentUser, 'v.client_id');
+  const vVis          = clientScopeSql(currentUser, 'v.client_id', OWN_OPEN.visit('v'));
   const vVisAnd       = vVis ? ` AND (${vVis})` : '';
 
   // Zone / tour / rep filters (clients aliased c, visits aliased v).

@@ -8,7 +8,7 @@ import { ExportPdfButton } from '@/components/risansi/ExportPdfButton';
 import { RefreshButton } from '@/components/risansi/RefreshButton';
 import Link from 'next/link';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, clientVisibilitySql, clientScopeSql, hasRole } from '@/lib/risansi-auth';
+import { getCurrentUser, clientVisibilitySql, clientScopeSql, hasRole , OWN_OPEN } from '@/lib/risansi-auth';
 import { clientStatusLabel } from '@/lib/risansi-client-status';
 import {
   getCurrentFY, fyShortLabel,
@@ -99,9 +99,9 @@ export default async function ExecDashboardPage() {
   const currentUser = await getCurrentUser();
   const cVis = clientVisibilitySql(currentUser, 'c');               // clients aliased c
   const cVisAnd = cVis ? ` AND (${cVis})` : '';
-  const oppOwnerVis = clientScopeSql(currentUser, 'o.client_id');  // opportunities aliased o
+  const oppOwnerVis = clientScopeSql(currentUser, 'o.client_id', OWN_OPEN.opportunity('o'));  // opportunities aliased o
   const oppOwnerAnd = oppOwnerVis ? ` AND (${oppOwnerVis})` : '';
-  const visitOwnerVis = clientScopeSql(currentUser, 'v.client_id'); // visits aliased v
+  const visitOwnerVis = clientScopeSql(currentUser, 'v.client_id', OWN_OPEN.visit('v')); // visits aliased v
   const visitOwnerAnd = visitOwnerVis ? ` AND (${visitOwnerVis})` : '';
 
   // Only admin / sysadmin see the full company dashboard (incl. the target).
@@ -256,13 +256,13 @@ export default async function ExecDashboardPage() {
           {/* Account-not-linked warning */}
           {!repId && <RepNotLinkedWarning />}
 
-          {/* 5 KPI cards — all tour-scoped (your tours only) */}
+          {/* 5 KPI cards — scoped to the clients you own or cover */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
-            <RepKpi label={`Revenue (${fy.label})`} value={fmtCr(myRevenue)}       sub="Booked · your tours" />
+            <RepKpi label={`Revenue (${fy.label})`} value={fmtCr(myRevenue)}       sub="Booked · your clients" />
             <RepKpi label="Visits This Week"   value={String(myVisitsCount)}  sub="Last 7 days" />
             <RepKpi label="Overdue Clients"    value={String(myOverdueCount)} sub="No visit 90+ days" neg={myOverdueCount > 0} />
             <RepKpi label="Pipeline"           value={fmtCr(myPipelineValue)} sub="Open opportunities" />
-            <RepKpi label="Active Clients"     value={String(myClientsCount)} sub="On your tours" />
+            <RepKpi label="Active Clients"     value={String(myClientsCount)} sub="You own or cover" />
           </div>
 
           {/* Two panels */}

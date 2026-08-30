@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { join } from 'path';
 import ExcelJS from 'exceljs';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, clientScopeSql } from '@/lib/risansi-auth';
+import { getCurrentUser, clientScopeSql , OWN_OPEN } from '@/lib/risansi-auth';
 
 export const runtime = 'nodejs';
 
@@ -89,7 +89,7 @@ export async function GET(req: Request) {
 
   // Tour-based visibility, exactly as the page applies it — an export must never
   // show a row the page would have withheld.
-  const scope = clientScopeSql(user, 'v.client_id');
+  const scope = clientScopeSql(user, 'v.client_id', OWN_OPEN.visit('v'));
   if (scope) where.push(scope);
 
   const { rows } = await risansiPool.query<VisitRow>(
@@ -450,7 +450,7 @@ export async function GET(req: Request) {
     ['Purpose', purpose || 'All purposes'],
     ['Status', status || 'All statuses'],
     ['Client search', search || '(none)'],
-    ['Visibility', clientScopeSql(user, 'v.client_id') ? 'Limited to your tours and special-access clients' : 'All clients (admin)'],
+    ['Visibility', clientScopeSql(user, 'v.client_id') ? 'Limited to your clients and any still-open visits you own' : 'All clients (admin)'],
     ['Visits matched', String(rows.length)],
     ['Sugar reports', String(sugar.length)],
     ['Non-sugar reports', String(nonSugar.length)],

@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, Donut, Tag, KpiCard, MultiSelectFilter, ActiveFilterBar, SortableTH } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, clientVisibilitySql, clientScopeSql } from '@/lib/risansi-auth';
+import { getCurrentUser, clientVisibilitySql, clientScopeSql , OWN_OPEN } from '@/lib/risansi-auth';
 import { fmtCr } from '@/lib/risansi-utils';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
@@ -149,9 +149,9 @@ export default async function CompetePage({
   // Per-user visibility predicates (inline integer ids, no params).
   //   visits aliased v · opportunities aliased o · clients aliased c.
   const currentUser  = await getCurrentUser();
-  const vOwnerVis    = clientScopeSql(currentUser, 'v.client_id');
+  const vOwnerVis    = clientScopeSql(currentUser, 'v.client_id', OWN_OPEN.visit('v'));
   const vOwnerAnd    = vOwnerVis ? ` AND (${vOwnerVis})` : '';
-  const oOwnerVis    = clientScopeSql(currentUser, 'o.client_id');
+  const oOwnerVis    = clientScopeSql(currentUser, 'o.client_id', OWN_OPEN.opportunity('o'));
   const oOwnerAnd    = oOwnerVis ? ` AND (${oOwnerVis})` : '';
   const cVis         = clientVisibilitySql(currentUser, 'c');
   const cVisAnd      = cVis ? ` AND (${cVis})` : '';
