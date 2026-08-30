@@ -16,7 +16,7 @@ const GOLD = '#B45309';
 // Domain → the tables drawn together. The order here is the order of the sheet.
 export const CLUSTERS = [
   ['Core spine — what everything hangs off',
-    ['clients', 'users', 'tour_routes', 'client_secondary_reps', 'manager_reps', 'client_rep_access', 'contacts', 'visits', 'opportunities', 'orders']],
+    ['clients', 'users', 'tour_routes', 'client_secondary_reps', 'manager_reps', 'contacts', 'visits', 'opportunities', 'orders']],
   ['Sales pipeline',
     ['opportunities', 'opportunity_items', 'opportunity_offer_revisions', 'opportunity_sales_orders',
      'opportunity_purchase_orders', 'opportunity_stage_log', 'opportunity_quotation_files', 'orders', 'order_corrections']],

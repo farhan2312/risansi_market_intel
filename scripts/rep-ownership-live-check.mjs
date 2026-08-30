@@ -31,8 +31,7 @@ const clientRule = (clientCol, viewer) => `(
                  OR c2.primary_rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${viewer}))
   OR ${clientCol} IN (SELECT s.client_id FROM client_secondary_reps s
                  WHERE s.rep_id = ${viewer}
-                    OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${viewer}))
-  OR ${clientCol} IN (SELECT client_id FROM client_rep_access WHERE rep_id = ${viewer}))`;
+                    OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${viewer})))`;
 
 const pad = (s, n) => String(s ?? '').padEnd(n).slice(0, n);
 let blind = 0;

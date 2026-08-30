@@ -54,8 +54,6 @@ await run('auth · canViewClient', `SELECT (EXISTS (
     WHERE s.client_id = $1
       AND (s.rep_id = $2
            OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $2))
- ) OR EXISTS (
-   SELECT 1 FROM client_rep_access WHERE client_id = $1 AND rep_id = $2
  )) AS ok`, [CID, UID]);
 
 // ── lib/risansi-auth.ts · clientRuleSql, with the in-flight limb ──
@@ -68,8 +66,7 @@ await run('auth · clientScopeSql on opportunities', `SELECT count(*)::int AS n 
     OR o.client_id IN (
       SELECT s.client_id FROM client_secondary_reps s
        WHERE s.rep_id = ${UID}
-          OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${UID}))
-    OR o.client_id IN (SELECT client_id FROM client_rep_access WHERE rep_id = ${UID}))
+          OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${UID})))
     OR (o.rep_id = ${UID} AND o.stage NOT IN ('Won','Lost','Dropped')))`);
 
 // ── lib/risansi-action-queue.ts · repVisibilitySql ────────────────
@@ -83,15 +80,13 @@ await run('action-queue · repVisibilitySql', `SELECT count(*)::int AS n FROM ta
        OR EXISTS (SELECT 1 FROM client_secondary_reps s WHERE s.client_id = t.client_id
                    AND (s.rep_id = $1
                         OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $1)))
-    OR EXISTS (SELECT 1 FROM client_rep_access cra WHERE cra.client_id = t.client_id AND cra.rep_id = $1)
   )`, [UID, 'nobody@example.com']);
 
 // ── lib/risansi-opp-filters.ts · both rewritten conditions ────────
 await run('opp-filters · scoped rep + rep name', `SELECT count(*)::int AS n
    FROM opportunities o JOIN clients c ON c.id = o.client_id
   WHERE (c.primary_rep_id = $1
-           OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = $1)
-           OR c.id IN (SELECT client_id FROM client_rep_access WHERE rep_id = $1))
+           OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = $1))
     AND EXISTS (SELECT 1 FROM users u2
                   WHERE u2.name = ANY($2::text[])
                     AND (c.primary_rep_id = u2.id
@@ -140,8 +135,7 @@ const ownTours = `(SELECT c.tour_id FROM clients c
                            OR c.primary_rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${UID})
                            OR c.id IN (SELECT s.client_id FROM client_secondary_reps s
                                         WHERE s.rep_id = ${UID}
-                                           OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${UID}))
-                           OR c.id IN (SELECT client_id FROM client_rep_access WHERE rep_id = ${UID})))`;
+                                           OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${UID}))))`;
 await run('visit-filters · zones dropdown',
   `SELECT DISTINCT tr.zone AS v FROM tour_routes tr WHERE tr.zone IS NOT NULL AND tr.zone <> '' AND tr.id IN ${ownTours} ORDER BY 1`);
 await run('visit-filters · routes dropdown',
@@ -202,8 +196,7 @@ await run('auth · complaintVisibilitySql', `SELECT count(*)::int AS n FROM comp
     OR cm.client_id IN (
       SELECT s.client_id FROM client_secondary_reps s
        WHERE s.rep_id = ${UID}
-          OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${UID}))
-    OR cm.client_id IN (SELECT client_id FROM client_rep_access WHERE rep_id = ${UID}))
+          OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${UID})))
   )`);
 
 // ── lib/risansi-auth.ts · getManagerAssignableReps ────────────────
@@ -214,8 +207,7 @@ await run('auth · getManagerAssignableReps',
 await run('pipeline · my-pipeline scope', `SELECT count(*)::int AS n
    FROM opportunities o JOIN clients c ON c.id = o.client_id
   WHERE (c.primary_rep_id = $1
-         OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = $1)
-         OR c.id IN (SELECT client_id FROM client_rep_access WHERE rep_id = $1))`, [UID]);
+         OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = $1))`, [UID]);
 
 await run('pipeline · rep filter', `SELECT count(*)::int AS n
    FROM opportunities o JOIN clients c ON c.id = o.client_id
@@ -235,7 +227,6 @@ await run('pipeline · can_edit case', `SELECT count(*) FILTER (WHERE ce)::int A
     WHEN EXISTS (SELECT 1 FROM client_secondary_reps s WHERE s.client_id = c.id
                   AND (s.rep_id = $2
                        OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $2))) THEN TRUE
-    WHEN EXISTS (SELECT 1 FROM client_rep_access cra WHERE cra.client_id = c.id AND cra.rep_id = $2) THEN TRUE
     ELSE FALSE
   END AS ce
   FROM opportunities o JOIN clients c ON c.id = o.client_id LIMIT 500) x`, ['manager', UID]);
@@ -245,8 +236,7 @@ await run('pipeline · won tile scope', `SELECT count(*)::int AS n FROM opportun
   WHERE o.stage = 'Won'
     AND ((o.client_id IN (SELECT c2.id FROM clients c2
            WHERE c2.primary_rep_id = $1
-              OR c2.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = $1))
-         OR o.client_id IN (SELECT client_id FROM client_rep_access WHERE rep_id = $1)))`, [UID]);
+              OR c2.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = $1))))`, [UID]);
 
 await run('pipeline · analytics rep filter', `SELECT count(*)::int AS n FROM opportunities a
   WHERE a.client_id IN (SELECT c2.id FROM clients c2 JOIN users u2 ON u2.name = ANY($1::text[])

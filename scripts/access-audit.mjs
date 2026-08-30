@@ -9,7 +9,7 @@
 // hand-rolled predicate agrees with the shared one. This runs them.
 //
 // The canonical rule (lib/risansi-auth.ts clientRuleSql): a client is visible if
-// you own it, cover it, manage whoever does, or an admin granted it to you.
+// you own it, cover it, or manage whoever does.
 //
 // Three documented exceptions widen a surface beyond that, and each is asserted
 // rather than assumed:
@@ -40,8 +40,7 @@ const RULE = (col, uid) => `(
                  OR c2.primary_rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${uid}))
   OR ${col} IN (SELECT s.client_id FROM client_secondary_reps s
                  WHERE s.rep_id = ${uid}
-                    OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${uid}))
-  OR ${col} IN (SELECT client_id FROM client_rep_access WHERE rep_id = ${uid}))`;
+                    OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${uid})))`;
 
 // ── the surfaces, each as (predicate it applies, exception it is allowed) ──
 const SURFACES = [
@@ -86,8 +85,7 @@ const SURFACES = [
                        OR cl.primary_rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${uid})))
       OR EXISTS (SELECT 1 FROM client_secondary_reps s WHERE s.client_id = t.client_id
                   AND (s.rep_id = ${uid}
-                       OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${uid})))
-      OR EXISTS (SELECT 1 FROM client_rep_access cra WHERE cra.client_id = t.client_id AND cra.rep_id = ${uid}))`,
+                       OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${uid}))))`,
     allowed: (uid, email) => `t.assigned_to_rep = ${uid} OR lower(t.created_by) = ${email}
       OR EXISTS (SELECT 1 FROM visits vs WHERE vs.id = t.visit_id AND vs.rep_id = ${uid})
       OR t.client_id IS NULL`,
@@ -170,8 +168,7 @@ const { rows: empty } = await c.query(`
      AND NOT EXISTS (SELECT 1 FROM clients c WHERE c.deleted_at IS NULL
                       AND (c.primary_rep_id = u.id
                            OR c.primary_rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = u.id)
-                           OR c.id IN (SELECT client_id FROM client_secondary_reps s WHERE s.rep_id = u.id)
-                           OR c.id IN (SELECT client_id FROM client_rep_access WHERE rep_id = u.id)))
+                           OR c.id IN (SELECT client_id FROM client_secondary_reps s WHERE s.rep_id = u.id)))
    ORDER BY u.name`);
 console.log(empty.length
   ? empty.map(e => `  ${e.name} (${e.role}) — signs in to an empty portal`).join('\n')
