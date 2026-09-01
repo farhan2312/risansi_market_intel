@@ -107,10 +107,40 @@ if (charts.length) {
   }
   const sheet1 = await zip.file('xl/worksheets/sheet1.xml').async('string');
   if (!sheet1.includes('<drawing ')) fail('sheet1 does not reference the drawing');
-  // <drawing/> must be the last element of the worksheet.
-  if (!/<drawing [^>]*\/><\/worksheet>\s*$/.test(sheet1.trim())) {
-    fail('<drawing/> is not the final element of sheet1 — Excel will call the file corrupt');
+
+  // CT_Worksheet is a SEQUENCE, not a bag. An element in the wrong position is
+  // exactly what Excel reports as "we found a problem with some content", naming
+  // the file and nothing else — so the order is checked here rather than
+  // discovered by opening it. This caught <drawing/> being appended after the
+  // worksheet's extLst, which is one position too late.
+  const ORDER = [
+    'sheetPr', 'dimension', 'sheetViews', 'sheetFormatPr', 'cols', 'sheetData',
+    'sheetCalcPr', 'sheetProtection', 'protectedRanges', 'scenarios', 'autoFilter',
+    'sortState', 'dataConsolidate', 'customSheetViews', 'mergeCells', 'phoneticPr',
+    'conditionalFormatting', 'dataValidations', 'hyperlinks', 'printOptions',
+    'pageMargins', 'pageSetup', 'headerFooter', 'rowBreaks', 'colBreaks',
+    'customProperties', 'cellWatches', 'ignoredErrors', 'smartTags', 'drawing',
+    'legacyDrawing', 'legacyDrawingHF', 'drawingHF', 'picture', 'oleObjects',
+    'controls', 'webPublishItems', 'tableParts', 'extLst',
+  ];
+  // Top-level children only: everything at depth 1 inside <worksheet>.
+  const seen = [];
+  let depth = 0;
+  for (const m of sheet1.matchAll(/<(\/?)([A-Za-z][\w:]*)((?:[^>"']|"[^"]*"|'[^']*')*?)(\/?)>/g)) {
+    const [, close, name, , self] = m;
+    if (name === 'worksheet') { depth += close ? -1 : 1; continue; }
+    if (depth === 1 && !close) seen.push(name);
+    if (!close && !self) depth += 1;
+    else if (close) depth -= 1;
   }
+  const positions = seen.map(n => ({ n, i: ORDER.indexOf(n) })).filter(x => x.i >= 0);
+  for (let i = 1; i < positions.length; i++) {
+    if (positions[i].i < positions[i - 1].i) {
+      fail(`sheet1 has <${positions[i].n}> after <${positions[i - 1].n}> — CT_Worksheet requires the reverse, and Excel will call the file corrupt`);
+    }
+  }
+  const unknown = seen.filter(n => !ORDER.includes(n));
+  if (unknown.length) fail(`sheet1 has unrecognised top-level element(s): ${[...new Set(unknown)].join(', ')}`);
   if (!bad) ok(`${charts.length} charts, wired to a drawing that sheet1 references last`);
 }
 

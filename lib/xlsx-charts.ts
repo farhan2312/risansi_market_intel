@@ -197,9 +197,25 @@ export async function injectCharts(
 
   const sheetPath = `xl/worksheets/${sheetFile}`;
   let sheet = await zip.file(sheetPath)!.async('string');
-  // <drawing/> is the LAST element of a worksheet. Putting it anywhere else is
-  // the most common way to produce a file Excel calls corrupt.
-  sheet = sheet.replace('</worksheet>', `<drawing r:id="${drawingRid}"/></worksheet>`);
+  // WHERE <drawing/> GOES, precisely.
+  //
+  // CT_Worksheet is a sequence, and drawing sits near the end of it but NOT at
+  // the very end: it comes after pageSetup and before extLst. Appending it just
+  // inside </worksheet> is right only when the sheet has no extLst — and this
+  // one does, because conditional-formatting data bars are written as an x14
+  // extension. Excel's response was "we found a problem with some content",
+  // naming the file and nothing else.
+  //
+  // So: before the worksheet-level extLst when there is one, otherwise before
+  // the closing tag. The worksheet-level extLst is the last one in the part;
+  // the others belong to cfRule elements and have closed long before it opens.
+  const drawingTag = `<drawing r:id="${drawingRid}"/>`;
+  if (/<\/extLst>\s*<\/worksheet>\s*$/.test(sheet)) {
+    const at = sheet.lastIndexOf('<extLst>');
+    sheet = sheet.slice(0, at) + drawingTag + sheet.slice(at);
+  } else {
+    sheet = sheet.replace('</worksheet>', `${drawingTag}</worksheet>`);
+  }
   zip.file(sheetPath, sheet);
 
   // 4. Content types, or Excel does not know what the new parts are.
