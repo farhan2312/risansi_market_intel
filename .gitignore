@@ -45,4 +45,8 @@ schema.tmp.json
 descriptions.json
 Risansi-Database-Guide-*.xlsx
 Risansi-Pipeline-*.xlsx
-reports/
+# The generated workbooks at the repo root only. Without the leading slash this
+# matches a directory named `reports` at ANY depth, which silently swallowed
+# app/api/risansi/reports/ — the route built locally, was never committed, and
+# 404ed in production.
+/reports/

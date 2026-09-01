@@ -5,6 +5,9 @@
     },
     "app/api/cron/**": {
       "maxDuration": 60
+    },
+    "app/api/risansi/reports/**": {
+      "maxDuration": 60
     }
   },
   "crons": [
