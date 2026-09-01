@@ -233,11 +233,29 @@ export default async function AuditPage({
         <Topbar crumbs={['System Admin', 'Audit Log']} />
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }} className="r-page">
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>Audit Log</div>
-          <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>
-            Full activity trail · who signed in, when, and everything they did
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 14 }}>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>Audit Log</div>
+            <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>
+              Full activity trail · who signed in, when, and everything they did
+            </div>
           </div>
+
+          {/* The same trail, summarised per user for management. Built on request
+              rather than on a schedule: the point of pressing it is that the
+              numbers are current, and it is a few seconds of queries. */}
+          <a
+            href="/api/risansi/reports/user-adoption"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 7, flexShrink: 0,
+              padding: '9px 15px', borderRadius: 'var(--radius)', border: '1px solid #0A3D8F',
+              background: '#0A3D8F', color: '#fff', fontSize: 12.5, fontWeight: 600,
+              textDecoration: 'none', whiteSpace: 'nowrap',
+            }}
+            title="Excel workbook: every user's logins, time in the app and records created, all-time and month by month, with charts"
+          >
+            ⭳ Adoption report (Excel)
+          </a>
         </div>
 
         {/* Stat strip */}
