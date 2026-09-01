@@ -86,11 +86,21 @@ export function AuditOverall({ d, win, role, user, people }: {
       </div>
 
       {/* ── 4. What it is used for ──────────────────────────────── */}
-      <Section title="What the time goes on" note="by module · hours, page views and how many people">
-        <div style={{ padding: '14px 16px' }}>
-          {d.modules.length === 0 ? <Empty>No activity in this window.</Empty> : <Modules rows={d.modules} />}
-        </div>
-      </Section>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: 14 }} className="r-grid-2">
+        <Section title="What the time goes on" note="by module · hours, page views and how many people">
+          <div style={{ padding: '14px 16px' }}>
+            {d.modules.length === 0 ? <Empty>No activity in this window.</Empty> : <Modules rows={d.modules} />}
+          </div>
+        </Section>
+
+        {/* Reading, editing and filing are three different kinds of use, and a
+            module can look busy while nothing is written down. */}
+        <Section title="Reading or writing" note="recorded actions">
+          <div style={{ padding: '14px 16px' }}>
+            {d.actions.length === 0 ? <Empty>Nothing recorded in this window.</Empty> : <Actions rows={d.actions} />}
+          </div>
+        </Section>
+      </div>
 
       {/* ── 5. Who is doing it ──────────────────────────────────── */}
       <Section
@@ -356,6 +366,37 @@ function Modules({ rows }: { rows: OverallData['modules'] }) {
           </span>
           <span style={{ width: 74, flexShrink: 0, textAlign: 'right', fontSize: 10.5, color: 'var(--fg-3)' }}>
             {r.users} {r.users === 1 ? 'person' : 'people'}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── 4b. The shape of the writing ──────────────────────────────────
+
+function Actions({ rows }: { rows: OverallData['actions'] }) {
+  const total = rows.reduce((s, r) => s + r.n, 0) || 1;
+  const max = Math.max(...rows.map(r => r.n), 1);
+  // create/submit is new information; update is maintenance; delete and export
+  // are worth being able to see on their own.
+  const TONE: Record<string, string> = {
+    create: GREEN, submit: GREEN, assign: NAVY, update: NAVY,
+    export: AMBER, delete: RED, activity: MUTED,
+  };
+  return (
+    <div style={{ display: 'grid', gap: 6 }}>
+      {rows.map(r => (
+        <div key={r.action} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ width: 62, flexShrink: 0, fontSize: 11.5, fontWeight: 500 }}>{r.action}</span>
+          <div style={{ flex: 1, height: 14, background: 'var(--bg-sunk)', borderRadius: 3, overflow: 'hidden', minWidth: 30 }}>
+            <div style={{ height: '100%', width: `${Math.max((r.n / max) * 100, 2)}%`, background: TONE[r.action] ?? MUTED }} />
+          </div>
+          <span style={{ width: 46, flexShrink: 0, textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600 }}>
+            {r.n.toLocaleString('en-IN')}
+          </span>
+          <span style={{ width: 32, flexShrink: 0, textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--fg-3)' }}>
+            {Math.round((r.n / total) * 100)}%
           </span>
         </div>
       ))}
