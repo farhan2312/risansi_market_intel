@@ -7,6 +7,9 @@ import risansiPool from '@/lib/db-risansi';
 import { ExecutiveViews, type ExecData, type Row } from '@/components/risansi/ExecutiveViews';
 import { ExecutiveSelector, type SelRep } from '@/components/risansi/ExecutiveSelector';
 import { ExecDrilldownProvider } from '@/components/risansi/ExecDrilldown';
+// CANON / CATS / TURN_ORDER live in the lib the drill-down also reads, so the
+// page and its breakdowns cannot classify a client two different ways.
+import { CANON, CATS, TURN_ORDER } from '@/lib/risansi-exec-review';
 import { AccountSelector, ViewSwitch, type NameOpt } from '@/components/risansi/AccountSelector';
 import { GroupReview, OemReview, type GroupReviewData, type GroupUnit, type OemReviewData } from '@/components/risansi/AccountReview';
 import { CLIENT_STATUS_COLORS } from '@/lib/risansi-client-status';
@@ -24,15 +27,6 @@ function fmtMoney(v: number): string {
 }
 
 // Canonical client-type bucket (Mona's five categories).
-const CANON = `CASE
-  WHEN upper(c.client_type) IN ('DIRECT MILL','END USER') THEN 'Direct Mill'
-  WHEN upper(c.client_type) IN ('GROUP (MILLS)','GROUP')  THEN 'Group Mills'
-  WHEN upper(c.client_type) IN ('TRADER','MERCHANT EXPORTER') THEN 'Trader'
-  WHEN upper(c.client_type) = 'OEM' THEN 'OEM'
-  WHEN upper(c.client_type) = 'CHANNEL PARTNER' THEN 'Channel Partner'
-  ELSE 'Other' END`;
-const CATS = ['Direct Mill', 'Group Mills', 'Trader', 'OEM', 'Channel Partner'];
-const TURN_ORDER = ['15 Lac & above (Super Critical)', '5-15 Lacs p.a.', '3-5 Lacs p.a.', '1-3 Lacs p.a.', 'Less than 1 Lac p.a.', 'New Business', 'Business Regained', 'End Client', 'No Business'];
 
 // FY label in the app's key format: start year 2025 → '25-26'.
 const fyLabel = (startYear: number) => `${String(startYear % 100).padStart(2, '0')}-${String((startYear + 1) % 100).padStart(2, '0')}`;
@@ -60,7 +54,13 @@ export default async function ExecutiveReviewPage({ searchParams }: {
 
   // ── Account Review: a group of mills, or a single OEM ──────────
   if (sp.view === 'account') {
-    const ctype: 'group' | 'oem' = sp.ctype === 'oem' ? 'oem' : 'group';
+    // 'group' aggregates the units of a named group. Every other value is one of
+    // the CANON buckets and gives a single-client review — which is what the OEM
+    // branch always was, just filtered to one type. Traders, Direct Mills and the
+    // 1,017 clients that classify as Other had no Account Review at all, because
+    // this line offered exactly two options.
+    const ACCOUNT_TYPES = ['group', ...CATS, 'Other'];
+    const ctype = ACCOUNT_TYPES.includes(sp.ctype ?? '') ? sp.ctype! : 'group';
     const nowD = new Date();
     const curFy = (nowD.getMonth() + 1) >= 4 ? nowD.getFullYear() : nowD.getFullYear() - 1;
     const FYS = Array.from({ length: 5 }, (_, i) => fyLabel(curFy - 4 + i));
@@ -74,8 +74,29 @@ export default async function ExecutiveReviewPage({ searchParams }: {
              FROM clients c
             WHERE c.group_name IS NOT NULL AND btrim(c.group_name) <> '' AND c.deleted_at IS NULL${visAnd}
             GROUP BY c.group_name ORDER BY c.group_name`
+        // Matched on the canonical bucket, not the raw column: 'End User' and
+        // 'DIRECT MILL' are the same thing to this page, and 'CHANNEL PARTNER'
+        // is stored in a different case from everything around it.
         : `SELECT c.code AS value, c.legal_name AS label FROM clients c
-            WHERE c.client_type = 'OEM' AND c.deleted_at IS NULL${visAnd} ORDER BY c.legal_name`)).rows, []);
+            WHERE ${CANON} = '${ctype.replace(/'/g, "''")}'
+              AND c.deleted_at IS NULL${visAnd} ORDER BY c.legal_name`)).rows, []);
+
+    // Only offer a type that has something in it for THIS viewer. A dropdown
+    // entry that opens on "— none —" reads as a broken page rather than as an
+    // empty category.
+    const typeCounts = await q<{ bucket: string; n: string }[]>(async () => (await risansiPool.query<{ bucket: string; n: string }>(
+      `SELECT ${CANON} AS bucket, count(*)::text AS n FROM clients c
+        WHERE c.deleted_at IS NULL${visAnd} GROUP BY 1`)).rows, []);
+    const groupCount = await q<number>(async () => Number((await risansiPool.query<{ n: string }>(
+      `SELECT count(DISTINCT btrim(c.group_name))::text AS n FROM clients c
+        WHERE btrim(COALESCE(c.group_name,'')) <> '' AND c.deleted_at IS NULL${visAnd}`)).rows[0]?.n ?? 0), 0);
+    const typeOptions: NameOpt[] = [
+      ...(groupCount > 0 ? [{ value: 'group', label: `Mills (Group) · ${groupCount}` }] : []),
+      ...typeCounts
+        .filter(t => Number(t.n) > 0 && ACCOUNT_TYPES.includes(t.bucket))
+        .sort((a, b) => Number(b.n) - Number(a.n))
+        .map(t => ({ value: t.bucket, label: `${t.bucket} · ${t.n}` })),
+    ];
     const picked = options.some(o => o.value === sp.name) ? sp.name! : (options[0]?.value ?? '');
 
     const shell = (body: React.ReactNode, title: string, sub: string) => (
@@ -87,7 +108,7 @@ export default async function ExecutiveReviewPage({ searchParams }: {
               <h1 style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)', margin: 0 }}>{title}</h1>
               <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>{sub}</div>
             </div>
-            <AccountSelector ctype={ctype} name={picked} options={options} />
+            <AccountSelector ctype={ctype} name={picked} options={options} typeOptions={typeOptions} />
           </div>
           {body}
         </div>
@@ -96,7 +117,7 @@ export default async function ExecutiveReviewPage({ searchParams }: {
 
     if (!picked) return shell(
       <div style={{ fontSize: 13, color: 'var(--fg-3)' }}>
-        No {ctype === 'group' ? 'groups' : 'OEM clients'} {clientVis ? 'among your accounts' : 'on record'}.
+        No {ctype === 'group' ? 'groups' : `${ctype} clients`} {clientVis ? 'among your accounts' : 'on record'}.
       </div>, 'Account Review', '—');
 
     // ── Group of mills ──
@@ -202,7 +223,7 @@ export default async function ExecutiveReviewPage({ searchParams }: {
       totalPumps: Number(pumps[0]?.n ?? 0),
       stages, oppFys, oppMatrix: stages.map(s => oppFys.map(fy => oMap.get(`${s}|${fy}`) ?? null)),
     };
-    return shell(<OemReview d={data} />, c0.legal_name, `${c0.code} · OEM · FY ${FYS[0]} to ${FYS[FYS.length - 1]} · live data`);
+    return shell(<OemReview d={data} />, c0.legal_name, `${c0.code} · ${ctype} · FY ${FYS[0]} to ${FYS[FYS.length - 1]} · live data`);
   }
 
   // TSM roster. Admins get every user who has tours; everyone else gets exactly

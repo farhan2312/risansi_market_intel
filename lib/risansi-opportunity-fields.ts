@@ -116,6 +116,8 @@ export interface OppFieldDef {
   placeholder?: string;
   help?: string;
   full?: boolean;
+  /** A date that cannot be in the future. Bounds the input and the server check. */
+  noFuture?: boolean;
 }
 
 const QUOTE_STAGES: OppStage[] = ['Quoted', 'Negotiating', 'On Hold'];
@@ -161,7 +163,10 @@ export const OPP_FIELDS: OppFieldDef[] = [
   { name: 'final_value_inr', label: 'Sale Order Value (₹)', kind: 'inr',  asked: 'Won', onlyStages: ['Won'],
     help: 'Optional — add it when the Sale Order comes through. Until then, Order in Hand uses the quoted value.' },
   { name: 'po_number',       label: 'PO Number',            kind: 'text', asked: 'Won', onlyStages: ['Won'], requiredAt: ['Won'], placeholder: 'e.g. PO-2024-0182' },
-  { name: 'po_date',         label: 'PO Date',              kind: 'date', asked: 'Won', onlyStages: ['Won'], requiredAt: ['Won'] },
+  // A PO that has not been raised yet cannot have a number, so a future PO date
+  // is always either a typo or a placeholder. Only this date is bounded: a quote
+  // date can legitimately be forward-dated, and an expected close is meant to be.
+  { name: 'po_date',         label: 'PO Date',              kind: 'date', asked: 'Won', onlyStages: ['Won'], requiredAt: ['Won'], noFuture: true },
 
   // ── Lost ────────────────────────────────────────────────────
   { name: 'lost_to_competitor', label: 'Lost To Competitor', kind: 'select', asked: 'Lost', onlyStages: ['Lost'], requiredAt: ['Lost'], options: [] },

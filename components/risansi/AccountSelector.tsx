@@ -7,8 +7,10 @@ export interface NameOpt { value: string; label: string }
 
 // View / Client-Type / Name picker for the Account Review side of the
 // Executive Review page. Writes to the URL so the server component re-queries.
-export function AccountSelector({ ctype, name, options }: {
-  ctype: 'group' | 'oem'; name: string; options: NameOpt[];
+export function AccountSelector({ ctype, name, options, typeOptions }: {
+  ctype: string; name: string; options: NameOpt[];
+  /** Client types that actually hold clients this viewer can see, with counts. */
+  typeOptions: NameOpt[];
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -33,12 +35,11 @@ export function AccountSelector({ ctype, name, options }: {
         <span style={LBL}>Client Type</span>
         {/* Changing type clears the name so the server picks that type's first option. */}
         <select value={ctype} onChange={e => push({ ctype: e.target.value, name: '' })} style={SEL}>
-          <option value="group">Mills (Group)</option>
-          <option value="oem">OEM</option>
+          {typeOptions.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
       </label>
       <label>
-        <span style={LBL}>{ctype === 'group' ? 'Group' : 'OEM Client'}</span>
+        <span style={LBL}>{ctype === 'group' ? 'Group' : 'Client'}</span>
         <select value={name} onChange={e => push({ name: e.target.value })} style={{ ...SEL, minWidth: 260 }}>
           {options.length === 0 && <option value="">— none —</option>}
           {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}

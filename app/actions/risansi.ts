@@ -21,7 +21,7 @@ import { pushInApp } from '@/lib/risansi-inapp';
 import { notifyCheckIn, notifyOppClosed, notifySalesOrder, notifyNewLead, notifyQuotationIssued } from '@/lib/risansi-notify';
 import { requiredFieldNames, labelsFor, OPP_FIELDS, CREATE_STAGES, STAGE_PROB, isDropReason, type CreateStage } from '@/lib/risansi-opportunity-fields';
 import { pctForProbabilityCode } from '@/lib/risansi-probability-codes';
-import { normaliseIndustry } from '@/lib/risansi-utils';
+import { normaliseIndustry, istToday } from '@/lib/risansi-utils';
 import { parseMoneyInput, parsePositiveMoney, moneyToCr } from '@/lib/risansi-money';
 
 // ── Helper ─────────────────────────────────────────────────────
@@ -1097,6 +1097,19 @@ export async function createPipelineOpportunity(formData: FormData) {
   const missing = requiredFieldNames(stage).filter(n => !filled(n));
   if (missing.length) {
     throw new Error(`Fill the required field${missing.length > 1 ? 's' : ''} for the ${stage} stage: ${labelsFor(missing).join(', ')}.`);
+  }
+
+  // Dates that cannot be in the future. The input carries a `max`, but a typed
+  // or hand-built value still arrives here. Compared against today in IST, not
+  // UTC: the server is five and a half hours behind, so a PO raised at 9am in
+  // Lucknow would otherwise be rejected as future for the rest of the morning.
+  const today = istToday();
+  for (const f of OPP_FIELDS) {
+    if (!f.noFuture) continue;
+    const v = (formData.get(f.name) as string | null)?.trim();
+    if (v && v > today) {
+      throw new Error(`${f.label} cannot be in the future — ${v} is after ${today}.`);
+    }
   }
 
   // Revised-offer history, if the quotation step captured any.

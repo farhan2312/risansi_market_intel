@@ -264,6 +264,19 @@ export function getAlertLevel(
   return 'ok';
 }
 
+/**
+ * Today's date in IST, as 'YYYY-MM-DD'.
+ *
+ * The server runs in UTC, so `new Date().toISOString()` is yesterday for the
+ * five and a half hours after midnight in India. Anything comparing a
+ * user-entered date against "today" has to use this, or a PO raised at 9am in
+ * Lucknow reads as dated in the future.
+ */
+export function istToday(): string {
+  const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  return ist.toISOString().slice(0, 10);
+}
+
 // ── Greeting ──────────────────────────────────────────────────
 
 /** IST-aware server-side greeting. Runs at render time. */

@@ -5,6 +5,7 @@ import { MoneyInput } from './MoneyInput';
 import { MonthYearSelect } from './MonthYearSelect';
 import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
 import type { OppFieldDef } from '@/lib/risansi-opportunity-fields';
+import { istToday } from '@/lib/risansi-utils';
 
 // One renderer for every opportunity field, driven by the catalogue.
 //
@@ -41,7 +42,14 @@ export function OppField({ field, value, onChange, disabled, usdRate, options }:
       case 'month':
         return <MonthYearSelect name={field.name} value={value} onChange={set} disabled={disabled} />;
       case 'date':
-        return <input {...common} type="date" value={value} onChange={e => set(e.target.value)} />;
+        // `max` bounds the picker, but a typed date still reaches the server, so
+        // the same rule is enforced there — this only saves the round trip.
+        return (
+          <input
+            {...common} type="date" value={value} onChange={e => set(e.target.value)}
+            max={field.noFuture ? istToday() : undefined}
+          />
+        );
       case 'number':
         return <input {...common} type="number" value={value} onChange={e => set(e.target.value)} placeholder={field.placeholder} />;
       case 'textarea':
