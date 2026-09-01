@@ -5,6 +5,7 @@ import {
   CLIENT_EXPORT_COLUMNS, CLIENT_EXPORT_GROUPS,
   OPP_EXPORT_COLUMNS, OPP_EXPORT_GROUPS,
 } from '@/lib/risansi-client-export-columns';
+import { useClientSelection } from './ClientSelection';
 
 /**
  * Export, but choose the columns first.
@@ -23,9 +24,15 @@ export function ExportColumnsButton({ href, count, label }: {
   href: string;
   /** How many clients the current filters match, for the confirm button. */
   count: number;
-  /** Trigger text, so the page keeps its own wording about filters and counts. */
+  /** Trigger text when nothing is hand-picked. */
   label: string;
 }) {
+  // When clients are ticked, the button says so and exports only those. The
+  // selection INTERSECTS the filters, so this count is computed the same way the
+  // server will -- what the button promises is what lands in the file.
+  const sel = useClientSelection();
+  const selected = sel?.ready ? sel.count(count) : 0;
+  const exporting = selected > 0 ? selected : count;
   const allKeys = useMemo(() => CLIENT_EXPORT_COLUMNS.map(c => c.key), []);
   const allOppKeys = useMemo(() => OPP_EXPORT_COLUMNS.map(c => c.key), []);
   const [open, setOpen] = useState(false);
@@ -59,7 +66,7 @@ export function ExportColumnsButton({ href, count, label }: {
   });
 
   const download = () => {
-    const url = new URL(href, window.location.origin);
+    const url = new URL(sel && selected > 0 ? sel.applyTo(href) : href, window.location.origin);
     // All ticked is the same request the link always made, so send no parameter
     // at all — the URL stays short and matches what a saved bookmark looks like.
     if (picked.size !== allKeys.length) {
@@ -75,9 +82,12 @@ export function ExportColumnsButton({ href, count, label }: {
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} style={TRIGGER}
-        title="Choose which columns to export">
-        {label}
+      <button type="button" onClick={() => setOpen(true)}
+        style={selected > 0 ? { ...TRIGGER, ...TRIGGER_SEL } : TRIGGER}
+        title={selected > 0 ? 'Export the clients you have ticked' : 'Choose which columns to export'}>
+        {selected > 0
+          ? `⭳ Export ${selected.toLocaleString('en-IN')} selected`
+          : label}
       </button>
 
       {open && (
@@ -88,8 +98,10 @@ export function ExportColumnsButton({ href, count, label }: {
               <div>
                 <div style={{ fontSize: 14, fontWeight: 600 }}>Columns to export</div>
                 <div style={{ fontSize: 11.5, color: 'var(--fg-3)', marginTop: 2 }}>
-                  {count.toLocaleString('en-IN')} client{count === 1 ? '' : 's'} match your filters.
-                  Everything is ticked — untick what you do not need.
+                  {selected > 0
+                    ? `${selected.toLocaleString('en-IN')} selected client${selected === 1 ? '' : 's'}, out of ${count.toLocaleString('en-IN')} matching your filters.`
+                    : `${count.toLocaleString('en-IN')} client${count === 1 ? '' : 's'} match your filters.`}
+                  {' '}Every column is ticked — untick what you do not need.
                 </div>
               </div>
               <button onClick={() => setOpen(false)} style={X} aria-label="Close">×</button>
@@ -205,7 +217,7 @@ export function ExportColumnsButton({ href, count, label }: {
                 style={{ ...BTN_PRI, opacity: picked.size === 0 ? 0.45 : 1 }}>
                 {picked.size === 0
                   ? 'Pick at least one client column'
-                  : `Export ${picked.size} column${picked.size === 1 ? '' : 's'}${wantOpps && oppPicked.size ? ' + opportunities' : ''}`}
+                  : `Export ${exporting.toLocaleString('en-IN')} client${exporting === 1 ? '' : 's'} · ${picked.size} column${picked.size === 1 ? '' : 's'}${wantOpps && oppPicked.size ? ' + opportunities' : ''}`}
               </button>
             </div>
           </div>
@@ -219,6 +231,9 @@ const TRIGGER: CSSProperties = {
   padding: '7px 13px', borderRadius: 6, border: '1px solid var(--line-strong)',
   background: 'var(--bg-paper)', color: 'var(--fg)', fontSize: 12.5, fontWeight: 500,
   fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap',
+};
+const TRIGGER_SEL: CSSProperties = {
+  background: '#0A3D8F', color: '#fff', borderColor: '#0A3D8F', fontWeight: 600,
 };
 const SCRIM: CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(10,22,40,0.4)', zIndex: 400 };
 const MODAL: CSSProperties = {

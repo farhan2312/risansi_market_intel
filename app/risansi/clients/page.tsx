@@ -1,6 +1,9 @@
 import type { CSSProperties } from 'react';
 import Link from 'next/link';
 import { ExportColumnsButton } from '@/components/risansi/ExportColumnsButton';
+import {
+  ClientSelectionProvider, ClientSelectionBar, SelectClientBox, SelectPageBox,
+} from '@/components/risansi/ClientSelection';
 import { Topbar, Tag, StatusDot, MultiSelectFilter, ActiveFilterBar, SortableTH, Donut } from '@/components/risansi';
 import { MobileSort } from '@/components/risansi/MobileSort';
 import risansiPool from '@/lib/db-risansi';
@@ -413,6 +416,7 @@ export default async function ClientListPage({
   const exportHref = `/api/risansi/clients/export${exportQs.toString() ? `?${exportQs}` : ''}`;
 
   return (
+    <ClientSelectionProvider>
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Sticky topbar */}
       <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
@@ -614,6 +618,9 @@ export default async function ClientListPage({
           { param: 'visit',    label: 'Last Visit', values: visitFilts, valueLabels: Object.fromEntries(VISIT_BUCKETS.map(b => [b.value, b.label])) },
         ]} />
 
+        {/* Appears only once something is ticked. */}
+        <ClientSelectionBar pageCodes={clients.map(c => c.code)} filteredTotal={total} />
+
         {/* ── Table ────────────────────────────────────────────── */}
         <div style={{
           background:   'var(--bg-paper)',
@@ -651,6 +658,9 @@ export default async function ClientListPage({
               <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: 'var(--bg-elev)' }}>
+                    <th style={{ width: 34, padding: '8px 0 8px 12px', background: 'var(--bg-elev)', borderBottom: '1px solid var(--line)' }}>
+                      <SelectPageBox codes={clients.map(c => c.code)} />
+                    </th>
                     <SortableTH col="code"       label="Code"         currentSort={curSort} currentDir={curDir} />
                     <SortableTH col="name"       label="Client"       currentSort={curSort} currentDir={curDir} />
                     <SortableTH col="industry"   label="Industry"     currentSort={curSort} currentDir={curDir} />
@@ -669,6 +679,11 @@ export default async function ClientListPage({
 
                     return (
                       <tr key={c.id} style={{ borderBottom: i < clients.length - 1 ? '1px solid var(--line)' : 'none' }}>
+
+                        {/* Selection */}
+                        <td data-label="" style={{ ...TD, width: 34, paddingRight: 0 }}>
+                          <SelectClientBox code={c.code} />
+                        </td>
 
                         {/* Code */}
                         <td data-label="Code" style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>
@@ -769,6 +784,7 @@ export default async function ClientListPage({
 
       </div>
     </div>
+    </ClientSelectionProvider>
   );
 }
 

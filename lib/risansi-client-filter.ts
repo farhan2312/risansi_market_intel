@@ -54,6 +54,17 @@ export function buildClientFilter(
   const indFilts  = list('industry');
   const zoneFilts = list('zone');
   const countryFilts = list('country');
+  // Hand-picked clients. `sel` is an explicit list; `selall` means everything the
+  // other filters match, with `selx` naming anything unticked since.
+  //
+  // These INTERSECT with the filters rather than replacing them, which is a
+  // deliberate choice: the count on the export button is computed under the same
+  // filters, so what you are told you are exporting is what you get. A selection
+  // that overrode the filters would quietly re-add clients the filter had
+  // removed, and the number would stop matching the file.
+  const selFilts = list('sel');
+  const selAll   = str('selall') === '1';
+  const selEx    = list('selx');
   const tierFilts  = list('tier');
   const ctypeFilts = list('ctype');
   const statFilts  = list('status').map(s => s.toUpperCase());
@@ -78,6 +89,8 @@ export function buildClientFilter(
   // on the way in because the column is free text and a stray space would make
   // a value that matches nothing the dropdown could ever offer.
   if (countryFilts.length) whereConditions.push(`btrim(c.country) = ANY($${params.push(countryFilts)}::text[])`);
+  if (selFilts.length && !selAll) whereConditions.push(`c.code = ANY($${params.push(selFilts)}::text[])`);
+  if (selAll && selEx.length)     whereConditions.push(`c.code <> ALL($${params.push(selEx)}::text[])`);
   if (tierFilts.length) whereConditions.push(`c.tier = ANY($${params.push(tierFilts)}::text[])`);
   if (ctypeFilts.length) whereConditions.push(`c.client_type = ANY($${params.push(ctypeFilts)}::text[])`);
   // The Prospectives tab constrains the list to the two prospective statuses.
