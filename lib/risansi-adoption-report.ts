@@ -50,7 +50,27 @@ export async function buildAdoptionReport(pool: Pool): Promise<{ buffer: Buffer;
       (SELECT p.path FROM page_activity p WHERE p.user_id = u.id
         GROUP BY p.path ORDER BY sum(p.active_seconds) DESC NULLS LAST LIMIT 1) AS top_path,
 
-      -- Doing things
+      -- The book they are responsible for. Without it every activity figure is a
+    -- numerator with no denominator: twelve visits means something different
+    -- against 274 clients than against nine.
+    (SELECT count(*)::int FROM clients cl
+      WHERE cl.primary_rep_id = u.id AND cl.deleted_at IS NULL) AS clients_owned,
+    (SELECT count(*)::int FROM client_secondary_reps sr
+       JOIN clients cl ON cl.id = sr.client_id AND cl.deleted_at IS NULL
+      WHERE sr.rep_id = u.id) AS clients_covered,
+    -- Everything they can actually see, which for a manager is their team's book
+    -- as well as their own. Same rule as clientRuleSql in lib/risansi-auth.ts, so
+    -- this column and the application agree about what "their clients" means.
+    (SELECT count(*)::int FROM clients cl
+      WHERE cl.deleted_at IS NULL
+        AND (cl.primary_rep_id = u.id
+             OR cl.primary_rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = u.id)
+             OR cl.id IN (SELECT sr.client_id FROM client_secondary_reps sr
+                           WHERE sr.rep_id = u.id
+                              OR sr.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = u.id)))
+    ) AS clients_in_view,
+
+    -- Doing things
       (SELECT count(*)::int FROM visits v WHERE v.rep_id = u.id) AS visits_owned,
       (SELECT count(*)::int FROM visits v WHERE v.rep_id = u.id AND v.status = 'completed') AS visits_done,
       (SELECT count(*)::int FROM visits v WHERE v.rep_id = u.id AND v.submitted_at IS NOT NULL) AS reports_filed,
@@ -104,6 +124,12 @@ export async function buildAdoptionReport(pool: Pool): Promise<{ buffer: Buffer;
     return seg ? seg.replace(/-/g, ' ').replace(/^\w/, ch => ch.toUpperCase()) : 'Dashboard';
   };
 
+  /** 1-based column number → its A1 letter. */
+  const L = (n: number): string => {
+    let out = ''; while (n > 0) { const m = (n - 1) % 26; out = String.fromCharCode(65 + m) + out; n = (n - m - 1) / 26; }
+    return out;
+  };
+
   // ── the workbook ──────────────────────────────────────────────────
   const NAVY = 'FF0A3D8F', GREY = 'FF64748B', LINE = 'FFE2E8F0';
   const wb = new ExcelJS.Workbook();
@@ -115,16 +141,23 @@ export async function buildAdoptionReport(pool: Pool): Promise<{ buffer: Buffer;
     pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.3, right: 0.3, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 } },
   });
 
-  const COLS = [
+  // `fmt` and `bar` travel with the column rather than being applied by index
+  // further down. Inserting a column used to mean remembering to shift a couple
+  // of magic numbers and a hardcoded 'G', which is a silent way to put a decimal
+  // format on the wrong figure.
+  const COLS: { h: string; w: number; fmt?: string; bar?: string }[] = [
     { h: 'User', w: 24 }, { h: 'Role', w: 10 }, { h: 'Zone', w: 10 },
+    { h: 'Clients owned', w: 13, bar: 'FF7C3AED' }, { h: 'Clients covered', w: 14 }, { h: 'Clients in view', w: 14 },
     { h: 'Logins', w: 9 }, { h: 'Days active', w: 12 }, { h: 'Sessions', w: 10 },
-    { h: 'Active hours', w: 13 }, { h: 'Pages viewed', w: 13 }, { h: 'Avg min/session', w: 15 },
+    { h: 'Active hours', w: 13, fmt: '0.0', bar: 'FF0A3D8F' }, { h: 'Pages viewed', w: 13 },
+    { h: 'Avg min/session', w: 15, fmt: '0.0' },
     { h: 'Most used', w: 16 }, { h: 'Last login', w: 12 },
     { h: 'Visits owned', w: 12 }, { h: 'Visits done', w: 11 }, { h: 'Reports filed', w: 13 },
     { h: 'Opps created', w: 12 }, { h: 'Stage moves', w: 12 }, { h: 'Quotes uploaded', w: 15 },
     { h: 'Sales orders', w: 12 }, { h: 'Clients added', w: 13 },
     { h: 'Actions raised', w: 13 }, { h: 'Actions done', w: 12 },
-    { h: 'Complaints', w: 11 }, { h: 'Exhib. meetings', w: 15 }, { h: 'Recorded actions', w: 16 },
+    { h: 'Complaints', w: 11 }, { h: 'Exhib. meetings', w: 15 },
+    { h: 'Recorded actions', w: 16, bar: 'FF16A34A' },
   ];
   COLS.forEach((col, i) => { ws.getColumn(i + 1).width = col.w; });
 
@@ -191,6 +224,7 @@ export async function buildAdoptionReport(pool: Pool): Promise<{ buffer: Buffer;
       const avgMin = num(u.sessions) > 0 ? (num(u.hours) * 60) / num(u.sessions) : 0;
       const vals: (string | number)[] = [
         u.name, u.role, u.zone,
+        num(u.clients_owned), num(u.clients_covered), num(u.clients_in_view),
         num(u.logins), num(u.days_active), num(u.sessions),
         num(u.hours), num(u.page_views), Number(avgMin.toFixed(1)),
         MODULE(u.top_path as string | null), (u.last_login as string | null) ?? '—',
@@ -206,8 +240,7 @@ export async function buildAdoptionReport(pool: Pool): Promise<{ buffer: Buffer;
         cell.value = v;
         cell.font = { size: 9 };
         if (i > 2) cell.alignment = { horizontal: 'center' };
-        if (i === 6) cell.numFmt = '0.0';
-        if (i === 8) cell.numFmt = '0.0';
+        if (COLS[i]?.fmt) cell.numFmt = COLS[i].fmt!;
       });
       // Somebody who has never signed in is the finding, so it is marked rather
       // than left as a row of zeros the eye slides over.
@@ -225,7 +258,9 @@ export async function buildAdoptionReport(pool: Pool): Promise<{ buffer: Buffer;
 
   // Bars inside the hours and actions columns, so the table reads at a glance
   // without anybody having to sort it.
-  for (const [colLetter, colour] of [['G', 'FF0A3D8F'], ['X', 'FF16A34A']]) {
+  for (const [colLetter, colour] of COLS
+    .map((col, i) => [L(i + 1), col.bar] as const)
+    .filter((x): x is readonly [string, string] => Boolean(x[1]))) {
     ws.addConditionalFormatting({
       ref: `${colLetter}${HEAD_ROW + 1}:${colLetter}${LAST_ROW}`,
       // `color` is honoured by the XML writer but missing from ExcelJS's typings.
@@ -304,10 +339,6 @@ export async function buildAdoptionReport(pool: Pool): Promise<{ buffer: Buffer;
     ws.getCell(TREND_HEAD + 1 + i, CH_COL + 4).value = num(u.audited_actions);
   });
 
-  const L = (n: number) => {                                   // 1-based column → A1 letter
-    let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = (n - m - 1) / 26; }
-    return s;
-  };
   const first = TREND_HEAD + 1, lastTop = TREND_HEAD + topHours.length, lastM = TREND_HEAD + months.length;
 
   const charts = [
