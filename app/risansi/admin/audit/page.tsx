@@ -4,6 +4,8 @@ import { Topbar, Tag } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser } from '@/lib/risansi-auth';
 import { AccessDenied } from '../_components/AccessDenied';
+import { AuditOverall } from '@/components/risansi/AuditOverall';
+import { loadOverall, OVERALL_WINDOWS, type OverallData } from '@/lib/risansi-audit-overall';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,8 +21,9 @@ interface ExhibitionAuditRow {
   amount: number | null; existing_client: boolean | null;
 }
 
-type Tab = 'usage' | 'logins' | 'activity' | 'changes' | 'exhibitions';
+type Tab = 'overall' | 'usage' | 'logins' | 'activity' | 'changes' | 'exhibitions';
 const TABS: { id: Tab; label: string }[] = [
+  { id: 'overall',  label: 'Overall' },
   { id: 'usage',    label: 'Usage & Time' },
   { id: 'logins',   label: 'Logins & Sessions' },
   { id: 'activity', label: 'Activity' },
@@ -78,11 +81,13 @@ export default async function AuditPage({
   }
 
   const sp = await searchParams;
-  const tab: Tab = (typeof sp.tab === 'string' && TABS.some(t => t.id === sp.tab) ? sp.tab : 'usage') as Tab;
+  const tab: Tab = (typeof sp.tab === 'string' && TABS.some(t => t.id === sp.tab) ? sp.tab : 'overall') as Tab;
   const win = typeof sp.win === 'string' && WINDOWS.some(w => w.id === sp.win) ? sp.win : '7d';
   const winInterval = WINDOWS.find(w => w.id === win)?.interval ?? null;
   const winClause = winInterval ? `AND occurred_at >= NOW() - INTERVAL '${winInterval}'` : '';
   const selUser = typeof sp.user === 'string' ? sp.user.trim().toLowerCase() : '';
+  const ovWin = typeof sp.win === 'string' && OVERALL_WINDOWS.some(w => w.id === sp.win) ? sp.win : '30d';
+  const ovRole = typeof sp.role === 'string' && ['rep', 'manager', 'admin', 'sysadmin'].includes(sp.role) ? sp.role : '';
   const qStr = typeof sp.q === 'string' ? sp.q.trim() : '';
   const evt  = typeof sp.event === 'string' ? sp.event : '';
   const act  = typeof sp.action === 'string' ? sp.action : '';
@@ -106,8 +111,18 @@ export default async function AuditPage({
   let logins: LoginRow[] = [], activity: ActivityRow[] = [], changes: ChangeRow[] = [];
   let exhibitionRows: ExhibitionAuditRow[] = [];
   let usageUsers: UsageUser[] = [], usagePages: UsagePage[] = [], usageSessions: UsageSession[] = [];
+  let overall: OverallData | null = null;
+  let overallPeople: { email: string; name: string }[] = [];
 
-  if (tab === 'usage') {
+  if (tab === 'overall') {
+    [overall, overallPeople] = await Promise.all([
+      q<OverallData | null>(() => loadOverall(risansiPool, { win: ovWin, role: ovRole, user: selUser }), null),
+      q<{ email: string; name: string }[]>(async () => (await risansiPool.query<{ email: string; name: string }>(
+        `SELECT lower(email) AS email, COALESCE(NULLIF(name,''), email) AS name
+           FROM users WHERE is_active AND COALESCE(email,'') <> ''
+          ORDER BY 2`)).rows, []),
+    ]);
+  } else if (tab === 'usage') {
     if (selUser) {
       [usagePages, usageSessions] = await Promise.all([
         q<UsagePage[]>(async () => (await risansiPool.query<UsagePage>(
@@ -277,7 +292,11 @@ export default async function AuditPage({
           ))}
         </div>
 
-        {tab === 'usage' ? (
+        {tab === 'overall' ? (
+          overall
+            ? <AuditOverall d={overall} win={ovWin} role={ovRole} user={selUser} people={overallPeople} />
+            : <div style={{ padding: 30, textAlign: 'center', color: 'var(--fg-3)', fontSize: 13 }}>Could not load the overview.</div>
+        ) : tab === 'usage' ? (
           <UsageView users={usageUsers} pages={usagePages} sessions={usageSessions} selUser={selUser} win={win} />
         ) : (<>
         {/* Search + filters */}
