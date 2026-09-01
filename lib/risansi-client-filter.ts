@@ -53,6 +53,7 @@ export function buildClientFilter(
   const sugarFilt = str('sugar');
   const indFilts  = list('industry');
   const zoneFilts = list('zone');
+  const countryFilts = list('country');
   const tierFilts  = list('tier');
   const ctypeFilts = list('ctype');
   const statFilts  = list('status').map(s => s.toUpperCase());
@@ -73,6 +74,10 @@ export function buildClientFilter(
   }
   if (indFilts.length)  whereConditions.push(`c.industry = ANY($${params.push(indFilts)}::text[])`);
   if (zoneFilts.length) whereConditions.push(`tr.zone = ANY($${params.push(zoneFilts)}::text[])`);
+  // Country sits on the client, unlike zone which comes from its route. Trimmed
+  // on the way in because the column is free text and a stray space would make
+  // a value that matches nothing the dropdown could ever offer.
+  if (countryFilts.length) whereConditions.push(`btrim(c.country) = ANY($${params.push(countryFilts)}::text[])`);
   if (tierFilts.length) whereConditions.push(`c.tier = ANY($${params.push(tierFilts)}::text[])`);
   if (ctypeFilts.length) whereConditions.push(`c.client_type = ANY($${params.push(ctypeFilts)}::text[])`);
   // The Prospectives tab constrains the list to the two prospective statuses.

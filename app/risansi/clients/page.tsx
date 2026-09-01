@@ -47,6 +47,7 @@ export default async function ClientListPage({
   // Multi-select filters — comma-separated in URL
   const indFilts  = typeof sp.industry === 'string' && sp.industry ? sp.industry.split(',').filter(Boolean) : [];
   const zoneFilts = typeof sp.zone     === 'string' && sp.zone     ? sp.zone.split(',').filter(Boolean)     : [];
+  const countryFilts = typeof sp.country === 'string' && sp.country ? sp.country.split(',').filter(Boolean) : [];
   const tierFilts = typeof sp.tier     === 'string' && sp.tier     ? sp.tier.split(',').filter(Boolean)     : [];
   const ctypeFilts = typeof sp.ctype   === 'string' && sp.ctype    ? sp.ctype.split(',').filter(Boolean)    : [];
   const statFilts = typeof sp.status   === 'string' && sp.status   ? sp.status.split(',').filter(Boolean).map(s => s.toUpperCase()) : [];
@@ -55,7 +56,7 @@ export default async function ClientListPage({
   const revFilts  = typeof sp.rev      === 'string' && sp.rev      ? sp.rev.split(',').filter(Boolean)      : [];
   const visitFilts = typeof sp.visit   === 'string' && sp.visit    ? sp.visit.split(',').filter(Boolean)    : [];
 
-  const hasActiveFilters = !!(q_str || sugarFilt || indFilts.length || zoneFilts.length || tierFilts.length || ctypeFilts.length || statFilts.length || repFilts.length || fyFilts.length || revFilts.length || visitFilts.length);
+  const hasActiveFilters = !!(q_str || sugarFilt || indFilts.length || zoneFilts.length || countryFilts.length || tierFilts.length || ctypeFilts.length || statFilts.length || repFilts.length || fyFilts.length || revFilts.length || visitFilts.length);
   const sortCol = SORT_MAP[sortKey] ?? 'c.last_visit_date';
 
   // ── WHERE + params (shared with the Excel export so they always match) ──
@@ -103,7 +104,7 @@ export default async function ClientListPage({
   }
 
   // ── All queries in parallel ────────────────────────────────────
-  const [clients, total, tabCounts, prospStats, industries, zones, tiers, clientTypes, repOptions, fyYears, revBuckets, visitBuckets] = await Promise.all([
+  const [clients, total, tabCounts, prospStats, industries, zones, countries, tiers, clientTypes, repOptions, fyYears, revBuckets, visitBuckets] = await Promise.all([
 
     (async (): Promise<ClientRow[]> => {
       try {
@@ -226,6 +227,21 @@ export default async function ClientListPage({
           `SELECT DISTINCT zone FROM tour_routes WHERE zone IS NOT NULL AND zone <> '' ORDER BY zone`,
         );
         return rows.map(r => r.zone);
+      } catch { return []; }
+    })(),
+
+    // Country options, with counts. 2,535 of 2,757 clients are in India and the
+    // other 49 countries hold a handful each, so the count is what makes the
+    // list readable — without it every export market looks the same size.
+    (async (): Promise<{ country: string; n: number }[]> => {
+      try {
+        const { rows } = await risansiPool.query<{ country: string; n: number }>(
+          `SELECT btrim(country) AS country, count(*)::int AS n
+             FROM clients
+            WHERE btrim(COALESCE(country,'')) <> '' AND deleted_at IS NULL
+            GROUP BY 1 ORDER BY 2 DESC, 1`,
+        );
+        return rows;
       } catch { return []; }
     })(),
 
@@ -388,6 +404,7 @@ export default async function ClientListPage({
   if (tierFilts.length) exportQs.set('tier', tierFilts.join(','));
   if (ctypeFilts.length) exportQs.set('ctype', ctypeFilts.join(','));
   if (statFilts.length) exportQs.set('status', statFilts.join(','));
+  if (countryFilts.length) exportQs.set('country', countryFilts.join(','));
   if (repFilts.length)  exportQs.set('rep', repFilts.join(','));
   if (fyFilts.length)   exportQs.set('fy', fyFilts.join(','));
   if (revFilts.length)  exportQs.set('rev', revFilts.join(','));
@@ -563,6 +580,9 @@ export default async function ClientListPage({
             <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fg-3)', marginRight: 2 }}>Filter</span>
             <MultiSelectFilter param="industry" label="Industry"       options={industries}      selected={indFilts}  />
             <MultiSelectFilter param="zone"     label="Zone"           options={zones}           selected={zoneFilts} />
+            <MultiSelectFilter param="country"  label="Country"
+              options={countries.map(c => ({ value: c.country, label: c.country, count: c.n }))}
+              selected={countryFilts} />
             <MultiSelectFilter param="tier"     label="Tier"           options={tiers}           selected={tierFilts} />
             <MultiSelectFilter param="ctype"    label="Client Type"    options={clientTypes}     selected={ctypeFilts} />
             {/* On the Prospectives tab the Status filter narrows WITHIN the tab
@@ -584,6 +604,7 @@ export default async function ClientListPage({
         <ActiveFilterBar filters={[
           { param: 'industry', label: 'Industry', values: indFilts  },
           { param: 'zone',     label: 'Zone',     values: zoneFilts },
+          { param: 'country',  label: 'Country',  values: countryFilts },
           { param: 'tier',     label: 'Tier',     values: tierFilts },
           { param: 'ctype',    label: 'Client Type', values: ctypeFilts },
           { param: 'status',   label: 'Status',   values: statFilts, valueLabels: CLIENT_STATUS_LABELS },
