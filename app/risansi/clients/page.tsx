@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import Link from 'next/link';
+import { ExportColumnsButton } from '@/components/risansi/ExportColumnsButton';
 import { Topbar, Tag, StatusDot, MultiSelectFilter, ActiveFilterBar, SortableTH, Donut } from '@/components/risansi';
 import { MobileSort } from '@/components/risansi/MobileSort';
 import risansiPool from '@/lib/db-risansi';
@@ -413,18 +414,13 @@ export default async function ClientListPage({
               {tab === 'prospective' ? 'Prospective leads & clients' : 'Client master'} · {total.toLocaleString('en-IN')} records
             </div>
           </div>
-          <a
+          {/* Opens the column picker rather than downloading straight away. The
+              filters still ride on exportHref; the picker only adds ?cols=. */}
+          <ExportColumnsButton
             href={exportHref}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0,
-              padding: '8px 14px', borderRadius: 'var(--radius)', border: '1px solid var(--line-strong)',
-              background: 'var(--bg-paper)', color: 'var(--fg)', fontSize: 12.5, fontWeight: 600,
-              textDecoration: 'none', whiteSpace: 'nowrap',
-            }}
-            title={hasActiveFilters ? 'Export the filtered clients to Excel' : 'Export all visible clients to Excel'}
-          >
-            ⭳ Export{hasActiveFilters ? ' (filtered)' : ''} · {total.toLocaleString('en-IN')}
-          </a>
+            count={total}
+            label={`⭳ Export${hasActiveFilters ? ' (filtered)' : ''} · ${total.toLocaleString('en-IN')}`}
+          />
         </div>
 
         {/* ── Tabs ─────────────────────────────────────────────── */}

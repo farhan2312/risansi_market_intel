@@ -4,6 +4,8 @@ import ExcelJS from 'exceljs';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser } from '@/lib/risansi-auth';
 import { OWNERS_SUBQUERY, REV_JOIN, buildClientFilter } from '@/lib/risansi-client-filter';
+import { clientPrimaryRepSql, clientSecondaryNamesSql, clientManagerNamesSql } from '@/lib/risansi-client-rep';
+import { resolveExportColumns } from '@/lib/risansi-client-export-columns';
 import { getCurrentFY } from '@/lib/risansi-utils';
 import { clientStatusLabel } from '@/lib/risansi-client-status';
 
@@ -18,6 +20,7 @@ interface Row {
   country: string | null; zone: string | null; state: string | null; city: string | null;
   address: string | null; google_maps_url: string | null;
   tour_name: string | null; reps: string | null;
+  primary_rep: string | null; secondary_reps: string | null; managers: string | null;
   lifetime_rev: number; fy_rev: number; total_outstanding: number; outstanding_as_of: string | null;
   open_pipeline_inr: number; open_opps: number;
   last_visit_date: string | null; days_since_last_visit: number | null;
@@ -53,6 +56,12 @@ export async function GET(req: Request) {
          c.country, tr.zone AS zone, c.state, c.city, c.address, c.google_maps_url,
          tr.name AS tour_name,
          COALESCE(${OWNERS_SUBQUERY}, '') AS reps,
+         -- The owner alone, and the cover alone. The reps column above joins them
+         -- into one string, which cannot answer "whose account is this" — the
+         -- question the other systems consuming this file actually ask.
+         (SELECT u.name FROM users u WHERE u.id = ${clientPrimaryRepSql('c.id')}) AS primary_rep,
+         ${clientSecondaryNamesSql('c.id')} AS secondary_reps,
+         ${clientManagerNamesSql('c.id')} AS managers,
          COALESCE(rev.lifetime_rev, 0)::float8 AS lifetime_rev,
          (SELECT COALESCE(SUM(m.total_value), 0) FROM client_revenue_monthly m
             WHERE m.client_id = c.id AND m.month >= $${fyStartIdx} AND m.month < $${fyEndIdx})::float8 AS fy_rev,
@@ -80,49 +89,59 @@ export async function GET(req: Request) {
     return new NextResponse('Export failed', { status: 500 });
   }
 
-  // Ordered columns: header, width, value accessor, and number format (money is
-  // kept numeric so it stays analysable in Excel).
+  // Value per column key. Order, labels and widths live in
+  // lib/risansi-client-export-columns.ts, which the picker reads too — so a
+  // ticked column can never come out holding a different column's values.
+  const VALUE: Record<string, (r: Row) => string | number> = {
+    code:              r => r.code,
+    legal_name:        r => r.legal_name,
+    trade_name:        r => r.trade_name ?? '',
+    group_name:        r => r.group_name ?? '',
+    industry:          r => r.industry ?? '',
+    client_type:       r => r.client_type ?? '',
+    tier:              r => r.tier ?? '',
+    status:            r => (r.status ? clientStatusLabel(r.status) : ''),
+    market_type:       r => r.market_type ?? '',
+    is_sugar:          r => yn(r.is_sugar),
+    is_tender:         r => yn(r.is_tender),
+    is_end_client:     r => yn(r.is_end_client),
+    capacity_bracket:  r => r.capacity_bracket ?? '',
+    tcd:               r => r.tcd ?? '',
+    klpd:              r => r.klpd ?? '',
+    since_year:        r => r.since_year ?? '',
+    country:           r => r.country ?? '',
+    zone:              r => r.zone ?? '',
+    state:             r => r.state ?? '',
+    city:              r => r.city ?? '',
+    address:           r => r.address ?? '',
+    google_maps_url:   r => r.google_maps_url ?? '',
+    tour_name:         r => r.tour_name ?? '',
+    primary_rep:       r => r.primary_rep ?? '',
+    secondary_reps:    r => r.secondary_reps ?? '',
+    reps:              r => r.reps ?? '',
+    managers:          r => r.managers ?? '',
+    lifetime_rev:      r => Math.round(r.lifetime_rev),
+    fy_rev:            r => Math.round(r.fy_rev),
+    total_outstanding: r => Math.round(r.total_outstanding),
+    outstanding_as_of: r => r.outstanding_as_of ?? '',
+    open_pipeline_inr: r => Math.round(r.open_pipeline_inr),
+    open_opps:         r => r.open_opps,
+    last_visit_date:   r => r.last_visit_date ?? '',
+    days_since:        r => r.days_since_last_visit ?? '',
+    total_visits:      r => r.total_visits,
+    contacts_count:    r => r.contacts_count,
+    created_by:        r => r.created_by ?? '',
+    created_at:        r => (r.created_at ? r.created_at.slice(0, 10) : ''),
+    updated_by:        r => r.updated_by ?? '',
+    updated_at:        r => (r.updated_at ? r.updated_at.slice(0, 10) : ''),
+  };
+
   const MONEY = '#,##0';
-  const COLS: Array<{ h: string; w: number; f: (r: Row) => string | number; fmt?: string }> = [
-    { h: 'Client Code', w: 14, f: r => r.code },
-    { h: 'Legal Name', w: 30, f: r => r.legal_name },
-    { h: 'Trade Name', w: 22, f: r => r.trade_name ?? '' },
-    { h: 'Group Name', w: 22, f: r => r.group_name ?? '' },
-    { h: 'Industry', w: 16, f: r => r.industry ?? '' },
-    { h: 'Client Type', w: 14, f: r => r.client_type ?? '' },
-    { h: 'Tier', w: 10, f: r => r.tier ?? '' },
-    { h: 'Status', w: 16, f: r => r.status ? clientStatusLabel(r.status) : '' },
-    { h: 'Market Type', w: 12, f: r => r.market_type ?? '' },
-    { h: 'Sugar', w: 7, f: r => yn(r.is_sugar) },
-    { h: 'Tender', w: 8, f: r => yn(r.is_tender) },
-    { h: 'End Client', w: 10, f: r => yn(r.is_end_client) },
-    { h: 'Capacity Bracket', w: 16, f: r => r.capacity_bracket ?? '' },
-    { h: 'TCD', w: 8, f: r => r.tcd ?? '' },
-    { h: 'KLPD', w: 8, f: r => r.klpd ?? '' },
-    { h: 'Customer Since', w: 16, f: r => r.since_year ?? '' },
-    { h: 'Country', w: 12, f: r => r.country ?? '' },
-    { h: 'Zone', w: 12, f: r => r.zone ?? '' },
-    { h: 'State', w: 14, f: r => r.state ?? '' },
-    { h: 'City', w: 16, f: r => r.city ?? '' },
-    { h: 'Address', w: 34, f: r => r.address ?? '' },
-    { h: 'Google Maps URL', w: 26, f: r => r.google_maps_url ?? '' },
-    { h: 'Tour / Route', w: 18, f: r => r.tour_name ?? '' },
-    { h: 'Rep(s)', w: 24, f: r => r.reps ?? '' },
-    { h: 'Lifetime Revenue (₹)', w: 18, f: r => Math.round(r.lifetime_rev), fmt: MONEY },
-    { h: 'Current FY Revenue (₹)', w: 18, f: r => Math.round(r.fy_rev), fmt: MONEY },
-    { h: 'Total Outstanding (₹)', w: 18, f: r => Math.round(r.total_outstanding), fmt: MONEY },
-    { h: 'Outstanding As Of', w: 16, f: r => r.outstanding_as_of ?? '' },
-    { h: 'Open Pipeline (₹)', w: 16, f: r => Math.round(r.open_pipeline_inr), fmt: MONEY },
-    { h: 'Open Opportunities', w: 16, f: r => r.open_opps },
-    { h: 'Last Visit Date', w: 14, f: r => r.last_visit_date ?? '' },
-    { h: 'Days Since Last Visit', w: 18, f: r => r.days_since_last_visit ?? '' },
-    { h: 'Total Visits', w: 12, f: r => r.total_visits },
-    { h: 'Contacts', w: 10, f: r => r.contacts_count },
-    { h: 'Created By', w: 16, f: r => r.created_by ?? '' },
-    { h: 'Created On', w: 12, f: r => (r.created_at ? r.created_at.slice(0, 10) : '') },
-    { h: 'Updated By', w: 16, f: r => r.updated_by ?? '' },
-    { h: 'Updated On', w: 12, f: r => (r.updated_at ? r.updated_at.slice(0, 10) : '') },
-  ];
+  const COLS = resolveExportColumns(new URL(req.url).searchParams.get('cols'))
+    .map(c => ({ h: c.label, w: c.width, f: VALUE[c.key], fmt: c.money ? MONEY : undefined }))
+    // A key in the catalogue with no accessor here would write undefined into
+    // every row. Drop it rather than ship a column of blanks.
+    .filter(c => typeof c.f === 'function');
 
   const stamp = new Date().toISOString().slice(0, 10);
   const wb = new ExcelJS.Workbook();
