@@ -153,7 +153,13 @@ export const OPP_FIELDS: OppFieldDef[] = [
   { name: 'hold_reason', label: 'Hold Reason', kind: 'select', asked: 'On Hold', onlyStages: ['On Hold'], requiredAt: ['On Hold'], options: HOLD_REASONS },
 
   // ── Won ─────────────────────────────────────────────────────
-  { name: 'final_value_inr', label: 'Sale Order Value (₹)', kind: 'inr',  asked: 'Won', onlyStages: ['Won'], requiredAt: ['Won'] },
+  // The PO is what makes a deal Won, so its number and date are required. The
+  // Sale Order is a later step and often days or weeks behind the PO — demanding
+  // it at the same moment either blocked a real win or invited a placeholder
+  // number that then had to be corrected. Left blank, every figure that reads it
+  // falls back to the quoted value via COALESCE(final_value_cr, value_cr).
+  { name: 'final_value_inr', label: 'Sale Order Value (₹)', kind: 'inr',  asked: 'Won', onlyStages: ['Won'],
+    help: 'Optional — add it when the Sale Order comes through. Until then, Order in Hand uses the quoted value.' },
   { name: 'po_number',       label: 'PO Number',            kind: 'text', asked: 'Won', onlyStages: ['Won'], requiredAt: ['Won'], placeholder: 'e.g. PO-2024-0182' },
   { name: 'po_date',         label: 'PO Date',              kind: 'date', asked: 'Won', onlyStages: ['Won'], requiredAt: ['Won'] },
 

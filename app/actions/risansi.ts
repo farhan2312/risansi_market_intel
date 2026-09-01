@@ -19,7 +19,7 @@ import { poInrToCr, type PurchaseOrder } from '@/lib/risansi-purchase-orders';
 import { notifyVisitPlanned } from '@/lib/risansi-email';
 import { pushInApp } from '@/lib/risansi-inapp';
 import { notifyCheckIn, notifyOppClosed, notifySalesOrder, notifyNewLead, notifyQuotationIssued } from '@/lib/risansi-notify';
-import { requiredFieldNames, labelsFor, CREATE_STAGES, STAGE_PROB, isDropReason, type CreateStage } from '@/lib/risansi-opportunity-fields';
+import { requiredFieldNames, labelsFor, OPP_FIELDS, CREATE_STAGES, STAGE_PROB, isDropReason, type CreateStage } from '@/lib/risansi-opportunity-fields';
 import { pctForProbabilityCode } from '@/lib/risansi-probability-codes';
 import { normaliseIndustry } from '@/lib/risansi-utils';
 import { parseMoneyInput, parsePositiveMoney, moneyToCr } from '@/lib/risansi-money';
@@ -916,9 +916,9 @@ export async function createOpportunity(clientId: string, formData: FormData) {
 
   const product  = (formData.get('product')  as string | null)?.trim() ?? 'New Opportunity';
   const stage    = (formData.get('stage')    as string | null)?.trim() ?? 'Suspect';
-  // Won requires a Sales Order — only the pipeline create/complete flow captures
-  // it, so this legacy quick-create can't mint a Won directly.
-  if (stage === 'Won') throw new Error('Mark an opportunity Won from the Opportunities pipeline (a Sales Order is required).');
+  // Won needs a PO number and date, which only the pipeline create/complete flow
+  // captures, so this legacy quick-create cannot mint a Won directly.
+  if (stage === 'Won') throw new Error('Mark an opportunity Won from the Opportunities pipeline, where the PO number and date are captured.');
   const valueCr  = parseMoneyInput(formData.get('estimated_value'));
   const prob     = formData.get('probability') ? parseInt(formData.get('probability') as string) : null;
   const eta      = (formData.get('eta_text') as string | null)?.trim() ||
@@ -1087,7 +1087,11 @@ export async function createPipelineOpportunity(formData: FormData) {
     if (name === 'offer_value_inr') return offerInr != null && offerInr > 0;
     const v = formData.get(name);
     if (v == null || String(v).trim() === '') return false;
-    if (name === 'value_inr' || name === 'final_value_inr') return (parsePositiveMoney(v) ?? 0) > 0;
+    // A money field present but zero is not filled in. Kept general rather than
+    // named per field: final_value_inr no longer needs it (the Sale Order value
+    // is optional at Won), and hard-coding the survivors would just have to be
+    // revisited the next time a required money field is added.
+    if (OPP_FIELDS.some(f => f.name === name && f.kind === 'inr')) return (parsePositiveMoney(v) ?? 0) > 0;
     return true;
   };
   const missing = requiredFieldNames(stage).filter(n => !filled(n));
@@ -1979,8 +1983,8 @@ export async function submitOpportunity(formData: FormData) {
   const product     = (formData.get('product')       as string | null)?.trim() ?? 'New Opportunity';
   const productType = (formData.get('product_type')  as string | null)?.trim() ?? 'PCP';
   const stage       = (formData.get('stage')         as string | null)?.trim() ?? 'Suspect';
-  // Won requires a Sales Order (captured only by the pipeline create/complete flow).
-  if (stage === 'Won') throw new Error('Mark an opportunity Won from the Opportunities pipeline (a Sales Order is required).');
+  // Won needs a PO number and date, captured only by the pipeline create/complete flow.
+  if (stage === 'Won') throw new Error('Mark an opportunity Won from the Opportunities pipeline, where the PO number and date are captured.');
   const valueInr    = parseMoneyInput(formData.get('value_inr')) ?? 0;
   const valueCr     = valueInr > 0 ? valueInr / 10_000_000 : null;  // Rupees → Crores
   const probability = parseInt((formData.get('probability') as string | null) ?? '0', 10) || null;
