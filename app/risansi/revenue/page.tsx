@@ -269,6 +269,21 @@ export default async function RevenuePage({
 
   // ── Derived ─────────────────────────────────────────────────
   const delta      = summary.prevTotal > 0 ? ((summary.total - summary.prevTotal) / summary.prevTotal) * 100 : null;
+
+  // Month on month, derived from the trend rather than a second query: `monthly`
+  // already holds every recorded month for this scope, in order.
+  //
+  // Distinct from the headline delta above, which compares a month against the
+  // SAME MONTH LAST YEAR. Both are worth having and they answer different
+  // questions -- year-on-year takes the seasonality out, month-on-month is what
+  // actually changed since the last billing run -- so the card carries both
+  // rather than one standing in for the other.
+  const momRows = monthly.map((m, i) => {
+    const prev = i > 0 ? monthly[i - 1] : null;
+    const change = prev && prev.total > 0 ? ((m.total - prev.total) / prev.total) * 100 : null;
+    return { ...m, prevTotal: prev?.total ?? null, change };
+  });
+  const momSelected = monthSel ? momRows.find(r => r.ym === monthSel) ?? null : null;
   const pumpPct    = summary.total > 0 ? (summary.pump / summary.total) * 100 : 0;
   const sparePct   = summary.total > 0 ? (summary.spare / summary.total) * 100 : 0;
   const maxIndustry = Math.max(...byIndustry.map(r => r.total), 1);
@@ -345,8 +360,14 @@ export default async function RevenuePage({
             {/* Section 2 — KPI strip */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 14 }}>
               <Kpi label={monthSel ? 'Period Total' : `${fyLabel(selectedFy)} Total`} value={formatRev(summary.total)}
-                sub={delta != null ? `${delta >= 0 ? '▲' : '▼'} ${delta >= 0 ? '+' : ''}${delta.toFixed(1)}% vs ${monthSel ? 'LY' : fyLabel(selectedFy - 1)}` : 'no prior-period data'}
-                subColor={delta == null ? 'var(--fg-3)' : delta >= 0 ? 'var(--pos)' : 'var(--neg)'} />
+                sub={delta != null ? `${delta >= 0 ? '▲' : '▼'} ${delta >= 0 ? '+' : ''}${delta.toFixed(1)}% vs ${monthSel ? 'same month LY' : fyLabel(selectedFy - 1)}` : 'no prior-period data'}
+                subColor={delta == null ? 'var(--fg-3)' : delta >= 0 ? 'var(--pos)' : 'var(--neg)'}
+                sub2={momSelected
+                  ? (momSelected.change != null
+                      ? `${momSelected.change >= 0 ? '▲' : '▼'} ${momSelected.change >= 0 ? '+' : ''}${momSelected.change.toFixed(1)}% vs ${monthLabel(monthly[monthly.findIndex(x => x.ym === monthSel) - 1]?.ym ?? '')}`
+                      : 'no prior month recorded')
+                  : undefined}
+                sub2Color={momSelected?.change == null ? 'var(--fg-3)' : momSelected.change >= 0 ? 'var(--pos)' : 'var(--neg)'} />
               <Kpi label="Pump Revenue" value={formatRev(summary.pump)} sub={`${pumpPct.toFixed(0)}% of total`} />
               <Kpi label="Spare Revenue" value={formatRev(summary.spare)} sub={`${sparePct.toFixed(0)}% of total`} />
               <Kpi label="Clients Billed" value={summary.billed.toLocaleString('en-IN')} sub={`of ${activeClients.toLocaleString('en-IN')} active clients`} />
@@ -473,6 +494,51 @@ export default async function RevenuePage({
               </div>
             </div>
 
+            {/* Section 5b — month on month. The chart above shows the shape; this
+                puts a number on each step, which is what gets quoted in a review. */}
+            <div style={{ ...PANEL, marginBottom: 14 }}>
+              <div style={PANEL_H}>
+                <span style={PANEL_TITLE}>Month on Month</span>
+                <span style={META}>each month against the one before · ₹ Lakhs</span>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                {momRows.length < 2 ? <Empty>Not enough recorded months to compare</Empty> : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <thead>
+                      <tr>{['Month', 'Pump', 'Spare', 'Total', 'Prev month', 'Change', '%'].map((h, i) => (
+                        <th key={h} style={{ ...TH, textAlign: i === 0 ? 'left' : 'right' }}>{h}</th>
+                      ))}</tr>
+                    </thead>
+                    <tbody>
+                      {[...momRows].reverse().map(m => {
+                        const diff = m.prevTotal == null ? null : m.total - m.prevTotal;
+                        const tone = m.change == null ? 'var(--fg-3)' : m.change >= 0 ? 'var(--pos)' : 'var(--neg)';
+                        return (
+                          <tr key={m.ym} style={{ background: m.ym === monthSel ? 'var(--bg-elev)' : undefined }}>
+                            <td style={{ ...TD, fontWeight: m.ym === monthSel ? 700 : 500 }}>
+                              <a href={buildUrl({ month: m.ym })} style={{ color: 'inherit', textDecoration: 'none' }}>
+                                {monthLabelLong(m.ym)}
+                              </a>
+                            </td>
+                            <td style={NUM}>{lakh(m.pump)}</td>
+                            <td style={NUM}>{lakh(m.spare)}</td>
+                            <td style={{ ...NUM, fontWeight: 600 }}>{lakh(m.total)}</td>
+                            <td style={{ ...NUM, color: 'var(--fg-3)' }}>{m.prevTotal == null ? '—' : lakh(m.prevTotal)}</td>
+                            <td style={{ ...NUM, color: tone }}>
+                              {diff == null ? '—' : `${diff >= 0 ? '+' : '−'}${lakh(Math.abs(diff))}`}
+                            </td>
+                            <td style={{ ...NUM, color: tone, fontWeight: 600 }}>
+                              {m.change == null ? '—' : `${m.change >= 0 ? '▲' : '▼'} ${Math.abs(m.change).toFixed(1)}%`}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+
             {/* Section 6 — top clients (interactive) */}
             <div style={{ marginBottom: 14 }}>
               <RevenueTopClients clients={topClients} />
@@ -585,15 +651,30 @@ function MonthlyTrend({ rows, selected }: { rows: MonthPoint[]; selected: string
 
 // ── Small sub-components ───────────────────────────────────────
 
-function Kpi({ label, value, sub, subColor }: { label: string; value: string; sub: string; subColor?: string }) {
+function Kpi({ label, value, sub, subColor, sub2, sub2Color }: {
+  label: string; value: string; sub: string; subColor?: string;
+  // A second comparison line. A month has two worth quoting — against the same
+  // month last year, and against the month before — and picking one would leave
+  // the reader doing the other in their head.
+  sub2?: string; sub2Color?: string;
+}) {
   return (
     <div style={{ ...PANEL, borderLeft: '3px solid var(--title)', padding: 16 }}>
       <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fg-3)', marginBottom: 6 }}>{label}</div>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700, color: 'var(--fg)', letterSpacing: '-0.02em' }}>{value}</div>
       <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: subColor ?? 'var(--fg-3)', marginTop: 4 }}>{sub}</div>
+      {sub2 && <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: sub2Color ?? 'var(--fg-3)', marginTop: 2 }}>{sub2}</div>}
     </div>
   );
 }
+
+// Rupees as lakhs, for the month-on-month table where every figure is a lakh
+// or two and full rupee amounts would be unreadable side by side.
+function lakh(v: number): string {
+  return (v / INR_TO_L).toFixed(2);
+}
+
+const NUM: CSSProperties = { padding: '7px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', borderBottom: '1px solid var(--line-2)' };
 
 function Empty({ children }: { children: React.ReactNode }) {
   return <div style={{ fontSize: 12, color: 'var(--fg-3)', textAlign: 'center', padding: '32px 0' }}>{children}</div>;
