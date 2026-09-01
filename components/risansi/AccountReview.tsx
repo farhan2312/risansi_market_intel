@@ -22,6 +22,26 @@ export interface GroupUnit {
   spareByFy: (number | null)[];
   actions: string[];
 }
+/**
+ * This fiscal year's trading position, for the account being reviewed.
+ *
+ * The five-year tables answer "how has this account behaved"; this answers "where
+ * does it stand right now", which is the question somebody opens an account
+ * review to ask and the one the page could not previously answer.
+ *
+ * Order in hand is Won less what has already gone onto a sales order, so it is
+ * work owed rather than work booked -- the same definition the TSM review and the
+ * dashboard use, deliberately, so the two never disagree.
+ */
+export interface CurrentFyView {
+  label: string;              // e.g. '26-27'
+  pendingValue: number; pendingCount: number;
+  wonValue: number;     wonCount: number;
+  orderInHand: number;
+  lostValue: number;    lostCount: number;
+  revenue: number;
+}
+
 export interface GroupReviewData {
   group: string;
   fys: string[];
@@ -30,6 +50,7 @@ export interface GroupReviewData {
   sparesPerPumpAvg: number | null;
   attention: string[];
   complaints: { year: number; nature: string; count: number }[];
+  currentFy: CurrentFyView;
 }
 
 export interface OemReviewData {
@@ -40,9 +61,52 @@ export interface OemReviewData {
   stages: string[];
   oppFys: string[];
   oppMatrix: (number | null)[][];   // [stage][fy] → ₹
+  currentFy: CurrentFyView;
 }
 
 // ── Group (Mills) ───────────────────────────────────────────────
+/**
+ * Where this account stands this fiscal year.
+ *
+ * Pending is everything still live -- Prospect through Negotiating and On Hold.
+ * It is deliberately not called "pipeline": that word is used on the opportunity
+ * board for a different set, and two names for two things beats one name for
+ * both.
+ */
+function CurrentFyStrip({ d }: { d: CurrentFyView }) {
+  const decided = d.wonCount + d.lostCount;
+  return (
+    <Panel title={`This Year · FY ${d.label}`}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+        <Fig label="Pending" value={cr(d.pendingValue)}
+             sub={`${d.pendingCount} open opportunit${d.pendingCount === 1 ? 'y' : 'ies'}`} />
+        <Fig label="Order received" value={cr(d.wonValue)}
+             sub={`${d.wonCount} won`} tone="var(--pos)" />
+        <Fig label="Order in hand" value={cr(d.orderInHand)}
+             sub="won · not yet in a sales order" tone="var(--accent)" />
+        <Fig label="Lost" value={cr(d.lostValue)}
+             sub={`${d.lostCount} lost`} tone="var(--neg)" />
+        <Fig label="Revenue" value={cr(d.revenue)} sub="invoiced this FY" />
+      </div>
+      <p style={{ ...DIM, margin: '10px 0 0', fontSize: 10.5 }}>
+        {decided > 0
+          ? `Win rate this year: ${Math.round((d.wonCount / decided) * 100)}% of ${decided} decided.`
+          : 'Nothing decided this year yet, so there is no win rate to quote.'}
+      </p>
+    </Panel>
+  );
+}
+
+function Fig({ label, value, sub, tone }: { label: string; value: string; sub: string; tone?: string }) {
+  return (
+    <div>
+      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--fg-3)', fontWeight: 600 }}>{label}</div>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 17, fontWeight: 700, color: tone ?? 'var(--fg)', marginTop: 3 }}>{value}</div>
+      <div style={{ fontSize: 10.5, color: 'var(--fg-3)', marginTop: 1 }}>{sub}</div>
+    </div>
+  );
+}
+
 export function GroupReview({ d }: { d: GroupReviewData }) {
   const f = d.footprint;
   const sum = (xs: (number | null)[]) => xs.reduce<number>((a, b) => a + (b ?? 0), 0);
@@ -50,6 +114,7 @@ export function GroupReview({ d }: { d: GroupReviewData }) {
 
   return (
     <div style={{ display: 'grid', gap: 12 }}>
+      <CurrentFyStrip d={d.currentFy} />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
         <Kpi label="Units in group" value={String(d.units.length)} />
         <Kpi label="Total pumps" value={String(f.pcpTotal + f.mmpTotal)} sub={`${f.pcpTotal} PCP · ${f.mmpTotal} MMP`} />
@@ -173,6 +238,7 @@ export function GroupReview({ d }: { d: GroupReviewData }) {
 export function OemReview({ d }: { d: OemReviewData }) {
   return (
     <div style={{ display: 'grid', gap: 12 }}>
+      <CurrentFyStrip d={d.currentFy} />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
         <Kpi label={`${d.fys.length}-yr total revenue`} value={cr(d.totalRevenue)} sub={`FY ${d.fys[0]} to ${d.fys[d.fys.length - 1]}`} accent />
         <Kpi label="Avg revenue / yr" value={lakh(d.avgPerYear)} sub="per year average" />

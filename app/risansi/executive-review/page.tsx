@@ -11,6 +11,7 @@ import { ExecDrilldownProvider } from '@/components/risansi/ExecDrilldown';
 // page and its breakdowns cannot classify a client two different ways.
 import { CANON, CATS, TURN_ORDER } from '@/lib/risansi-exec-review';
 import { AccountSelector, ViewSwitch, type NameOpt } from '@/components/risansi/AccountSelector';
+import type { CurrentFyView } from '@/components/risansi/AccountReview';
 import { GroupReview, OemReview, type GroupReviewData, type GroupUnit, type OemReviewData } from '@/components/risansi/AccountReview';
 import { CLIENT_STATUS_COLORS } from '@/lib/risansi-client-status';
 
@@ -99,6 +100,51 @@ export default async function ExecutiveReviewPage({ searchParams }: {
     ];
     const picked = options.some(o => o.value === sp.name) ? sp.name! : (options[0]?.value ?? '');
 
+    // This fiscal year's trading position for a set of clients. April to March,
+    // bucketed on the quotation date and falling back to when the record was
+    // created — the same COALESCE the TSM review and the pipeline use, so an
+    // opportunity lands in the same year wherever it is counted.
+    const fyFrom = `${curFy}-04-01`;
+    const fyTo   = `${curFy + 1}-04-01`;
+    const currentFyFor = async (ids: number[]): Promise<CurrentFyView> => {
+      const empty: CurrentFyView = {
+        label: fyLabel(curFy), pendingValue: 0, pendingCount: 0,
+        wonValue: 0, wonCount: 0, orderInHand: 0, lostValue: 0, lostCount: 0, revenue: 0,
+      };
+      if (!ids.length) return empty;
+      const r = await q<Record<string, string> | null>(async () => (await risansiPool.query(
+        `WITH o AS (
+           SELECT o.id, o.stage,
+                  COALESCE(o.offer_value_inr, o.value_cr * 10000000, 0) AS val,
+                  GREATEST(COALESCE(o.final_value_cr * 10000000, o.value_cr * 10000000, 0)
+                    - COALESCE((SELECT sum(so.so_value_cr) * 10000000
+                                  FROM opportunity_sales_orders so WHERE so.opportunity_id = o.id), 0), 0) AS oih
+             FROM opportunities o
+            WHERE o.client_id = ANY($1)
+              AND COALESCE(o.quote_date, o.created_at::date) >= $2::date
+              AND COALESCE(o.quote_date, o.created_at::date) <  $3::date)
+         SELECT
+           COALESCE(round(sum(val) FILTER (WHERE stage NOT IN ('Won','Lost','Dropped'))),0)::text AS pending_value,
+           count(*) FILTER (WHERE stage NOT IN ('Won','Lost','Dropped'))::text                     AS pending_count,
+           COALESCE(round(sum(val) FILTER (WHERE stage = 'Won')),0)::text                          AS won_value,
+           count(*) FILTER (WHERE stage = 'Won')::text                                             AS won_count,
+           COALESCE(round(sum(oih) FILTER (WHERE stage = 'Won')),0)::text                          AS order_in_hand,
+           COALESCE(round(sum(val) FILTER (WHERE stage = 'Lost')),0)::text                          AS lost_value,
+           count(*) FILTER (WHERE stage = 'Lost')::text                                            AS lost_count,
+           (SELECT COALESCE(round(sum(m.total_value)),0) FROM client_revenue_monthly m
+             WHERE m.client_id = ANY($1) AND m.month >= $2::date AND m.month < $3::date)::text     AS revenue
+         FROM o`, [ids, fyFrom, fyTo])).rows[0] ?? null, null);
+      if (!r) return empty;
+      return {
+        label: fyLabel(curFy),
+        pendingValue: n(r.pending_value), pendingCount: Number(r.pending_count),
+        wonValue: n(r.won_value), wonCount: Number(r.won_count),
+        orderInHand: n(r.order_in_hand),
+        lostValue: n(r.lost_value), lostCount: Number(r.lost_count),
+        revenue: n(r.revenue),
+      };
+    };
+
     const shell = (body: React.ReactNode, title: string, sub: string) => (
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         <div style={{ position: 'sticky', top: 0, zIndex: 10 }}><Topbar crumbs={['Risansi', 'Executive Review']} /></div>
@@ -185,6 +231,7 @@ export default async function ExecutiveReviewPage({ searchParams }: {
         sparesPerPumpAvg: avgPerPump,
         attention: gu.filter(u => u.actions.length).map(u => u.name.replace(/^BALRAMPUR CHINI MILLS.*?[.(]?\s*/i, '').trim() || u.code),
         complaints: comps.map(c => ({ year: c.yr, nature: c.nature, count: Number(c.n) })),
+        currentFy: await currentFyFor(ids),
       };
       return shell(<GroupReview d={data} />, picked, `${gu.length} units · FY ${FYS[0]} to ${FYS[FYS.length - 1]} · live data`);
     }
@@ -222,6 +269,7 @@ export default async function ExecutiveReviewPage({ searchParams }: {
       totalRevenue, avgPerYear: totalRevenue / FYS.length,
       totalPumps: Number(pumps[0]?.n ?? 0),
       stages, oppFys, oppMatrix: stages.map(s => oppFys.map(fy => oMap.get(`${s}|${fy}`) ?? null)),
+      currentFy: await currentFyFor([cid]),
     };
     return shell(<OemReview d={data} />, c0.legal_name, `${c0.code} · ${ctype} · FY ${FYS[0]} to ${FYS[FYS.length - 1]} · live data`);
   }
