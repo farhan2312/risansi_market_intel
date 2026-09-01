@@ -5,7 +5,7 @@ import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser } from '@/lib/risansi-auth';
 import { OWNERS_SUBQUERY, REV_JOIN, buildClientFilter } from '@/lib/risansi-client-filter';
 import { clientPrimaryRepSql, clientSecondaryNamesSql, clientManagerNamesSql } from '@/lib/risansi-client-rep';
-import { resolveExportColumns } from '@/lib/risansi-client-export-columns';
+import { resolveExportColumns, resolveOppColumns } from '@/lib/risansi-client-export-columns';
 import { getCurrentFY } from '@/lib/risansi-utils';
 import { clientStatusLabel } from '@/lib/risansi-client-status';
 
@@ -184,6 +184,130 @@ export async function GET(req: Request) {
       if (c.fmt) cell.numFmt = c.fmt;
     });
   });
+
+  // ── Sheet 2: Opportunities ──────────────────────────────────────
+  //
+  // One row per opportunity, for the same clients the first sheet holds. A
+  // different grain, so it cannot be columns on the client row: a client with
+  // nine opportunities is not a row. Included unless ?opps=0 — "also add
+  // opportunity level data" means it should be there by default.
+  if (new URL(req.url).searchParams.get('opps') !== '0') {
+    const OPP_COLS = resolveOppColumns(new URL(req.url).searchParams.get('oppcols'));
+    interface OppRow {
+      client_code: string; client_name: string; primary_rep: string | null;
+      opp_id: number; stage: string; opp_type: string | null; opp_source: string | null;
+      opp_category: string | null; product_type: string | null; unit_project: string | null;
+      enquiry_no: string | null; enquiry_date: string | null;
+      quote_ref: string | null; quote_date: string | null; market: string | null;
+      offer_value: number; probability: number | null; eta_text: string | null; docs: number;
+      final_value: number; so_value: number; order_in_hand: number;
+      po_number: string | null; po_date: string | null;
+      lost_to: string | null; lost_reason: string | null; drop_reason: string | null;
+      created_on: string | null;
+    }
+
+    let oppRows: OppRow[] = [];
+    try {
+      // Same client predicate as sheet one, so the two sheets can never describe
+      // different sets of clients. The filter's own params are reused as-is.
+      const res = await risansiPool.query<OppRow>(
+        `SELECT c.code AS client_code, c.legal_name AS client_name,
+                (SELECT u.name FROM users u WHERE u.id = ${clientPrimaryRepSql('c.id')}) AS primary_rep,
+                o.id AS opp_id, o.stage,
+                o.opportunity_type AS opp_type, o.opportunity_source AS opp_source,
+                o.opportunity_category AS opp_category, o.product_type, o.unit_project,
+                o.enquiry_no, o.enquiry_date::text AS enquiry_date,
+                o.quote_ref, o.quote_date::text AS quote_date, o.market,
+                COALESCE(o.offer_value_inr, o.value_cr * 10000000, 0)::float8 AS offer_value,
+                o.probability, o.eta_text,
+                (SELECT count(*) FROM opportunity_quotation_files f WHERE f.opportunity_id = o.id)::int AS docs,
+                COALESCE(o.final_value_cr * 10000000, 0)::float8 AS final_value,
+                COALESCE((SELECT sum(so.so_value_cr) * 10000000
+                            FROM opportunity_sales_orders so WHERE so.opportunity_id = o.id), 0)::float8 AS so_value,
+                GREATEST(COALESCE(o.final_value_cr * 10000000, o.value_cr * 10000000, 0)
+                  - COALESCE((SELECT sum(so.so_value_cr) * 10000000
+                                FROM opportunity_sales_orders so WHERE so.opportunity_id = o.id), 0), 0)::float8 AS order_in_hand,
+                o.po_number, o.po_date::text AS po_date,
+                o.lost_to_competitor AS lost_to, o.lost_reason, o.drop_reason,
+                o.created_at::date::text AS created_on
+           FROM opportunities o
+           JOIN clients c ON c.id = o.client_id
+           ${REV_JOIN}
+          WHERE ${whereClause}
+          ORDER BY c.code, o.id`,
+        params as (string | number)[],
+      );
+      oppRows = res.rows;
+    } catch (e) {
+      // A failure here must not cost the user the client sheet they asked for.
+      console.error('[clients export] opportunities sheet failed', e);
+    }
+
+    const OPP_VALUE: Record<string, (r: OppRow) => string | number> = {
+      client_code:   r => r.client_code,
+      client_name:   r => r.client_name,
+      primary_rep:   r => r.primary_rep ?? '',
+      opp_id:        r => r.opp_id,
+      stage:         r => r.stage,
+      opp_type:      r => r.opp_type ?? '',
+      opp_source:    r => r.opp_source ?? '',
+      opp_category:  r => r.opp_category ?? '',
+      product_type:  r => r.product_type ?? '',
+      unit_project:  r => r.unit_project ?? '',
+      enquiry_no:    r => r.enquiry_no ?? '',
+      enquiry_date:  r => r.enquiry_date ?? '',
+      quote_ref:     r => r.quote_ref ?? '',
+      quote_date:    r => r.quote_date ?? '',
+      market:        r => r.market ?? '',
+      offer_value:   r => Math.round(r.offer_value),
+      probability:   r => r.probability ?? '',
+      eta_text:      r => r.eta_text ?? '',
+      docs:          r => r.docs,
+      final_value:   r => Math.round(r.final_value),
+      so_value:      r => Math.round(r.so_value),
+      order_in_hand: r => (r.stage === 'Won' ? Math.round(r.order_in_hand) : ''),
+      po_number:     r => r.po_number ?? '',
+      po_date:       r => r.po_date ?? '',
+      lost_to:       r => r.lost_to ?? '',
+      lost_reason:   r => r.lost_reason ?? '',
+      drop_reason:   r => r.drop_reason ?? '',
+      created_on:    r => r.created_on ?? '',
+    };
+
+    const OC = OPP_COLS
+      .map(c => ({ h: c.label, w: c.width, f: OPP_VALUE[c.key], fmt: c.money ? MONEY : undefined }))
+      .filter(c => typeof c.f === 'function');
+
+    const ows = wb.addWorksheet('Opportunities', { views: [{ state: 'frozen', ySplit: 3 }] });
+    OC.forEach((c, i) => { ows.getColumn(i + 1).width = c.w; });
+    ows.getRow(1).height = 26;
+    ows.getRow(2).height = 16;
+    const otitle = ows.getCell('A1');
+    otitle.value = 'Client 360 — Opportunities';
+    otitle.font = { size: 14, bold: true, color: { argb: 'FF0A3D8F' } };
+    const osub = ows.getCell('A2');
+    osub.value = `${oppRows.length.toLocaleString('en-IN')} opportunit${oppRows.length === 1 ? 'y' : 'ies'} across the same clients · ${stamp}`;
+    osub.font = { size: 10, color: { argb: 'FF64748B' } };
+
+    const oheader = ows.getRow(3);
+    OC.forEach((c, i) => {
+      const cell = oheader.getCell(i + 1);
+      cell.value = c.h;
+      cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0A3D8F' } };
+      cell.alignment = { vertical: 'middle', wrapText: false };
+    });
+    oheader.height = 18;
+
+    oppRows.forEach((r, ri) => {
+      const row = ows.getRow(4 + ri);
+      OC.forEach((c, i) => {
+        const cell = row.getCell(i + 1);
+        cell.value = c.f(r);
+        if (c.fmt) cell.numFmt = c.fmt;
+      });
+    });
+  }
 
   const buf = Buffer.from(await wb.xlsx.writeBuffer());
   return new NextResponse(new Uint8Array(buf), {

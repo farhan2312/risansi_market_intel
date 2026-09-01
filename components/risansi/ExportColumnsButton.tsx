@@ -3,6 +3,7 @@
 import { useState, useMemo, type CSSProperties } from 'react';
 import {
   CLIENT_EXPORT_COLUMNS, CLIENT_EXPORT_GROUPS,
+  OPP_EXPORT_COLUMNS, OPP_EXPORT_GROUPS,
 } from '@/lib/risansi-client-export-columns';
 
 /**
@@ -26,8 +27,21 @@ export function ExportColumnsButton({ href, count, label }: {
   label: string;
 }) {
   const allKeys = useMemo(() => CLIENT_EXPORT_COLUMNS.map(c => c.key), []);
+  const allOppKeys = useMemo(() => OPP_EXPORT_COLUMNS.map(c => c.key), []);
   const [open, setOpen] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(() => new Set(allKeys));
+  // A second worksheet at a different grain: one row per opportunity rather than
+  // per client. On by default — "also add opportunity level data" means it
+  // should be in the file without having to be asked for.
+  const [wantOpps, setWantOpps] = useState(true);
+  const [oppPicked, setOppPicked] = useState<Set<string>>(() => new Set(allOppKeys));
+  const [sheet, setSheet] = useState<'clients' | 'opps'>('clients');
+
+  const toggleOpp = (key: string) => setOppPicked(s => {
+    const nx = new Set(s);
+    if (nx.has(key)) nx.delete(key); else nx.add(key);
+    return nx;
+  });
 
   const toggle = (key: string) => setPicked(s => {
     const n = new Set(s);
@@ -50,6 +64,10 @@ export function ExportColumnsButton({ href, count, label }: {
     // at all — the URL stays short and matches what a saved bookmark looks like.
     if (picked.size !== allKeys.length) {
       url.searchParams.set('cols', allKeys.filter(k => picked.has(k)).join(','));
+    }
+    if (!wantOpps) url.searchParams.set('opps', '0');
+    else if (oppPicked.size !== allOppKeys.length) {
+      url.searchParams.set('oppcols', allOppKeys.filter(k => oppPicked.has(k)).join(','));
     }
     window.location.href = url.toString();
     setOpen(false);
@@ -77,19 +95,80 @@ export function ExportColumnsButton({ href, count, label }: {
               <button onClick={() => setOpen(false)} style={X} aria-label="Close">×</button>
             </div>
 
-            <div style={BAR}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5 }}>
-                <strong>{picked.size}</strong>
-                <span style={{ color: 'var(--fg-3)' }}> of {allKeys.length} columns</span>
-              </span>
-              <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-                <button type="button" onClick={() => setPicked(new Set(allKeys))} style={LINKBTN}>All</button>
-                <button type="button" onClick={() => setPicked(new Set())} style={LINKBTN}>None</button>
-              </div>
+            <div style={TABS}>
+              <button type="button" onClick={() => setSheet('clients')}
+                style={{ ...TAB, ...(sheet === 'clients' ? TAB_ON : null) }}>
+                Clients sheet <span style={TABN}>{picked.size}/{allKeys.length}</span>
+              </button>
+              <button type="button" onClick={() => setSheet('opps')}
+                style={{ ...TAB, ...(sheet === 'opps' ? TAB_ON : null) }}>
+                Opportunities sheet <span style={TABN}>{wantOpps ? oppPicked.size + '/' + allOppKeys.length : 'off'}</span>
+              </button>
             </div>
 
-            <div style={{ overflowY: 'auto', flex: 1, padding: '4px 0' }}>
-              {CLIENT_EXPORT_GROUPS.map(group => {
+            <div style={BAR}>
+              {sheet === 'clients' ? (
+                <>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5 }}>
+                    <strong>{picked.size}</strong>
+                    <span style={{ color: 'var(--fg-3)' }}> of {allKeys.length} columns · one row per client</span>
+                  </span>
+                  <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                    <button type="button" onClick={() => setPicked(new Set(allKeys))} style={LINKBTN}>All</button>
+                    <button type="button" onClick={() => setPicked(new Set())} style={LINKBTN}>None</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={wantOpps} onChange={() => setWantOpps(v => !v)}
+                      style={{ width: 14, height: 14, accentColor: '#0A3D8F' }} />
+                    <span style={{ fontSize: 12.5 }}>
+                      Include the Opportunities sheet
+                      <span style={{ color: 'var(--fg-3)' }}> · one row per opportunity</span>
+                    </span>
+                  </label>
+                  <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                    <button type="button" onClick={() => setOppPicked(new Set(allOppKeys))} style={LINKBTN}>All</button>
+                    <button type="button" onClick={() => setOppPicked(new Set())} style={LINKBTN}>None</button>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div style={{ overflowY: 'auto', flex: 1, padding: '4px 0', opacity: sheet === 'opps' && !wantOpps ? 0.45 : 1 }}>
+              {sheet === 'opps' && OPP_EXPORT_GROUPS.map(group => {
+                const cols = OPP_EXPORT_COLUMNS.filter(c => c.group === group);
+                const on = cols.filter(c => oppPicked.has(c.key)).length;
+                return (
+                  <div key={group} style={{ padding: '9px 18px 12px', borderBottom: '1px solid var(--line-2)' }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 7 }}>
+                      <span style={GROUP_LBL}>{group}</span>
+                      <span style={{ fontSize: 10.5, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>{on}/{cols.length}</span>
+                      <button type="button" disabled={!wantOpps}
+                        onClick={() => setOppPicked(s2 => {
+                          const nx = new Set(s2);
+                          for (const col of cols) { if (on === cols.length) nx.delete(col.key); else nx.add(col.key); }
+                          return nx;
+                        })}
+                        style={{ ...LINKBTN, marginLeft: 'auto' }}>
+                        {on === cols.length ? 'Clear' : 'All'}
+                      </button>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '4px 12px' }}>
+                      {cols.map(col => (
+                        <label key={col.key} style={ROW}>
+                          <input type="checkbox" checked={oppPicked.has(col.key)} disabled={!wantOpps}
+                            onChange={() => toggleOpp(col.key)}
+                            style={{ width: 14, height: 14, accentColor: '#0A3D8F', flexShrink: 0 }} />
+                          <span style={{ fontSize: 12.5 }}>{col.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+              {sheet === 'clients' && CLIENT_EXPORT_GROUPS.map(group => {
                 const cols = CLIENT_EXPORT_COLUMNS.filter(c => c.group === group);
                 const on = cols.filter(c => picked.has(c.key)).length;
                 return (
@@ -124,7 +203,9 @@ export function ExportColumnsButton({ href, count, label }: {
               <button type="button" onClick={() => setOpen(false)} style={BTN}>Cancel</button>
               <button type="button" onClick={download} disabled={picked.size === 0}
                 style={{ ...BTN_PRI, opacity: picked.size === 0 ? 0.45 : 1 }}>
-                {picked.size === 0 ? 'Pick at least one column' : `Export ${picked.size} column${picked.size === 1 ? '' : 's'}`}
+                {picked.size === 0
+                  ? 'Pick at least one client column'
+                  : `Export ${picked.size} column${picked.size === 1 ? '' : 's'}${wantOpps && oppPicked.size ? ' + opportunities' : ''}`}
               </button>
             </div>
           </div>
@@ -160,6 +241,17 @@ const GROUP_LBL: CSSProperties = {
   textTransform: 'uppercase', color: 'var(--title)',
 };
 const ROW: CSSProperties = { display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', padding: '1px 0' };
+const TABS: CSSProperties = {
+  display: 'flex', padding: '0 18px', flexShrink: 0,
+  borderBottom: '1px solid var(--line)', background: 'var(--bg-paper)',
+};
+const TAB: CSSProperties = {
+  background: 'none', border: 'none', padding: '9px 4px', marginRight: 18,
+  fontSize: 12.5, fontFamily: 'inherit', fontWeight: 500, color: 'var(--fg-3)',
+  cursor: 'pointer', borderBottom: '2px solid transparent',
+};
+const TAB_ON: CSSProperties = { color: 'var(--accent)', fontWeight: 600, borderBottomColor: 'var(--accent)' };
+const TABN: CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--fg-3)', marginLeft: 5 };
 const LINKBTN: CSSProperties = {
   background: 'none', border: 'none', padding: 0, fontSize: 11,
   fontFamily: 'inherit', color: 'var(--accent)', cursor: 'pointer',

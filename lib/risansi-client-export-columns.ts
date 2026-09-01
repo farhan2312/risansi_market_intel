@@ -91,3 +91,63 @@ export function resolveExportColumns(raw: string | null): ClientExportColumn[] {
   // back to all beats handing back a spreadsheet with no columns in it.
   return picked.length ? picked : CLIENT_EXPORT_COLUMNS;
 }
+
+// ── The Opportunities sheet ───────────────────────────────────────
+//
+// A second worksheet at a different grain: one row per opportunity, for the same
+// clients the Clients sheet holds. Not extra columns on the client row, because
+// a client with nine opportunities cannot be a row — the aggregate columns
+// (Open Pipeline, Open Opportunities) are what a client-grain sheet can say, and
+// they are already there. This is for when the aggregate is not enough.
+
+export interface OppExportColumn {
+  key: string;
+  label: string;
+  width: number;
+  group: 'Client' | 'Opportunity' | 'Quotation' | 'Outcome';
+  money?: boolean;
+}
+
+export const OPP_EXPORT_COLUMNS: OppExportColumn[] = [
+  { key: 'client_code',   label: 'Client Code',        width: 14, group: 'Client' },
+  { key: 'client_name',   label: 'Client Name',        width: 30, group: 'Client' },
+  { key: 'primary_rep',   label: 'Primary Rep',        width: 20, group: 'Client' },
+
+  { key: 'opp_id',        label: 'Opp ID',             width: 10, group: 'Opportunity' },
+  { key: 'stage',         label: 'Stage',              width: 13, group: 'Opportunity' },
+  { key: 'opp_type',      label: 'Type',               width: 10, group: 'Opportunity' },
+  { key: 'opp_source',    label: 'Source',             width: 14, group: 'Opportunity' },
+  { key: 'opp_category',  label: 'Category',           width: 18, group: 'Opportunity' },
+  { key: 'product_type',  label: 'Product Type',       width: 13, group: 'Opportunity' },
+  { key: 'unit_project',  label: 'Project / Unit',     width: 28, group: 'Opportunity' },
+  { key: 'enquiry_no',    label: 'Enquiry No.',        width: 16, group: 'Opportunity' },
+  { key: 'enquiry_date',  label: 'Enquiry Date',       width: 13, group: 'Opportunity' },
+
+  { key: 'quote_ref',     label: 'Quote No.',          width: 18, group: 'Quotation' },
+  { key: 'quote_date',    label: 'Quote Date',         width: 13, group: 'Quotation' },
+  { key: 'market',        label: 'Market',             width: 11, group: 'Quotation' },
+  { key: 'offer_value',   label: 'Total Offer (₹)',    width: 17, group: 'Quotation', money: true },
+  { key: 'probability',   label: 'Probability %',      width: 13, group: 'Quotation' },
+  { key: 'eta_text',      label: 'Expected Close',     width: 15, group: 'Quotation' },
+  { key: 'docs',          label: 'Documents',          width: 11, group: 'Quotation' },
+
+  { key: 'final_value',   label: 'Sale Order Value (₹)', width: 18, group: 'Outcome', money: true },
+  { key: 'so_value',      label: 'Booked in SO (₹)',   width: 17, group: 'Outcome', money: true },
+  { key: 'order_in_hand', label: 'Order in Hand (₹)',  width: 17, group: 'Outcome', money: true },
+  { key: 'po_number',     label: 'PO Number',          width: 16, group: 'Outcome' },
+  { key: 'po_date',       label: 'PO Date',            width: 13, group: 'Outcome' },
+  { key: 'lost_to',       label: 'Lost To Competitor', width: 20, group: 'Outcome' },
+  { key: 'lost_reason',   label: 'Lost Reason',        width: 26, group: 'Outcome' },
+  { key: 'drop_reason',   label: 'Drop Reason',        width: 22, group: 'Outcome' },
+  { key: 'created_on',    label: 'Raised On',          width: 12, group: 'Outcome' },
+];
+
+export const OPP_EXPORT_GROUPS = ['Client', 'Opportunity', 'Quotation', 'Outcome'] as const;
+
+/** Same rules as resolveExportColumns — absent means all, unknown keys drop. */
+export function resolveOppColumns(raw: string | null): OppExportColumn[] {
+  if (!raw || !raw.trim()) return OPP_EXPORT_COLUMNS;
+  const want = new Set(raw.split(',').map(s => s.trim()).filter(Boolean));
+  const picked = OPP_EXPORT_COLUMNS.filter(c => want.has(c.key));
+  return picked.length ? picked : OPP_EXPORT_COLUMNS;
+}
