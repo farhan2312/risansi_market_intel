@@ -25,6 +25,12 @@ function fmtDate(v: string | Date | null | undefined, withTime = false): string 
 
 const yn = (v: boolean | null | undefined) => (v ? 'Yes' : 'No');
 
+// A visit report is a short document. Twenty is more account history than any
+// reader of one needs, and the header carries the true count.
+const COMMENT_LIMIT = 20;
+
+interface ClientComment { body: string; who: string; created_at: string; total: number }
+
 export default async function VisitPrintPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await getServerSession(authOptions);
@@ -58,7 +64,7 @@ export default async function VisitPrintPage({ params }: { params: Promise<{ id:
   if (!visit.submitted_at) redirect(`/risansi/visits/${id}`);
 
   const cid = String(visit.client_id);
-  const [contacts, equipment, sugar, nonsugar, opps, tasks, photos, rilInstalled] = await Promise.all([
+  const [contacts, equipment, sugar, nonsugar, opps, tasks, photos, rilInstalled, comments] = await Promise.all([
     q(async () => (await risansiPool.query<Record<string, unknown>>(
       `SELECT name, designation, phone, email, is_primary FROM contacts WHERE client_id = $1 ORDER BY is_primary DESC, name ASC`, [cid],
     )).rows, [] as Record<string, unknown>[]),
@@ -92,7 +98,20 @@ export default async function VisitPrintPage({ params }: { params: Promise<{ id:
         GROUP BY pump_model_plate, liquid, capacity, head
         ORDER BY pump_model_plate NULLS LAST`, [cid],
     )).rows, [] as Record<string, unknown>[]),
+    // The Comments box from Client 360. These belong to the CLIENT, not to this
+    // visit — there is no visit-level comment — which is why the section says so
+    // and why anything written after the visit date is marked as such.
+    q(async () => (await risansiPool.query<ClientComment>(
+      `SELECT cm.body,
+              COALESCE(NULLIF(cm.author_name,''), cm.author_email) AS who,
+              cm.created_at::date::text AS created_at,
+              (SELECT COUNT(*) FROM client_comments x WHERE x.client_id = $1)::int AS total
+         FROM client_comments cm WHERE cm.client_id = $1
+        ORDER BY cm.created_at DESC, cm.id DESC LIMIT ${COMMENT_LIMIT}`, [cid],
+    )).rows, [] as ClientComment[]),
   ]);
+  const commentTotal = comments[0]?.total ?? 0;
+  const visitDay = visit.visit_date ? String(visit.visit_date).slice(0, 10) : null;
 
   const isSugar = visit.industry_format === 'sugar' || (!visit.industry_format && !!visit.is_sugar);
   const rilEq  = equipment.filter(e => e.is_ril);
@@ -259,6 +278,37 @@ export default async function VisitPrintPage({ params }: { params: Promise<{ id:
               <TextBlock label="Complaint Notes" value={str('complaint_notes')} />
             </div>
           </Section>
+
+          {comments.length > 0 && (
+            <Section
+              title="Client Comments"
+              right={`${commentTotal}${commentTotal > comments.length ? ` · showing latest ${comments.length}` : ''}`}
+            >
+              <div style={{ fontSize: 9.5, color: C.fg3, marginBottom: 8 }}>
+                Notes recorded against {String(visit.legal_name)} in Client 360, not against this visit.
+              </div>
+              <div style={{ display: 'grid', gap: 9 }}>
+                {comments.map((cm, i) => {
+                  // A March visit report carrying an August note should not read
+                  // as if the note were said on the day.
+                  const later = visitDay != null && cm.created_at > visitDay;
+                  return (
+                    <div key={i} className="avoid-break" style={{
+                      paddingLeft: 9, borderLeft: `2px solid ${C.accentSoft}`,
+                      ...(i > 0 ? { paddingTop: 8, borderTop: `1px solid ${C.line}` } : {}),
+                    }}>
+                      <div style={{ fontSize: 9.5, color: C.fg3, marginBottom: 2 }}>
+                        <strong style={{ color: C.fg2, fontWeight: 700 }}>{cm.who}</strong>
+                        {' · '}{fmtDate(cm.created_at)}
+                        {later && <span style={{ color: C.warn }}>{' · after this visit'}</span>}
+                      </div>
+                      <div style={{ fontSize: 11, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{cm.body}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </Section>
+          )}
 
           {tasks.length > 0 && (
             <Section title="Action Register" right={`${tasks.length} item${tasks.length !== 1 ? 's' : ''}`}>
