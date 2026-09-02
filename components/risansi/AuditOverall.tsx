@@ -33,18 +33,21 @@ const MODULE_LABEL: Record<string, string> = {
   Dashboard: 'Dashboard',
 };
 
-export function AuditOverall({ d, win, role, user, people }: {
+export function AuditOverall({ d, win, role, user, people, print = false }: {
   d: OverallData;
   win: string; role: string; user: string;
   /** Everyone selectable in the user filter. */
   people: { email: string; name: string }[];
+  /** Drops the filter form. The print view is a snapshot of one set of
+   *  filters, and a form nobody can submit is just a row of dead controls. */
+  print?: boolean;
 }) {
   const k = d.kpi;
   const adoptionPct = k.accounts > 0 ? Math.round((k.activeUsers / k.accounts) * 100) : 0;
 
   return (
     <div style={{ display: 'grid', gap: 14 }}>
-      <Filters win={win} role={role} user={user} people={people} />
+      {!print && <Filters win={win} role={role} user={user} people={people} />}
 
       {/* ── 1. Is it being used ─────────────────────────────────── */}
       <Section
@@ -181,6 +184,14 @@ function Filters({ win, role, user, people }: {
         padding: '7px 15px', fontSize: 12.5, fontWeight: 600, background: NAVY,
         color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
       }}>Apply</button>
+      <button
+        type="submit" formAction="/print/portal-overall" formTarget="_blank"
+        title="Opens a print view of this page with the filters as they are set here"
+        style={{
+          padding: '7px 15px', fontSize: 12.5, fontWeight: 600, background: 'transparent',
+          color: NAVY, border: `1px solid ${NAVY}`, borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
+        }}
+      >⭳ PDF of this view</button>
       {active && (
         <Link href="/risansi/admin/audit?tab=overall" style={{ fontSize: 12, color: 'var(--fg-3)' }}>Reset</Link>
       )}
@@ -504,7 +515,10 @@ function Funnel({ rows }: { rows: OverallData['funnel'] }) {
 
 function Section({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
   return (
-    <div style={PANEL}>
+    // ov-panel is what the print route targets to keep the outline while
+    // stripping the border the global print stylesheet would otherwise add to
+    // every rounded element on the page, mini-bars and heat cells included.
+    <div style={PANEL} className="ov-panel">
       <div style={{ padding: '11px 15px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--title)' }}>{title}</span>
         {note && <span style={{ fontSize: 11, color: 'var(--fg-3)', marginLeft: 'auto' }}>{note}</span>}

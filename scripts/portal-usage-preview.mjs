@@ -32,6 +32,9 @@ for (const [rel, name] of MODULES) {
     .replace(/from '@\/(?:components\/risansi|lib)\/([^']+)'/g, "from './$1.mjs'")
     .replace(/^'use client';?\n/m, '');
   fs.writeFileSync(path.join(tmp, `${name}.mjs`), ts.transpileModule(src, {
+    // fileName decides TS vs TSX. Without it a generic arrow in a .ts file
+    // (`async <T>(…)`) is parsed as an unclosed JSX tag and emits nonsense.
+    fileName: rel,
     compilerOptions: {
       module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022,
       jsx: ts.JsxEmit.ReactJSX, jsxImportSource: 'react',
