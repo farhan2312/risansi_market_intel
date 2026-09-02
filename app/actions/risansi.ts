@@ -1246,7 +1246,8 @@ export async function createPipelineOpportunity(formData: FormData) {
       await risansiPool.query(
         `INSERT INTO opportunity_items (opportunity_id, sort_order, pump_model, pump_qty, pump_speed,
            geared_motor_detail, motor_price, gearbox_vbelt_price, offer_value_inr, detailed_specifications)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+         -- Same off-by-one as saveQuotedDetails had: ten columns, ten values.
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
         [newOppId, so++, iStr(it.pump_model), iInt(it.pump_qty), iStr(it.pump_speed),
          iStr(it.geared_motor_detail), iNum(it.motor_price), iNum(it.gearbox_vbelt_price),
          iNum(it.offer_value_inr), iStr(it.detailed_specifications)],
@@ -1381,7 +1382,9 @@ export async function saveQuotedDetails(oppId: number, formData: FormData) {
     await risansiPool.query(
       `INSERT INTO opportunity_items (opportunity_id, sort_order, pump_model, pump_qty, pump_speed,
          geared_motor_detail, motor_price, gearbox_vbelt_price, offer_value_inr, detailed_specifications)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+       -- Ten columns, ten placeholders. It read $11 for seven weeks, which made
+       -- every save of a quotation that had any quoted items fail outright.
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
       [oppId, so++, iStr(it.pump_model), iInt(it.pump_qty), iStr(it.pump_speed),
        iStr(it.geared_motor_detail), iNum(it.motor_price), iNum(it.gearbox_vbelt_price),
        iNum(it.offer_value_inr), iStr(it.detailed_specifications)],
