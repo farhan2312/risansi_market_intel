@@ -15,6 +15,11 @@ async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
 }
 
+// A profile is a document somebody prints and reads; a client with two hundred
+// notes on it would turn two pages into forty. The section header says the true
+// count whenever it is more than this.
+const COMMENT_LIMIT = 40;
+
 const COMPETITOR_PCP: Record<string, string> = {
   roto_pcp: 'Roto', rotomac_pcp: 'Rotomac', gita_pcp: 'Gita', psp_pcp: 'PSP',
   syno_pcp: 'Syno', ropman_pcp: 'Ropman', myto_pcp: 'Myto', vikas_pcp: 'Vikas',
@@ -67,7 +72,7 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
   const currentUser = await getCurrentUser();
   if (!(await canViewClient(currentUser, Number(client.id)))) notFound();
 
-  const [contacts, clientRevByFY, compRow, visits, allOpps, clientPumps] = await Promise.all([
+  const [contacts, clientRevByFY, compRow, visits, allOpps, clientPumps, comments] = await Promise.all([
     q(async () => (await risansiPool.query<Record<string, unknown>>(
       `SELECT name, designation, is_primary, phone, email, whatsapp, notes
          FROM contacts WHERE client_id = $1 ORDER BY is_primary DESC, created_at ASC`, [client.id],
@@ -104,7 +109,19 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
       `SELECT pump_model_plate, quantity, customer_name AS supplier, ec_number, so_number, pump_sl_no, liquid, capacity, head
        FROM client_pumps WHERE client_id = $1 ORDER BY id`, [client.id],
     )).rows, [] as Record<string, unknown>[]),
+    // The Comments box from Client 360, newest first as it reads on screen.
+    // Capped: a client with two hundred notes should not turn a two-page profile
+    // into a forty-page one, and the count below says what was left off.
+    q(async () => (await risansiPool.query<{ body: string; who: string; created_at: string; total: number }>(
+      `SELECT cm.body,
+              COALESCE(NULLIF(cm.author_name,''), cm.author_email) AS who,
+              cm.created_at::date::text AS created_at,
+              (SELECT COUNT(*) FROM client_comments x WHERE x.client_id = $1)::int AS total
+         FROM client_comments cm WHERE cm.client_id = $1
+        ORDER BY cm.created_at DESC, cm.id DESC LIMIT ${COMMENT_LIMIT}`, [client.id],
+    )).rows, [] as { body: string; who: string; created_at: string; total: number }[]),
   ]);
+  const commentTotal = comments[0]?.total ?? 0;
 
   // ── Revenue rollup ──
   const INR_TO_L = 100_000;
@@ -338,6 +355,31 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
               <TextBlock label="Open Complaints" value={str('complaint_notes')} />
             </Section>
           )}
+
+          <Section
+            title="Comments"
+            right={commentTotal > 0 ? `${commentTotal}${commentTotal > comments.length ? ` · showing latest ${comments.length}` : ''}` : undefined}
+          >
+            {comments.length === 0 ? <div style={{ color: C.fg3 }}>No comments recorded</div> : (
+              <div style={{ display: 'grid', gap: 9 }}>
+                {comments.map((cm, i) => (
+                  <div key={i} className="avoid-break" style={{
+                    paddingLeft: 9, borderLeft: `2px solid ${C.accentSoft}`,
+                    ...(i > 0 ? { paddingTop: 8, borderTop: `1px solid ${C.line}` } : {}),
+                  }}>
+                    <div style={{ fontSize: 9.5, color: C.fg3, marginBottom: 2 }}>
+                      <strong style={{ color: C.fg2, fontWeight: 700 }}>{cm.who}</strong>
+                      {' · '}{fmtDate(cm.created_at)}
+                    </div>
+                    {/* pre-wrap: the notes are typed with their own line breaks,
+                        and collapsing them runs five observations into one
+                        paragraph. */}
+                    <div style={{ fontSize: 11, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{cm.body}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Section>
 
           <Section title="Contacts" right={`${contacts.length}`}>
             {contacts.length === 0 ? <div style={{ color: C.fg3 }}>No contacts recorded</div> : (

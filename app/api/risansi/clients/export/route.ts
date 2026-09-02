@@ -5,7 +5,7 @@ import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser } from '@/lib/risansi-auth';
 import { OWNERS_SUBQUERY, REV_JOIN, buildClientFilter } from '@/lib/risansi-client-filter';
 import { clientPrimaryRepSql, clientSecondaryNamesSql, clientManagerNamesSql } from '@/lib/risansi-client-rep';
-import { resolveExportColumns, resolveOppColumns } from '@/lib/risansi-client-export-columns';
+import { resolveExportColumns, resolveOppColumns, XLSX_CELL_LIMIT } from '@/lib/risansi-client-export-columns';
 import { getCurrentFY } from '@/lib/risansi-utils';
 import { clientStatusLabel } from '@/lib/risansi-client-status';
 
@@ -25,10 +25,21 @@ interface Row {
   open_pipeline_inr: number; open_opps: number;
   last_visit_date: string | null; days_since_last_visit: number | null;
   total_visits: number; contacts_count: number;
+  comments_count: number; last_comment_at: string | null;
+  last_comment_by: string | null; last_comment: string | null;
+  comments_all: string | null;
   created_by: string | null; created_at: string | null; updated_by: string | null; updated_at: string | null;
 }
 
 const yn = (v: boolean | null) => (v ? 'Yes' : 'No');
+
+/** Excel rejects a cell over 32,767 characters and the whole file fails to open,
+ *  so a long comment thread loses its tail rather than the workbook. */
+const clip = (v: string | null): string => {
+  const t = v ?? '';
+  return t.length <= XLSX_CELL_LIMIT ? t : `${t.slice(0, XLSX_CELL_LIMIT)}
+… truncated`;
+};
 
 // GET /api/risansi/clients/export?<same filter params as the list page>
 export async function GET(req: Request) {
@@ -74,6 +85,25 @@ export async function GET(req: Request) {
          (CURRENT_DATE - c.last_visit_date) AS days_since_last_visit,
          (SELECT COUNT(*) FROM visits v WHERE v.client_id = c.id)::int AS total_visits,
          (SELECT COUNT(*) FROM contacts ct WHERE ct.client_id = c.id)::int AS contacts_count,
+         -- The Comments box from Client 360. Four scalar subqueries rather than a
+         -- join: joining a client to its comments multiplies the row, and this
+         -- sheet is one row per client.
+         (SELECT COUNT(*) FROM client_comments cm WHERE cm.client_id = c.id)::int AS comments_count,
+         (SELECT cm.created_at::date::text FROM client_comments cm WHERE cm.client_id = c.id
+           ORDER BY cm.created_at DESC, cm.id DESC LIMIT 1) AS last_comment_at,
+         (SELECT COALESCE(NULLIF(cm.author_name,''), cm.author_email) FROM client_comments cm
+           WHERE cm.client_id = c.id ORDER BY cm.created_at DESC, cm.id DESC LIMIT 1) AS last_comment_by,
+         (SELECT cm.body FROM client_comments cm WHERE cm.client_id = c.id
+           ORDER BY cm.created_at DESC, cm.id DESC LIMIT 1) AS last_comment,
+         -- Newest first, each stamped with when and by whom, so the cell reads
+         -- the same way the Comments box does.
+         (SELECT string_agg(
+                   cm.created_at::date::text || '  ' ||
+                   COALESCE(NULLIF(cm.author_name,''), cm.author_email) || ': ' || cm.body,
+                   E'
+
+' ORDER BY cm.created_at DESC, cm.id DESC)
+            FROM client_comments cm WHERE cm.client_id = c.id) AS comments_all,
          c.created_by, c.created_at::text AS created_at,
          c.updated_by, c.updated_at::text AS updated_at
        FROM clients c
@@ -130,6 +160,11 @@ export async function GET(req: Request) {
     days_since:        r => r.days_since_last_visit ?? '',
     total_visits:      r => r.total_visits,
     contacts_count:    r => r.contacts_count,
+    comments_count:    r => r.comments_count,
+    last_comment_at:   r => r.last_comment_at ?? '',
+    last_comment_by:   r => r.last_comment_by ?? '',
+    last_comment:      r => clip(r.last_comment),
+    comments_all:      r => clip(r.comments_all),
     created_by:        r => r.created_by ?? '',
     created_at:        r => (r.created_at ? r.created_at.slice(0, 10) : ''),
     updated_by:        r => r.updated_by ?? '',
@@ -176,12 +211,16 @@ export async function GET(req: Request) {
   header.height = 18;
 
   // Data rows (from 4).
+  const WRAPPED = new Set(['Latest Comment', 'All Comments']);
   rows.forEach((r, ri) => {
     const row = ws.getRow(4 + ri);
     COLS.forEach((c, i) => {
       const cell = row.getCell(i + 1);
       cell.value = c.f(r);
       if (c.fmt) cell.numFmt = c.fmt;
+      // Comment bodies carry newlines. Without wrapText Excel shows the first
+      // line and silently hides the rest, which reads as data loss.
+      if (WRAPPED.has(c.h)) cell.alignment = { wrapText: true, vertical: 'top' };
     });
   });
 

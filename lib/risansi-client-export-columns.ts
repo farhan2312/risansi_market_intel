@@ -12,7 +12,7 @@ export interface ClientExportColumn {
   label: string;
   width: number;
   /** Grouping for the picker only; it does not affect the sheet. */
-  group: 'Identity' | 'Classification' | 'Location' | 'People' | 'Commercial' | 'Activity' | 'Record';
+  group: 'Identity' | 'Classification' | 'Location' | 'People' | 'Commercial' | 'Activity' | 'Comments' | 'Record';
   /** Money stays numeric in the sheet so it remains analysable in Excel. */
   money?: boolean;
 }
@@ -65,6 +65,12 @@ export const CLIENT_EXPORT_COLUMNS: ClientExportColumn[] = [
   { key: 'total_visits',      label: 'Total Visits',           width: 12, group: 'Activity' },
   { key: 'contacts_count',    label: 'Contacts',               width: 10, group: 'Activity' },
 
+  { key: 'comments_count',    label: 'Comments',               width: 10, group: 'Comments' },
+  { key: 'last_comment_at',   label: 'Latest Comment On',      width: 16, group: 'Comments' },
+  { key: 'last_comment_by',   label: 'Latest Comment By',      width: 18, group: 'Comments' },
+  { key: 'last_comment',      label: 'Latest Comment',         width: 46, group: 'Comments' },
+  { key: 'comments_all',      label: 'All Comments',           width: 60, group: 'Comments' },
+
   { key: 'created_by',        label: 'Created By',             width: 16, group: 'Record' },
   { key: 'created_at',        label: 'Created On',             width: 12, group: 'Record' },
   { key: 'updated_by',        label: 'Updated By',             width: 16, group: 'Record' },
@@ -72,8 +78,12 @@ export const CLIENT_EXPORT_COLUMNS: ClientExportColumn[] = [
 ];
 
 export const CLIENT_EXPORT_GROUPS = [
-  'Identity', 'Classification', 'Location', 'People', 'Commercial', 'Activity', 'Record',
+  'Identity', 'Classification', 'Location', 'People', 'Commercial', 'Activity', 'Comments', 'Record',
 ] as const;
+
+/** Excel refuses a cell over 32,767 characters, so the joined comment column
+ *  stops short of it and says that it did rather than losing the whole row. */
+export const XLSX_CELL_LIMIT = 32_000;
 
 /**
  * Which columns a `?cols=` value asks for.
