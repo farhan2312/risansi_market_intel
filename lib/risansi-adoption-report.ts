@@ -9,17 +9,14 @@
 // Leaving them out would answer "how much do users use it" while hiding "who
 // does not use it at all", which is usually the question behind the question.
 //
-// Two things worth knowing before quoting these numbers:
-//
-//   * Active time is measured, not inferred. page_activity records seconds a
-//     page was actually in focus, so an hour is an hour of use rather than a tab
-//     left open over lunch.
-//   * Admin and sysadmin numbers are not comparable with a rep's. They are doing
-//     data administration — uploads, corrections, client master work — so the
-//     sheet groups them apart rather than ranking everybody in one list.
+// The numbers come from lib/risansi-person-metrics.ts, which also feeds the
+// individual PDF; the caveats about how to read them are documented there.
+// Admin and sysadmin figures are not comparable with a rep's, which is why the
+// sheet groups them apart rather than ranking everybody in one list.
 import ExcelJS from 'exceljs';
 import type { Pool } from 'pg';
 import { chartXml, injectCharts } from '@/lib/xlsx-charts';
+import { loadPersonMetrics, type PersonRow } from '@/lib/risansi-person-metrics';
 
 export interface AdoptionSummary {
   from: string; to: string;
@@ -29,68 +26,10 @@ export interface AdoptionSummary {
 
 export async function buildAdoptionReport(pool: Pool): Promise<{ buffer: Buffer; summary: AdoptionSummary }> {
   // ── the numbers ───────────────────────────────────────────────────
-  // One row per active user. Every count is a scalar subquery keyed on the user
-  // rather than a pile of joins: a user with 300 page views and 40 visits would
-  // otherwise multiply out and report 12,000 of each.
-  const { rows: users } = await pool.query(`
-    SELECT
-      u.id, u.name, COALESCE(u.email,'') AS email, u.role, COALESCE(u.zone,'') AS zone,
-
-      -- Signing in
-      (SELECT count(*)::int FROM auth_audit a WHERE lower(a.email) = lower(u.email) AND a.event = 'login') AS logins,
-      (SELECT count(*)::int FROM auth_audit a WHERE lower(a.email) = lower(u.email) AND a.event = 'login_failed') AS login_failed,
-      (SELECT max(a.created_at)::date::text FROM auth_audit a WHERE lower(a.email) = lower(u.email) AND a.event = 'login') AS last_login,
-
-      -- Being there
-      (SELECT count(DISTINCT p.session_id)::int FROM page_activity p WHERE p.user_id = u.id) AS sessions,
-      (SELECT count(DISTINCT p.occurred_at::date)::int FROM page_activity p WHERE p.user_id = u.id) AS days_active,
-      (SELECT COALESCE(round(sum(p.active_seconds)/3600.0, 1), 0) FROM page_activity p WHERE p.user_id = u.id) AS hours,
-      (SELECT count(*)::int FROM page_activity p WHERE p.user_id = u.id) AS page_views,
-      (SELECT min(p.occurred_at)::date::text FROM page_activity p WHERE p.user_id = u.id) AS first_seen,
-      (SELECT p.path FROM page_activity p WHERE p.user_id = u.id
-        GROUP BY p.path ORDER BY sum(p.active_seconds) DESC NULLS LAST LIMIT 1) AS top_path,
-
-      -- The book they are responsible for. Without it every activity figure is a
-    -- numerator with no denominator: twelve visits means something different
-    -- against 274 clients than against nine.
-    (SELECT count(*)::int FROM clients cl
-      WHERE cl.primary_rep_id = u.id AND cl.deleted_at IS NULL) AS clients_owned,
-    (SELECT count(*)::int FROM client_secondary_reps sr
-       JOIN clients cl ON cl.id = sr.client_id AND cl.deleted_at IS NULL
-      WHERE sr.rep_id = u.id) AS clients_covered,
-    -- Everything they can actually see, which for a manager is their team's book
-    -- as well as their own. Same rule as clientRuleSql in lib/risansi-auth.ts, so
-    -- this column and the application agree about what "their clients" means.
-    (SELECT count(*)::int FROM clients cl
-      WHERE cl.deleted_at IS NULL
-        AND (cl.primary_rep_id = u.id
-             OR cl.primary_rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = u.id)
-             OR cl.id IN (SELECT sr.client_id FROM client_secondary_reps sr
-                           WHERE sr.rep_id = u.id
-                              OR sr.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = u.id)))
-    ) AS clients_in_view,
-
-    -- Doing things
-      (SELECT count(*)::int FROM visits v WHERE v.rep_id = u.id) AS visits_owned,
-      (SELECT count(*)::int FROM visits v WHERE v.rep_id = u.id AND v.status = 'completed') AS visits_done,
-      (SELECT count(*)::int FROM visits v WHERE v.rep_id = u.id AND v.submitted_at IS NOT NULL) AS reports_filed,
-      (SELECT count(*)::int FROM opportunities o WHERE lower(COALESCE(o.created_by,'')) = lower(u.email)) AS opps_created,
-      (SELECT count(*)::int FROM opportunity_stage_log l WHERE lower(COALESCE(l.changed_by,'')) = lower(u.email)) AS stage_moves,
-      -- uploaded_by is a user id here, unlike the created_by columns around it
-      -- which all hold emails.
-      (SELECT count(*)::int FROM opportunity_quotation_files f WHERE f.uploaded_by = u.id) AS quotes_uploaded,
-      (SELECT count(*)::int FROM opportunity_sales_orders s WHERE lower(COALESCE(s.created_by,'')) = lower(u.email)) AS sales_orders,
-      (SELECT count(*)::int FROM clients cl WHERE lower(COALESCE(cl.created_by,'')) = lower(u.email)) AS clients_created,
-      (SELECT count(*)::int FROM tasks t WHERE lower(COALESCE(t.created_by,'')) = lower(u.email)) AS actions_raised,
-      (SELECT count(*)::int FROM tasks t WHERE t.assigned_to_rep = u.id AND t.status = 'completed') AS actions_done,
-      (SELECT count(*)::int FROM complaints cm WHERE lower(COALESCE(cm.created_by,'')) = lower(u.email)) AS complaints_raised,
-      (SELECT count(*)::int FROM exhibition_meetings em WHERE em.met_by = u.id) AS exhibition_meetings,
-
-      -- Everything the audit log attributes to them, as one number
-      (SELECT count(*)::int FROM audit_log al WHERE lower(COALESCE(al.actor_email,'')) = lower(u.email)) AS audited_actions
-    FROM users u
-    WHERE u.is_active = TRUE AND COALESCE(u.email,'') <> ''
-    ORDER BY u.role DESC, u.name`);
+  // All-time, and from the same query the individual PDF reads
+  // (lib/risansi-person-metrics.ts) so the workbook and the handout cannot drift
+  // apart on the same person.
+  const users = await loadPersonMetrics(pool);
 
   // Month by month, for the trend sheet and the trend chart.
   const { rows: monthly } = await pool.query(`
@@ -113,7 +52,7 @@ export async function buildAdoptionReport(pool: Pool): Promise<{ buffer: Buffer;
 
 
   const num = (v: unknown) => Number(v ?? 0);
-  type Row = Record<string, unknown> & { id: number; name: string; role: string; zone: string };
+  type Row = PersonRow;
   const field = (users as Row[]).filter(u => u.role === 'rep' || u.role === 'manager');
   const admin = (users as Row[]).filter(u => u.role !== 'rep' && u.role !== 'manager');
   const ordered = [...field, ...admin];

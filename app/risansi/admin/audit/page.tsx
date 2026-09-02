@@ -6,6 +6,7 @@ import { getCurrentUser } from '@/lib/risansi-auth';
 import { AccessDenied } from '../_components/AccessDenied';
 import { AuditOverall } from '@/components/risansi/AuditOverall';
 import { loadOverall, OVERALL_WINDOWS, type OverallData } from '@/lib/risansi-audit-overall';
+import { PERSON_WINDOWS } from '@/lib/risansi-person-metrics';
 
 export const dynamic = 'force-dynamic';
 
@@ -112,16 +113,16 @@ export default async function AuditPage({
   let exhibitionRows: ExhibitionAuditRow[] = [];
   let usageUsers: UsageUser[] = [], usagePages: UsagePage[] = [], usageSessions: UsageSession[] = [];
   let overall: OverallData | null = null;
-  let overallPeople: { email: string; name: string }[] = [];
+
+  const people = await q<{ email: string; name: string; role: string }[]>(async () => (
+    await risansiPool.query<{ email: string; name: string; role: string }>(
+      `SELECT lower(email) AS email, COALESCE(NULLIF(name,''), email) AS name, role
+         FROM users WHERE is_active AND COALESCE(email,'') <> ''
+        ORDER BY role DESC, 2`)).rows, []);
 
   if (tab === 'overall') {
-    [overall, overallPeople] = await Promise.all([
-      q<OverallData | null>(() => loadOverall(risansiPool, { win: ovWin, role: ovRole, user: selUser }), null),
-      q<{ email: string; name: string }[]>(async () => (await risansiPool.query<{ email: string; name: string }>(
-        `SELECT lower(email) AS email, COALESCE(NULLIF(name,''), email) AS name
-           FROM users WHERE is_active AND COALESCE(email,'') <> ''
-          ORDER BY 2`)).rows, []),
-    ]);
+    overall = await q<OverallData | null>(
+      () => loadOverall(risansiPool, { win: ovWin, role: ovRole, user: selUser }), null);
   } else if (tab === 'usage') {
     if (selUser) {
       [usagePages, usageSessions] = await Promise.all([
@@ -273,6 +274,40 @@ export default async function AuditPage({
           </a>
         </div>
 
+        {/* One person, as a PDF you can send them. A plain GET form opening in a
+            new tab — the print route auto-opens the browser's print dialog, and
+            "Save as PDF" there is the download. */}
+        <form
+          method="GET" action="/print/portal-usage" target="_blank"
+          style={{
+            display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap',
+            padding: '10px 14px', marginBottom: 16,
+            background: 'var(--bg-elev)', border: '1px solid var(--line)', borderRadius: 'var(--radius)',
+          }}
+        >
+          <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fg-3)' }}>
+            Individual report
+          </span>
+          <select name="user" defaultValue={selUser} required style={SELECT} aria-label="Person">
+            <option value="">Select a person…</option>
+            {people.map(p => (
+              <option key={p.email} value={p.email}>{p.name}{p.role ? ` · ${p.role}` : ''}</option>
+            ))}
+          </select>
+          <select name="win" defaultValue="30d" style={SELECT} aria-label="Period">
+            {PERSON_WINDOWS.map(w => <option key={w.id} value={w.id}>{w.label}</option>)}
+          </select>
+          <button type="submit" style={{
+            padding: '8px 15px', fontSize: 12.5, fontWeight: 600, background: '#0A3D8F',
+            color: '#fff', border: 'none', borderRadius: 'var(--radius)', cursor: 'pointer', fontFamily: 'inherit',
+          }}>
+            ⭳ Their metrics vs the team average (PDF)
+          </button>
+          <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>
+            opens a print view · choose Save as PDF
+          </span>
+        </form>
+
         {/* Stat strip */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }} className="r-grid-4">
           <Stat label="Logins · 24h"  value={stats.logins24} />
@@ -294,7 +329,7 @@ export default async function AuditPage({
 
         {tab === 'overall' ? (
           overall
-            ? <AuditOverall d={overall} win={ovWin} role={ovRole} user={selUser} people={overallPeople} />
+            ? <AuditOverall d={overall} win={ovWin} role={ovRole} user={selUser} people={people} />
             : <div style={{ padding: 30, textAlign: 'center', color: 'var(--fg-3)', fontSize: 13 }}>Could not load the overview.</div>
         ) : tab === 'usage' ? (
           <UsageView users={usageUsers} pages={usagePages} sessions={usageSessions} selUser={selUser} win={win} />
