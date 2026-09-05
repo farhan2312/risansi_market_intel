@@ -80,11 +80,16 @@ export const authOptions: AuthOptions = {
           }>(
             // Departments come back as an array from the join table. A person
             // holds zero or more, so this is an aggregate, not a column.
+            //
+            // `FROM users u` — the alias is not decoration. Adding the u. prefixes
+            // without it made this query fail with "missing FROM-clause entry for
+            // table u", and the catch below turns ANY failure here into a Pending
+            // rep with no id. Which is what every signed-in person silently became.
             `SELECT u.id, u.status, u.role, u.name, u.must_change_password,
                     ARRAY(SELECT d.department FROM user_departments d
                            WHERE d.user_id = u.id ORDER BY d.department) AS departments
-             FROM users
-             WHERE lower(email) = $1 AND is_active = TRUE
+             FROM users u
+             WHERE lower(u.email) = $1 AND u.is_active = TRUE
              LIMIT 1`,
             [email],
           );
