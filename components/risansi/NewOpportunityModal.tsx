@@ -210,12 +210,17 @@ function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess }: {
         fd.set('items_json', JSON.stringify(items));
       }
 
+      // A refusal comes back as a value. Thrown server-action errors are
+      // redacted in production, so every reason this could fail — a missing
+      // required field, a client with no rep, a future date — used to arrive as
+      // the same "Could not create the opportunity." and told nobody anything.
       const created = await createPipelineOpportunity(fd);
+      if (!created.ok) { setError(created.error); setBusy(false); return; }
 
       // The quotation PDF has nowhere to go until the row exists. The record is
       // saved by this point, so a failed upload must say so plainly rather than
       // reading as though the whole thing was lost.
-      const newId = (created as { id?: string | number } | undefined)?.id;
+      const newId = created.id;
       if (pdfs.length && newId) {
         const failed: string[] = [];
         for (const f of pdfs) {
@@ -240,9 +245,12 @@ function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess }: {
       onSuccess();
       router.refresh();
     } catch (err) {
+      // Anything reaching here is a genuine fault rather than a rule the filer
+      // broke — those are returned above. Its message is redacted in production,
+      // which is why this one stays generic.
       const raw = err instanceof Error ? err.message : '';
       const redacted = !raw || /unexpected response/i.test(raw) || Boolean((err as { digest?: string })?.digest);
-      setError(redacted ? 'Could not create the opportunity.' : raw);
+      setError(redacted ? 'Could not create the opportunity — something failed on the server.' : raw);
       setBusy(false);
     }
   };

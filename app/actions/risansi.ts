@@ -1053,7 +1053,14 @@ export async function assignClientTour(clientId: number, tourId: number): Promis
 
 // ── Pipeline: create opportunity (client_id from form) ─────────
 
-export async function createPipelineOpportunity(formData: FormData) {
+/** Created, or the reason it was not. Returned rather than thrown for the same
+ *  reason updateOpportunity returns its refusals: Next redacts a thrown
+ *  server-action error in production, so every one of the eight messages below
+ *  reached the user as "Could not create the opportunity." — including the ones
+ *  that say exactly what to go and fix. */
+export type CreateResult = { ok: true; id: string } | { ok: false; error: string };
+
+export async function createPipelineOpportunity(formData: FormData): Promise<CreateResult> {
   const user = await requireSession();
 
   const clientId = (formData.get('client_id') as string | null)?.trim() ?? '';
@@ -1069,14 +1076,14 @@ export async function createPipelineOpportunity(formData: FormData) {
   const product  = (formData.get('unit_project') as string | null)?.trim() || 'Enquiry';
   const prodType = (formData.get('product_type') as string | null)?.trim() || null;
 
-  if (!clientId) throw new Error('Client is required.');
+  if (!clientId) return fail('Client is required.');
 
   // You can only file an opportunity for a client you can see — a client on one
   // of your tours or one you've been granted direct special access to. Admin/
   // sysadmin always pass. getCurrentUser maps the session's repId to id.
   const viewer = await getCurrentUser();
   if (!(await canViewClient(viewer, Number(clientId)))) {
-    throw new Error('You do not have access to this client.');
+    return fail('You do not have access to this client.');
   }
 
   // Field readers. `s` → trimmed string or null; `nRaw` → any finite number;
@@ -1117,7 +1124,7 @@ export async function createPipelineOpportunity(formData: FormData) {
   };
   const missing = requiredFieldNames(stage).filter(n => !filled(n));
   if (missing.length) {
-    throw new Error(`Fill the required field${missing.length > 1 ? 's' : ''} for the ${stage} stage: ${labelsFor(missing).join(', ')}.`);
+    return fail(`Fill the required field${missing.length > 1 ? 's' : ''} for the ${stage} stage: ${labelsFor(missing).join(', ')}.`);
   }
 
   // Dates that cannot be in the future. The input carries a `max`, but a typed
@@ -1129,13 +1136,13 @@ export async function createPipelineOpportunity(formData: FormData) {
     if (!f.noFuture) continue;
     const v = (formData.get(f.name) as string | null)?.trim();
     if (v && v > today) {
-      throw new Error(`${f.label} cannot be in the future — ${v} is after ${today}.`);
+      return fail(`${f.label} cannot be in the future — ${v} is after ${today}.`);
     }
   }
 
   // Revised-offer history, if the quotation step captured any.
   const revParsed = parseOfferRevisionsJson(formData.get('offer_revisions_json'));
-  if (revParsed.error) throw new Error(revParsed.error);
+  if (revParsed.error) return fail(revParsed.error);
   const revRows   = revParsed.rows;
   const latestRev = revRows.length ? revRows[revRows.length - 1] : null;
 
@@ -1148,7 +1155,7 @@ export async function createPipelineOpportunity(formData: FormData) {
   let soRows: SoInput[] = [];
   if (stage === 'Won') {
     const parsed = parseSalesOrdersJson(formData.get('sales_orders_json'));
-    if (parsed.error) throw new Error(parsed.error);
+    if (parsed.error) return fail(parsed.error);
     soRows = parsed.rows;
   }
 
@@ -1173,7 +1180,7 @@ export async function createPipelineOpportunity(formData: FormData) {
     creatorRepId = rows[0]?.id ?? null;
   }
   if (user.role === 'rep' && creatorRepId == null) {
-    throw new Error('Your account is not linked to a user record. Please contact the system administrator.');
+    return fail('Your account is not linked to a user record. Please contact the system administrator.');
   }
 
   // A rep owns what they file. For anyone else the client names the owner, and
@@ -1184,8 +1191,9 @@ export async function createPipelineOpportunity(formData: FormData) {
   const primaryRepId = user.role === 'rep' ? creatorRepId : derived.repId;
 
   if (!primaryRepId) {
-    throw new Error(
-      'This client has no rep assigned, so the opportunity would have no owner. Set a primary rep on the client first — Admin › Reps & Managers › Unassigned lists every client waiting for one.',
+    return fail(
+      'This client has no rep assigned, so the opportunity would have no owner. '
+      + 'Set a primary rep on the client first — Admin › Reps & Managers › Unassigned lists every client waiting for one.',
     );
   }
 
@@ -1303,7 +1311,7 @@ export async function createPipelineOpportunity(formData: FormData) {
   revalidatePath('/risansi');
   // The new id lets the caller attach a quotation PDF to the record it just
   // created — the whole reason the create form has a second step.
-  return { id: newOppId };
+  return { ok: true, id: String(newOppId) };
 }
 
 // ── Pipeline: move to Quoted + capture the quotation details ───
@@ -1445,7 +1453,10 @@ export async function saveQuotedDetails(oppId: number, formData: FormData) {
  * throw: those are for the logs, not for the user.
  */
 export type SaveResult = { ok: true } | { ok: false; error: string };
-const fail = (error: string): SaveResult => ({ ok: false, error });
+// Deliberately not annotated as SaveResult: the same helper is the failure half
+// of CreateResult too, and a refusal is the same shape whatever succeeded would
+// have returned.
+const fail = (error: string) => ({ ok: false as const, error });
 
 export async function updateOpportunity(oppId: number, formData: FormData): Promise<SaveResult> {
   const user = await requireSession();
