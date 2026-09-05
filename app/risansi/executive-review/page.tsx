@@ -7,6 +7,8 @@ import risansiPool from '@/lib/db-risansi';
 import { ExecutiveViews, type ExecData, type Row } from '@/components/risansi/ExecutiveViews';
 import { ExecutiveSelector, type SelRep } from '@/components/risansi/ExecutiveSelector';
 import { ExecDrilldownProvider } from '@/components/risansi/ExecDrilldown';
+import { SalesProjection } from '@/components/risansi/SalesProjection';
+import { loadProjection } from '@/lib/risansi-sales-projection';
 // CANON / CATS / TURN_ORDER live in the lib the drill-down also reads, so the
 // page and its breakdowns cannot classify a client two different ways.
 import { CANON, CATS, TURN_ORDER } from '@/lib/risansi-exec-review';
@@ -37,7 +39,7 @@ const FY_EXPR = (col: string) => `CASE WHEN EXTRACT(MONTH FROM ${col}) >= 4
   ELSE LPAD(((EXTRACT(YEAR FROM ${col})::int - 1) % 100)::text,2,'0')||'-'||LPAD((EXTRACT(YEAR FROM ${col})::int % 100)::text,2,'0') END`;
 
 export default async function ExecutiveReviewPage({ searchParams }: {
-  searchParams: Promise<{ tsm?: string; month?: string; months?: string; view?: string; ctype?: string; name?: string; tview?: string; scope?: string }>;
+  searchParams: Promise<{ tsm?: string; month?: string; months?: string; view?: string; ctype?: string; name?: string; tview?: string; scope?: string; proj?: string }>;
 }) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) redirect('/api/auth/signin');
@@ -347,6 +349,7 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   // (visAnd): widening which of the subject's accounts to count must never
   // widen what the person looking is allowed to see.
   const accountScope: 'own' | 'all' = sp.scope === 'all' ? 'all' : 'own';
+  const projMode: 'monthly' | 'quarterly' = sp.proj === 'monthly' ? 'monthly' : 'quarterly';
   const tsmId = Number(tsm);
   const ownsF = `c.primary_rep_id = ${tsmId}`;
   const coversF = `c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = ${tsmId})`;
@@ -362,6 +365,12 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   const isSelfReview  = me.id != null && String(me.id) === String(tsm);
   const visitScope    = isSelfReview ? null : clientScopeSql(me, 'v.client_id', OWN_OPEN.visit('v'));
   const visitScopeAnd = visitScope ? ` AND (${visitScope})` : '';
+
+  // Rep-wise expected closures, for the projection section below the review.
+  // Never throws the page away: a broken forecast should not take the whole
+  // Executive Review with it.
+  const projection = await q(
+    () => loadProjection(risansiPool, fy, allowedRepIds), null);
 
   const [clients, turnover, quotation, offers, attendance, kpiRow] = await Promise.all([
     // 1. Clients Summary
@@ -587,6 +596,24 @@ export default async function ExecutiveReviewPage({ searchParams }: {
           </div>}
         />
         </ExecDrilldownProvider>
+
+        {/* Rep-wise expected closures. Scoped by allowedRepIds — the same list
+            the selector above is built from — so this section can never show a
+            rep the viewer is not allowed to see. */}
+        {projection && (
+          <SalesProjection
+            d={projection}
+            mode={projMode}
+            hrefFor={(m) => {
+              const q = new URLSearchParams();
+              for (const [k, v] of Object.entries(sp)) {
+                if (typeof v === 'string' && v !== '' && k !== 'proj') q.set(k, v);
+              }
+              q.set('proj', m);
+              return `/risansi/executive-review?${q.toString()}`;
+            }}
+          />
+        )}
       </div>
     </div>
   );
