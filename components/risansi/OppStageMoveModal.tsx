@@ -162,7 +162,8 @@ export function OppStageMoveModal({ opp, target, usdRate = 86, competitors = [],
       const so = document.querySelector<HTMLInputElement>('input[name="sales_orders_json"]');
       if (so) fd.set('sales_orders_json', so.value);
 
-      await updateOpportunity(oppId, fd);
+      const res = await updateOpportunity(oppId, fd);
+      if (!res.ok) { setError(res.error); setBusy(false); return; }
       // The remark is its own row, so a failure here must not read as the move
       // having failed — the stage change is already committed at this point.
       if (remark.trim()) {
@@ -171,6 +172,9 @@ export function OppStageMoveModal({ opp, target, usdRate = 86, competitors = [],
       onDone();
       router.refresh();
     } catch (e) {
+      // Refusals now arrive as a returned value, so anything reaching here is a
+      // genuine fault rather than a rule the mover broke — and its message is
+      // redacted in production, which is why this stays generic.
       const raw = e instanceof Error ? e.message : '';
       const redacted = !raw || /unexpected response/i.test(raw) || Boolean((e as { digest?: string })?.digest);
       setError(redacted ? `Could not move this opportunity to ${target}.` : raw);

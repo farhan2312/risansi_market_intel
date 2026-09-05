@@ -143,7 +143,10 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: { 
       }
       // Ownership is derived from the client's tour, not set here — the form
       // sends no rep_id, and updateOpportunity leaves the existing owner intact.
-      await updateOpportunity(Number(opp.id), fd);
+      // A refusal comes back as a value, not an exception: a thrown server-action
+      // error is redacted in production and the reason never reaches the screen.
+      const res = await updateOpportunity(Number(opp.id), fd);
+      if (!res.ok) { setError(res.error); setLoading(false); return; }
       router.refresh();
       onClose();
     } catch (err: unknown) {

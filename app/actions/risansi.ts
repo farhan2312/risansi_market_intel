@@ -19,7 +19,7 @@ import { poInrToCr, type PurchaseOrder } from '@/lib/risansi-purchase-orders';
 import { notifyVisitPlanned } from '@/lib/risansi-email';
 import { pushInApp } from '@/lib/risansi-inapp';
 import { notifyCheckIn, notifyOppClosed, notifySalesOrder, notifyNewLead, notifyQuotationIssued } from '@/lib/risansi-notify';
-import { requiredFieldNames, labelsFor, OPP_FIELDS, CREATE_STAGES, STAGE_PROB, isDropReason, type CreateStage } from '@/lib/risansi-opportunity-fields';
+import { requiredFieldNames, labelsFor, OPP_FIELDS, CREATE_STAGES, STAGE_PROB, isDropReason, type CreateStage, type OppStage } from '@/lib/risansi-opportunity-fields';
 import { pctForProbabilityCode } from '@/lib/risansi-probability-codes';
 import { normaliseIndustry, istToday } from '@/lib/risansi-utils';
 import { parseMoneyInput, parsePositiveMoney, moneyToCr } from '@/lib/risansi-money';
@@ -1118,14 +1118,16 @@ export async function createPipelineOpportunity(formData: FormData) {
   const revRows   = revParsed.rows;
   const latestRev = revRows.length ? revRows[revRows.length - 1] : null;
 
-  // A Won created directly needs at least one Sales Order (number + date + value).
+  // Sales Orders are optional at Won. The PO is what makes a deal Won; the SO
+  // follows days or weeks later, and demanding it at the same moment either
+  // blocks a real win or invites a placeholder number somebody has to correct.
+  // PO Number and PO Date are required instead — enforced by the catalogue gate
+  // above, which marks both requiredAt: ['Won']. Any SO rows that ARE supplied
+  // still get written.
   let soRows: SoInput[] = [];
   if (stage === 'Won') {
     const parsed = parseSalesOrdersJson(formData.get('sales_orders_json'));
     if (parsed.error) throw new Error(parsed.error);
-    if (parsed.rows.length === 0) {
-      throw new Error('Add at least one Sales Order (SO Number, Date and Value) to create a Won opportunity.');
-    }
     soRows = parsed.rows;
   }
 
@@ -1412,43 +1414,89 @@ export async function saveQuotedDetails(oppId: number, formData: FormData) {
 
 // ── Pipeline: full opportunity edit ────────────────────────────
 
-export async function updateOpportunity(oppId: number, formData: FormData) {
+/**
+ * The outcome of a save, as a value rather than an exception.
+ *
+ * Next redacts a thrown server-action error in production — the browser gets
+ * "An error occurred in the Server Components render" and the reason is gone.
+ * Every message below is something the person saving needs to read and act on,
+ * so they are returned. Genuine faults (a dead connection, a broken query) still
+ * throw: those are for the logs, not for the user.
+ */
+export type SaveResult = { ok: true } | { ok: false; error: string };
+const fail = (error: string): SaveResult => ({ ok: false, error });
+
+export async function updateOpportunity(oppId: number, formData: FormData): Promise<SaveResult> {
   const user = await requireSession();
 
   // Lock guard — a Won/Lost opp can't be edited unless it's being moved out of that stage
   const { rows: cur } = await risansiPool.query<{ stage: string; rep_id: number | null; client_id: number | null }>(
     'SELECT stage, rep_id, client_id FROM opportunities WHERE id = $1', [oppId],
   );
-  if (!cur[0]) throw new Error('Opportunity not found');
+  if (!cur[0]) return fail('Opportunity not found.');
 
   // Edit rights follow the client: anyone who can see it, or an admin.
   if (!(await userCanEditOpp(user, cur[0].rep_id, cur[0].client_id))) {
-    throw new Error('You do not have permission to edit this opportunity.');
+    return fail('You do not have permission to edit this opportunity.');
   }
 
   const currentStage = cur[0]?.stage;
   const newStage     = (formData.get('stage') as string | null) ?? currentStage;
   if ((currentStage === 'Won' || currentStage === 'Lost') && newStage === currentStage) {
-    throw new Error('This opportunity is locked and cannot be edited.');
+    // Say what to do instead. "Locked" on its own sends people back to the same
+    // button expecting a different result — the PO and Sales Order panels edit a
+    // closed deal without unlocking it.
+    return fail(`This opportunity is already ${currentStage} and its details are locked. `
+      + 'Add or change Purchase Orders and Sales Orders from their own panels, '
+      + `or move it out of ${currentStage} first.`);
   }
   // Gate: Quoted is a mandatory gateway. A deal that's been Quoted can be put
   // On Hold and still advance to Won/Lost, so On Hold counts as "past Quoted".
   if (['Negotiating', 'Won', 'Lost'].includes(newStage ?? '')
       && !['Quoted', 'Negotiating', 'On Hold', 'Won', 'Lost'].includes(currentStage ?? '')) {
-    throw new Error('Move this opportunity through Quoted first.');
+    return fail('Move this opportunity through Quoted first.');
   }
 
-  // Marking Won requires at least one Sales Order (each with a number, date and
-  // value). Only enforced on the transition INTO Won — SOs are added afterwards
-  // through addSalesOrder, which bypasses the Won edit lock.
+  // A stage change has to satisfy that stage's required fields — the same
+  // catalogue the form renders from, enforced here so a hand-built request
+  // cannot skip it. Only on a TRANSITION: re-saving an opportunity that is
+  // already at its stage may come from a partial form that never asked for
+  // those fields, and failing that would block edits for no reason.
+  //
+  // This is why "Won with PO details only" was refused. The rule lived in two
+  // places — the catalogue said PO Number and PO Date, this function said one
+  // Sales Order — and only one of them was ever updated.
+  if (newStage && newStage !== currentStage) {
+    const filled = (name: string): boolean => {
+      const v = formData.get(name);
+      if (v == null || String(v).trim() === '') return false;
+      if (OPP_FIELDS.some(f => f.name === name && f.kind === 'inr')) return (parsePositiveMoney(v) ?? 0) > 0;
+      return true;
+    };
+    const missing = requiredFieldNames(newStage as OppStage).filter(n => !filled(n));
+    if (missing.length) {
+      return fail(`Fill the required field${missing.length > 1 ? 's' : ''} for the ${newStage} stage: ${labelsFor(missing).join(', ')}.`);
+    }
+    // Compared against today in IST: the server runs on UTC and is five and a
+    // half hours behind, so a PO raised at 9am in Lucknow would otherwise be
+    // rejected as a future date for the rest of the morning.
+    const today = istToday();
+    for (const f of OPP_FIELDS) {
+      if (!f.noFuture) continue;
+      const v = (formData.get(f.name) as string | null)?.trim();
+      if (v && v > today) return fail(`${f.label} cannot be in the future — ${v} is after ${today}.`);
+    }
+  }
+
+  // Sales Orders are optional at Won — see createPipelineOpportunity for why.
+  // Whatever rows are supplied get written with the stage flip; none is fine,
+  // and more can be added later through addSalesOrder, which bypasses the Won
+  // edit lock.
   const isWonTransition = newStage === 'Won' && currentStage !== 'Won';
   let soRows: SoInput[] = [];
   if (isWonTransition) {
     const parsed = parseSalesOrdersJson(formData.get('sales_orders_json'));
-    if (parsed.error) throw new Error(parsed.error);
-    if (parsed.rows.length === 0) {
-      throw new Error('Add at least one Sales Order (SO Number, Date and Value) to mark this opportunity Won.');
-    }
+    if (parsed.error) return fail(parsed.error);
     soRows = parsed.rows;
   }
 
@@ -1459,7 +1507,7 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
   // that same case from wiping the stored reason.
   const isDropTransition = newStage === 'Dropped' && currentStage !== 'Dropped';
   if (isDropTransition && !isDropReason(formData.get('drop_reason'))) {
-    throw new Error('Select a reason for dropping this opportunity.');
+    return fail('Select a reason for dropping this opportunity.');
   }
 
   const valueInr = parseMoneyInput(formData.get('value_inr'))       ?? NaN;
@@ -1563,7 +1611,7 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
   if (!probCode) { delete candidates.probability; delete candidates.probability_code; }
 
   const cols = await writableColumns(Object.keys(candidates));
-  if (cols.length === 0) return;
+  if (cols.length === 0) return { ok: true };
 
   const sets = cols.map((c, i) => `${c} = $${i + 1}`);
   const vals = cols.map(c => candidates[c]);
@@ -1600,6 +1648,7 @@ export async function updateOpportunity(oppId: number, formData: FormData) {
   if (newStage === 'Quoted' && !['Quoted', 'Negotiating', 'On Hold', 'Won', 'Lost'].includes(currentStage ?? '')) {
     await notifyQuotationIssued(Number(oppId), user.email ?? '');
   }
+  return { ok: true };
 }
 
 // ── Sales Orders (against a Won opportunity) ───────────────────
