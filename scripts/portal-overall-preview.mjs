@@ -25,7 +25,9 @@ const MODULES = [
 ];
 for (const [rel, name] of MODULES) {
   const src = fs.readFileSync(path.join(ROOT, rel), 'utf8')
-    .replace(/from '@\/(?:components\/risansi|lib)\/([^']+)'/g, "from './$1.mjs'")
+    .replace(/from '@\/(?:components\/risansi|lib|app\/actions)\/([^']+)'/g, "from './$1.mjs'")
+    // Relative sibling imports need the extension node resolves by.
+    .replace(/from '\.\/([A-Za-z0-9_-]+)'/g, "from './$1.mjs'")
     // next/link is a plain anchor for a static render.
     .replace(/^import Link from 'next\/link';$/m, "const Link = ({ href, children, ...p }) => React.createElement('a', { href, ...p }, children);\nimport React from 'react';")
     .replace(/^'use client';?\n/m, '');
@@ -39,6 +41,14 @@ for (const [rel, name] of MODULES) {
     },
   }).outputText);
 }
+// The drill-down panel is a client component wired to a server action, and the
+// print layout never mounts it — DrillTile renders its children plainly with no
+// provider above it. A stub keeps this preview from pulling a database pool in
+// through a module the handout does not use.
+fs.writeFileSync(path.join(tmp, 'AuditDrilldown.mjs'),
+  'export const AuditDrilldownProvider = ({ children }) => children; '
+  + 'export const DrillTile = ({ children }) => children;');
+
 const imp = (n) => import('file:///' + path.join(tmp, `${n}.mjs`).split(path.sep).join('/'));
 const { PortalOverallReport } = await imp('PortalOverallReport');
 const { loadOverall, OVERALL_WINDOWS } = await imp('risansi-audit-overall');

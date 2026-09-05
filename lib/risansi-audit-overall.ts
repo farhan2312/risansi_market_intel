@@ -60,8 +60,11 @@ export interface OverallData {
   actions: { action: string; n: number }[];
 }
 
-/** A window clause for a column, plus the filter clauses shared by every query. */
-function clauses(f: OverallFilters, col: string, roleCol?: string, emailCol?: string) {
+/** A window clause for a column, plus the filter clauses shared by every query.
+ *  Exported so the KPI drill-downs answer for exactly the same population the
+ *  tile counted — a popup listing a different set than the number above it is
+ *  worse than no popup. */
+export function clauses(f: OverallFilters, col: string, roleCol?: string, emailCol?: string) {
   const win = OVERALL_WINDOWS.find(w => w.id === f.win) ?? OVERALL_WINDOWS[1];
   const parts: string[] = [];
   if (win.interval) parts.push(`${col} >= NOW() - INTERVAL '${win.interval}'`);

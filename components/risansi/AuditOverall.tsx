@@ -2,6 +2,8 @@ import type { CSSProperties } from 'react';
 import Link from 'next/link';
 import type { OverallData } from '@/lib/risansi-audit-overall';
 import { OVERALL_WINDOWS } from '@/lib/risansi-audit-overall';
+import { AuditDrilldownProvider, DrillTile } from './AuditDrilldown';
+import type { DrillKind } from '@/app/actions/risansi-audit-drilldown';
 
 // The Overall tab, laid out as the questions get asked rather than as the tables
 // happen to be shaped:
@@ -45,7 +47,18 @@ export function AuditOverall({ d, win, role, user, people, print = false }: {
   const k = d.kpi;
   const adoptionPct = k.accounts > 0 ? Math.round((k.activeUsers / k.accounts) * 100) : 0;
 
+  // No provider in print mode, and DrillTile then renders its children plainly.
+  // Two reasons: a handout has nothing to click, and globals.css hides every
+  // <button> when printing — wrapping the tiles unconditionally would have
+  // deleted the whole Adoption row from the PDF.
+  const Wrap = print
+    ? ({ children }: { children: React.ReactNode }) => <>{children}</>
+    : ({ children }: { children: React.ReactNode }) => (
+        <AuditDrilldownProvider filters={{ win, role, user }}>{children}</AuditDrilldownProvider>
+      );
+
   return (
+    <Wrap>
     <div style={{ display: 'grid', gap: 14 }}>
       {!print && <Filters win={win} role={role} user={user} people={people} />}
 
@@ -55,18 +68,27 @@ export function AuditOverall({ d, win, role, user, people, print = false }: {
         note={`${d.windowLabel}${d.from ? ` · ${d.from} to ${d.to}` : ''}`}
       >
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 1, background: 'var(--line)' }}>
-          <Kpi label="Active users" value={`${k.activeUsers}`} sub={`of ${k.accounts} accounts · ${adoptionPct}%`} tone={adoptionPct >= 70 ? GREEN : adoptionPct >= 40 ? AMBER : RED} />
-          <Kpi label="Never signed in" value={`${k.neverIn}`} sub="accounts with no login ever" tone={k.neverIn > 0 ? RED : GREEN} />
-          <Kpi label="Dormant" value={`${k.dormant}`} sub="signed in once, nothing in 30 days" tone={k.dormant > 0 ? AMBER : GREEN} />
-          <Kpi label="Sessions" value={k.sessions.toLocaleString('en-IN')} sub={`avg ${k.avgSessionMin.toFixed(0)} min each`} />
-          <Kpi label="Active hours" value={k.hours.toLocaleString('en-IN')} sub={`${k.pageViews.toLocaleString('en-IN')} page views`} />
-          <Kpi label="Records touched" value={k.records.toLocaleString('en-IN')} sub="created, edited or submitted" tone={NAVY} />
-          <Kpi label="Sign-ins" value={k.logins.toLocaleString('en-IN')} sub={`${k.failed} failed`} tone={k.failed > k.logins * 0.15 ? AMBER : undefined} />
+          <DrillTile kind="active"><Kpi label="Active users" value={`${k.activeUsers}`} sub={`of ${k.accounts} accounts · ${adoptionPct}%`} tone={adoptionPct >= 70 ? GREEN : adoptionPct >= 40 ? AMBER : RED} /></DrillTile>
+          <DrillTile kind="never"><Kpi label="Never signed in" value={`${k.neverIn}`} sub="accounts with no login ever" tone={k.neverIn > 0 ? RED : GREEN} /></DrillTile>
+          <DrillTile kind="dormant"><Kpi label="Dormant" value={`${k.dormant}`} sub="signed in once, nothing in 30 days" tone={k.dormant > 0 ? AMBER : GREEN} /></DrillTile>
+          <DrillTile kind="sessions"><Kpi label="Sessions" value={k.sessions.toLocaleString('en-IN')} sub={`avg ${k.avgSessionMin.toFixed(0)} min each`} /></DrillTile>
+          <DrillTile kind="hours"><Kpi label="Active hours" value={k.hours.toLocaleString('en-IN')} sub={`${k.pageViews.toLocaleString('en-IN')} page views`} /></DrillTile>
+          <DrillTile kind="records"><Kpi label="Records touched" value={k.records.toLocaleString('en-IN')} sub="things created, edited or deleted" tone={NAVY} /></DrillTile>
+          <DrillTile kind="logins"><Kpi label="Sign-ins" value={k.logins.toLocaleString('en-IN')} sub={`${k.failed} failed`} tone={k.failed > k.logins * 0.15 ? AMBER : undefined} /></DrillTile>
         </div>
       </Section>
 
       {/* ── 2. Which way is it going ────────────────────────────── */}
-      <Section title="Day by day" note="active users, hours in the app, and records touched">
+      <Section
+        title="Day by day"
+        note="active users, hours in the app, and records touched"
+      >
+        <div style={{ padding: '9px 16px 0', fontSize: 11, color: 'var(--fg-3)', lineHeight: 1.5 }}>
+          A <strong style={{ color: 'var(--fg-2)' }}>record touched</strong> is one write the portal
+          logged — a visit filed, an opportunity moved, a client edited, a quotation uploaded, an
+          action closed. Reading a screen is not one. Hours going up while this line stays flat is
+          time spent without anything being written down, which is the pair worth watching.
+        </div>
         <div style={{ padding: '14px 16px' }}>
           {d.daily.length < 2
             ? <Empty>Not enough days in this window to show a trend.</Empty>
@@ -139,19 +161,32 @@ export function AuditOverall({ d, win, role, user, people, print = false }: {
       <Section title="Needs attention" note="current state, not limited to the window above">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 1, background: 'var(--line)' }}>
           {d.attention.map(a => (
-            <div key={a.label} style={{ background: 'var(--bg-paper)', padding: '13px 15px' }}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 21, fontWeight: 700, color: a.n === 0 ? GREEN : a.tone === 'neg' ? RED : AMBER }}>
-                {a.n.toLocaleString('en-IN')}
+            <DrillTile key={a.label} kind={ATTENTION_KIND[a.label] ?? 'unowned'}>
+              <div style={{ background: 'var(--bg-paper)', padding: '13px 15px' }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 21, fontWeight: 700, color: a.n === 0 ? GREEN : a.tone === 'neg' ? RED : AMBER }}>
+                  {a.n.toLocaleString('en-IN')}
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 600, marginTop: 2 }}>{a.label}</div>
+                <div style={{ fontSize: 10.5, color: 'var(--fg-3)', marginTop: 1 }}>{a.detail}</div>
               </div>
-              <div style={{ fontSize: 12, fontWeight: 600, marginTop: 2 }}>{a.label}</div>
-              <div style={{ fontSize: 10.5, color: 'var(--fg-3)', marginTop: 1 }}>{a.detail}</div>
-            </div>
+            </DrillTile>
           ))}
         </div>
       </Section>
     </div>
+    </Wrap>
   );
 }
+
+/** Attention tile label → the list behind it. Keyed on the label the query
+ *  returns, so adding a tile without a list here is visible rather than silent. */
+const ATTENTION_KIND: Record<string, DrillKind> = {
+  'Clients with no owner': 'unowned',
+  'Overdue actions': 'overdue',
+  'Open complaints': 'complaints',
+  'Active clients never visited': 'unvisited',
+  'Opportunities quoted over 60 days': 'stale_quotes',
+};
 
 // ── Filters ───────────────────────────────────────────────────────
 
