@@ -39,14 +39,22 @@ export function PurchaseOrderManager({ oppId, canEdit }: {
     try {
       const fd = new FormData();
       fd.set('po_number', num); fd.set('po_date', date); fd.set('po_value_inr', val);
-      const rows = await addPurchaseOrder(oppId, fd);
-      setPos(rows); setNum(''); setDate(''); setVal('');
+      // A refusal is a value now: a thrown one is redacted in production, so
+      // "Won only", "not permitted" and "unrealistically large" all used to
+      // arrive as the same sentence below.
+      const res = await addPurchaseOrder(oppId, fd);
+      if (!res.ok) { setErr(res.error); return; }
+      setPos(res.data); setNum(''); setDate(''); setVal('');
     } catch (e) { setErr(e instanceof Error ? e.message : 'Could not add the purchase order.'); }
     finally { setBusy(false); }
   };
   const remove = async (id: number) => {
     setBusy(true); setErr('');
-    try { setPos(await deletePurchaseOrder(id)); }
+    try {
+      const res = await deletePurchaseOrder(id);
+      if (!res.ok) { setErr(res.error); return; }
+      setPos(res.data);
+    }
     catch (e) { setErr(e instanceof Error ? e.message : 'Could not remove the purchase order.'); }
     finally { setBusy(false); }
   };

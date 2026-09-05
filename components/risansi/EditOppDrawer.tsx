@@ -560,7 +560,11 @@ function DeleteOppButton({ oppId, onDeleted }: { oppId: number; onDeleted: () =>
             setLoading(true); setError('');
             // Without this the promise could reject (e.g. a Won/Lost deal is now
             // admin-locked) and leave the button stuck on '…' with no message.
-            try { await deleteOpportunity(oppId); onDeleted(); }
+            try {
+              const res = await deleteOpportunity(oppId);
+              if (!res.ok) { setError(res.error); setLoading(false); return; }
+              onDeleted();
+            }
             catch (e) { setError(e instanceof Error ? e.message : 'Delete failed'); setLoading(false); }
           }}
           style={{ padding: '5px 10px', borderRadius: 5, background: '#E02424', color: 'white', border: 'none', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit' }}

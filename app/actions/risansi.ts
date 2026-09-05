@@ -1060,6 +1060,16 @@ export async function assignClientTour(clientId: number, tourId: number): Promis
  *  that say exactly what to go and fix. */
 export type CreateResult = { ok: true; id: string } | { ok: false; error: string };
 
+/**
+ * The outcome of an action that returns something on success.
+ *
+ * Same reasoning as SaveResult and CreateResult: a rule the person broke has to
+ * reach them as words, because Next redacts a thrown server-action error in
+ * production. Genuine faults still throw and stay in the logs.
+ */
+export type Result<T = null> = { ok: true; data: T } | { ok: false; error: string };
+const ok = <T,>(data: T): Result<T> => ({ ok: true, data });
+
 export async function createPipelineOpportunity(formData: FormData): Promise<CreateResult> {
   const user = await requireSession();
 
@@ -1317,18 +1327,20 @@ export async function createPipelineOpportunity(formData: FormData): Promise<Cre
 // ── Pipeline: move to Quoted + capture the quotation details ───
 // Dedicated to the "move to Quoted" flow so unrelated columns are never wiped
 // (unlike updateOpportunity, which nulls any candidate field the form omits).
-export async function saveQuotedDetails(oppId: number, formData: FormData) {
+export async function saveQuotedDetails(oppId: number, formData: FormData): Promise<Result> {
   const user = await requireSession();
 
   const { rows } = await risansiPool.query<{ stage: string; rep_id: number | null; client_id: number | null }>(
     'SELECT stage, rep_id, client_id FROM opportunities WHERE id = $1', [oppId],
   );
-  if (!rows[0]) throw new Error('Opportunity not found');
+  if (!rows[0]) return fail('Opportunity not found.');
   if (rows[0].stage === 'Won' || rows[0].stage === 'Lost') {
-    throw new Error('This opportunity is locked and cannot be edited.');
+    return fail(`This opportunity is already ${rows[0].stage} and its details are locked. `
+      + 'Add or change Purchase Orders and Sales Orders from their own panels, '
+      + `or move it out of ${rows[0].stage} first.`);
   }
   if (!(await userCanEditOpp(user, rows[0].rep_id, rows[0].client_id))) {
-    throw new Error('You do not have permission to edit this opportunity.');
+    return fail('You do not have permission to edit this opportunity.');
   }
 
   const s = (k: string) => { const v = (formData.get(k) as string | null)?.trim(); return v ? v : null; };
@@ -1355,7 +1367,7 @@ export async function saveQuotedDetails(oppId: number, formData: FormData) {
   // Revised offers are a list now, not a field. Parse before the UPDATE so a
   // malformed row aborts the save instead of half-applying it.
   const revParsed = parseOfferRevisionsJson(formData.get('offer_revisions_json'));
-  if (revParsed.error) throw new Error(revParsed.error);
+  if (revParsed.error) return fail(revParsed.error);
 
   await risansiPool.query(
     `UPDATE opportunities SET
@@ -1439,6 +1451,7 @@ export async function saveQuotedDetails(oppId: number, formData: FormData) {
   if (!['Quoted', 'Negotiating', 'On Hold'].includes(rows[0].stage)) {
     await notifyQuotationIssued(Number(oppId), user.email ?? '');
   }
+  return ok(null);
 }
 
 // ── Pipeline: full opportunity edit ────────────────────────────
@@ -1709,30 +1722,30 @@ export async function listSalesOrders(oppId: number): Promise<SalesOrder[]> {
   return rows;
 }
 
-export async function addSalesOrder(oppId: number, formData: FormData): Promise<SalesOrder[]> {
+export async function addSalesOrder(oppId: number, formData: FormData): Promise<Result<SalesOrder[]>> {
   const user = await requireSession();
   const { rows: cur } = await risansiPool.query<{ stage: string; rep_id: number | null; client_id: number | null }>(
     'SELECT stage, rep_id, client_id FROM opportunities WHERE id = $1', [oppId],
   );
-  if (!cur[0]) throw new Error('Opportunity not found.');
-  if (!(await userCanEditOpp(user, cur[0].rep_id, cur[0].client_id))) throw new Error('You do not have permission to edit this opportunity.');
-  if (cur[0].stage !== 'Won') throw new Error('Sales Orders can only be recorded against a Won opportunity.');
+  if (!cur[0]) return fail('Opportunity not found.');
+  if (!(await userCanEditOpp(user, cur[0].rep_id, cur[0].client_id))) return fail('You do not have permission to edit this opportunity.');
+  if (cur[0].stage !== 'Won') return fail('Sales Orders can only be recorded against a Won opportunity.');
 
   const num  = (formData.get('so_number') as string | null)?.trim() ?? '';
   const date = (formData.get('so_date')   as string | null)?.trim() ?? '';
   const inr  = parseFloat(((formData.get('so_value_inr') as string | null) ?? '').replace(/[^0-9.\-]/g, ''));
   if (!num || !date || !Number.isFinite(inr) || inr <= 0) {
-    throw new Error('An SO Number, SO Date and SO Value greater than zero are all required.');
+    return fail('An SO Number, SO Date and SO Value greater than zero are all required.');
   }
   await insertSalesOrders(oppId, [{ so_number: num, so_date: date, so_value_cr: inrToCr(inr) }], user.email ?? null);
   await logActivity('opportunity', String(oppId), `added sales order ${num}`, user.email!);
   revalidatePath('/risansi/pipeline');
   revalidatePath('/risansi');
   await notifySalesOrder(oppId, user.email ?? '', num);
-  return listSalesOrders(oppId);
+  return ok(await listSalesOrders(oppId));
 }
 
-export async function deleteSalesOrder(soId: number): Promise<SalesOrder[]> {
+export async function deleteSalesOrder(soId: number): Promise<Result<SalesOrder[]>> {
   const user = await requireSession();
   const { rows } = await risansiPool.query<{ opportunity_id: number; rep_id: number | null; client_id: number | null; so_number: string }>(
     `SELECT so.opportunity_id, o.rep_id, o.client_id, so.so_number
@@ -1740,34 +1753,35 @@ export async function deleteSalesOrder(soId: number): Promise<SalesOrder[]> {
       WHERE so.id = $1`,
     [soId],
   );
-  if (!rows[0]) throw new Error('Sales order not found.');
-  if (!(await userCanEditOpp(user, rows[0].rep_id, rows[0].client_id))) throw new Error('You do not have permission to edit this opportunity.');
+  if (!rows[0]) return fail('Sales order not found.');
+  if (!(await userCanEditOpp(user, rows[0].rep_id, rows[0].client_id))) return fail('You do not have permission to edit this opportunity.');
   await risansiPool.query('DELETE FROM opportunity_sales_orders WHERE id = $1', [soId]);
   await logActivity('opportunity', String(rows[0].opportunity_id), `removed sales order ${rows[0].so_number}`, user.email!);
   revalidatePath('/risansi/pipeline');
   revalidatePath('/risansi');
-  return listSalesOrders(rows[0].opportunity_id);
+  return ok(await listSalesOrders(rows[0].opportunity_id));
 }
 
 // Adjust a Won opportunity's final value. The rest of a Won is frozen, but the
 // final value (with the SOs) decides Open vs Closed, so it stays editable —
 // same permission, bypassing the Won edit lock like the SO actions do.
-export async function updateWonFinalValue(oppId: number, formData: FormData): Promise<void> {
+export async function updateWonFinalValue(oppId: number, formData: FormData): Promise<Result> {
   const user = await requireSession();
   const { rows } = await risansiPool.query<{ stage: string; rep_id: number | null; client_id: number | null }>(
     'SELECT stage, rep_id, client_id FROM opportunities WHERE id = $1', [oppId],
   );
-  if (!rows[0]) throw new Error('Opportunity not found.');
-  if (!(await userCanEditOpp(user, rows[0].rep_id, rows[0].client_id))) throw new Error('You do not have permission to edit this opportunity.');
-  if (rows[0].stage !== 'Won') throw new Error('Only a Won opportunity’s final value can be adjusted here.');
+  if (!rows[0]) return fail('Opportunity not found.');
+  if (!(await userCanEditOpp(user, rows[0].rep_id, rows[0].client_id))) return fail('You do not have permission to edit this opportunity.');
+  if (rows[0].stage !== 'Won') return fail('Only a Won opportunity’s final value can be adjusted here.');
 
   const inr = parseFloat(((formData.get('final_value_inr') as string | null) ?? '').replace(/[^0-9.\-]/g, ''));
-  if (!Number.isFinite(inr) || inr <= 0) throw new Error('Enter a final value greater than zero.');
+  if (!Number.isFinite(inr) || inr <= 0) return fail('Enter a final value greater than zero.');
 
   await risansiPool.query('UPDATE opportunities SET final_value_cr = $1, updated_at = NOW() WHERE id = $2', [inr / 10_000_000, oppId]);
   await logActivity('opportunity', String(oppId), `final value updated to ₹${Math.round(inr)}`, user.email!);
   revalidatePath('/risansi/pipeline');
   revalidatePath('/risansi');
+  return ok(null);
 }
 
 // ── Purchase Orders (customer POs against a Won opportunity) ────
@@ -1785,26 +1799,26 @@ export async function listPurchaseOrders(oppId: number): Promise<PurchaseOrder[]
   return rows;
 }
 
-export async function addPurchaseOrder(oppId: number, formData: FormData): Promise<PurchaseOrder[]> {
+export async function addPurchaseOrder(oppId: number, formData: FormData): Promise<Result<PurchaseOrder[]>> {
   const user = await requireSession();
   const { rows: cur } = await risansiPool.query<{ stage: string; rep_id: number | null; client_id: number | null }>(
     'SELECT stage, rep_id, client_id FROM opportunities WHERE id = $1', [oppId],
   );
-  if (!cur[0]) throw new Error('Opportunity not found.');
-  if (!(await userCanEditOpp(user, cur[0].rep_id, cur[0].client_id))) throw new Error('You do not have permission to edit this opportunity.');
-  if (cur[0].stage !== 'Won') throw new Error('Purchase Orders can only be recorded against a Won opportunity.');
+  if (!cur[0]) return fail('Opportunity not found.');
+  if (!(await userCanEditOpp(user, cur[0].rep_id, cur[0].client_id))) return fail('You do not have permission to edit this opportunity.');
+  if (cur[0].stage !== 'Won') return fail('Purchase Orders can only be recorded against a Won opportunity.');
 
   const num  = (formData.get('po_number') as string | null)?.trim() ?? '';
   const date = (formData.get('po_date')   as string | null)?.trim() ?? '';
   const inr  = parseFloat(((formData.get('po_value_inr') as string | null) ?? '').replace(/[^0-9.\-]/g, ''));
   if (!num || !date || !Number.isFinite(inr) || inr <= 0) {
-    throw new Error('A PO Number, PO Date and PO Value greater than zero are all required.');
+    return fail('A PO Number, PO Date and PO Value greater than zero are all required.');
   }
   if (!/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(date)) {
-    throw new Error('Enter a valid PO Date (YYYY-MM-DD).');
+    return fail('Enter a valid PO Date (YYYY-MM-DD).');
   }
   const cr = poInrToCr(inr);
-  if (cr >= 9_999_999) throw new Error('That PO value is unrealistically large — please check it.');
+  if (cr >= 9_999_999) return fail('That PO value is unrealistically large — please check it.');
 
   await risansiPool.query(
     `INSERT INTO opportunity_purchase_orders (opportunity_id, po_number, po_date, po_value_cr, created_by)
@@ -1814,10 +1828,10 @@ export async function addPurchaseOrder(oppId: number, formData: FormData): Promi
   await logActivity('opportunity', String(oppId), `added purchase order ${num}`, user.email!);
   revalidatePath('/risansi/pipeline');
   revalidatePath('/risansi');
-  return listPurchaseOrders(oppId);
+  return ok(await listPurchaseOrders(oppId));
 }
 
-export async function deletePurchaseOrder(poId: number): Promise<PurchaseOrder[]> {
+export async function deletePurchaseOrder(poId: number): Promise<Result<PurchaseOrder[]>> {
   const user = await requireSession();
   const { rows } = await risansiPool.query<{ opportunity_id: number; rep_id: number | null; client_id: number | null; po_number: string }>(
     `SELECT po.opportunity_id, o.rep_id, o.client_id, po.po_number
@@ -1825,25 +1839,25 @@ export async function deletePurchaseOrder(poId: number): Promise<PurchaseOrder[]
       WHERE po.id = $1`,
     [poId],
   );
-  if (!rows[0]) throw new Error('Purchase order not found.');
-  if (!(await userCanEditOpp(user, rows[0].rep_id, rows[0].client_id))) throw new Error('You do not have permission to edit this opportunity.');
+  if (!rows[0]) return fail('Purchase order not found.');
+  if (!(await userCanEditOpp(user, rows[0].rep_id, rows[0].client_id))) return fail('You do not have permission to edit this opportunity.');
   await risansiPool.query('DELETE FROM opportunity_purchase_orders WHERE id = $1', [poId]);
   await logActivity('opportunity', String(rows[0].opportunity_id), `removed purchase order ${rows[0].po_number}`, user.email!);
   revalidatePath('/risansi/pipeline');
   revalidatePath('/risansi');
-  return listPurchaseOrders(rows[0].opportunity_id);
+  return ok(await listPurchaseOrders(rows[0].opportunity_id));
 }
 
 // ── Pipeline: delete opportunity ───────────────────────────────
 
-export async function deleteOpportunity(oppId: number) {
+export async function deleteOpportunity(oppId: number): Promise<Result> {
   const user = await requireSession();
   const { rows } = await risansiPool.query<{ rep_id: number | null; client_id: number | null; stage: string }>(
     'SELECT rep_id, client_id, stage FROM opportunities WHERE id = $1', [oppId],
   );
-  if (!rows[0]) throw new Error('Opportunity not found.');
+  if (!rows[0]) return fail('Opportunity not found.');
   if (!(await userCanEditOpp(user, rows[0].rep_id, rows[0].client_id))) {
-    throw new Error('You do not have permission to delete this opportunity.');
+    return fail('You do not have permission to delete this opportunity.');
   }
   // A Won or Lost deal is locked against edits everywhere else; deleting one
   // hard-removes it AND cascades its Sales Orders (migration 0029), destroying
@@ -1855,6 +1869,7 @@ export async function deleteOpportunity(oppId: number) {
   await logActivity('opportunity', String(oppId), 'deleted opportunity', user.email!);
   revalidatePath('/risansi/pipeline');
   revalidatePath('/risansi');
+  return ok(null);
 }
 
 // ── Visit plan: edit / delete (planned, not-yet-submitted visits) ──

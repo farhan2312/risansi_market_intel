@@ -44,7 +44,8 @@ export function SalesOrderManager({ oppId, finalValueCr, canEdit }: {
     setSavingFinal(true); setErr('');
     try {
       const fd = new FormData(); fd.set('final_value_inr', String(inr));
-      await updateWonFinalValue(oppId, fd);
+      const res = await updateWonFinalValue(oppId, fd);
+      if (!res.ok) { setErr(res.error); return; }
       setFinalCr(inr / CR);
     } catch (e) { setErr(e instanceof Error ? e.message : 'Could not update the final value.'); }
     finally { setSavingFinal(false); }
@@ -67,14 +68,19 @@ export function SalesOrderManager({ oppId, finalValueCr, canEdit }: {
     try {
       const fd = new FormData();
       fd.set('so_number', num); fd.set('so_date', date); fd.set('so_value_inr', val);
-      const rows = await addSalesOrder(oppId, fd);
-      setSos(rows); setNum(''); setDate(''); setVal('');
+      const res = await addSalesOrder(oppId, fd);
+      if (!res.ok) { setErr(res.error); return; }
+      setSos(res.data); setNum(''); setDate(''); setVal('');
     } catch (e) { setErr(e instanceof Error ? e.message : 'Could not add the sales order.'); }
     finally { setBusy(false); }
   };
   const remove = async (id: number) => {
     setBusy(true); setErr('');
-    try { setSos(await deleteSalesOrder(id)); }
+    try {
+      const res = await deleteSalesOrder(id);
+      if (!res.ok) { setErr(res.error); return; }
+      setSos(res.data);
+    }
     catch (e) { setErr(e instanceof Error ? e.message : 'Could not remove the sales order.'); }
     finally { setBusy(false); }
   };
