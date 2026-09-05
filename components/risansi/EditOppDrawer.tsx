@@ -211,6 +211,29 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86, comp
           <div>
             <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--fg)' }}>
               {readOnly ? 'Opportunity' : 'Edit Opportunity'}
+              {/* Which stage this form is currently in. The fields on it change
+                  from stage to stage, so "why is it asking me for a PO number"
+                  is answered by the pill rather than by scrolling. Reads `stage`
+                  rather than opp.stage so it follows the picker as it changes,
+                  and shows where it came from when it has. */}
+              <span style={{
+                marginLeft: 10, verticalAlign: 'middle',
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                padding: '2px 9px', borderRadius: 999,
+                fontSize: 11, fontWeight: 600, letterSpacing: '0.01em',
+                color: STAGE_TONE[stage] ?? 'var(--fg-2)',
+                background: `${STAGE_TONE[stage] ?? '#6B7FA3'}1A`,
+                border: `1px solid ${STAGE_TONE[stage] ?? '#6B7FA3'}55`,
+              }}>
+                <span style={{
+                  width: 6, height: 6, borderRadius: '50%',
+                  background: STAGE_TONE[stage] ?? '#6B7FA3', flexShrink: 0,
+                }} />
+                {stage}
+                {stage !== opp.stage && (
+                  <span style={{ fontWeight: 400, opacity: 0.75 }}>· was {opp.stage}</span>
+                )}
+              </span>
             </div>
             <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               {opp.client_name}

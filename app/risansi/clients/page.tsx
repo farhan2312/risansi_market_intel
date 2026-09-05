@@ -215,10 +215,17 @@ export default async function ClientListPage({
       }
     })(),
 
+    // Industry, Zone, Country and Tier all listed the whole company. Client Type
+    // and Rep below were already scoped, so a rep saw four dropdowns offering
+    // values that return nothing and two that behaved — the filter bar told them
+    // the business had 5 zones and their own list had 2.
     (async (): Promise<string[]> => {
       try {
+        const vis = clientVisibilitySql(user, 'c');
         const { rows } = await risansiPool.query<{ industry: string }>(
-          `SELECT DISTINCT industry FROM clients WHERE industry IS NOT NULL AND deleted_at IS NULL ORDER BY industry`,
+          `SELECT DISTINCT c.industry AS industry FROM clients c
+            WHERE c.industry IS NOT NULL AND c.deleted_at IS NULL${vis ? ` AND (${vis})` : ''}
+            ORDER BY 1`,
         );
         return rows.map(r => r.industry);
       } catch { return []; }
@@ -226,8 +233,16 @@ export default async function ClientListPage({
 
     (async (): Promise<string[]> => {
       try {
+        // Zone lives on the route, so it is scoped through the clients sitting on
+        // that route rather than on the route table itself — a route with no
+        // visible client contributes no zone.
+        const vis = clientVisibilitySql(user, 'c');
         const { rows } = await risansiPool.query<{ zone: string }>(
-          `SELECT DISTINCT zone FROM tour_routes WHERE zone IS NOT NULL AND zone <> '' ORDER BY zone`,
+          `SELECT DISTINCT tr.zone AS zone FROM tour_routes tr
+            WHERE tr.zone IS NOT NULL AND tr.zone <> ''${vis ? `
+              AND EXISTS (SELECT 1 FROM clients c
+                           WHERE c.tour_id = tr.id AND c.deleted_at IS NULL AND (${vis}))` : ''}
+            ORDER BY 1`,
         );
         return rows.map(r => r.zone);
       } catch { return []; }
@@ -238,10 +253,11 @@ export default async function ClientListPage({
     // list readable — without it every export market looks the same size.
     (async (): Promise<{ country: string; n: number }[]> => {
       try {
+        const countryVis = clientVisibilitySql(user, 'c');
         const { rows } = await risansiPool.query<{ country: string; n: number }>(
-          `SELECT btrim(country) AS country, count(*)::int AS n
-             FROM clients
-            WHERE btrim(COALESCE(country,'')) <> '' AND deleted_at IS NULL
+          `SELECT btrim(c.country) AS country, count(*)::int AS n
+             FROM clients c
+            WHERE btrim(COALESCE(c.country,'')) <> '' AND c.deleted_at IS NULL${countryVis ? ` AND (${countryVis})` : ''}
             GROUP BY 1 ORDER BY 2 DESC, 1`,
         );
         return rows;
@@ -250,8 +266,11 @@ export default async function ClientListPage({
 
     (async (): Promise<string[]> => {
       try {
+        const tierVis = clientVisibilitySql(user, 'c');
         const { rows } = await risansiPool.query<{ tier: string }>(
-          `SELECT DISTINCT tier FROM clients WHERE tier IS NOT NULL AND deleted_at IS NULL ORDER BY tier`,
+          `SELECT DISTINCT c.tier AS tier FROM clients c
+            WHERE c.tier IS NOT NULL AND c.deleted_at IS NULL${tierVis ? ` AND (${tierVis})` : ''}
+            ORDER BY 1`,
         );
         return rows.map(r => r.tier);
       } catch { return []; }
