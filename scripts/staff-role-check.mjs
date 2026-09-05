@@ -36,9 +36,13 @@ const check = (label, got, want) => {
   console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${label.padEnd(58)} ${got}`);
 };
 
-const staff = { id: 99, email: 's@risansi.com', role: 'staff', department: 'Quality' };
-const rep   = { id: 5,  email: 'r@risansi.com', role: 'rep', department: null };
-const admin = { id: 1,  email: 'a@risansi.com', role: 'admin', department: null };
+const staff = { id: 99, email: 's@risansi.com', role: 'staff', departments: ['Quality'] };
+const rep   = { id: 5,  email: 'r@risansi.com', role: 'rep', departments: [] };
+const admin = { id: 1,  email: 'a@risansi.com', role: 'admin', departments: [] };
+
+// The two shapes that broke the single-column model.
+const storesAndDispatch = { id: 98, email: 'sd@risansi.com', role: 'staff', departments: ['Stores', 'Dispatch'] };
+const repWhoDispatches  = { id: 97, email: 'rd@risansi.com', role: 'rep',   departments: ['Dispatch'] };
 
 console.log('The ladder — staff must satisfy no rung:');
 for (const r of ['rep', 'manager', 'admin', 'sysadmin']) {
@@ -73,6 +77,28 @@ check("isDepartment('quality') — case matters, the CHECK is exact", A.isDepart
 check("isDepartment('Marketing')", A.isDepartment('Marketing'), false);
 check('DEPARTMENTS count', A.DEPARTMENTS.length, 7);
 
+console.log('\n  one person, two departments:');
+check('holds Stores', A.hasDepartment(storesAndDispatch, 'Stores'), true);
+check('holds Dispatch', A.hasDepartment(storesAndDispatch, 'Dispatch'), true);
+check('does not hold Quality', A.hasDepartment(storesAndDispatch, 'Quality'), false);
+check('passes a stage owned by Stores OR Accounts',
+  A.hasAnyDepartment(storesAndDispatch, ['Stores', 'Accounts']), true);
+check('fails a stage owned by Quality OR Purchase',
+  A.hasAnyDepartment(storesAndDispatch, ['Quality', 'Purchase']), false);
+
+console.log('\n  a rep who also handles dispatch keeps everything a rep has:');
+check('holds Dispatch', A.hasDepartment(repWhoDispatches, 'Dispatch'), true);
+check('hasRole rep — unchanged by the department', A.hasRole(repWhoDispatches.role, 'rep'), true);
+check('is NOT staff', A.isStaff(repWhoDispatches.role), false);
+check('records still scoped, not refused',
+  A.clientScopeSql(repWhoDispatches, 'x.client_id') !== 'FALSE', true);
+check('clients still narrowed to their own',
+  A.clientVisibilitySql(repWhoDispatches) !== null, true);
+
+console.log('\n  and a department grants no sales access on its own:');
+check('staff with Stores+Dispatch still refused every record',
+  A.clientScopeSql(storesAndDispatch, 'x.client_id'), 'FALSE');
+
 // The route allowlist in proxy.ts, read from the file so it cannot drift.
 console.log('\nRoute gate (proxy.ts):');
 const proxy = fs.readFileSync(path.join(ROOT, 'proxy.ts'), 'utf8');
@@ -104,9 +130,31 @@ const { rows: [c] } = await pool.query(
     WHERE rel.relname = 'users' AND con.conname = 'users_role_check'`);
 check("role check admits 'staff'", /staff/.test(c?.def ?? ''), true);
 const { rows: [d] } = await pool.query(
-  `SELECT count(*)::int n FROM information_schema.columns
-    WHERE table_schema='public' AND table_name='users' AND column_name='department'`);
-check('users.department exists', d.n, 1);
+  `SELECT count(*)::int n FROM information_schema.tables
+    WHERE table_schema='public' AND table_name='user_departments'`);
+check('user_departments table exists', d.n, 1);
+
+// The table itself has to accept two rows for one person and refuse a value
+// that is not on the list. Done in a transaction that is always rolled back.
+const client = await pool.connect();
+const { rows: [someone] } = await client.query('SELECT id FROM users LIMIT 1');
+await client.query('BEGIN');
+await client.query(
+  `INSERT INTO user_departments (user_id, department) VALUES ($1,'Stores'),($1,'Dispatch')`,
+  [someone.id]);
+const { rows: [held] } = await client.query(
+  `SELECT count(*)::int n FROM user_departments WHERE user_id = $1`, [someone.id]);
+check('one user can hold two departments', held.n, 2);
+let refused = false;
+try {
+  await client.query('SAVEPOINT s');
+  await client.query(`INSERT INTO user_departments (user_id, department) VALUES ($1,'Marketing')`, [someone.id]);
+} catch { refused = true; await client.query('ROLLBACK TO SAVEPOINT s'); }
+check('the database refuses a department that is not on the list', refused, true);
+await client.query('ROLLBACK');
+const { rows: [left] } = await client.query('SELECT count(*)::int n FROM user_departments');
+check('nothing left behind after rollback', left.n, 0);
+client.release();
 
 // Nobody is staff yet, and every existing user kept their role.
 const { rows: r } = await pool.query(`SELECT role, count(*)::int n FROM users GROUP BY 1 ORDER BY 1`);

@@ -59,7 +59,7 @@ export async function PATCH(
   if (!allowed && clientId != null) {
     allowed = await canViewClient(
       { id: repId, email: session.user.email ?? null, role: role as RisansiRole,
-        department: isDepartment(session.user.department) ? session.user.department : null },
+        departments: (session.user.departments ?? []).filter(isDepartment) },
       Number(clientId),
     );
   }

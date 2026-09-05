@@ -6,7 +6,10 @@ import risansiPool from '@/lib/db-risansi';
 
 export type RisansiRole = 'staff' | 'rep' | 'manager' | 'admin' | 'sysadmin';
 
-/** The functions a person can belong to. Flat: none of these outranks another. */
+/** The functions a person can work in. Flat: none of these outranks another,
+ *  and a person holds ZERO OR MORE of them — Stores and Dispatch are one job
+ *  in several places here. Independent of `role`: a rep who also handles
+ *  dispatch keeps every bit of their rep access and gains a complaint stage. */
 export const DEPARTMENTS = [
   'Quality', 'Service', 'Production', 'Stores', 'Accounts', 'Purchase', 'Dispatch',
 ] as const;
@@ -92,13 +95,14 @@ export interface CurrentUser {
   id:    number | null;   // users.id (same integer space as the old reps.id)
   email: string | null;
   role:  RisansiRole;
-  /** Which function they work in. null for the sales roles, which have none. */
-  department: Department | null;
+  /** Every function they work in. Empty for someone who works none, which is
+   *  most of the sales team. Order is not meaningful. */
+  departments: Department[];
 }
 
 /** A caller with no identity and no privileges. Every scope helper below turns
  *  this into 'FALSE', and every route that tests `user.email` returns 401. */
-const SIGNED_OUT: CurrentUser = { id: null, email: null, role: 'rep', department: null };
+const SIGNED_OUT: CurrentUser = { id: null, email: null, role: 'rep', departments: [] };
 
 /**
  * Resolve the signed-in user from the session. role defaults to 'rep'.
@@ -111,14 +115,33 @@ const SIGNED_OUT: CurrentUser = { id: null, email: null, role: 'rep', department
 export const getCurrentUser = cache(async (): Promise<CurrentUser> => {
   const session = await getSession();
   if (!isApproved(session)) return SIGNED_OUT;
-  const dept = session?.user?.department;
+  const raw = session?.user?.departments;
   return {
     id:    (session?.user?.repId as number | null) ?? null,
     email: session?.user?.email ?? null,
     role:  ((session?.user?.role as RisansiRole) ?? 'rep'),
-    department: isDepartment(dept) ? dept : null,
+    // Filtered rather than trusted: the list arrives through a JWT, and an
+    // unrecognised value would otherwise reach a stage-permission check.
+    departments: Array.isArray(raw) ? raw.filter(isDepartment) : [],
   };
 });
+
+/**
+ * Does this person work in this function?
+ *
+ * The question every complaint stage will ask. Answered from the set, so
+ * somebody who holds Stores and Dispatch passes for both — which is the whole
+ * reason departments stopped being a single column.
+ */
+export function hasDepartment(user: CurrentUser, dept: Department): boolean {
+  return user.departments.includes(dept);
+}
+
+/** Does this person work in any of these functions? For a stage owned jointly —
+ *  Returnable Material is Stores and Accounts together. */
+export function hasAnyDepartment(user: CurrentUser, depts: readonly Department[]): boolean {
+  return depts.some(d => user.departments.includes(d));
+}
 
 // All ids below come from the trusted session (integers), so inlining them
 // into SQL is injection-safe and keeps callers free of param-index juggling.

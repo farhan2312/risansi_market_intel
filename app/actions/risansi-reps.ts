@@ -15,6 +15,32 @@ async function requireSysadmin() {
   return session!;
 }
 
+/** The department checkboxes, validated. Unknown values are refused rather than
+ *  dropped: silently ignoring one would leave an admin certain they had granted
+ *  a stage that nobody actually holds. */
+function readDepartments(formData: FormData): string[] {
+  const picked = formData.getAll('departments').map(v => String(v).trim()).filter(Boolean);
+  const bad = picked.filter(d => !isDepartment(d));
+  if (bad.length) throw new Error(`Not a department: ${bad.join(', ')}.`);
+  return [...new Set(picked)];
+}
+
+/** Replace somebody's departments with exactly this set. */
+async function setDepartments(userId: number, departments: string[], addedBy: string | null) {
+  const client = await risansiPool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM user_departments WHERE user_id = $1', [userId]);
+    for (const d of departments) {
+      await client.query(
+        `INSERT INTO user_departments (user_id, department, added_by) VALUES ($1, $2, $3)`,
+        [userId, d, addedBy],
+      );
+    }
+    await client.query('COMMIT');
+  } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
+}
+
 function deriveInitials(name: string): string {
   return name.split(/\s+/).map(w => w[0]?.toUpperCase() ?? '').join('').slice(0, 3) || 'R';
 }
@@ -28,11 +54,7 @@ export async function createRep(formData: FormData) {
   const zone     = (formData.get('zone')     as string | null)?.trim() || null;
   const route    = (formData.get('route')    as string | null)?.trim() || null;
   const role     = (formData.get('role')     as string | null)?.trim() || 'rep';
-  // Rejected here as well as by the CHECK constraint: a bad value should come
-  // back as a message somebody can read, not a Postgres constraint error.
-  const deptRaw  = (formData.get('department') as string | null)?.trim() || null;
-  const department = deptRaw && isDepartment(deptRaw) ? deptRaw : null;
-  if (deptRaw && !department) throw new Error(`"${deptRaw}" is not a department.`);
+  const departments = readDepartments(formData);
   const targetCr = formData.get('target_cr') ? parseFloat(formData.get('target_cr') as string) : null;
   const initials = (formData.get('initials') as string | null)?.trim() || deriveInitials(name);
 
@@ -47,12 +69,13 @@ export async function createRep(formData: FormData) {
   const { rows } = await risansiPool.query<{ id: number }>(
     `INSERT INTO users
        (rep_code, name, initials, email, zone, route, target_cr, role, status,
-        is_active, created_at, updated_at, department)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Approved',TRUE,NOW(),NOW(),$9)
+        is_active, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Approved',TRUE,NOW(),NOW())
      RETURNING id`,
-    [repCode, name, initials, email, zone, route, targetCr, role, department],
+    [repCode, name, initials, email, zone, route, targetCr, role],
   );
   const newUserId = rows[0].id;
+  await setDepartments(newUserId, departments, session.user?.email ?? null);
 
   // Optionally put them under a manager in the same step. This replaced an
   // "assign tours" picker, which by then granted nothing: a route stopped being
@@ -95,11 +118,7 @@ export async function updateRep(repId: number, formData: FormData) {
   if (formData.has('rep_code')) set('rep_code', (formData.get('rep_code') as string).trim() || null);
   if (formData.has('email'))    set('email',    (formData.get('email')    as string).trim().toLowerCase() || null);
   if (formData.has('role'))     set('role',     (formData.get('role')     as string).trim() || 'rep');
-  if (formData.has('department')) {
-    const d = (formData.get('department') as string).trim();
-    if (d && !isDepartment(d)) throw new Error(`"${d}" is not a department.`);
-    set('department', d || null);
-  }
+
   if (formData.has('target_cr')) {
     const raw = (formData.get('target_cr') as string).trim();
     const n = parseFloat(raw);
@@ -112,7 +131,19 @@ export async function updateRep(repId: number, formData: FormData) {
     set('is_active', all[all.length - 1] === 'true');
   }
 
-  if (sets.length === 0) return;
+  // Departments live in their own table, so they are written separately and
+  // only when the form actually carried the field. A form that never asks about
+  // departments must not clear the ones somebody already has — the same rule
+  // every other optional field on this action follows.
+  if (formData.has('departments') || formData.has('departments_present')) {
+    await setDepartments(repId, readDepartments(formData), null);
+  }
+
+  if (sets.length === 0) {
+    revalidatePath('/risansi/admin/reps');
+    revalidatePath('/admin');
+    return;
+  }
 
   vals.push(repId);
   await risansiPool.query(

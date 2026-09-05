@@ -11,8 +11,8 @@ declare module 'next-auth' {
       role: string;
       repId: number | null;
       mustChange: boolean;
-      /** Function this person works in, or null for the sales roles. */
-      department: string | null;
+      /** Every function this person works in. Empty for most of the sales team. */
+      departments: string[];
     };
   }
 }
@@ -23,6 +23,6 @@ declare module 'next-auth/jwt' {
     role: string;
     repId: number | null;
     mustChange: boolean;
-    department: string | null;
+    departments: string[];
   }
 }

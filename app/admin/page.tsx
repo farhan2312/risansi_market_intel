@@ -31,6 +31,9 @@ export default async function AdminPage() {
         u.name,
         u.email,
         u.role,
+        -- Zero or more per person, so an array rather than a column.
+        ARRAY(SELECT d.department FROM user_departments d
+               WHERE d.user_id = u.id ORDER BY d.department) AS departments,
         u.status,
         u.is_active,
         u.zone,

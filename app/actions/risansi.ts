@@ -178,7 +178,7 @@ async function assertCanViewOpp(oppId: number): Promise<void> {
 }
 
 async function userCanEditOpp(
-  user: { role?: string; repId?: number | null; email?: string | null; department?: string | null },
+  user: { role?: string; repId?: number | null; email?: string | null; departments?: string[] },
   oppRepId: number | null,
   clientId?: number | null,
 ): Promise<boolean> {
@@ -188,7 +188,7 @@ async function userCanEditOpp(
   if (clientId != null) {
     return canViewClient(
       { id: user.repId ?? null, email: user.email ?? null, role: role as RisansiRole,
-        department: isDepartment(user.department) ? user.department : null },
+        departments: (user.departments ?? []).filter(isDepartment) },
       Number(clientId),
     );
   }

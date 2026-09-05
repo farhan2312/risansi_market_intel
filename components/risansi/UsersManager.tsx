@@ -12,7 +12,7 @@ export interface UserRow {
   name:           string;
   email:          string;
   role:           string;
-  department:     string | null;
+  departments:    string[];
   status:         string;
   is_active:      boolean;
   zone:           string | null;
@@ -102,8 +102,10 @@ export function UsersManager({ users }: { users: UserRow[] }) {
                   </td>
                   <td data-label="Role" style={TD}>
                     <Tag kind={u.role === 'sysadmin' || u.role === 'admin' ? 'accent' : undefined}>{u.role}</Tag>
-                    {u.department && (
-                      <span style={{ fontSize: 11, color: 'var(--fg-3)', marginLeft: 6 }}>{u.department}</span>
+                    {u.departments?.length > 0 && (
+                      <span style={{ fontSize: 11, color: 'var(--fg-3)', marginLeft: 6 }}>
+                        {u.departments.join(' · ')}
+                      </span>
                     )}
                   </td>
                   <td data-label="Status" style={TD}>
@@ -277,16 +279,31 @@ function UserDrawer({ mode, user, onClose, onSaved }: {
                   {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                 </select>
               </Field>
-              <Field label="Department">
-                <select name="department" defaultValue={user?.department ?? ''} style={INP}>
-                  <option value="">— none —</option>
-                  {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
-              </Field>
               <Field label="Rep Code">
                 <input name="rep_code" defaultValue={user?.rep_code ?? ''} style={INP} />
               </Field>
             </Row>
+            <Field label="Departments">
+              {/* Always submitted, so a form with every box cleared means
+                  "no departments" rather than "the field was not on this form". */}
+              <input type="hidden" name="departments_present" value="1" />
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 14px', padding: '4px 0' }}>
+                {DEPARTMENTS.map(d => (
+                  <label key={d} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox" name="departments" value={d}
+                      defaultChecked={user?.departments?.includes(d) ?? false}
+                    />
+                    {d}
+                  </label>
+                ))}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 2 }}>
+                Which complaint stages this person can work. Independent of the role above —
+                a rep who also handles dispatch keeps full rep access and gains that stage.
+                Tick as many as apply.
+              </div>
+            </Field>
             <Row>
               <Field label="Zone">
                 <input name="zone" defaultValue={user?.zone ?? ''} style={INP} />
