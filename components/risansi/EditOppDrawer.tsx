@@ -80,7 +80,13 @@ interface QItem { id: number; pump_model: string | null; pump_qty: number | null
 interface QMeta { market?: string | null; ril_rep?: string | null; qtn_prepared_by?: string | null; client_status_at_quote?: string | null; unit_project?: string | null; location?: string | null; qtr?: string | null; probability_code?: string | null; enquiry_no?: string | null; enquiry_date?: string | null; revised_offer_date?: string | null; revised_offer_value_inr?: number | null; offer_value_inr?: number | null; quotation_link?: string | null; }
 
 
-export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: { opp: EditableOpp; onClose: () => void; canEdit?: boolean; usdRate?: number }) {
+export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86, competitors = [] }: {
+  opp: EditableOpp; onClose: () => void; canEdit?: boolean; usdRate?: number;
+  /** Competitor names from the database. Without them the Lost To Competitor
+   *  dropdown offers only the four generic fallbacks and no actual competitor,
+   *  which is what it did here while the stage-move modal listed them properly. */
+  competitors?: string[];
+}) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
@@ -109,7 +115,7 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: { 
     setValues(cur => ({ ...cur, [name]: value }));
   const optionsFor = (f: OppFieldDef) =>
     f.name === 'drop_reason' ? DROP_REASONS
-    : f.name === 'lost_to_competitor' ? LOST_COMPETITOR_TAIL
+    : f.name === 'lost_to_competitor' ? [...competitors, ...LOST_COMPETITOR_TAIL]
     : undefined;
   // Final value is controlled so the Sales-Order coverage preview stays live
   // while the user types it during a Won transition. (value_cr/final_value_cr

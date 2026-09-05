@@ -50,6 +50,9 @@ export interface OverallData {
     email: string; name: string; role: string; zone: string;
     hours: number; sessions: number; days: number; records: number;
     clientsOwned: number; lastSeen: string | null;
+    /** The same three buckets the Adoption tiles count, per person, so the
+     *  table and the headline numbers cannot disagree about who is dormant. */
+    state: 'never' | 'dormant' | 'active';
   }[];
   output: { label: string; n: number; per: string }[];
   funnel: { stage: string; n: number; value: number }[];
@@ -180,7 +183,8 @@ export async function loadOverall(pool: Pool, f: OverallFilters): Promise<Overal
     // Per person, with the size of their book alongside — the denominator that
     // turns "quiet" into "quiet across 740 clients".
     q<{ email: string; name: string; role: string; zone: string; hours: string; sessions: string;
-        days: string; records: string; clients_owned: string; last_seen: string | null }[]>(`
+        days: string; records: string; clients_owned: string; last_seen: string | null;
+        state: 'never' | 'dormant' | 'active' }[]>(`
       SELECT u.email, u.name, u.role, COALESCE(u.zone,'') AS zone,
              COALESCE((SELECT round(sum(p.active_seconds)/3600.0,1) FROM page_activity p
                         WHERE p.user_id = u.id${act.where}),0)::text AS hours,
@@ -191,7 +195,20 @@ export async function loadOverall(pool: Pool, f: OverallFilters): Promise<Overal
              COALESCE((SELECT count(*) FROM audit_log al
                         WHERE lower(al.actor_email) = lower(u.email)${aud.where}),0)::text AS records,
              (SELECT count(*) FROM clients c WHERE c.primary_rep_id = u.id AND c.deleted_at IS NULL)::text AS clients_owned,
-             (SELECT max(p.occurred_at)::date::text FROM page_activity p WHERE p.user_id = u.id) AS last_seen
+             (SELECT max(p.occurred_at)::date::text FROM page_activity p WHERE p.user_id = u.id) AS last_seen,
+             -- Word for word the rules behind the Never signed in and Dormant
+             -- tiles above, so a row highlighted here is one of the people
+             -- those tiles counted. Both are all-time regardless of the window
+             -- filter: "has not been here in 30 days" is a fact about now, and
+             -- narrowing the window would make everyone outside it look dormant.
+             CASE
+               WHEN NOT EXISTS (SELECT 1 FROM auth_audit a2
+                                 WHERE lower(a2.email) = lower(u.email) AND a2.event = 'login') THEN 'never'
+               WHEN NOT EXISTS (SELECT 1 FROM page_activity p2
+                                 WHERE p2.user_id = u.id
+                                   AND p2.occurred_at >= NOW() - INTERVAL '30 days') THEN 'dormant'
+               ELSE 'active'
+             END AS state
         FROM users u
        WHERE u.is_active AND COALESCE(u.email,'') <> ''${roleFilter}${userFilter}
        ORDER BY 5 DESC`, []),
@@ -269,7 +286,7 @@ export async function loadOverall(pool: Pool, f: OverallFilters): Promise<Overal
     people: people.map(r => ({
       email: r.email, name: r.name, role: r.role, zone: r.zone,
       hours: n(r.hours), sessions: n(r.sessions), days: n(r.days), records: n(r.records),
-      clientsOwned: n(r.clients_owned), lastSeen: r.last_seen,
+      clientsOwned: n(r.clients_owned), lastSeen: r.last_seen, state: r.state,
     })),
     output: output.map(r => ({ label: r.label, n: n(r.n), per: r.per })),
     funnel: funnel.map(r => ({ stage: r.stage, n: n(r.n), value: n(r.value) })),

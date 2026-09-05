@@ -108,7 +108,7 @@ export function AuditOverall({ d, win, role, user, people, print = false }: {
       {/* ── 5. Who is doing it ──────────────────────────────────── */}
       <Section
         title="Who is doing the work"
-        note="hours against the size of their book — a quiet row over a large book is the finding"
+        note="red · never signed in, or quiet over a large book · amber · dormant, nothing in 30 days"
       >
         <PeopleTable rows={d.people} />
       </Section>
@@ -435,11 +435,20 @@ function PeopleTable({ rows }: { rows: OverallData['people'] }) {
             // A big book and no activity is the row worth seeing, so it is
             // coloured rather than left to be spotted by scanning two columns.
             const idle = p.hours < 0.5 && p.clientsOwned >= 25;
+            // Three states, one tint each, in order of how much they matter.
+            // Never signed in and quiet-with-a-large-book are the red ones;
+            // dormant — signed in once, nothing in 30 days — is amber, because
+            // it is a person drifting away rather than a person who never came.
+            const tint = p.state === 'never' || idle ? 'var(--neg-soft)'
+              : p.state === 'dormant' ? 'var(--warn-soft)'
+              : undefined;
             return (
-              <tr key={p.email} style={{ borderBottom: '1px solid var(--line-2)', background: idle ? 'var(--neg-soft)' : undefined }}>
+              <tr key={p.email} style={{ borderBottom: '1px solid var(--line-2)', background: tint }}>
                 <td style={{ ...TD, fontWeight: 500 }}>
                   {p.name}
                   {idle && <span style={{ fontSize: 10, color: RED, marginLeft: 7 }}>quiet, large book</span>}
+                  {!idle && p.state === 'never' && <span style={{ fontSize: 10, color: RED, marginLeft: 7 }}>never signed in</span>}
+                  {p.state === 'dormant' && <span style={{ fontSize: 10, color: AMBER, marginLeft: 7 }}>dormant</span>}
                 </td>
                 <td style={{ ...TD, fontSize: 11, color: 'var(--fg-3)' }}>{p.role}</td>
                 <td style={{ ...TD, fontSize: 11, color: 'var(--fg-3)' }}>{p.zone || '—'}</td>

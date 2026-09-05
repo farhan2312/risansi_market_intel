@@ -463,7 +463,7 @@ export function OpportunityKanban({ initialOpps, stageTotals, usdRate = 86, filt
         })}
       </div>
 
-      {editOpp && <EditOppDrawer opp={editOpp} canEdit={editOpp.can_edit !== false} usdRate={usdRate} onClose={() => setEditOpp(null)} />}
+      {editOpp && <EditOppDrawer opp={editOpp} canEdit={editOpp.can_edit !== false} usdRate={usdRate} competitors={competitors} onClose={() => setEditOpp(null)} />}
 
       {moving && (
         <OppStageMoveModal
