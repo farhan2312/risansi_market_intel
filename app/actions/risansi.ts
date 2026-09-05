@@ -4,7 +4,7 @@ import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { getManagerAssignableReps, hasRole, getCurrentUser, canViewClient, type RisansiRole } from '@/lib/risansi-auth';
+import { getManagerAssignableReps, hasRole, getCurrentUser, canViewClient, isDepartment, type RisansiRole } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 import { recordAudit } from '@/lib/audit';
 import { normalizeClientName, uniqueLeadCode } from '@/lib/risansi-lead-code';
@@ -178,7 +178,7 @@ async function assertCanViewOpp(oppId: number): Promise<void> {
 }
 
 async function userCanEditOpp(
-  user: { role?: string; repId?: number | null; email?: string | null },
+  user: { role?: string; repId?: number | null; email?: string | null; department?: string | null },
   oppRepId: number | null,
   clientId?: number | null,
 ): Promise<boolean> {
@@ -186,7 +186,11 @@ async function userCanEditOpp(
   if (hasRole(role, 'admin')) return true;
   if (user.repId != null && oppRepId != null && Number(oppRepId) === Number(user.repId)) return true;
   if (clientId != null) {
-    return canViewClient({ id: user.repId ?? null, email: user.email ?? null, role: role as RisansiRole }, Number(clientId));
+    return canViewClient(
+      { id: user.repId ?? null, email: user.email ?? null, role: role as RisansiRole,
+        department: isDepartment(user.department) ? user.department : null },
+      Number(clientId),
+    );
   }
   if (role === 'manager' && user.repId != null && oppRepId != null) {
     const assignable = await getManagerAssignableReps(user.repId);

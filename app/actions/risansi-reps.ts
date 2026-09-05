@@ -4,6 +4,7 @@ import { getServerSession } from 'next-auth/next';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
+import { isDepartment } from '@/lib/risansi-auth';
 
 // Reps & Tours management is a System Admin (sysadmin) capability.
 async function requireSysadmin() {
@@ -27,6 +28,11 @@ export async function createRep(formData: FormData) {
   const zone     = (formData.get('zone')     as string | null)?.trim() || null;
   const route    = (formData.get('route')    as string | null)?.trim() || null;
   const role     = (formData.get('role')     as string | null)?.trim() || 'rep';
+  // Rejected here as well as by the CHECK constraint: a bad value should come
+  // back as a message somebody can read, not a Postgres constraint error.
+  const deptRaw  = (formData.get('department') as string | null)?.trim() || null;
+  const department = deptRaw && isDepartment(deptRaw) ? deptRaw : null;
+  if (deptRaw && !department) throw new Error(`"${deptRaw}" is not a department.`);
   const targetCr = formData.get('target_cr') ? parseFloat(formData.get('target_cr') as string) : null;
   const initials = (formData.get('initials') as string | null)?.trim() || deriveInitials(name);
 
@@ -40,10 +46,11 @@ export async function createRep(formData: FormData) {
 
   const { rows } = await risansiPool.query<{ id: number }>(
     `INSERT INTO users
-       (rep_code, name, initials, email, zone, route, target_cr, role, status, is_active, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Approved',TRUE,NOW(),NOW())
+       (rep_code, name, initials, email, zone, route, target_cr, role, status,
+        is_active, created_at, updated_at, department)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Approved',TRUE,NOW(),NOW(),$9)
      RETURNING id`,
-    [repCode, name, initials, email, zone, route, targetCr, role],
+    [repCode, name, initials, email, zone, route, targetCr, role, department],
   );
   const newUserId = rows[0].id;
 
@@ -88,6 +95,11 @@ export async function updateRep(repId: number, formData: FormData) {
   if (formData.has('rep_code')) set('rep_code', (formData.get('rep_code') as string).trim() || null);
   if (formData.has('email'))    set('email',    (formData.get('email')    as string).trim().toLowerCase() || null);
   if (formData.has('role'))     set('role',     (formData.get('role')     as string).trim() || 'rep');
+  if (formData.has('department')) {
+    const d = (formData.get('department') as string).trim();
+    if (d && !isDepartment(d)) throw new Error(`"${d}" is not a department.`);
+    set('department', d || null);
+  }
   if (formData.has('target_cr')) {
     const raw = (formData.get('target_cr') as string).trim();
     const n = parseFloat(raw);

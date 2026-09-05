@@ -5,6 +5,15 @@
 import { withAuth } from 'next-auth/middleware';
 import { NextResponse } from 'next/server';
 
+/** Every page prefix a `staff` user may open. Client 360 is read-only for them
+ *  (nothing in the client write path accepts a non-admin), and the print view is
+ *  the same client data they can already see on screen. */
+const STAFF_PATHS = [
+  '/risansi/clients',
+  '/risansi/complaints',
+  '/print/client',
+];
+
 const proxy = withAuth(
   function proxy(req) {
     const token    = req.nextauth.token;
@@ -45,6 +54,24 @@ const proxy = withAuth(
       !['admin', 'sysadmin'].includes(token.role as string)
     ) {
       return deny(403, 'Admins only.', '/risansi');
+    }
+
+    // Staff reach Client 360 and Complaints, and nothing else.
+    //
+    // An allowlist rather than a list of things to block: a role defined by the
+    // two screens it may open should fail closed when a third screen is added,
+    // not quietly inherit it. The auth helpers already refuse staff every
+    // visit, opportunity and action record — this stops them landing on the
+    // pages at all, so they get a redirect rather than a page of zeroes.
+    //
+    // /api/** is deliberately not filtered here: those handlers authorise
+    // themselves through getCurrentUser, and the scope helpers answer FALSE for
+    // staff on everything outside these two areas.
+    if (token.role === 'staff' && !pathname.startsWith('/api/')) {
+      const allowed = STAFF_PATHS.some(
+        p => pathname === p || pathname.startsWith(`${p}/`),
+      );
+      if (!allowed) return deny(403, 'Not available for your role.', '/risansi/complaints');
     }
 
     return NextResponse.next();

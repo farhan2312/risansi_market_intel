@@ -12,7 +12,7 @@ import {
   Store, BarChart3, Wallet, Bug,
 } from 'lucide-react';
 
-export type BottomNavRole = 'rep' | 'manager' | 'exec' | 'admin' | 'sysadmin';
+export type BottomNavRole = 'staff' | 'rep' | 'manager' | 'exec' | 'admin' | 'sysadmin';
 
 interface Item { href: string; label: string; Icon: React.ComponentType<{ size?: number }>; }
 
@@ -83,6 +83,16 @@ export function BottomNav({ role, user }: {
   const isAdmin    = role === 'admin' || role === 'sysadmin';
   const isSysAdmin = role === 'sysadmin';
   const isReviewer = role === 'manager' || role === 'exec' || isAdmin;
+  // Staff get the same two screens the sidebar gives them. Home, Field and
+  // Revenue would all redirect, and a tab bar whose tabs bounce you back is
+  // worse than a shorter tab bar.
+  const isStaffRole = role === 'staff';
+  const tabs = isStaffRole
+    ? [
+        { href: '/risansi/clients',    label: 'Clients',    Icon: Building2 },
+        { href: '/risansi/complaints', label: 'Complaints', Icon: AlertTriangle },
+      ]
+    : TABS;
   // Every group is included, so opening a sub-page still lights the More tab.
   const moreActive = [...MORE_SALES, ...MORE_REVIEW, ...MORE_ADMIN, ...MORE_SYSADMIN]
     .some(i => isActive(pathname, i.href));
@@ -93,7 +103,7 @@ export function BottomNav({ role, user }: {
     <>
       {/* ── Bottom tab bar (mobile only — hidden ≥768px via globals.css) ── */}
       <nav className="risansi-bottom-nav" aria-label="Primary">
-        {TABS.map(t => {
+        {tabs.map(t => {
           const active = isActive(pathname, t.href);
           return (
             <Link key={t.href} href={t.href} style={tab(active)} onClick={closeAnd}>
@@ -125,12 +135,13 @@ export function BottomNav({ role, user }: {
 
             <div style={SHEET_BODY}>
               <Group label="Sales">
-                {MORE_SALES.map(i => <Row key={i.href} item={i} active={isActive(pathname, i.href)} onClick={closeAnd} />)}
+                {(isStaffRole ? MORE_SALES.filter(i => i.href === '/risansi/complaints') : MORE_SALES)
+                  .map(i => <Row key={i.href} item={i} active={isActive(pathname, i.href)} onClick={closeAnd} />)}
               </Group>
 
               {/* Executive Review is manager-and-above on the desktop sidebar, so
                   it is gated the same way here rather than shown to every rep. */}
-              {isReviewer && (
+              {isReviewer && !isStaffRole && (
                 <Group label="Review">
                   {MORE_REVIEW.map(i => <Row key={i.href} item={i} active={isActive(pathname, i.href)} onClick={closeAnd} />)}
                 </Group>

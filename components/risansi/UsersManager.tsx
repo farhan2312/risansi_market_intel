@@ -12,6 +12,7 @@ export interface UserRow {
   name:           string;
   email:          string;
   role:           string;
+  department:     string | null;
   status:         string;
   is_active:      boolean;
   zone:           string | null;
@@ -22,7 +23,11 @@ export interface UserRow {
   clients_count:  number;
 }
 
-const ROLES = ['rep', 'manager', 'admin', 'sysadmin'];
+// 'staff' first, because it is the one that needs explaining: it is not the
+// bottom of the ladder, it is off it. A staff user reaches Client 360 and
+// Complaints and nothing else, whatever their department.
+const ROLES = ['staff', 'rep', 'manager', 'admin', 'sysadmin'];
+const DEPARTMENTS = ['Quality', 'Service', 'Production', 'Stores', 'Accounts', 'Purchase', 'Dispatch'];
 
 // Account + access management for every user. Lives on /admin (sysadmin only).
 // Ownership and teams are handled separately on Reps & Managers.
@@ -95,7 +100,12 @@ export function UsersManager({ users }: { users: UserRow[] }) {
                     <div style={{ fontWeight: 500, color: 'var(--fg)' }}>{u.name}</div>
                     <div style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', marginTop: 1 }}>{u.email}</div>
                   </td>
-                  <td data-label="Role" style={TD}><Tag kind={u.role === 'sysadmin' || u.role === 'admin' ? 'accent' : undefined}>{u.role}</Tag></td>
+                  <td data-label="Role" style={TD}>
+                    <Tag kind={u.role === 'sysadmin' || u.role === 'admin' ? 'accent' : undefined}>{u.role}</Tag>
+                    {u.department && (
+                      <span style={{ fontSize: 11, color: 'var(--fg-3)', marginLeft: 6 }}>{u.department}</span>
+                    )}
+                  </td>
                   <td data-label="Status" style={TD}>
                     <Tag kind={u.status === 'Approved' ? 'pos' : u.status === 'Pending' ? 'warn' : 'neg'} dot>{u.status}</Tag>
                   </td>
@@ -265,6 +275,12 @@ function UserDrawer({ mode, user, onClose, onSaved }: {
               <Field label="Role">
                 <select name="role" defaultValue={user?.role ?? 'rep'} style={INP}>
                   {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </Field>
+              <Field label="Department">
+                <select name="department" defaultValue={user?.department ?? ''} style={INP}>
+                  <option value="">— none —</option>
+                  {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
                 </select>
               </Field>
               <Field label="Rep Code">

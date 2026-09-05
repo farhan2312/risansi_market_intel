@@ -7,7 +7,7 @@ import { UserMenu } from './UserMenu';
 
 // ── Types ─────────────────────────────────────────────────────
 
-export type SidebarRole = 'rep' | 'manager' | 'exec' | 'admin' | 'sysadmin';
+export type SidebarRole = 'staff' | 'rep' | 'manager' | 'exec' | 'admin' | 'sysadmin';
 
 export interface SidebarUser {
   name: string;
@@ -126,6 +126,13 @@ export function Sidebar({ active, role, user, alerts = {}, pendingCount = 0 }: S
 
   const isAdmin    = role === 'admin' || role === 'sysadmin';
   const isSysAdmin = role === 'sysadmin';
+  // Staff get the two screens they are allowed to open. Showing them the rest
+  // greyed out or clickable-then-refused teaches people the portal is broken
+  // for them; proxy.ts enforces the same list on the way in.
+  const isStaffRole = role === 'staff';
+  const salesNav = isStaffRole
+    ? SALES_NAV.filter(i => i.id === 'client360' || i.id === 'complaints')
+    : SALES_NAV;
 
   return (
     <aside style={ASIDE}>
@@ -136,9 +143,9 @@ export function Sidebar({ active, role, user, alerts = {}, pendingCount = 0 }: S
         </div>
       </div>
 
-      {/* GROUP 1: Sales — all roles */}
-      <NavGroup label="Sales">
-        {SALES_NAV.map((item) => (
+      {/* GROUP 1: Sales — all roles. Staff see two of these. */}
+      <NavGroup label={isStaffRole ? 'Complaints' : 'Sales'}>
+        {salesNav.map((item) => (
           <NavLink
             key={item.id}
             item={item}

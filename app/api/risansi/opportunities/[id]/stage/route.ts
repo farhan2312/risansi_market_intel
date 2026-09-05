@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { hasRole, canViewClient, type RisansiRole } from '@/lib/risansi-auth';
+import { hasRole, canViewClient, isDepartment, type RisansiRole } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 
 // Every column the board renders. 'On Hold' was missing here while the board
@@ -58,7 +58,8 @@ export async function PATCH(
   }
   if (!allowed && clientId != null) {
     allowed = await canViewClient(
-      { id: repId, email: session.user.email ?? null, role: role as RisansiRole },
+      { id: repId, email: session.user.email ?? null, role: role as RisansiRole,
+        department: isDepartment(session.user.department) ? session.user.department : null },
       Number(clientId),
     );
   }

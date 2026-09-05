@@ -76,9 +76,9 @@ export const authOptions: AuthOptions = {
           // canonical id (same integer space as the old reps.id).
           const res = await risansiPool.query<{
             id: number; status: string; role: string; name: string | null;
-            must_change_password: boolean;
+            must_change_password: boolean; department: string | null;
           }>(
-            `SELECT id, status, role, name, must_change_password
+            `SELECT id, status, role, name, must_change_password, department
              FROM users
              WHERE lower(email) = $1 AND is_active = TRUE
              LIMIT 1`,
@@ -93,11 +93,13 @@ export const authOptions: AuthOptions = {
             token.repId         = row.id;
             token.mustChange    = row.must_change_password;
             token.name          = row.name ?? token.name;
+            token.department    = row.department;
           } else {
             token.risansiAccess = 'Pending';
             token.role          = 'rep';
             token.repId         = null;
             token.mustChange    = false;
+            token.department    = null;
           }
         } catch (err) {
           console.error('JWT callback error:', err);
@@ -105,6 +107,7 @@ export const authOptions: AuthOptions = {
           token.role          = 'rep';
           token.repId         = null;
           token.mustChange    = false;
+          token.department    = null;
         }
       }
       return token;
@@ -113,6 +116,7 @@ export const authOptions: AuthOptions = {
       session.user.risansiAccess = token.risansiAccess as string;
       session.user.role          = token.role          as string;
       session.user.repId         = (token.repId as number | null) ?? null;
+      session.user.department    = (token.department as string | null) ?? null;
       session.user.mustChange    = (token.mustChange as boolean) ?? false;
       return session;
     },

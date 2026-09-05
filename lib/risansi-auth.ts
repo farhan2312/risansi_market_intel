@@ -4,15 +4,43 @@ import type { Session } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 
-export type RisansiRole = 'rep' | 'manager' | 'admin' | 'sysadmin';
+export type RisansiRole = 'staff' | 'rep' | 'manager' | 'admin' | 'sysadmin';
+
+/** The functions a person can belong to. Flat: none of these outranks another. */
+export const DEPARTMENTS = [
+  'Quality', 'Service', 'Production', 'Stores', 'Accounts', 'Purchase', 'Dispatch',
+] as const;
+export type Department = typeof DEPARTMENTS[number];
+export const isDepartment = (v: unknown): v is Department =>
+  typeof v === 'string' && (DEPARTMENTS as readonly string[]).includes(v);
 
 // Role hierarchy: higher level = more access. Anything unknown is level 0.
+//
+// 'staff' is level 0 ON PURPOSE, and that is the whole point of it. The ladder
+// below is a ranking and every test is `level >= required`, so there is no rung
+// that means "works complaints, touches nothing else": above rep inherits a
+// rep's clients and pipeline, below rep sees nothing at all. Level 0 means
+// staff satisfies NO rung — hasRole(staff, 'rep') is false — and every door
+// they can open is opened by an explicit allowance further down this file
+// rather than by outranking somebody.
 const ROLE_LEVEL: Record<RisansiRole, number> = {
+  staff:    0,
   rep:      1,
   manager:  2,
   admin:    3,
   sysadmin: 4,
 };
+
+/**
+ * Someone whose access is functional rather than positional.
+ *
+ * Checked by identity, never by level: `hasRole(role, 'staff')` would be true
+ * for absolutely everybody, including a signed-out caller, because level 0 is
+ * also what an unrecognised role scores. Nothing may gate on that.
+ */
+export function isStaff(role: string | null | undefined): boolean {
+  return role === 'staff';
+}
 
 /**
  * True when `userRole` meets or exceeds `requiredRole` in the hierarchy.
@@ -64,11 +92,13 @@ export interface CurrentUser {
   id:    number | null;   // users.id (same integer space as the old reps.id)
   email: string | null;
   role:  RisansiRole;
+  /** Which function they work in. null for the sales roles, which have none. */
+  department: Department | null;
 }
 
 /** A caller with no identity and no privileges. Every scope helper below turns
  *  this into 'FALSE', and every route that tests `user.email` returns 401. */
-const SIGNED_OUT: CurrentUser = { id: null, email: null, role: 'rep' };
+const SIGNED_OUT: CurrentUser = { id: null, email: null, role: 'rep', department: null };
 
 /**
  * Resolve the signed-in user from the session. role defaults to 'rep'.
@@ -81,10 +111,12 @@ const SIGNED_OUT: CurrentUser = { id: null, email: null, role: 'rep' };
 export const getCurrentUser = cache(async (): Promise<CurrentUser> => {
   const session = await getSession();
   if (!isApproved(session)) return SIGNED_OUT;
+  const dept = session?.user?.department;
   return {
     id:    (session?.user?.repId as number | null) ?? null,
     email: session?.user?.email ?? null,
     role:  ((session?.user?.role as RisansiRole) ?? 'rep'),
+    department: isDepartment(dept) ? dept : null,
   };
 });
 
@@ -155,6 +187,12 @@ export function clientScopeSql(
   user: CurrentUser, clientIdCol: string, ownOpen?: string,
 ): string | null {
   if (hasRole(user.role, 'admin')) return null;
+  // Staff have no sales records of their own and no business seeing anybody
+  // else's. Their read of Client 360 is granted by clientVisibilitySql below;
+  // this helper scopes VISITS, OPPORTUNITIES and ACTIONS, and for staff the
+  // answer to all three is none. Refusing here rather than relying on the
+  // pages: this is the predicate every record query shares.
+  if (isStaff(user.role)) return 'FALSE';
   const uid = intOrNull(user.id);
   if (uid == null) return 'FALSE';
   const base = clientRuleSql(uid, clientIdCol);
@@ -167,6 +205,11 @@ export function clientScopeSql(
 /** The same rule against a `clients` query aliased `alias`. */
 export function clientVisibilitySql(user: CurrentUser, alias = 'c'): string | null {
   if (hasRole(user.role, 'admin')) return null;
+  // Staff read every client. A complaint arrives against any account in the
+  // book, and a quality engineer who can only see the accounts they own — none —
+  // could not open the client a complaint is about. Read-only: nothing in the
+  // client write path accepts a caller who is not admin.
+  if (isStaff(user.role)) return null;
   const uid = intOrNull(user.id);
   if (uid == null) return 'FALSE';
   return clientRuleSql(uid, `${alias}.id`);
@@ -226,6 +269,10 @@ export async function canAccessComplaint(user: CurrentUser, complaintId: number)
 /** SQL predicate scoping a `complaints` query (aliased `cm`) to what a user may see. */
 export function complaintVisibilitySql(user: CurrentUser, alias = 'cm'): string | null {
   if (hasRole(user.role, 'admin')) return null;
+  // The module staff exist to work. Every complaint, because the workflow hands
+  // one record between departments and a stores clerk cannot be shown only the
+  // complaints they happen to be named on before they are named on them.
+  if (isStaff(user.role)) return null;
   const uid = intOrNull(user.id);
   if (uid == null) return 'FALSE';
   const email = (user.email ?? '').replace(/'/g, "''").toLowerCase();
