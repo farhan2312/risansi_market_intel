@@ -145,13 +145,30 @@ export async function getVisitFilterOptions(user: CurrentUser): Promise<VisitFil
     q(`SELECT tr.name AS v FROM tour_routes tr WHERE TRUE${scope} ORDER BY tr.name`),
     admin
       ? q(`SELECT name AS v FROM users WHERE is_active = TRUE AND role IN ('rep','manager') ORDER BY name`)
-      // Yourself, plus anyone you manage. Sharing a route with somebody is no
-      // longer a reason to see their name in your filter bar — the hierarchy is
-      // explicit, so the list is exactly the people whose work is yours to look at.
+      // Everyone whose work is already in this person's view — which is the same
+      // rule the four lists around this one follow, and the one this list used to
+      // break. It offered yourself plus anyone you manage, so a covering rep
+      // could see the primary's visits in the feed and had no way to filter to
+      // them: the name was on the card and not in the dropdown.
+      //
+      // Three sources, unioned: reps and cover on the clients you can see, and
+      // whoever is named on a visit you can see. The third catches a rep who has
+      // since moved off the account but whose past visits are still in the list.
       : q(`SELECT DISTINCT u.name AS v FROM users u
             WHERE u.is_active = TRUE
               AND u.role IN ('rep','manager')
-              AND (u.id = ${uid} OR u.id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${uid}))
+              AND (
+                u.id = ${uid}
+                OR u.id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${uid})
+                OR u.id IN (SELECT c.primary_rep_id FROM clients c
+                             WHERE c.deleted_at IS NULL AND c.primary_rep_id IS NOT NULL${clientScope})
+                OR u.id IN (SELECT s2.rep_id FROM client_secondary_reps s2
+                             JOIN clients c ON c.id = s2.client_id AND c.deleted_at IS NULL
+                            WHERE TRUE${clientScope})
+                OR u.id IN (SELECT v.rep_id FROM visits v
+                             JOIN clients c ON c.id = v.client_id AND c.deleted_at IS NULL
+                            WHERE v.rep_id IS NOT NULL${clientScope})
+              )
             ORDER BY u.name`),
 
     // Managers worth offering: ones who actually speak for somebody's clients.
@@ -162,8 +179,21 @@ export async function getVisitFilterOptions(user: CurrentUser): Promise<VisitFil
               AND (EXISTS (SELECT 1 FROM manager_reps mr WHERE mr.manager_id = u.id)
                    OR EXISTS (SELECT 1 FROM clients c WHERE c.primary_rep_id = u.id AND c.deleted_at IS NULL))
             ORDER BY u.name`)
-      : q(`SELECT u.name AS v FROM users u
-            WHERE u.is_active = TRUE AND u.role = 'manager' AND u.id = ${uid}`),
+      // Same rule: the managers who speak for the clients this person can see,
+      // plus themselves if they are one. A rep covering an account should be
+      // able to filter to the manager over it.
+      : q(`SELECT DISTINCT u.name AS v FROM users u
+            WHERE u.is_active = TRUE AND u.role = 'manager'
+              AND (
+                u.id = ${uid}
+                OR u.id IN (SELECT mr.manager_id FROM manager_reps mr
+                             WHERE mr.rep_id IN (
+                               SELECT c.primary_rep_id FROM clients c
+                                WHERE c.deleted_at IS NULL AND c.primary_rep_id IS NOT NULL${clientScope}))
+                OR u.id IN (SELECT c.primary_rep_id FROM clients c
+                             WHERE c.deleted_at IS NULL AND c.primary_rep_id IS NOT NULL${clientScope})
+              )
+            ORDER BY u.name`),
 
     // Statuses and industries present in the clients this viewer can see, so the
     // list never offers a value that returns nothing.

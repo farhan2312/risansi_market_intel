@@ -42,9 +42,8 @@ const VISIT_STATUS_LABEL: Record<string, string> = {
   planned: 'Planned', 'checked-in': 'Checked in', completed: 'Completed',
 };
 
-export function FieldFilterBar({ tab, isRep, opts, sel, purposes, search, purpose }: {
+export function FieldFilterBar({ tab, opts, sel, purposes, search, purpose }: {
   tab: string;
-  isRep: boolean;
   opts: FieldFilterSets;
   sel:  FieldFilterSets & { vstatus: string[] };
   purposes: string[];
@@ -78,7 +77,14 @@ export function FieldFilterBar({ tab, isRep, opts, sel, purposes, search, purpos
   const dateFrom = searchParams.get(fromParam) ?? '';
   const dateTo   = searchParams.get(toParam) ?? '';
 
-  // A rep has no people to filter by, but Visit status still applies to them.
+  // Every filter is offered to every role now. It used to hide six of them from
+  // reps on the reasoning that a rep has nobody to filter by — which stopped
+  // being true when covering reps arrived: a secondary rep sees the primary's
+  // visits on the accounts they cover, and had no way to pick them out.
+  //
+  // Nothing widens. getVisitFilterOptions builds each list from what this person
+  // can already see, so a dropdown with one name in it is a rep who genuinely
+  // only has their own work, and an empty list hides its own control below.
 
   return (
     <div style={{ marginBottom: 12 }}>
@@ -86,23 +92,27 @@ export function FieldFilterBar({ tab, isRep, opts, sel, purposes, search, purpos
         <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginRight: 2 }}>
           Filter
         </span>
-        {!isRep && (
-          <>
-            <MultiSelectFilter param="rep"     label="Rep"     options={opts.reps}     selected={sel.reps} />
-            {opts.managers.length > 0 && (
-              <MultiSelectFilter param="manager" label="Manager" options={opts.managers} selected={sel.managers} />
-            )}
-            <MultiSelectFilter param="zone"    label="Zone"    options={opts.zones}    selected={sel.zones} />
-            <MultiSelectFilter param="tour"    label="Route"   options={opts.tours}    selected={sel.tours} />
-            <MultiSelectFilter
-              param="cstatus" label="Client status"
-              options={opts.statuses.map(s => ({ value: s, label: STATUS_LABEL[s] ?? s }))}
-              selected={sel.statuses}
-            />
-            {opts.industries.length > 1 && (
-              <MultiSelectFilter param="industry" label="Industry" options={opts.industries} selected={sel.industries} />
-            )}
-          </>
+        {opts.reps.length > 1 && (
+          <MultiSelectFilter param="rep" label="Rep" options={opts.reps} selected={sel.reps} />
+        )}
+        {opts.managers.length > 0 && (
+          <MultiSelectFilter param="manager" label="Manager" options={opts.managers} selected={sel.managers} />
+        )}
+        {opts.zones.length > 1 && (
+          <MultiSelectFilter param="zone" label="Zone" options={opts.zones} selected={sel.zones} />
+        )}
+        {opts.tours.length > 1 && (
+          <MultiSelectFilter param="tour" label="Route" options={opts.tours} selected={sel.tours} />
+        )}
+        {opts.statuses.length > 1 && (
+          <MultiSelectFilter
+            param="cstatus" label="Client status"
+            options={opts.statuses.map(s => ({ value: s, label: STATUS_LABEL[s] ?? s }))}
+            selected={sel.statuses}
+          />
+        )}
+        {opts.industries.length > 1 && (
+          <MultiSelectFilter param="industry" label="Industry" options={opts.industries} selected={sel.industries} />
         )}
         <MultiSelectFilter
           param="vstatus" label="Visit status"

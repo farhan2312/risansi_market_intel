@@ -813,7 +813,6 @@ export default async function FieldActivityPage({
             right-aligned date range (reports/feed). One row above the tabs. */}
         <FieldFilterBar
           tab={tab}
-          isRep={isRep}
           opts={filterOpts}
           sel={{
             zones: filters.zones, tours: filters.tours, reps: filters.reps,
