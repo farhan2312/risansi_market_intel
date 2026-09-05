@@ -1009,11 +1009,28 @@ export async function updateClientTier(clientId: string, formData: FormData) {
 // Map a client to a tour inline (from the New Opportunity form, when the client
 // isn't on one yet). Ownership then derives from the tour — returns the resolved
 // owner so the caller can clear the "no tour" block without a full reload.
-export async function assignClientTour(clientId: number, tourId: number): Promise<{ ownerName: string | null; tourName: string | null }> {
+/**
+ * Map a client onto a tour.
+ *
+ * Anyone who can SEE the client may do this — a rep covering an account can put
+ * it on the right route without waiting for an admin, and 1,157 of 2,767 clients
+ * are on no route at all.
+ *
+ * This does NOT reassign the account. Ownership is clients.primary_rep_id and
+ * client_secondary_reps, and resolveClientPrimaryRep reads only those; the owner
+ * returned below is the one the client already had, reported so the caller can
+ * show that it did not move.
+ *
+ * Refusals are returned rather than thrown: a thrown server-action error is
+ * redacted in production and the picker would show nothing useful.
+ */
+export async function assignClientTour(clientId: number, tourId: number): Promise<
+  { ok: true; ownerName: string | null; tourName: string | null } | { ok: false; error: string }
+> {
   const user = await getCurrentUser();
-  if (!(await canViewClient(user, clientId))) throw new Error('You do not have access to this client.');
+  if (!(await canViewClient(user, clientId))) return { ok: false, error: 'You do not have access to this client.' };
   const { rows: tr } = await risansiPool.query<{ name: string }>('SELECT name FROM tour_routes WHERE id = $1', [tourId]);
-  if (!tr[0]) throw new Error('Tour not found.');
+  if (!tr[0]) return { ok: false, error: 'That tour no longer exists.' };
   await risansiPool.query(
     'UPDATE clients SET tour_id = $1, updated_by = $2, updated_at = NOW() WHERE id = $3',
     [tourId, user.email ?? null, clientId],
@@ -1024,10 +1041,10 @@ export async function assignClientTour(clientId: number, tourId: number): Promis
     const { rows } = await risansiPool.query<{ name: string }>('SELECT name FROM users WHERE id = $1', [resolved.repId]);
     ownerName = rows[0]?.name ?? null;
   }
-  await logActivity('client', String(clientId), `mapped to tour "${tr[0].name}"${ownerName ? ` · owner ${ownerName}` : ''}`, user.email!);
+  await logActivity('client', String(clientId), `mapped to tour "${tr[0].name}"${ownerName ? ` · owner unchanged (${ownerName})` : ''}`, user.email!);
   revalidatePath(`/risansi/clients/${clientId}`);
   revalidatePath('/risansi/pipeline');
-  return { ownerName, tourName: tr[0].name };
+  return { ok: true, ownerName, tourName: tr[0].name };
 }
 
 // ── Pipeline: create opportunity (client_id from form) ─────────

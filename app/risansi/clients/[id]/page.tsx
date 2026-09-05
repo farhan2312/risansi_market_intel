@@ -29,6 +29,7 @@ import { isEpcOem } from '@/lib/risansi-client-types';
 import { ClientPumps, type PumpRow } from '@/components/risansi/ClientPumps';
 import { ClientComments, type CommentRow } from '@/components/risansi/ClientComments';
 import { ClientActivityRegister, type ActionItem } from '@/components/risansi/ClientActivityRegister';
+import { ClientTourBlock } from '@/components/risansi/ClientTourBlock';
 import type { DrawerRep } from '@/components/risansi/AssignVisitDrawer';
 
 // ── Safe query wrapper ─────────────────────────────────────────
@@ -657,18 +658,14 @@ export default async function ClientProfilePage({
                 </div>
               )}
 
-              {/* Tour route */}
-              {client.tour_name && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 500 }}>Tour</span>
-                  <span style={{ fontSize: 12, fontWeight: 500 }}>
-                    {client.tour_name}
-                    {client.tour_zone && (
-                      <span style={{ fontWeight: 400, color: 'var(--fg-3)', marginLeft: 4 }}>· {client.tour_zone}</span>
-                    )}
-                  </span>
-                </div>
-              )}
+              {/* Tour route. Always rendered, including when there is none:
+                  a client with no tour is exactly the one somebody needs to map,
+                  and hiding the row hid the control along with it. */}
+              <ClientTourBlock
+                clientId={String(client.id)}
+                tourName={client.tour_name}
+                tourZone={client.tour_zone}
+              />
 
               {/* Google Maps link */}
               {client.google_maps_url && (
