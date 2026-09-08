@@ -4,6 +4,7 @@ import { useState, useEffect, type CSSProperties } from 'react';
 import { STAGE_TONE } from '@/lib/risansi-stage-tone';
 import { useRouter } from 'next/navigation';
 import { OfferRevisionsList } from './OfferRevisionsField';
+import { useCompetitors } from './useCompetitors';
 import type { OfferRevision } from '@/lib/risansi-offer-revisions';
 import { updateOpportunity, deleteOpportunity } from '@/app/actions/risansi';
 import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
@@ -80,14 +81,14 @@ interface QItem { id: number; pump_model: string | null; pump_qty: number | null
 interface QMeta { market?: string | null; ril_rep?: string | null; qtn_prepared_by?: string | null; client_status_at_quote?: string | null; unit_project?: string | null; location?: string | null; qtr?: string | null; probability_code?: string | null; enquiry_no?: string | null; enquiry_date?: string | null; revised_offer_date?: string | null; revised_offer_value_inr?: number | null; offer_value_inr?: number | null; quotation_link?: string | null; }
 
 
-export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86, competitors = [] }: {
+export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
   opp: EditableOpp; onClose: () => void; canEdit?: boolean; usdRate?: number;
-  /** Competitor names from the database. Without them the Lost To Competitor
-   *  dropdown offers only the four generic fallbacks and no actual competitor,
-   *  which is what it did here while the stage-move modal listed them properly. */
-  competitors?: string[];
 }) {
   const router = useRouter();
+  // Loaded here rather than passed in. As a prop it was optional with an empty
+  // default, and the active-opportunities table renders this drawer without it —
+  // so Lost To Competitor offered four generic fallbacks and no competitor.
+  const competitors = useCompetitors();
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
   const [stage, setStage]     = useState(opp.stage);

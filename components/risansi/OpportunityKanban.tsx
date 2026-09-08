@@ -78,14 +78,6 @@ export function OpportunityKanban({ initialOpps, stageTotals, usdRate = 86, filt
   // One modal for every destination now, so the board no longer decides which
   // form a stage needs — the catalogue does.
   const [moving, setMoving] = useState<{ opp: KanbanOpp; to: OppStage; previousStage: string } | null>(null);
-  const [competitors, setCompetitors] = useState<string[]>([]);
-  useEffect(() => {
-    fetch('/api/risansi/competitors')
-      .then(r => (r.ok ? r.json() : []))
-      .then((rows: { name?: string }[] | string[]) =>
-        setCompetitors(rows.map(r => (typeof r === 'string' ? r : r.name ?? '')).filter(Boolean)))
-      .catch(() => {});
-  }, []);
   const [notice, setNotice]       = useState('');
   // Per-column card filter (client id / name). Keyed by stage so each column's
   // search box filters only its own cards, not the rest of the board.
@@ -463,14 +455,13 @@ export function OpportunityKanban({ initialOpps, stageTotals, usdRate = 86, filt
         })}
       </div>
 
-      {editOpp && <EditOppDrawer opp={editOpp} canEdit={editOpp.can_edit !== false} usdRate={usdRate} competitors={competitors} onClose={() => setEditOpp(null)} />}
+      {editOpp && <EditOppDrawer opp={editOpp} canEdit={editOpp.can_edit !== false} usdRate={usdRate} onClose={() => setEditOpp(null)} />}
 
       {moving && (
         <OppStageMoveModal
           opp={{ ...moving.opp, stage: moving.previousStage }}
           target={moving.to}
           usdRate={usdRate}
-          competitors={competitors}
           onCancel={() => {
             // Put the card back where it came from — the move never happened.
             setOpps(p => p.map(o => (o.id === moving.opp.id ? { ...o, stage: moving.previousStage } : o)));

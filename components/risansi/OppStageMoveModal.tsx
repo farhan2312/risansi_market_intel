@@ -10,6 +10,7 @@ import {
   type OppStage, type OppFieldDef,
 } from '@/lib/risansi-opportunity-fields';
 import { OppStageSections } from './OppStageSections';
+import { useCompetitors } from './useCompetitors';
 import { QuoteLineItems, emptyItem, itemsAreBlank, type QuoteItem } from './QuoteLineItems';
 import { SalesOrderList } from './SalesOrderList';
 import { useQuotationDocs, QuotationDocList, type UploadResponse } from './QuotationDocs';
@@ -36,11 +37,10 @@ export interface MoveOpp {
 const inrOf = (cr: unknown) =>
   cr != null && cr !== '' ? String(Math.round(parseFloat(String(cr)) * 10_000_000)) : '';
 
-export function OppStageMoveModal({ opp, target, usdRate = 86, competitors = [], onCancel, onDone }: {
+export function OppStageMoveModal({ opp, target, usdRate = 86, onCancel, onDone }: {
   opp: MoveOpp;
   target: OppStage;
   usdRate?: number;
-  competitors?: string[];
   onCancel: () => void;
   onDone: () => void;
 }) {
@@ -102,7 +102,10 @@ export function OppStageMoveModal({ opp, target, usdRate = 86, competitors = [],
   }, [oppId, showQuote]);
 
   // The two lists the catalogue cannot hold, because they come from the database
-  // and from a constant that would otherwise be duplicated here.
+  // and from a constant that would otherwise be duplicated here. The competitor
+  // list is loaded here rather than passed in, so this picker and the drawer's
+  // cannot end up offering different things.
+  const competitors = useCompetitors();
   const optionsFor = (f: OppFieldDef) =>
     f.name === 'drop_reason' ? DROP_REASONS
     : f.name === 'lost_to_competitor' ? [...competitors, ...LOST_COMPETITOR_TAIL]
