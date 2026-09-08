@@ -800,19 +800,6 @@ export async function deleteClientComment(commentId: number): Promise<void> {
 
 // ── Client: plan visit ─────────────────────────────────────────
 
-// Tag/untag clients as "End Client" (supplied indirectly via OEM/trader). Takes
-// an array so it serves both the per-row toggle and any future bulk action.
-export async function setEndClient(clientIds: number[], value: boolean): Promise<void> {
-  const session = await getServerSession(authOptions);
-  if (!hasRole(session?.user?.role, 'admin')) throw new Error('Unauthorized');
-  const ids = (clientIds ?? []).filter(n => Number.isInteger(n));
-  if (!ids.length) return;
-  await risansiPool.query(
-    `UPDATE clients SET is_end_client = $1, updated_at = NOW() WHERE id = ANY($2::int[]) AND deleted_at IS NULL`,
-    [value, ids],
-  );
-  revalidatePath('/risansi/admin/clients');
-}
 
 // Email about a newly planned visit (best-effort). If the planner is the rep the
 // visit is for, the tour's manager(s) are told; if a manager/admin planned it for

@@ -209,6 +209,78 @@ export async function moveClients(
 
 // ── the recycle bin ───────────────────────────────────────────────
 
+/**
+ * What archiving this client would hide.
+ *
+ * Read before the confirmation is shown, so the dialog can name the open work
+ * rather than ask "are you sure" about something the person cannot see. 527 of
+ * 2,788 clients carry an open opportunity, so this is the common case rather
+ * than the edge one.
+ */
+export interface ArchivePreview {
+  name: string;
+  code: string;
+  openOpps: number;
+  /** Rupees, across those open opportunities. */
+  openValueInr: number;
+  plannedVisits: number;
+  openComplaints: number;
+  visits: number;
+  hasRevenue: boolean;
+}
+
+export async function clientArchivePreview(clientId: number): Promise<ArchivePreview | null> {
+  const me = await requireAdmin();
+  if (!me) return null;
+  try {
+    const { rows } = await risansiPool.query<Record<string, string>>(
+      `SELECT c.legal_name AS name, c.code,
+              (SELECT count(*) FROM opportunities o
+                WHERE o.client_id = c.id AND o.stage NOT IN ('Won','Lost','Dropped'))::text AS open_opps,
+              (SELECT COALESCE(round(sum(COALESCE(o.offer_value_inr, o.value_cr*10000000, 0))), 0)
+                 FROM opportunities o
+                WHERE o.client_id = c.id AND o.stage NOT IN ('Won','Lost','Dropped'))::text AS open_value_inr,
+              (SELECT count(*) FROM visits v WHERE v.client_id = c.id AND v.status = 'planned')::text AS planned_visits,
+              (SELECT count(*) FROM complaints cm
+                WHERE cm.client_id = c.id AND cm.status NOT IN ('Resolved','Closed'))::text AS open_complaints,
+              (SELECT count(*) FROM visits v WHERE v.client_id = c.id)::text AS visits,
+              (EXISTS (SELECT 1 FROM client_revenue_monthly m WHERE m.client_id = c.id))::text AS has_revenue
+         FROM clients c WHERE c.id = $1 AND c.deleted_at IS NULL`, [clientId]);
+    const r = rows[0];
+    if (!r) return null;
+    return {
+      name: r.name, code: r.code,
+      openOpps: Number(r.open_opps), openValueInr: Number(r.open_value_inr),
+      plannedVisits: Number(r.planned_visits), openComplaints: Number(r.open_complaints),
+      visits: Number(r.visits), hasRevenue: r.has_revenue === 'true',
+    };
+  } catch { return null; }
+}
+
+/**
+ * Archive a client. Reversible: nothing is deleted, `deleted_at` is set and
+ * every query in the portal already reads `deleted_at IS NULL`, so the client
+ * leaves Client 360, Opportunities, Field Activity and the Executive Review at
+ * once. Its visits, opportunities and revenue stay attached and come back with
+ * it.
+ */
+export async function archiveClient(clientId: number): Promise<Outcome> {
+  const me = await requireAdmin();
+  if (!me) return { ok: false, error: 'Only an admin can archive a client.' };
+  try {
+    const { rows } = await risansiPool.query<{ legal_name: string }>(
+      `UPDATE clients SET deleted_at = NOW(), updated_by = $2, updated_at = NOW()
+        WHERE id = $1 AND deleted_at IS NULL
+        RETURNING legal_name`, [clientId, me.email]);
+    if (!rows[0]) return { ok: false, error: 'That client is already archived.' };
+    revalidatePath('/risansi/admin/clients');
+    revalidatePath('/risansi/clients');
+    revalidatePath('/risansi/admin/recoverable');
+    touch();
+    return { ok: true, message: `${rows[0].legal_name} archived. Restore it from Recoverable, or tick Show archived here.` };
+  } catch (e) { return fail(e); }
+}
+
 /** Bring an archived client back. */
 export async function restoreClient(clientId: number): Promise<Outcome> {
   const me = await requireAdmin();

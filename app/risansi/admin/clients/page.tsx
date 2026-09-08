@@ -3,7 +3,7 @@ import { Topbar, Tag, StatusDot, MultiSelectFilter, ActiveFilterBar, SortableTH 
 import { clientStatusLabel, statusDotKind, CLIENT_STATUS_FILTER_OPTIONS, CLIENT_STATUS_LABELS } from '@/lib/risansi-client-status';
 import { AddClientButton } from '@/components/risansi/ClientFormDrawer';
 import { EditClientLink } from '@/components/risansi/EditClientLink';
-import { EndClientToggle } from '@/components/risansi/EndClientToggle';
+import { ArchiveClientToggle } from '@/components/risansi/ArchiveClientToggle';
 import { ClientOwnershipButton, type AssignableRep } from '@/components/risansi/ClientOwnershipButton';
 import risansiPool from '@/lib/db-risansi';
 import { formatLastVisitShort } from '@/lib/risansi-utils';
@@ -41,6 +41,9 @@ export default async function ClientMasterPage({
 
   const q_str     = typeof sp.q        === 'string' ? sp.q.trim()        : '';
   const sugarFilt = typeof sp.sugar    === 'string' ? sp.sugar.trim()    : '';
+  // Archived rows are hidden everywhere else in the portal; this page is the one
+  // that can show them, so the tick can be undone where it was made.
+  const showArchived = sp.archived === '1';
   const sortKey   = typeof sp.sort     === 'string' ? sp.sort            : 'last_visit';
   const orderDir  = sp.order === 'desc'             ? 'DESC'             : 'ASC';
   const pageNum   = Math.max(1, parseInt(typeof sp.page === 'string' ? sp.page : '1', 10) || 1);
@@ -58,7 +61,7 @@ export default async function ClientMasterPage({
   const sortCol = SORT_MAP[sortKey] ?? 'c.last_visit_date';
 
   // ── Build parameterised WHERE conditions ──────────────────────
-  const whereConditions: string[] = ['c.deleted_at IS NULL'];
+  const whereConditions: string[] = [showArchived ? 'c.deleted_at IS NOT NULL' : 'c.deleted_at IS NULL'];
   const params: (string | number | boolean | string[])[] = [];
 
   if (q_str) {
@@ -121,6 +124,7 @@ export default async function ClientMasterPage({
     owner_name:      string | null;
     cover_count:     number;
     is_end_client:   boolean;
+    is_archived:     boolean;
   }
 
   interface RepOption { rep_name: string; client_count: number; }
@@ -134,7 +138,7 @@ export default async function ClientMasterPage({
           `SELECT
              c.id, c.code, c.legal_name, c.trade_name,
              c.industry, c.is_sugar, c.state, c.city,
-             c.status, c.tier, c.is_end_client,
+             c.status, c.tier, c.is_end_client, (c.deleted_at IS NOT NULL) AS is_archived,
              c.last_visit_date,
              c.zone,
              tr.name AS tour_name,
@@ -248,6 +252,7 @@ export default async function ClientMasterPage({
     if (statFilts.length)   base.status   = statFilts.join(',');
     if (repFilts.length)    base.rep      = repFilts.join(',');
     if (sugarFilt)          base.sugar    = sugarFilt;
+    if (showArchived)       base.archived = '1';
     if (sortKey)            base.sort     = sortKey;
     if (orderDir === 'DESC') base.order   = 'desc';
     base.page = String(pageNum);
@@ -292,6 +297,24 @@ export default async function ClientMasterPage({
 
         {/* ── Search + Sugar toggle ─────────────────────────────── */}
         <FilterBar q={q_str} sugar={sugarFilt} />
+        {/* The only way back to an archived client from this page. */}
+        <div style={{ margin: '8px 0 0' }}>
+          <a
+            href={buildUrl({ archived: showArchived ? undefined : '1', page: 1 })}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5,
+              padding: '6px 12px', borderRadius: 'var(--radius)', textDecoration: 'none',
+              border: `1px solid ${showArchived ? 'var(--warn)' : 'var(--line-strong)'}`,
+              background: showArchived ? 'var(--warn-soft)' : 'var(--bg-paper)',
+              color: showArchived ? 'var(--warn-strong, var(--warn))' : 'var(--fg-2)',
+              fontWeight: showArchived ? 600 : 400,
+            }}
+          >
+            <input type="checkbox" readOnly checked={showArchived} style={{ pointerEvents: 'none', width: 14, height: 14 }} />
+            Show archived
+            {showArchived && <span style={{ fontWeight: 400 }}>· untick a row to restore it</span>}
+          </a>
+        </div>
 
         {/* ── Multi-select filter row ───────────────────────────── */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', paddingBottom: 8 }}>
@@ -356,7 +379,7 @@ export default async function ClientMasterPage({
                     <SortableTH col="last_visit" label="Last Visit"   currentSort={curSort} currentDir={curDir} />
                     <SortableTH col="status"     label="Status"       currentSort={curSort} currentDir={curDir} />
                     <SortableTH col="tier"       label="Tier"         currentSort={curSort} currentDir={curDir} />
-                    <th style={{ padding: '9px 12px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>End Client</th>
+                    <th style={{ padding: '9px 12px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>Archive</th>
                     <th style={{ padding: '9px 12px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>Owner & cover</th>
                   </tr>
                 </thead>
@@ -422,9 +445,10 @@ export default async function ClientMasterPage({
                           {c.tier ? <Tag kind={tierKind(c.tier)}>{c.tier}</Tag> : null}
                         </td>
 
-                        {/* End Client */}
+                        {/* Archive. End Client moved to the client's own edit
+                            form — it labels the account, this removes it. */}
                         <td style={{ ...TD, textAlign: 'center' }}>
-                          <EndClientToggle clientId={c.id} value={c.is_end_client} />
+                          <ArchiveClientToggle clientId={c.id} name={c.legal_name} archived={c.is_archived} />
                         </td>
 
                         {/* Who works it */}
