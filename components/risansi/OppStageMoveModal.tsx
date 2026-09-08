@@ -62,7 +62,7 @@ export function OppStageMoveModal({ opp, target, usdRate = 86, onCancel, onDone 
   const [values, setValues] = useState<FieldValues>(() => {
     const v: FieldValues = {};
     for (const f of OPP_FIELDS) {
-      if (!isFieldVisible(f, target)) continue;
+      if (!isFieldVisible(f, target, values)) continue;
       if (f.name === 'final_value_inr') { v[f.name] = inrOf(opp.final_value_cr ?? opp.value_cr); continue; }
       if (f.name === 'offer_value_inr') { v[f.name] = opp.offer_value_inr != null ? String(opp.offer_value_inr) : ''; continue; }
       const raw = opp[f.name];
@@ -158,7 +158,8 @@ export function OppStageMoveModal({ opp, target, usdRate = 86, onCancel, onDone 
       const fd = new FormData();
       fd.set('stage', target);
       for (const f of OPP_FIELDS) {
-        if (isFieldVisible(f, target)) fd.set(f.name, values[f.name] ?? '');
+        if (isFieldVisible(f, target, values)) fd.set(f.name, values[f.name] ?? '');
+        else if (f.showWhen) fd.set(f.name, '');
       }
       if (showQuote && !itemsAreBlank(items)) fd.set('items_json', JSON.stringify(items));
       // SalesOrderList writes its rows into a hidden input of this name.

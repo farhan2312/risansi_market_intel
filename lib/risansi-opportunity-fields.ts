@@ -118,6 +118,14 @@ export interface OppFieldDef {
   full?: boolean;
   /** A date that cannot be in the future. Bounds the input and the server check. */
   noFuture?: boolean;
+  /**
+   * Shown only when another field on the same form holds one of these values.
+   *
+   * Data rather than a predicate so the server can read it too: a field that is
+   * not showing must not be demanded, and a function in this catalogue would
+   * have to be duplicated in the action to say the same thing.
+   */
+  showWhen?: { field: string; equals: readonly string[] };
 }
 
 const QUOTE_STAGES: OppStage[] = ['Quoted', 'Negotiating', 'On Hold'];
@@ -170,6 +178,11 @@ export const OPP_FIELDS: OppFieldDef[] = [
 
   // ── Lost ────────────────────────────────────────────────────
   { name: 'lost_to_competitor', label: 'Lost To Competitor', kind: 'select', asked: 'Lost', onlyStages: ['Lost'], requiredAt: ['Lost'], options: [] },
+  { name: 'lost_to_competitor_other', label: 'Name the competitor', kind: 'text',
+    asked: 'Lost', onlyStages: ['Lost'],
+    showWhen: { field: 'lost_to_competitor', equals: ['Others', 'Other'] },
+    placeholder: 'Who took it? A name here is worth more than "Others".',
+    help: 'Kept alongside Others so the deal is still countable, and the name is not lost.' },
   { name: 'lost_reason',        label: 'Lost Reason',        kind: 'select', asked: 'Lost', onlyStages: ['Lost'], requiredAt: ['Lost'], options: [
     'Price — Too expensive', 'Technical — Spec mismatch', 'OEM Tied — Forced preference',
     'Relationship — Existing supplier', 'Budget — Project cancelled', 'Delivery — Timeline mismatch',
@@ -180,7 +193,14 @@ export const OPP_FIELDS: OppFieldDef[] = [
   { name: 'drop_reason', label: 'Drop Reason', kind: 'select', asked: 'Dropped', onlyStages: ['Dropped'], requiredAt: ['Dropped'], options: [] },
 ];
 
-export const LOST_COMPETITOR_TAIL = ['Price — No specific competitor', 'OEM Tied', 'Budget Cancelled', 'Other'];
+// Answers that are not a competitor, appended after the master list.
+//
+// 'Other' used to sit here and duplicated 'Others' from the master list, one
+// line apart in the same dropdown. 'Others' won because it is the value the
+// competitor table holds and the one the free-text box hangs off; showWhen on
+// lost_to_competitor_other still accepts both, so a record or a link carrying
+// the old spelling keeps working.
+export const LOST_COMPETITOR_TAIL = ['Price — No specific competitor', 'OEM Tied', 'Budget Cancelled'];
 
 /**
  * Why an opportunity was Dropped. Distinct from lost_reason: Lost is "we
@@ -212,23 +232,33 @@ export const REMARK_LABEL: Partial<Record<OppStage, string>> = {
 
 // ── Queries over the catalogue ────────────────────────────────
 
-export function isFieldVisible(f: OppFieldDef, stage: OppStage): boolean {
-  if (f.onlyStages) return f.onlyStages.includes(stage);
-  return STAGE_RANK[stage] >= STAGE_RANK[f.asked];
+/**
+ * @param values The form as it currently stands. Omit it and `showWhen` fields
+ *               are treated as visible — which is what the required-field check
+ *               wants when it has no form to look at, and harmless because no
+ *               conditional field is required anywhere.
+ */
+export function isFieldVisible(
+  f: OppFieldDef, stage: OppStage, values?: Record<string, string>,
+): boolean {
+  const stageOk = f.onlyStages ? f.onlyStages.includes(stage) : STAGE_RANK[stage] >= STAGE_RANK[f.asked];
+  if (!stageOk) return false;
+  if (f.showWhen && values) return f.showWhen.equals.includes(values[f.showWhen.field] ?? '');
+  return true;
 }
 
-export function isFieldRequired(f: OppFieldDef, stage: OppStage): boolean {
-  return isFieldVisible(f, stage) && (f.requiredAt ?? []).includes(stage);
+export function isFieldRequired(f: OppFieldDef, stage: OppStage, values?: Record<string, string>): boolean {
+  return isFieldVisible(f, stage, values) && (f.requiredAt ?? []).includes(stage);
 }
 
 /** Fields first asked AT this stage — the "fill this in now" section. */
-export function fieldsNewAt(stage: OppStage): OppFieldDef[] {
-  return OPP_FIELDS.filter(f => isFieldVisible(f, stage) && f.asked === stage);
+export function fieldsNewAt(stage: OppStage, values?: Record<string, string>): OppFieldDef[] {
+  return OPP_FIELDS.filter(f => isFieldVisible(f, stage, values) && f.asked === stage);
 }
 
 /** Fields carried in from earlier stages — the "already recorded" section. */
-export function fieldsCarriedInto(stage: OppStage): OppFieldDef[] {
-  return OPP_FIELDS.filter(f => isFieldVisible(f, stage) && f.asked !== stage);
+export function fieldsCarriedInto(stage: OppStage, values?: Record<string, string>): OppFieldDef[] {
+  return OPP_FIELDS.filter(f => isFieldVisible(f, stage, values) && f.asked !== stage);
 }
 
 export function requiredFieldNames(stage: OppStage): string[] {

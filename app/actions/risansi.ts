@@ -1226,7 +1226,9 @@ export async function createPipelineOpportunity(formData: FormData): Promise<Cre
     revised_offer_date: latestRev?.revised_on ?? null,
     negotiation_notes: s('negotiation_notes'),
     po_number: s('po_number'), final_value_cr: crOf('final_value_inr'),
-    lost_to_competitor: s('lost_to_competitor'), lost_reason: s('lost_reason'),
+    lost_to_competitor: s('lost_to_competitor'),
+    lost_to_competitor_other: s('lost_to_competitor_other'),
+    lost_reason: s('lost_reason'),
     // quotation_link is deliberately absent. No form has posted it since
     // uploads replaced typed links, and syncQuotationLink is its only writer —
     // reading it from the request meant a crafted POST could point an
@@ -1606,6 +1608,9 @@ export async function updateOpportunity(oppId: number, formData: FormData): Prom
     po_number:          (formData.get('po_number') as string | null) || null,
     final_value_cr:     finalInr > 0 ? finalInr / 10_000_000 : null,
     lost_to_competitor: (formData.get('lost_to_competitor') as string | null) || null,
+    // Only meaningful beside Others; the form submits '' when the picker moves
+    // off it, which clears the name rather than leaving it stranded.
+    lost_to_competitor_other: (formData.get('lost_to_competitor_other') as string | null) || null,
     lost_reason:        (formData.get('lost_reason') as string | null) || null,
     drop_reason:        (formData.get('drop_reason') as string | null) || null,
     // The intake block and the per-stage reasons. Each guarded below, so a form
@@ -1637,7 +1642,8 @@ export async function updateOpportunity(oppId: number, formData: FormData): Prom
   // and project name. A field the form doesn't submit at all (=== null) is left
   // as it is; an explicit empty string still clears it.
   for (const k of ['product','product_type','stage','eta_text','quote_ref','quote_date',
-                   'unit_project','notes','po_number','lost_to_competitor','lost_reason',
+                   'unit_project','notes','po_number','lost_to_competitor',
+                   'lost_to_competitor_other','lost_reason',
                    'opportunity_type','opportunity_source','opportunity_category',
                    'client_reference','suspect_reason','hold_reason','po_date']) {
     if (formData.get(k) === null) delete candidates[k];

@@ -37,8 +37,8 @@ export function OppStageSections({
   /** Line items, documents, sales orders — whatever this stage attaches. */
   children?: ReactNode;
 }) {
-  const carried = fieldsCarriedInto(stage);
-  const now     = fieldsNewAt(stage);
+  const carried = fieldsCarriedInto(stage, values);
+  const now     = fieldsNewAt(stage, values);
   const creating = mode === 'create';
   // Nothing is "already recorded" when the record does not exist yet.
   const [editingCarried, setEditingCarried] = useState(false);

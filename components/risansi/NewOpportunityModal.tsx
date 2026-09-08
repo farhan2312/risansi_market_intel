@@ -204,7 +204,8 @@ function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess }: {
       // Everything visible at the chosen stage, not just the last block — the
       // whole point of picking Quoted is that the enquiry answers come too.
       for (const f of OPP_FIELDS) {
-        if (isFieldVisible(f, stage)) fd.set(f.name, values[f.name] ?? '');
+        if (isFieldVisible(f, stage, values)) fd.set(f.name, values[f.name] ?? '');
+        else if (f.showWhen) fd.set(f.name, '');
       }
       if (stageHasQuote(stage) && !itemsAreBlank(items)) {
         fd.set('items_json', JSON.stringify(items));

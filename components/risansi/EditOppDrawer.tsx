@@ -146,7 +146,8 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
       // already in fd from the form element.
       fd.set('stage', stage);
       for (const f of OPP_FIELDS) {
-        if (isFieldVisible(f, stage as OppStage)) fd.set(f.name, values[f.name] ?? '');
+        if (isFieldVisible(f, stage as OppStage, values)) fd.set(f.name, values[f.name] ?? '');
+        else if (f.showWhen) fd.set(f.name, '');
       }
       // Ownership is derived from the client's tour, not set here — the form
       // sends no rep_id, and updateOpportunity leaves the existing owner intact.
