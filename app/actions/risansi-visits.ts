@@ -6,7 +6,7 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 import { recordAudit } from '@/lib/audit';
 import { withinVisitEditWindow, VISIT_EDIT_WINDOW_DAYS } from '@/lib/risansi-visit-edit-window';
-import { canEditVisitReport } from '@/lib/risansi-auth';
+import { canEditVisitReport, whyCannotVisitClient } from '@/lib/risansi-auth';
 import { pctForProbabilityCode } from '@/lib/risansi-probability-codes';
 import { isEpcOem } from '@/lib/risansi-client-types';
 import { notifyExpansionTagged } from '@/lib/risansi-email';
@@ -645,7 +645,13 @@ export async function deleteEquipment(equipmentId: string | number, visitId: str
  *   • only a FUTURE date creates anything — a recommendation already in the past
  *     is a record of intent, not a plan, and back-dating the calendar helps
  *     nobody;
- *   • the planned visit belongs to the rep who filed the report;
+ *   • the planned visit belongs to the rep who filed the report — IF they work
+ *     the client. A visit may only be planned for the owner, a covering rep or
+ *     their manager (whyCannotVisitClient, the rule Plan Visit enforces), and
+ *     this path is one of the ways people ended up with visits to clients they
+ *     had no relation to. When the filing rep is not one of those, the plan
+ *     goes to the client's owner instead, and the audit row says so; when
+ *     nobody owns the client, nothing is raised and the audit row says that;
  *   • changing the recommendation MOVES the same planned visit (found via
  *     planned_from_visit_id, migration 0044) rather than adding a second one;
  *   • nothing is ever auto-deleted. Clearing the date leaves the planned visit
@@ -690,6 +696,28 @@ async function syncPlannedFollowUpVisit(
   )).rows[0]?.ok;
   if (!future) return null;
 
+  // Whose plan is it? The filing rep's, if they work the client; otherwise the
+  // owner's. Never somebody with no relation to the client.
+  let plannedFor = repId;
+  let redirected: string | null = null;
+  const refusal = await whyCannotVisitClient(repId, clientId);
+  if (refusal) {
+    const owner = (await risansiPool.query<{ id: number; name: string }>(
+      `SELECT u.id, u.name FROM clients c JOIN users u ON u.id = c.primary_rep_id AND u.is_active
+        WHERE c.id = $1`, [clientId],
+    )).rows[0];
+    if (!owner) {
+      await recordAudit({
+        action: 'skip', entityType: 'visit', entityId: String(sourceVisitId),
+        summary: `No follow-up visit raised from the next-visit date on report #${sourceVisitId}: ${refusal}`,
+        actorEmail,
+      });
+      return null;
+    }
+    plannedFor = owner.id;
+    redirected = owner.name;
+  }
+
   // Don't stack a duplicate on top of a plan the rep already made by hand for
   // the same client and day.
   const clash = (await risansiPool.query<{ id: number }>(
@@ -697,7 +725,7 @@ async function syncPlannedFollowUpVisit(
       WHERE client_id = $1 AND visit_date = $2::date AND rep_id = $3
         AND submitted_at IS NULL
       LIMIT 1`,
-    [clientId, recommendation, repId],
+    [clientId, recommendation, plannedFor],
   )).rows[0];
   if (clash) {
     await risansiPool.query(
@@ -707,18 +735,23 @@ async function syncPlannedFollowUpVisit(
     return null;
   }
 
+  // 'planned', lower-case: every other writer and every reader uses that
+  // spelling, and the seven 'Planned' rows this used to write only passed
+  // because the readers test `status <> 'completed'`.
   const { rows } = await risansiPool.query<{ id: number }>(
     `INSERT INTO visits (client_id, rep_id, visit_date, is_planned, status,
                          purpose, planned_from_visit_id, created_at, updated_at)
-     VALUES ($1, $2, $3::date, TRUE, 'Planned', $4, $5, NOW(), NOW())
+     VALUES ($1, $2, $3::date, TRUE, 'planned', $4, $5, NOW(), NOW())
      RETURNING id`,
-    [clientId, repId, recommendation, 'Follow-up visit', sourceVisitId],
+    [clientId, plannedFor, recommendation, 'Follow-up visit', sourceVisitId],
   );
   const newId = rows[0]?.id;
   if (newId) {
     await recordAudit({
       action: 'create', entityType: 'visit', entityId: String(newId),
-      summary: `Planned follow-up visit auto-created from the next-visit date on report #${sourceVisitId}`,
+      summary: redirected
+        ? `Planned follow-up visit auto-created from the next-visit date on report #${sourceVisitId}, for ${redirected} as the client's owner — the filing rep does not work this client`
+        : `Planned follow-up visit auto-created from the next-visit date on report #${sourceVisitId}`,
       actorEmail,
     });
   }

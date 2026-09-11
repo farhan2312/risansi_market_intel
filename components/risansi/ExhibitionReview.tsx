@@ -137,11 +137,12 @@ function MeetingReviewRow({ exhibitionId, meeting: m, users, editable }: {
   async function save() {
     setBusy(true); setErr('');
     try {
-      await setMeetingFollowUp(exhibitionId, m.id, {
+      const res = await setMeetingFollowUp(exhibitionId, m.id, {
         type, ownerId: owner ? Number(owner) : null,
         dueDate: due || null, note: note || null,
         valueInr: value ? Number(String(value).replace(/[₹,\s]/g, '')) : null,
       });
+      if (!res.ok) { setErr(res.error); return; }
       setOpen(false); router.refresh();
     } catch (e) {
       const raw = e instanceof Error ? e.message : '';

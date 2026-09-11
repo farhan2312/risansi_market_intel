@@ -350,6 +350,79 @@ export async function whyCannotWorkClient(user: CurrentUser, clientId: number): 
 }
 
 /**
+ * Why this person may not be given a visit to this client — or null when they may.
+ *
+ * A visit belongs to somebody who works the client: its owner, a rep covering
+ * it, or a manager of either. Nobody else — not by an admin's hand on Plan
+ * Visit, not by the follow-up the system raises from a report's next-visit
+ * date, and not from an exhibition meeting. That is the rule chosen on 11 Sep
+ * 2026 over "warn and allow" and "make them a covering rep automatically":
+ * being sent to a client is not how you come to cover it; being made to cover
+ * it is, on Reps & Managers, where it can be seen and undone.
+ *
+ * Until now nothing checked, and fourteen open visits belonged to people with
+ * no relation to the client — including the one that broke the visit form,
+ * because its rep could reach the visit and not the client. The in-flight rule
+ * still lets those finish; this stops new ones being made.
+ *
+ * Unlike whyCannotWorkClient this is about the TARGET, not the actor, so it
+ * takes a user id rather than a session. An admin or sysadmin may be the target
+ * of a visit anywhere, as they may do anything anywhere.
+ *
+ * Returned, never thrown: every caller is a server action.
+ */
+export async function whyCannotVisitClient(repId: number, clientId: number): Promise<string | null> {
+  const { rows } = await risansiPool.query<{
+    rep_name: string | null; rep_role: string | null; rep_active: boolean | null;
+    exists: boolean; archived: boolean; client_name: string | null;
+    owner_name: string | null; covering: string | null;
+    owns: boolean; covers: boolean; via_team: boolean;
+  }>(
+    `SELECT
+       u.name                                                     AS rep_name,
+       u.role                                                     AS rep_role,
+       u.is_active                                                AS rep_active,
+       c.id IS NOT NULL                                           AS exists,
+       c.deleted_at IS NOT NULL                                   AS archived,
+       c.legal_name                                               AS client_name,
+       (SELECT o.name FROM users o WHERE o.id = c.primary_rep_id) AS owner_name,
+       (SELECT string_agg(s2.name, ', ' ORDER BY s2.name)
+          FROM client_secondary_reps s JOIN users s2 ON s2.id = s.rep_id
+         WHERE s.client_id = c.id)                                AS covering,
+       c.primary_rep_id = $2                                      AS owns,
+       EXISTS (SELECT 1 FROM client_secondary_reps s
+                WHERE s.client_id = c.id AND s.rep_id = $2)       AS covers,
+       (c.primary_rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $2)
+        OR EXISTS (SELECT 1 FROM client_secondary_reps s
+                    WHERE s.client_id = c.id
+                      AND s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $2))) AS via_team
+     FROM (SELECT $1::int AS client_id, $2::int AS rep_id) want
+     LEFT JOIN clients c ON c.id = want.client_id
+     LEFT JOIN users   u ON u.id = want.rep_id`,
+    [clientId, repId],
+  );
+  const r = rows[0];
+
+  if (!r?.rep_name)  return 'That person is not a user of this portal any more.';
+  if (!r.rep_active) return `${r.rep_name}'s account is deactivated, so no visit can be planned for them.`;
+  if (!r.exists)     return 'This client no longer exists.';
+  if (r.archived)    return 'This client has been archived. Restore it from Admin › Recoverable before planning a visit to it.';
+  if (hasRole(r.rep_role, 'admin')) return null;
+  if (r.owns || r.covers || r.via_team) return null;
+
+  const client = r.client_name ?? 'this client';
+  if (!r.owner_name && !r.covering) {
+    return `${client} has no rep assigned, so nobody can be given a visit to it yet. `
+      + 'Assign an owner on Admin › Reps & Managers › Unassigned first.';
+  }
+  const who = [r.owner_name && `assigned to ${r.owner_name}`, r.covering && `covered by ${r.covering}`]
+    .filter(Boolean).join(' and ');
+  return `${r.rep_name} does not work ${client} — it is ${who}. `
+    + 'A visit can only be planned for the owner, a covering rep, or their manager. '
+    + `To send ${r.rep_name}, add them as a covering rep on Admin › Reps & Managers first.`;
+}
+
+/**
  * Can this user access a single complaint? admin/sysadmin always; otherwise
  * when they raised it, it's assigned to them, or they work its client.
  * Mirrors the complaints page visibility predicate.

@@ -4,7 +4,7 @@ import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { getManagerAssignableReps, hasRole, getCurrentUser, canViewClient, canWorkClient, whyCannotWorkClient, isDepartment, type RisansiRole } from '@/lib/risansi-auth';
+import { getManagerAssignableReps, hasRole, getCurrentUser, canViewClient, canWorkClient, whyCannotWorkClient, whyCannotVisitClient, isDepartment, type RisansiRole } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 import { recordAudit } from '@/lib/audit';
 import { normalizeClientName, uniqueLeadCode } from '@/lib/risansi-lead-code';
@@ -872,37 +872,6 @@ async function notifyVisitPlan(opts: {
   } catch (e) {
     console.error('[visit-plan] notification failed', e);
   }
-}
-
-export async function planVisit(clientId: string, formData: FormData) {
-  const user = await requireSession();
-
-  // Only for a client you can see (own tour or a special-access grant).
-  const viewer = await getCurrentUser();
-  if (!(await canViewClient(viewer, Number(clientId)))) throw new Error('You do not have access to this client.');
-
-  const visitDate = (formData.get('visit_date') as string | null)?.trim();
-  const purpose   = (formData.get('purpose')    as string | null)?.trim() ?? 'Routine';
-
-  const date = visitDate ?? new Date().toISOString().slice(0, 10);
-
-  // Rep → locked to self; manager → validated within tours; admin → form value.
-  // Owner is required (no client-primary fallback). See resolveAssignableRepId.
-  const resolvedRepId = await resolveAssignableRepId(
-    user,
-    (formData.get('rep_id') as string | null)?.trim() ?? null,
-  );
-
-  await risansiPool.query(
-    `INSERT INTO visits (client_id, rep_id, visit_date, purpose, status, created_at)
-     VALUES ($1, $2, $3, $4, 'planned', NOW())`,
-    [clientId, resolvedRepId, date, purpose],
-  );
-
-  await logActivity('client', clientId, `planned visit on ${date} · ${purpose}`, user.email!);
-  revalidatePath(`/risansi/clients/${clientId}`);
-
-  await notifyVisitPlan({ plannerEmail: user.email!, clientId: Number(clientId), repId: resolvedRepId, visitDate: date, purpose });
 }
 
 // ── Client: create opportunity ─────────────────────────────────
@@ -1974,7 +1943,9 @@ export async function deleteVisitPlan(visitId: string) {
 
 // ── Visits: assign visit ───────────────────────────────────────
 
-export async function assignVisit(formData: FormData) {
+// Refusals are returned, not thrown: a thrown message is redacted in production
+// and the drawer would show "Failed to schedule visit" for every one of them.
+export async function assignVisit(formData: FormData): Promise<SaveResult> {
   const user = await requireSession();
 
   const clientId  = (formData.get('client_id')  as string | null)?.trim() ?? '';
@@ -1983,11 +1954,11 @@ export async function assignVisit(formData: FormData) {
   const notes     = (formData.get('notes')       as string | null)?.trim() || null;
 
   // A missing client must surface as an error — never report a fake success.
-  if (!clientId) throw new Error('Please select a client before scheduling a visit.');
+  if (!clientId) return fail('Please select a client before scheduling a visit.');
 
-  // Only schedule for a client you can see (own tour or a special-access grant).
+  // Only schedule for a client you can see.
   const viewer = await getCurrentUser();
-  if (!(await canViewClient(viewer, Number(clientId)))) throw new Error('You do not have access to this client.');
+  if (!(await canViewClient(viewer, Number(clientId)))) return fail('You do not have access to this client.');
 
   const date = visitDate ?? new Date().toISOString().slice(0, 10);
 
@@ -1995,14 +1966,21 @@ export async function assignVisit(formData: FormData) {
   //   rep role          → ALWAYS themselves; resolved fresh by login email
   //                       (session.user.repId can't be trusted — see note below),
   //                       never the submitted rep_id.
-  //   admin/manager/...  → the submitted dropdown selection, falling back to the
-  //                       client's primary rep when left blank.
+  //   admin/manager/...  → the submitted dropdown selection.
   // Single explicit owner (flat model): rep → self; manager → required & within
-  // tours; admin → required. No client-primary fallback.
-  const repId = await resolveAssignableRepId(
-    user,
-    (formData.get('rep_id') as string | null)?.trim() ?? null,
-  );
+  // team; admin → required. No client-primary fallback.
+  let repId: number;
+  try {
+    repId = await resolveAssignableRepId(user, (formData.get('rep_id') as string | null)?.trim() ?? null);
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : 'Please select who this visit is for.');
+  }
+
+  // And that person must work the client — owner, covering rep, or their
+  // manager. An admin choosing anyone from the list was how a rep ended up on a
+  // visit they could open and not save. See whyCannotVisitClient.
+  const refusal = await whyCannotVisitClient(repId, Number(clientId));
+  if (refusal) return fail(refusal);
 
   // Try full insert with optional columns; fall back to minimal ONLY if the
   // full insert fails (e.g. a column is missing). Errors propagate to the UI.
@@ -2027,7 +2005,7 @@ export async function assignVisit(formData: FormData) {
     insertedId = rows[0]?.id ?? null;
   }
 
-  if (!insertedId) throw new Error('Visit could not be saved — please try again.');
+  if (!insertedId) return fail('Visit could not be saved — please try again.');
 
   await logActivity('client', clientId, `visit assigned for ${date} · ${purpose}`, user.email!);
   revalidatePath('/risansi/field');   // calendar lives here now
@@ -2036,26 +2014,44 @@ export async function assignVisit(formData: FormData) {
   revalidatePath('/risansi');
 
   await notifyVisitPlan({ plannerEmail: user.email!, clientId: Number(clientId), repId, visitDate: date, purpose });
+  return { ok: true };
 }
 
 // ── Mobile: GPS check-in ───────────────────────────────────────
 
-export async function checkInVisit(data: {
+// Create a visit and check into it in one step — the phone's "new visit" flow.
+// (checkInVisit in risansi-visits.ts checks into a visit that already exists;
+// this one used to share its name, which the build's result check could not
+// tell apart.)
+//
+// Returns the new visit id, or the reason there is none. It used to return
+// null for every failure and the phone said "Check-in failed" for all of them.
+export async function checkInNewVisit(data: {
   clientId: string;
   repId: string;
   visitDate: string;
   purpose: string;
   gpsLat: number | null;
   gpsLng: number | null;
-}): Promise<string | null> {
+}): Promise<CreateResult> {
   const user = await requireSession();
 
   const { clientId, repId, visitDate, purpose, gpsLat, gpsLng } = data;
-  if (!clientId) return null;
+  if (!clientId) return fail('Pick a client to check in to.');
 
-  // Only check into a client you can see (own tour or a special-access grant).
+  // Only check into a client you can see.
   const viewer = await getCurrentUser();
-  if (!(await canViewClient(viewer, Number(clientId)))) return null;
+  if (!(await canViewClient(viewer, Number(clientId)))) return fail('You do not have access to this client.');
+
+  // And the visit must belong to somebody who works the client — the same
+  // rule Plan Visit applies. A rep's own client list is already scoped that
+  // way, so this mostly guards the admin phone and the odd stale page.
+  const repNum = Number(repId);
+  if (!Number.isInteger(repNum) || repNum <= 0) {
+    return fail('Your account is not linked to a rep profile, so it cannot check in. Ask a sysadmin to link it under Users & Access.');
+  }
+  const refusal = await whyCannotVisitClient(repNum, Number(clientId));
+  if (refusal) return fail(refusal);
 
   // Insert core visit row
   let visitId: string | null = null;
@@ -2064,12 +2060,14 @@ export async function checkInVisit(data: {
       `INSERT INTO visits (client_id, rep_id, visit_date, purpose, status, created_at)
        VALUES ($1, $2, $3::date, $4, 'checked-in', NOW())
        RETURNING id`,
-      [clientId, repId || null, visitDate, purpose],
+      [clientId, repNum, visitDate, purpose],
     );
     visitId = rows[0]?.id ?? null;
-  } catch {
-    return null;
+  } catch (e) {
+    console.error('[checkInNewVisit] insert failed', e);
+    return fail('Check-in could not be saved — please try again.');
   }
+  if (!visitId) return fail('Check-in could not be saved — please try again.');
 
   // Optionally record GPS (columns may not exist — non-fatal)
   if (visitId && (gpsLat != null || gpsLng != null)) {
@@ -2081,12 +2079,10 @@ export async function checkInVisit(data: {
     } catch { /* column not yet added */ }
   }
 
-  if (visitId) {
-    await logActivity('client', clientId, `checked in: ${purpose}`, user.email!);
-    revalidatePath('/risansi/mobile');
-    await notifyCheckIn(Number(clientId), repId ? Number(repId) : null, user.email!);
-  }
-  return visitId;
+  await logActivity('client', clientId, `checked in: ${purpose}`, user.email!);
+  revalidatePath('/risansi/mobile');
+  await notifyCheckIn(Number(clientId), repNum, user.email!);
+  return { ok: true, id: visitId };
 }
 
 // ── Client: submit new opportunity (from NewOpportunityDrawer) ─

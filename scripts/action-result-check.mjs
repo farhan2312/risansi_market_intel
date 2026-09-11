@@ -39,13 +39,30 @@ for (const d of ['app', 'components', 'lib']) {
 // this script exists to catch.
 const RESULT_TYPES = /Promise<\s*(SaveResult|CreateResult|Result\b)/;
 const actions = new Map();                       // name -> declaring file
+const declared = new Map();                      // every exported async fn name -> [files]
 for (const file of files) {
   const src = fs.readFileSync(file, 'utf8');
+  const rel = path.relative(ROOT, file).replace(/\\/g, '/');
   for (const m of src.matchAll(/export async function (\w+)\s*\(/g)) {
+    declared.set(m[1], [...(declared.get(m[1]) ?? []), rel]);
     let i = m.index + m[0].length, depth = 1;
     while (i < src.length && depth > 0) { if (src[i] === '(') depth++; else if (src[i] === ')') depth--; i++; }
     const ret = src.slice(i, i + 400).match(/^\s*:\s*([\s\S]*?)\s*\{/);
-    if (ret && RESULT_TYPES.test(ret[1])) actions.set(m[1], path.relative(ROOT, file).replace(/\\/g, '/'));
+    if (ret && RESULT_TYPES.test(ret[1])) actions.set(m[1], rel);
+  }
+}
+
+// Call sites are matched by name, so two exported actions sharing one is a
+// hole: a caller of the other one is either flagged wrongly or, worse, a
+// caller of this one is excused because it looked like the other. That is not
+// a warning; rename one of them. (checkInVisit was declared twice — the phone's
+// create-and-check-in and the report's check-in — and the first was exactly this.)
+for (const [name] of actions) {
+  const where = declared.get(name) ?? [];
+  if (where.length > 1) {
+    console.log(`${name}() is exported from ${where.length} files — ${where.join(', ')}`);
+    console.log('  the check tells callers apart by name, so it cannot tell these apart. Rename one.');
+    process.exit(1);
   }
 }
 

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, hasRole } from '@/lib/risansi-auth';
+import { getCurrentUser, hasRole, whyCannotVisitClient } from '@/lib/risansi-auth';
 import { recordAudit } from '@/lib/audit';
 import { checkInvoice } from '@/lib/risansi-exhibition-files';
 import { pushInApp } from '@/lib/risansi-inapp';
@@ -833,6 +833,10 @@ export type FollowUpType = 'None' | 'Visit' | 'Action' | 'Opportunity';
  * left alone (it may already have been worked on) but the meeting stops pointing
  * at it, so nothing is silently duplicated on a second pass.
  */
+// Same shape as risansi.ts SaveResult, and the same name, so the build check
+// (scripts/action-result-check.mjs) knows to insist the caller reads it.
+export type SaveResult = { ok: true } | { ok: false; error: string };
+
 export async function setMeetingFollowUp(exhibitionId: number, meetingId: number, opts: {
   type: FollowUpType;
   ownerId?: number | null;
@@ -840,7 +844,7 @@ export async function setMeetingFollowUp(exhibitionId: number, meetingId: number
   note?: string | null;
   product?: string | null;
   valueInr?: number | null;
-}) {
+}): Promise<SaveResult> {
   const user = await requireUser();
   const ex = await assertOwner(exhibitionId, user);
   assertNotClosed(ex.status);
@@ -854,14 +858,22 @@ export async function setMeetingFollowUp(exhibitionId: number, meetingId: number
        FROM exhibition_meetings WHERE id = $1 AND exhibition_id = $2`, [meetingId, exhibitionId],
   );
   const m = mrows[0];
-  if (!m) throw new Error('Meeting not found.');
+  if (!m) return { ok: false, error: 'Meeting not found.' };
 
   const needsClient = opts.type === 'Visit' || opts.type === 'Opportunity';
   if (needsClient && m.client_id == null) {
-    throw new Error(`${opts.type === 'Visit' ? 'A visit' : 'An opportunity'} needs a known client. Correct the company name so it matches one, or raise an action instead.`);
+    return { ok: false, error: `${opts.type === 'Visit' ? 'A visit' : 'An opportunity'} needs a known client. Correct the company name so it matches one, or raise an action instead.` };
   }
   const ownerId = opts.ownerId != null && Number.isInteger(opts.ownerId) ? opts.ownerId : null;
-  if (opts.type !== 'None' && ownerId == null) throw new Error('Pick who this is assigned to.');
+  if (opts.type !== 'None' && ownerId == null) return { ok: false, error: 'Pick who this is assigned to.' };
+
+  // A visit may only be planned for somebody who works the client — the same
+  // rule as Plan Visit and the report follow-up. Refused with the reason, which
+  // names the owner, rather than thrown and redacted.
+  if (opts.type === 'Visit' && ownerId != null && m.client_id != null) {
+    const refusal = await whyCannotVisitClient(ownerId, m.client_id);
+    if (refusal) return { ok: false, error: refusal };
+  }
 
   let visitId: number | null = null, taskId: number | null = null, oppId: number | null = null;
 
@@ -949,6 +961,7 @@ export async function setMeetingFollowUp(exhibitionId: number, meetingId: number
   revalidatePath('/risansi/registry');
   revalidatePath('/risansi/pipeline');
   revalidatePath('/risansi/field');
+  return { ok: true };
 }
 
 export async function reviewExhibitionExpenses(exhibitionId: number) {

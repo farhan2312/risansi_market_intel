@@ -115,8 +115,14 @@ export default function AssignVisitDrawer({
       .then(d => setFetchedReps(Array.isArray(d) ? d : []))
       .catch(err => { console.error('Failed to load reps:', err); setFetchedReps([]); });
   }, [isRepUser]);
-  const repOptions: Array<{ id: string; name: string; zone?: string | null; route?: string | null }> =
+  const allRepOptions: Array<{ id: string; name: string; zone?: string | null; route?: string | null }> =
     fetchedReps.length ? fetchedReps : reps.map(r => ({ id: String(r.id), name: r.name, route: r.route ?? null }));
+
+  // Once a client is chosen, the list narrows to the people who may be sent to
+  // it: owner, covering reps, their managers, admins. The server refuses anyone
+  // else (whyCannotVisitClient), so offering them would only be offering a
+  // refusal. `null` means not yet known — the full list shows until then.
+  const [candidates, setCandidates] = useState<{ ids: string[]; owner: string | null; covering: string[] } | null>(null);
 
   // Managers default the rep dropdown to themselves when no client-primary
   // prefill is supplied (e.g. the header / calendar "Plan Visit" button).
@@ -151,6 +157,28 @@ export default function AssignVisitDrawer({
   const [error, setError]     = useState('');
 
   const searchTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => {
+    if (isRepUser) return;
+    if (!selectedClient) { setCandidates(null); return; }
+    let alive = true;
+    setCandidates(null);
+    fetch(`/api/risansi/visit-candidates?clientId=${encodeURIComponent(selectedClient.id)}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: { ids?: string[]; owner?: string | null; covering?: string[] } | null) => {
+        if (!alive || !d || !Array.isArray(d.ids)) return;
+        setCandidates({ ids: d.ids.map(String), owner: d.owner ?? null, covering: d.covering ?? [] });
+        // A prefilled rep who does not work this client is cleared rather than
+        // left selected and refused on save.
+        setPrefillRepId(cur => (cur && !d.ids!.map(String).includes(cur) ? '' : cur));
+      })
+      .catch(() => { /* full list stays; the server still decides */ });
+    return () => { alive = false; };
+  }, [isRepUser, selectedClient]);
+
+  const repOptions = candidates
+    ? allRepOptions.filter(r => candidates.ids.includes(String(r.id)))
+    : allRepOptions;
 
   // ── Listen for row-button / external open events ──────────
 
@@ -287,7 +315,12 @@ export default function AssignVisitDrawer({
 
     startTransition(async () => {
       try {
-        await assignVisit(fd);
+        // Refusals come back as a result, with the reason spelled out — which
+        // rep owns the client, or that nobody does. A thrown error here is a
+        // genuine failure and is redacted in production, so it gets the
+        // generic line.
+        const res = await assignVisit(fd);
+        if (!res.ok) { setError(res.error); return; }
         setSuccess(true);
         onSuccess?.();
         setTimeout(() => {
@@ -297,7 +330,7 @@ export default function AssignVisitDrawer({
         }, 1200);
       } catch (err) {
         console.error('[Plan Visit] assignVisit failed', err);
-        setError(err instanceof Error ? err.message : 'Failed to schedule visit — please try again.');
+        setError('Failed to schedule visit — please try again.');
       }
     });
   }
@@ -487,7 +520,7 @@ export default function AssignVisitDrawer({
           ) : (
             <div>
               <label style={LBL}>Rep <Req /></label>
-              {repOptions.length === 0 ? (
+              {allRepOptions.length === 0 ? (
                 <select disabled style={{ ...INP, color: 'var(--fg-3)' }}>
                   <option>Loading reps…</option>
                 </select>
@@ -500,6 +533,23 @@ export default function AssignVisitDrawer({
                     </option>
                   ))}
                 </select>
+              )}
+              {candidates && selectedClient && (
+                <div style={{ fontSize: 11.5, color: 'var(--fg-3)', marginTop: 5, lineHeight: 1.5 }}>
+                  {candidates.owner || candidates.covering.length ? (
+                    <>
+                      Only people who work this client
+                      {candidates.owner && <> — assigned to <strong style={{ color: 'var(--fg-2)' }}>{candidates.owner}</strong></>}
+                      {candidates.covering.length > 0 && <>, covered by {candidates.covering.join(', ')}</>}
+                      . To send someone else, add them as a covering rep on Admin › Reps &amp; Managers first.
+                    </>
+                  ) : (
+                    <span style={{ color: 'var(--warn-strong, var(--warn))' }}>
+                      Nobody is assigned to this client yet, so only an admin can be sent. Assign an owner on
+                      Admin › Reps &amp; Managers › Unassigned first.
+                    </span>
+                  )}
+                </div>
               )}
             </div>
           )}

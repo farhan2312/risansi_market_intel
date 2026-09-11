@@ -2,7 +2,7 @@
 
 import { useState, useTransition, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
-import { checkInVisit } from '@/app/actions/risansi';
+import { checkInNewVisit } from '@/app/actions/risansi';
 import type { ClientOption } from './page';
 
 const PURPOSES = ['Routine', 'Quote Follow-up', 'New Opp', 'Complaint', 'Equipment Assessment', 'Mgmt Relationship'];
@@ -50,17 +50,23 @@ export function NewVisitClient({
 
     const doCheckIn = async (lat: number | null, lng: number | null) => {
       setStatusMsg('Checking in…');
-      const visitId = await checkInVisit({
-        clientId: selected.id,
-        repId,
-        visitDate: todayStr(),
-        purpose,
-        gpsLat: lat,
-        gpsLng: lng,
-      });
-      if (visitId) {
+      let res: Awaited<ReturnType<typeof checkInNewVisit>>;
+      try {
+        res = await checkInNewVisit({
+          clientId: selected.id,
+          repId,
+          visitDate: todayStr(),
+          purpose,
+          gpsLat: lat,
+          gpsLng: lng,
+        });
+      } catch {
+        res = { ok: false, error: 'Check-in failed. Please try again.' };
+      }
+      if (res.ok) {
         setGpsState('done');
         setStatusMsg('Checked in! Opening report…');
+        const visitId = res.id;
         startTransition(() => {
           // The unified report (same one the mobile home page's "resume visit"
           // links use) — it's already responsive; the old mobile-only wizard at
@@ -68,8 +74,10 @@ export function NewVisitClient({
           router.push(`/risansi/visits/${visitId}`);
         });
       } else {
+        // The reason, not "failed": which rep the client belongs to, or that
+        // nobody owns it yet.
         setGpsState('error');
-        setStatusMsg('Check-in failed. Please try again.');
+        setStatusMsg(res.error);
       }
     };
 
