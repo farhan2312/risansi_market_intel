@@ -4,7 +4,7 @@ import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { getManagerAssignableReps, hasRole, getCurrentUser, canViewClient, isDepartment, type RisansiRole } from '@/lib/risansi-auth';
+import { getManagerAssignableReps, hasRole, getCurrentUser, canViewClient, canWorkClient, isDepartment, type RisansiRole } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 import { recordAudit } from '@/lib/audit';
 import { normalizeClientName, uniqueLeadCode } from '@/lib/risansi-lead-code';
@@ -298,7 +298,7 @@ export async function addContact(formData: FormData): Promise<void> {
   const isPrimary = formData.get('is_primary') === 'true';
 
   if (isNaN(clientId) || clientId <= 0) throw new Error('Invalid client ID');
-  if (!(await canViewClient(await getCurrentUser(), clientId))) throw new Error('You do not have access to this client.');
+  if (!(await canWorkClient(await getCurrentUser(), clientId))) throw new Error('You do not have access to this client.');
   if (!name || name.length < 2) throw new Error('Contact name is required (min 2 characters)');
 
   const designation = (formData.get('designation') as string | null)?.trim() || null;
@@ -337,7 +337,7 @@ export async function updateContact(contactId: number, clientId: number, formDat
   // any contact by id.
   const owner = (await risansiPool.query<{ client_id: number }>('SELECT client_id FROM contacts WHERE id = $1', [contactId])).rows[0];
   if (!owner) throw new Error('Contact not found.');
-  if (!(await canViewClient(await getCurrentUser(), owner.client_id))) throw new Error('You do not have access to this contact.');
+  if (!(await canWorkClient(await getCurrentUser(), owner.client_id))) throw new Error('You do not have access to this contact.');
   clientId = owner.client_id;
 
   const name = (formData.get('name') as string | null)?.trim() ?? '';
@@ -377,7 +377,7 @@ export async function deleteContact(contactId: number, clientId: number): Promis
   const user = await requireSession();
   const owner = (await risansiPool.query<{ client_id: number }>('SELECT client_id FROM contacts WHERE id = $1', [contactId])).rows[0];
   if (!owner) return;   // already gone
-  if (!(await canViewClient(await getCurrentUser(), owner.client_id))) throw new Error('You do not have access to this contact.');
+  if (!(await canWorkClient(await getCurrentUser(), owner.client_id))) throw new Error('You do not have access to this contact.');
   await risansiPool.query('DELETE FROM contacts WHERE id = $1 AND client_id = $2', [contactId, owner.client_id]);
   await logActivity('client', String(owner.client_id), 'Contact Deleted', user.email!);
   revalidatePath(`/risansi/clients/${owner.client_id}`);
@@ -727,7 +727,7 @@ export async function addClientComment(clientId: number, body: string): Promise<
   const user = await getCurrentUser();
   if (!user.email) redirect('/api/auth/signin');
   if (!Number.isInteger(clientId)) throw new Error('Invalid client.');
-  if (!(await canViewClient(user, clientId))) throw new Error('You do not have access to this client.');
+  if (!(await canWorkClient(user, clientId))) throw new Error('You do not have access to this client.');
 
   const text = (body ?? '').trim();
   if (!text) throw new Error('Comment cannot be empty.');

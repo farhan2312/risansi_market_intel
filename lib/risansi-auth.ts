@@ -271,6 +271,40 @@ export async function canViewClient(user: CurrentUser, clientId: number): Promis
 }
 
 /**
+ * May this person write client-level records — contacts, pumps, comments —
+ * from inside a visit to that client?
+ *
+ * canViewClient on its own is the wrong gate for the visit form, and it took a
+ * field rep three failed saves to show why. A visit can be assigned to anyone;
+ * the visit itself is visible to its rep through the in-flight rule; the form
+ * then asks them for the client's contacts and installed pumps and refuses to
+ * store the answer, because owning an open visit does not make the account
+ * theirs. Eleven open visits were in exactly that state.
+ *
+ * So: the account's people, OR the rep on an open visit to it. The second limb
+ * is OWN_OPEN.visit, the same rule that let them open the report — read and
+ * write now agree. It closes with the visit: once completed, the client page
+ * and its records are reachable only through ownership again, as before.
+ *
+ * Deliberately NOT folded into canViewClient. That one also gates the Client
+ * 360 page, and the migration's decision that a visit does not open the whole
+ * account stands. This is narrower: it is for writes the visit form makes.
+ */
+export async function canWorkClient(user: CurrentUser, clientId: number): Promise<boolean> {
+  if (await canViewClient(user, clientId)) return true;
+  const uid = intOrNull(user.id);
+  if (uid == null) return false;
+  const { rows } = await risansiPool.query<{ ok: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM visits v
+        WHERE v.client_id = $1 AND ${OWN_OPEN.visit('v').split(':uid').join('$2')}
+     ) AS ok`,
+    [clientId, uid],
+  );
+  return rows[0]?.ok ?? false;
+}
+
+/**
  * Can this user access a single complaint? admin/sysadmin always; otherwise
  * when they raised it, it's assigned to them, or they work its client.
  * Mirrors the complaints page visibility predicate.

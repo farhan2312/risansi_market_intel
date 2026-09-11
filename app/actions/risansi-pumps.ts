@@ -3,7 +3,7 @@
 import { getServerSession } from 'next-auth/next';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { hasRole, getCurrentUser, canViewClient } from '@/lib/risansi-auth';
+import { hasRole, getCurrentUser, canWorkClient } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 
 // Each uploaded row is one installed pump (unique serial), matching the EC/Serial
@@ -163,7 +163,7 @@ const t = (s: string) => { const v = (s ?? '').trim(); return v === '' ? null : 
 
 export async function saveClientPump(input: ClientPumpInput): Promise<{ id: number }> {
   const user = await getCurrentUser();
-  if (!(await canViewClient(user, input.clientId))) throw new Error('Unauthorized');
+  if (!(await canWorkClient(user, input.clientId))) throw new Error('You do not have access to this client.');
   const email = user.email ?? null;
 
   if (input.id) {
@@ -204,7 +204,7 @@ export async function saveClientPump(input: ClientPumpInput): Promise<{ id: numb
 
 export async function deleteClientPump(id: number, clientId: number): Promise<void> {
   const user = await getCurrentUser();
-  if (!(await canViewClient(user, clientId))) throw new Error('Unauthorized');
+  if (!(await canWorkClient(user, clientId))) throw new Error('You do not have access to this client.');
   await risansiPool.query(`DELETE FROM client_pumps WHERE id = $1 AND client_id = $2`, [id, clientId]);
   revalidatePath(`/risansi/clients/${clientId}`);
 }
@@ -237,7 +237,7 @@ export async function saveClientPumpBatch(
   input: PumpBatchInput,
 ): Promise<{ batchId: string; saved: number }> {
   const user = await getCurrentUser();
-  if (!(await canViewClient(user, input.clientId))) throw new Error('Unauthorized');
+  if (!(await canWorkClient(user, input.clientId))) throw new Error('You do not have access to this client.');
   const email = user.email ?? null;
 
   const shared = [t(input.model), t(input.liquid), t(input.capacity), t(input.head)] as const;
