@@ -31,7 +31,10 @@ export function AddContactDrawer({
       const fd = new FormData(e.currentTarget);
       fd.set('client_id', String(clientId));
       if (sameAsPhone) fd.set('whatsapp', phoneVal);
-      await addContact(fd);
+      // A refusal arrives as a value: thrown ones are redacted in production and
+      // showed "Failed to add contact" instead of whose client this is.
+      const res = await addContact(fd);
+      if (!res.ok) { setError(res.error); return; }
       router.refresh();
       onClose();
     } catch (err: unknown) {

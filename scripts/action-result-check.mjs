@@ -32,12 +32,20 @@ for (const d of ['app', 'components', 'lib']) {
 
 // Exported async functions whose declared return type is one of the result
 // shapes. Read from the source so adding another one needs no edit here.
-const RESULT_TYPES = /Promise<\s*(SaveResult|CreateResult|Result(<[^>]*>)?)\s*>/;
+// The return type is read by skipping the parameter list with matched parens
+// and then reading up to the body's opening brace — not with `[^{]+`. That
+// shortcut stopped at the brace INSIDE `Result<{ id: number }>` and quietly
+// dropped two pump actions from this list, which is the exact silent-success
+// this script exists to catch.
+const RESULT_TYPES = /Promise<\s*(SaveResult|CreateResult|Result\b)/;
 const actions = new Map();                       // name -> declaring file
 for (const file of files) {
   const src = fs.readFileSync(file, 'utf8');
-  for (const m of src.matchAll(/export async function (\w+)\s*\([^)]*\)\s*:\s*([^{]+)\{/gs)) {
-    if (RESULT_TYPES.test(m[2])) actions.set(m[1], path.relative(ROOT, file).replace(/\\/g, '/'));
+  for (const m of src.matchAll(/export async function (\w+)\s*\(/g)) {
+    let i = m.index + m[0].length, depth = 1;
+    while (i < src.length && depth > 0) { if (src[i] === '(') depth++; else if (src[i] === ')') depth--; i++; }
+    const ret = src.slice(i, i + 400).match(/^\s*:\s*([\s\S]*?)\s*\{/);
+    if (ret && RESULT_TYPES.test(ret[1])) actions.set(m[1], path.relative(ROOT, file).replace(/\\/g, '/'));
   }
 }
 
@@ -63,7 +71,10 @@ for (const file of files) {
       // The result has to be captured and inspected. Accept either an assignment
       // whose variable is later tested for .ok, or an inline `.ok` test.
       const assigned = line.match(/(?:const|let)\s+(\w+)\s*=\s*await\s/);
-      const window = lines.slice(lineNo - 1, lineNo + 6).join('\n');
+      // Twelve lines, not six: a call whose argument is an object literal spans
+      // several lines before the `.ok` test can appear, and a correct call site
+      // must not be flagged for being well formatted.
+      const window = lines.slice(lineNo - 1, lineNo + 12).join('\n');
       const readsOk = assigned
         ? new RegExp(`${assigned[1]}\\.ok`).test(window)
         : /\.ok\b/.test(window);

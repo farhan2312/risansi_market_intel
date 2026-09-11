@@ -3,7 +3,16 @@
 import { getServerSession } from 'next-auth/next';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { hasRole, getCurrentUser, canWorkClient } from '@/lib/risansi-auth';
+import { hasRole, getCurrentUser, whyCannotWorkClient } from '@/lib/risansi-auth';
+
+/**
+ * A refusal the person can read. Thrown server-action errors are redacted in
+ * production, so every rule here is returned rather than thrown — the same
+ * shape the opportunity and contact actions use.
+ */
+export type Result<T = null> = { ok: true; data: T } | { ok: false; error: string };
+const fail = (error: string) => ({ ok: false as const, error });
+const ok = <T,>(data: T): Result<T> => ({ ok: true, data });
 import risansiPool from '@/lib/db-risansi';
 
 // Each uploaded row is one installed pump (unique serial), matching the EC/Serial
@@ -161,9 +170,10 @@ export interface ClientPumpInput {
 
 const t = (s: string) => { const v = (s ?? '').trim(); return v === '' ? null : v; };
 
-export async function saveClientPump(input: ClientPumpInput): Promise<{ id: number }> {
+export async function saveClientPump(input: ClientPumpInput): Promise<Result<{ id: number }>> {
   const user = await getCurrentUser();
-  if (!(await canWorkClient(user, input.clientId))) throw new Error('You do not have access to this client.');
+  const denied = await whyCannotWorkClient(user, input.clientId);
+  if (denied) return fail(denied);
   const email = user.email ?? null;
 
   if (input.id) {
@@ -176,7 +186,7 @@ export async function saveClientPump(input: ClientPumpInput): Promise<{ id: numb
        t(input.liquid), t(input.capacity), t(input.head), email, input.clientId],
     );
     revalidatePath(`/risansi/clients/${input.clientId}`);
-    return { id: input.id };
+    return ok({ id: input.id });
   }
 
   const code = (await risansiPool.query<{ code: string }>(
@@ -199,14 +209,16 @@ export async function saveClientPump(input: ClientPumpInput): Promise<{ id: numb
      t(input.liquid), t(input.capacity), t(input.head), email],
   );
   revalidatePath(`/risansi/clients/${input.clientId}`);
-  return { id: rows[0].id };
+  return ok({ id: rows[0].id });
 }
 
-export async function deleteClientPump(id: number, clientId: number): Promise<void> {
+export async function deleteClientPump(id: number, clientId: number): Promise<Result> {
   const user = await getCurrentUser();
-  if (!(await canWorkClient(user, clientId))) throw new Error('You do not have access to this client.');
+  const denied = await whyCannotWorkClient(user, clientId);
+  if (denied) return fail(denied);
   await risansiPool.query(`DELETE FROM client_pumps WHERE id = $1 AND client_id = $2`, [id, clientId]);
   revalidatePath(`/risansi/clients/${clientId}`);
+  return ok(null);
 }
 
 // ── Batch entry ────────────────────────────────────────────────
@@ -235,14 +247,15 @@ export interface PumpBatchInput {
 
 export async function saveClientPumpBatch(
   input: PumpBatchInput,
-): Promise<{ batchId: string; saved: number }> {
+): Promise<Result<{ batchId: string; saved: number }>> {
   const user = await getCurrentUser();
-  if (!(await canWorkClient(user, input.clientId))) throw new Error('You do not have access to this client.');
+  const denied = await whyCannotWorkClient(user, input.clientId);
+  if (denied) return fail(denied);
   const email = user.email ?? null;
 
   const shared = [t(input.model), t(input.liquid), t(input.capacity), t(input.head)] as const;
   if (!shared[0] && !input.pumps.some(p => t(p.sr_no))) {
-    throw new Error('Enter at least a model or one serial number.');
+    return fail('Enter at least a pump model or one serial number.');
   }
 
   // A batch of one is still a batch — it keeps its id so a later edit can grow
@@ -295,5 +308,5 @@ export async function saveClientPumpBatch(
   } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
 
   revalidatePath(`/risansi/clients/${input.clientId}`);
-  return { batchId, saved };
+  return ok({ batchId, saved });
 }

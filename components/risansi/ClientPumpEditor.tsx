@@ -61,7 +61,11 @@ export function ClientPumpEditor({ clientId, compact = false, onCount }: { clien
   const remove = async (id: number) => {
     if (!window.confirm('Delete this pump record?')) return;
     setBusy(true); setErr('');
-    try { await deleteClientPump(id, cid); load(); }
+    try {
+      const res = await deleteClientPump(id, cid);
+      if (!res.ok) { setErr(res.error); return; }
+      load();
+    }
     catch (e) { setErr(e instanceof Error ? e.message : 'Delete failed'); }
     finally { setBusy(false); }
   };
@@ -91,7 +95,11 @@ export function ClientPumpEditor({ clientId, compact = false, onCount }: { clien
           compact={compact}
           onSaved={() => { setDraft(null); load(); }}
           onCancel={() => { setDraft(null); setErr(''); }}
-          onDeleteRow={async (id) => { await deleteClientPump(id, cid); load(); }}
+          onDeleteRow={async (id) => {
+            const res = await deleteClientPump(id, cid);
+            if (!res.ok) throw new Error(res.error);   // PumpBatchForm shows it
+            load();
+          }}
         />
       )}
 

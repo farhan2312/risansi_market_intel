@@ -49,7 +49,14 @@ export function ClientComments({ comments, me, clientId }: {
 
   const submitNew = () => {
     if (!draft.trim()) return;
-    run(() => addClientComment(clientId, draft), () => { setDraft(''); setAdding(false); });
+    setError('');
+    start(async () => {
+      try {
+        const res = await addClientComment(clientId, draft);
+        if (!res.ok) { setError(res.error); return; }
+        setDraft(''); setAdding(false); router.refresh();
+      } catch (e) { setError(e instanceof Error ? e.message : 'Something went wrong'); }
+    });
   };
   const submitEdit = (id: number) => {
     if (!editDraft.trim()) return;

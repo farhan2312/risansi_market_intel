@@ -58,7 +58,8 @@ export function EditContactButton({ contact, clientId }: { contact: ContactShape
     try {
       const fd = new FormData(e.currentTarget);
       fd.set('is_primary', isPrimary ? 'true' : 'false');
-      await updateContact(contact.id, clientId, fd);
+      const res = await updateContact(contact.id, clientId, fd);
+      if (!res.ok) { setError(res.error); setLoading(false); return; }
       setOpen(false);
       router.refresh();
     } catch (err: unknown) {
@@ -70,7 +71,8 @@ export function EditContactButton({ contact, clientId }: { contact: ContactShape
   const handleDelete = async () => {
     setLoading(true); setError('');
     try {
-      await deleteContact(contact.id, clientId);
+      const res = await deleteContact(contact.id, clientId);
+      if (!res.ok) { setError(res.error); setLoading(false); return; }
       setOpen(false);
       router.refresh();
     } catch (err: unknown) {

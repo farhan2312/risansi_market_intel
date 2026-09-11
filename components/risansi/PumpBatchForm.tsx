@@ -110,11 +110,14 @@ export function PumpBatchForm({
     }
     setBusy(true); setErr('');
     try {
-      await saveClientPumpBatch({
+      const res = await saveClientPumpBatch({
         clientId, batchId: v.batchId, model: v.model, liquid: v.liquid,
         capacity: v.capacity, head: v.head,
         pumps: v.pumps.map(r => ({ id: r.id, sr_no: r.sr_no, so_no: r.so_no, ec_no: r.ec_no })),
       });
+      // The reason, on the form, in words — this is the step that showed a
+      // field rep the redacted server error three times in one afternoon.
+      if (!res.ok) { setErr(res.error); return; }
       onSaved();
     } catch (e) { setErr(e instanceof Error ? e.message : 'Save failed'); }
     finally { setBusy(false); }

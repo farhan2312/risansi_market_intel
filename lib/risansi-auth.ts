@@ -291,17 +291,62 @@ export async function canViewClient(user: CurrentUser, clientId: number): Promis
  * account stands. This is narrower: it is for writes the visit form makes.
  */
 export async function canWorkClient(user: CurrentUser, clientId: number): Promise<boolean> {
-  if (await canViewClient(user, clientId)) return true;
+  return (await whyCannotWorkClient(user, clientId)) === null;
+}
+
+/**
+ * Why this person may not write to this client — or null when they may.
+ *
+ * One sentence per cause, because "You do not have access to this client" was
+ * true and useless: the rep had access to the visit, which is how they got to
+ * the form, and nothing told them the client was somebody else's. The causes
+ * are different problems with different fixes, so they get different words.
+ *
+ * Returned, never thrown. Every caller is a server action, and a thrown message
+ * is redacted in production.
+ */
+export async function whyCannotWorkClient(user: CurrentUser, clientId: number): Promise<string | null> {
+  if (hasRole(user.role, 'admin')) return null;
   const uid = intOrNull(user.id);
-  if (uid == null) return false;
-  const { rows } = await risansiPool.query<{ ok: boolean }>(
-    `SELECT EXISTS (
-       SELECT 1 FROM visits v
-        WHERE v.client_id = $1 AND ${OWN_OPEN.visit('v').split(':uid').join('$2')}
-     ) AS ok`,
+  if (uid == null) {
+    return 'Your account is not linked to a rep profile, so it cannot own or work any client. Ask a sysadmin to link it under Users & Access.';
+  }
+
+  const { rows } = await risansiPool.query<{
+    exists: boolean; archived: boolean; owner_id: number | null; owner_name: string | null;
+    owns: boolean; covers: boolean; via_team: boolean; open_visit: boolean;
+  }>(
+    `SELECT
+       c.id IS NOT NULL                                          AS exists,
+       c.deleted_at IS NOT NULL                                  AS archived,
+       c.primary_rep_id                                          AS owner_id,
+       (SELECT u.name FROM users u WHERE u.id = c.primary_rep_id) AS owner_name,
+       c.primary_rep_id = $2                                     AS owns,
+       EXISTS (SELECT 1 FROM client_secondary_reps s
+                WHERE s.client_id = c.id AND s.rep_id = $2)      AS covers,
+       (c.primary_rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $2)
+        OR EXISTS (SELECT 1 FROM client_secondary_reps s
+                    WHERE s.client_id = c.id
+                      AND s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $2))) AS via_team,
+       EXISTS (SELECT 1 FROM visits v
+                WHERE v.client_id = c.id AND ${OWN_OPEN.visit('v').split(':uid').join('$2')}) AS open_visit
+     FROM (SELECT $1::int AS id) want
+     LEFT JOIN clients c ON c.id = want.id`,
     [clientId, uid],
   );
-  return rows[0]?.ok ?? false;
+  const r = rows[0];
+
+  if (!r?.exists) return 'This client no longer exists.';
+  if (r.archived) return 'This client has been archived. Restore it from Admin › Recoverable before adding to it.';
+  if (r.owns || r.covers || r.via_team || r.open_visit) return null;
+
+  if (r.owner_id == null) {
+    return 'This client has no rep assigned, and you are not covering it, so nothing can be added to it yet. '
+      + 'Admin › Reps & Managers › Unassigned lists it; once someone owns or covers it, they can add to it.';
+  }
+  return `This client is assigned to ${r.owner_name ?? 'another rep'} and you are not covering it. `
+    + 'You can add contacts, pumps and comments to clients you own, cover, or have an open visit to. '
+    + `Ask ${r.owner_name ?? 'them'} or an admin to add you as a covering rep.`;
 }
 
 /**
