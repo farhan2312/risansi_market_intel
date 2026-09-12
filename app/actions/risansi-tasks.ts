@@ -129,7 +129,7 @@ export async function addTask({
     );
     const v = rows[0];
     if (v && v.client_id != null && Number(v.client_id) === Number(clientId)) {
-      allowed = await canEditVisitReport({ role: user.role, repId: user.id }, v.rep_id);
+      allowed = await canEditVisitReport({ role: user.role, repId: user.id }, v.rep_id, v.client_id);
     }
   }
   if (!allowed) {

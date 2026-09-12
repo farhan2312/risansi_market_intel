@@ -184,7 +184,11 @@ async function userCanEditOpp(
 ): Promise<boolean> {
   const role = user.role ?? 'rep';
   if (hasRole(role, 'admin')) return true;
-  if (user.repId != null && oppRepId != null && Number(oppRepId) === Number(user.repId)) return true;
+  // Being the opportunity's rep is not enough when the client is known: an
+  // opportunity on a client that is not theirs is Blocked (whyCannotWorkClient),
+  // shown as such on the board, and worked again only once an admin assigns
+  // the client. The rep-only fast path survives for callers with no client.
+  if (clientId == null && user.repId != null && oppRepId != null && Number(oppRepId) === Number(user.repId)) return true;
   if (clientId != null) {
     return canViewClient(
       { id: user.repId ?? null, email: user.email ?? null, role: role as RisansiRole,
@@ -1857,7 +1861,7 @@ export async function updateVisitPlan(visitId: string, formData: FormData) {
   const visit = rows[0];
   if (!visit) throw new Error('Visit not found.');
   if (visit.submitted_at) throw new Error('A submitted visit can no longer be edited.');
-  if (!(await userCanEditOpp(user, visit.rep_id))) {
+  if (!(await userCanEditOpp(user, visit.rep_id, visit.client_id))) {
     throw new Error('You do not have permission to edit this visit.');
   }
 

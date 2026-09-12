@@ -294,6 +294,9 @@ export async function canWorkClient(user: CurrentUser, clientId: number): Promis
   return (await whyCannotWorkClient(user, clientId)) === null;
 }
 
+/** The one line every blocked visit and opportunity shows. Decided 12 Sep 2026. */
+export const BLOCKED_CLIENT = 'Blocked — this client is not assigned to you. Please contact an admin.';
+
 /**
  * Why this person may not write to this client — or null when they may.
  *
@@ -301,6 +304,13 @@ export async function canWorkClient(user: CurrentUser, clientId: number): Promis
  * true and useless: the rep had access to the visit, which is how they got to
  * the form, and nothing told them the client was somebody else's. The causes
  * are different problems with different fixes, so they get different words.
+ *
+ * There is deliberately no in-flight allowance here. For a day there was one —
+ * a rep with an open visit to a client could add to it — and it was withdrawn
+ * the same day: a visit or an opportunity on a client that is not yours is
+ * shown as Blocked, with the line above, until an admin assigns the client.
+ * You can still SEE it (clientScopeSql keeps the in-flight limb for reading, so
+ * the record does not vanish); you cannot work it.
  *
  * Returned, never thrown. Every caller is a server action, and a thrown message
  * is redacted in production.
@@ -314,7 +324,7 @@ export async function whyCannotWorkClient(user: CurrentUser, clientId: number): 
 
   const { rows } = await risansiPool.query<{
     exists: boolean; archived: boolean; owner_id: number | null; owner_name: string | null;
-    owns: boolean; covers: boolean; via_team: boolean; open_visit: boolean;
+    owns: boolean; covers: boolean; via_team: boolean;
   }>(
     `SELECT
        c.id IS NOT NULL                                          AS exists,
@@ -327,9 +337,7 @@ export async function whyCannotWorkClient(user: CurrentUser, clientId: number): 
        (c.primary_rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $2)
         OR EXISTS (SELECT 1 FROM client_secondary_reps s
                     WHERE s.client_id = c.id
-                      AND s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $2))) AS via_team,
-       EXISTS (SELECT 1 FROM visits v
-                WHERE v.client_id = c.id AND ${OWN_OPEN.visit('v').split(':uid').join('$2')}) AS open_visit
+                      AND s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $2))) AS via_team
      FROM (SELECT $1::int AS id) want
      LEFT JOIN clients c ON c.id = want.id`,
     [clientId, uid],
@@ -338,15 +346,29 @@ export async function whyCannotWorkClient(user: CurrentUser, clientId: number): 
 
   if (!r?.exists) return 'This client no longer exists.';
   if (r.archived) return 'This client has been archived. Restore it from Admin › Recoverable before adding to it.';
-  if (r.owns || r.covers || r.via_team || r.open_visit) return null;
+  if (r.owns || r.covers || r.via_team) return null;
 
   if (r.owner_id == null) {
-    return 'This client has no rep assigned, and you are not covering it, so nothing can be added to it yet. '
-      + 'Admin › Reps & Managers › Unassigned lists it; once someone owns or covers it, they can add to it.';
+    return `${BLOCKED_CLIENT} It has no rep at all yet; Admin › Reps & Managers › Unassigned lists it.`;
   }
-  return `This client is assigned to ${r.owner_name ?? 'another rep'} and you are not covering it. `
-    + 'You can add contacts, pumps and comments to clients you own, cover, or have an open visit to. '
-    + `Ask ${r.owner_name ?? 'them'} or an admin to add you as a covering rep.`;
+  return `${BLOCKED_CLIENT} It is assigned to ${r.owner_name ?? 'another rep'}; ask them or an admin to add you as a covering rep.`;
+}
+
+/**
+ * SQL: is the person in `repCol` a stranger to the client aliased `c` — neither
+ * its owner, nor covering it, nor a manager of either, nor an admin? A visit or
+ * an opportunity whose rep is a stranger is an orphan: it is shown as Blocked
+ * and cannot be worked until an admin assigns the client. Used by the board and
+ * the calendar so the badge and the refusal agree.
+ */
+export function orphanSql(repCol: string, c = 'c'): string {
+  return `(${repCol} IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM users ua WHERE ua.id = ${repCol} AND ua.role IN ('admin','sysadmin'))
+    AND ${c}.primary_rep_id IS DISTINCT FROM ${repCol}
+    AND NOT EXISTS (SELECT 1 FROM client_secondary_reps s WHERE s.client_id = ${c}.id AND s.rep_id = ${repCol})
+    AND NOT (${c}.primary_rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${repCol}))
+    AND NOT EXISTS (SELECT 1 FROM client_secondary_reps s WHERE s.client_id = ${c}.id
+                     AND s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = ${repCol})))`;
 }
 
 /**
@@ -516,13 +538,21 @@ export async function getReviewableRepIds(user: CurrentUser): Promise<number[] |
 export async function canEditVisitReport(
   user: { role?: string | null; repId?: number | null },
   visitRepId: number | null,
+  /** When given, being the visit's rep is not enough: the client must be theirs too (see whyCannotWorkClient). */
+  clientId?: number | null,
 ): Promise<boolean> {
   const role = user.role ?? 'rep';
   if (hasRole(role, 'admin')) return true;                       // admin + sysadmin
-  if (user.repId != null && visitRepId != null && Number(visitRepId) === Number(user.repId)) return true;
-  if (role === 'manager' && user.repId != null && visitRepId != null) {
+  let mine = false;
+  if (user.repId != null && visitRepId != null && Number(visitRepId) === Number(user.repId)) mine = true;
+  else if (role === 'manager' && user.repId != null && visitRepId != null) {
     const assignable = await getManagerAssignableReps(user.repId);
-    return assignable.includes(Number(visitRepId));
+    mine = assignable.includes(Number(visitRepId));
   }
-  return false;
+  if (!mine) return false;
+  if (clientId == null) return true;
+  // The visit is theirs; is the client? An orphaned visit — assigned before
+  // ownership existed, or by an admin to a stranger — is Blocked, not workable.
+  const me: CurrentUser = { id: user.repId ?? null, email: null, role: role as RisansiRole, departments: [] };
+  return (await whyCannotWorkClient(me, Number(clientId))) === null;
 }

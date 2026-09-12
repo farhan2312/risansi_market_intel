@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, MultiSelectFilter, ActiveFilterBar } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, clientScopeSql , OWN_OPEN } from '@/lib/risansi-auth';
+import { getCurrentUser, clientScopeSql, OWN_OPEN, orphanSql } from '@/lib/risansi-auth';
 import { getCurrentFY, fmtCr, fmtUsdFromCr } from '@/lib/risansi-utils';
 import { getUsdRate } from '@/lib/risansi-settings';
 import { PROBABILITY_CODE_OPTIONS } from '@/lib/risansi-probability-codes';
@@ -334,17 +334,20 @@ export default async function PipelinePage({
   // An opportunity is editable by whoever works its client — the owner, anyone
   // covering it, or a manager above them — which is what userCanEditOpp answers
   // in TypeScript. Sharing a route with the client used to be enough; it is not.
+  // Being the card's rep is deliberately NOT on this list: a card whose rep is
+  // a stranger to the client is an orphan, shown as Blocked (see `orphan`
+  // below), and worked again only once an admin assigns the client.
   const CAN_EDIT_CASE = `
         CASE
           WHEN $${ceRoleIdx} IN ('admin','sysadmin') THEN TRUE
-          WHEN o.rep_id = $${ceRepIdx} THEN TRUE
           WHEN c.primary_rep_id = $${ceRepIdx} THEN TRUE
           WHEN c.primary_rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $${ceRepIdx}) THEN TRUE
           WHEN EXISTS (SELECT 1 FROM client_secondary_reps s WHERE s.client_id = c.id
                         AND (s.rep_id = $${ceRepIdx}
                              OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $${ceRepIdx}))) THEN TRUE
           ELSE FALSE
-        END AS can_edit`;
+        END AS can_edit,
+        ${orphanSql('o.rep_id', 'c')} AS orphan`;
 
   const [openOpps, closedOpps, bookedYTD, annualTarget, winLossRows, lostToRows, stageOptions, productTypeOptions, repOptions, industryOptions, clientTypeOptions, wonTotal, orderInHand, orderBooked, stageTotals, usdRate] = await Promise.all([
 

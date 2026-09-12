@@ -5,7 +5,7 @@ import { getServerSession } from 'next-auth/next';
 import { Topbar, Tag } from '@/components/risansi';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, clientVisibilitySql, clientScopeSql , OWN_OPEN } from '@/lib/risansi-auth';
+import { getCurrentUser, clientVisibilitySql, clientScopeSql, OWN_OPEN, orphanSql } from '@/lib/risansi-auth';
 import { parseVisitFilters, getVisitFilterOptions, getScopedRepNames, getExhibitionScopeUserIds } from '@/lib/risansi-visit-filters';
 import { FieldFilterBar } from '@/components/risansi/FieldFilterBar';
 import { PlannedVisitsExport } from '@/components/risansi/PlannedVisitsExport';
@@ -47,6 +47,8 @@ interface VisitFeedRow {
   client_id: string; legal_name: string; code: string; industry: string | null;
   city: string | null; tier: string | null;
   rep_id: string; rep_name: string;
+  /** The visit's rep is a stranger to the client: not owner, cover or their manager. Shown as Blocked. */
+  orphan: boolean;
 }
 
 // One row per (exhibition × team member) whose run overlaps the visible window.
@@ -308,7 +310,8 @@ export default async function FieldActivityPage({
            c.city,
            c.tier,
            COALESCE(v.rep_id::text, '') AS rep_id,
-           COALESCE(r.name, '—')       AS rep_name
+           COALESCE(r.name, '—')       AS rep_name,
+           ${orphanSql('v.rep_id', 'c')} AS orphan
          FROM visits v
          JOIN clients c ON c.id = v.client_id
          LEFT JOIN users r ON r.id = v.rep_id
@@ -893,6 +896,12 @@ export default async function FieldActivityPage({
                             {v.tier && <Tag kind="accent">{v.tier}</Tag>}
                             {v.industry && <Tag>{v.industry}</Tag>}
                             <Tag kind={statusKind}>{v.status}</Tag>
+                            {v.orphan && !isClosed && (
+                              <span title={`${v.rep_name} does not work this client — not its owner, covering it, or their manager. Blocked until an admin assigns the client on Reps & Managers.`}
+                                style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', padding: '2px 6px', borderRadius: 4, background: 'var(--neg-soft)', color: 'var(--neg)', border: '1px solid var(--neg)' }}>
+                                Blocked · client not assigned
+                              </span>
+                            )}
                           </div>
                           <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 2 }}>
                             {v.rep_name} · {v.visit_date} {v.city ? `· ${v.city}` : ''}{v.purpose ? ` · ${v.purpose}` : ''}

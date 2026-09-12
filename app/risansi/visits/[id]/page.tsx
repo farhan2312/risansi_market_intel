@@ -2,7 +2,7 @@ import { notFound, redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, clientScopeSql, canViewClient, canEditVisitReport , OWN_OPEN } from '@/lib/risansi-auth';
+import { getCurrentUser, clientScopeSql, canViewClient, canEditVisitReport, whyCannotWorkClient, hasRole, OWN_OPEN } from '@/lib/risansi-auth';
 import { Topbar } from '@/components/risansi';
 import Link from 'next/link';
 import { VisitReportForm } from '@/components/risansi/VisitReportForm';
@@ -101,7 +101,12 @@ export default async function VisitReportPage({
   // authorised to edit it — the assigned rep, a manager above them, or an
   // admin/sysadmin — not the rep alone.
   const visitRepId  = visit.rep_id != null ? Number(visit.rep_id) : null;
-  const canEditVisit = await canEditVisitReport({ role: session.user.role ?? null, repId: myRepId }, visitRepId);
+  const canEditVisit = await canEditVisitReport({ role: session.user.role ?? null, repId: myRepId }, visitRepId, Number(visit.client_id));
+  // The visit is theirs and still they cannot work it: the client is not.
+  // Blocked, in words, until an admin assigns the client.
+  const blocked = !canEditVisit && !hasRole(session.user.role, 'admin') && visitRepId != null && myRepId != null && visitRepId === myRepId
+    ? await whyCannotWorkClient(viewer, Number(visit.client_id))
+    : null;
 
   // Seed a fresh, editable visit's competitor equipment + sugar/non-sugar pump
   // counts from the client's last submitted visit (runs once; won't clobber). The
@@ -283,7 +288,22 @@ export default async function VisitReportPage({
 
           {/* View-only notice — a draft you're not allowed to fill. The
               closed / re-open banner lives inside the form (it owns re-open state). */}
-          {!isSubmitted && !canEditVisit && (
+          {blocked ? (
+            <div style={{
+              padding: '12px 16px', marginBottom: 16,
+              background: 'var(--neg-soft)', border: '1px solid var(--neg)',
+              borderRadius: 8, fontSize: 13, color: 'var(--neg-strong, var(--neg))',
+              fontWeight: 600, display: 'flex', alignItems: 'flex-start', gap: 10,
+            }}>
+              <span aria-hidden style={{ fontSize: 15, lineHeight: 1 }}>⛔</span>
+              <span style={{ lineHeight: 1.5 }}>
+                {blocked}
+                <span style={{ display: 'block', fontWeight: 400, marginTop: 2, color: 'var(--fg-2)' }}>
+                  This visit is assigned to you, but the client is not. Nothing here can be filled in or submitted until an admin assigns the client to you on Reps &amp; Managers.
+                </span>
+              </span>
+            </div>
+          ) : !isSubmitted && !canEditVisit && (
             <div style={{
               padding: '10px 16px', marginBottom: 16,
               background: 'var(--warn-soft, #FEF3C7)',

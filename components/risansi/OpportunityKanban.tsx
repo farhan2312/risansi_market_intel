@@ -16,6 +16,8 @@ export interface KanbanOpp extends EditableOpp {
   rep_name:   string | null;
   tour_name:  string | null;
   can_edit?:  boolean;
+  /** The card's rep is a stranger to the client — not owner, cover or their manager. Shown as Blocked. */
+  orphan?:    boolean;
   created_at?: string | null;   // ISO; cards sort newest-first within a column
   updated_at?: string | null;   // bumped on every edit; drives the server re-sync below
   so_sum_cr?: number | null;    // Σ of this opp's Sales Order values (Cr) — drives Won Open/Closed
@@ -136,7 +138,9 @@ export function OpportunityKanban({ initialOpps, stageTotals, usdRate = 86, filt
     // so a card the user couldn't move simply did nothing when dropped — which
     // is indistinguishable from a broken board. Say why.
     if (current.can_edit === false) {
-      setNotice('You can only move opportunities for clients you own or cover. Ask an admin to add you to this one.');
+      setNotice(current.orphan
+        ? 'Blocked — this client is not assigned to you. Please contact an admin.'
+        : 'You can only move opportunities for clients you own or cover. Ask an admin to add you to this one.');
       setTimeout(() => setNotice(''), 5000);
       return;
     }
@@ -387,7 +391,20 @@ export function OpportunityKanban({ initialOpps, stageTotals, usdRate = 86, filt
                       opacity: dragId === opp.id ? 0.4 : !canEdit ? 0.85 : isLost ? 0.75 : 1,
                     }}
                   >
-                    {!canEdit && !isWon && !isLost && (
+                    {opp.orphan && !isWon && !isLost ? (
+                      // The card's rep does not work this client. Say so in
+                      // words, in red, on the card — not a lock icon to hover.
+                      <div
+                        title="Blocked — this client is not assigned to its rep. An admin has to assign the client (Reps & Managers) before it can be worked."
+                        style={{
+                          position: 'absolute', top: 6, right: 6, fontSize: 9.5, fontWeight: 700, letterSpacing: '0.05em',
+                          textTransform: 'uppercase', padding: '2px 6px', borderRadius: 4,
+                          background: 'var(--neg-soft)', color: 'var(--neg)', border: '1px solid var(--neg)',
+                        }}
+                      >
+                        Blocked
+                      </div>
+                    ) : !canEdit && !isWon && !isLost && (
                       <div
                         title="View only — assigned to another rep"
                         style={{ position: 'absolute', top: 6, right: 6, fontSize: 11, color: 'var(--fg-3)', opacity: 0.6 }}
