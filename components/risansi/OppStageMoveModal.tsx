@@ -59,10 +59,16 @@ export function OppStageMoveModal({ opp, target, usdRate = 86, onCancel, onDone 
 
   // Seed every field visible at the destination from what the record already
   // holds, so the context section shows the deal rather than a row of blanks.
+  //
+  // Visibility here is by stage only — no `values` argument. This initializer
+  // IS what creates `values`, and reading it from inside threw a ReferenceError
+  // on the form's first render for a day (the generic "Something went wrong"
+  // page on every move to Quoted). A conditional field is seeded regardless;
+  // the form hides it when its condition is not met and submit sends '' for it.
   const [values, setValues] = useState<FieldValues>(() => {
     const v: FieldValues = {};
     for (const f of OPP_FIELDS) {
-      if (!isFieldVisible(f, target, values)) continue;
+      if (!isFieldVisible(f, target)) continue;
       if (f.name === 'final_value_inr') { v[f.name] = inrOf(opp.final_value_cr ?? opp.value_cr); continue; }
       if (f.name === 'offer_value_inr') { v[f.name] = opp.offer_value_inr != null ? String(opp.offer_value_inr) : ''; continue; }
       const raw = opp[f.name];
