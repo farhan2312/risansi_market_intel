@@ -96,7 +96,10 @@ export async function loadProjection(
 
   // One row per rep per bucket. The bucket is worked out in SQL so a rep with no
   // opportunity in a month simply has no row, rather than the query returning a
-  // dense grid of zeroes.
+  // dense grid of zeroes. An opportunity with no rep (its client has no owner;
+  // see migration 0073) is an "Unassigned" row with rep id 0, last in the list,
+  // rather than being dropped from the forecast by an inner join — it is still
+  // money somebody expects. It never matches a rep-scoped view.
   const bucket = `
     CASE
       WHEN ${ETA_MONTH} IS NULL OR ${ETA_YEAR} IS NULL THEN 'none'
@@ -110,17 +113,17 @@ export async function loadProjection(
     rep_id: number; name: string; bucket: string;
     gross: string; weighted: string; weighted_base: string; n: string;
   }>(`
-    SELECT o.rep_id, u.name, ${bucket} AS bucket,
+    SELECT COALESCE(o.rep_id, 0) AS rep_id, COALESCE(u.name, 'Unassigned') AS name, ${bucket} AS bucket,
            COALESCE(sum(${VALUE}), 0)::text AS gross,
            COALESCE(sum(${VALUE} * o.probability / 100.0)
                       FILTER (WHERE o.probability IS NOT NULL), 0)::text AS weighted,
            COALESCE(sum(${VALUE}) FILTER (WHERE o.probability IS NOT NULL), 0)::text AS weighted_base,
            count(*)::text AS n
       FROM opportunities o
-      JOIN users u ON u.id = o.rep_id
+      LEFT JOIN users u ON u.id = o.rep_id
      WHERE ${OPEN}${repFilter}
      GROUP BY o.rep_id, u.name, ${bucket}
-     ORDER BY u.name`, params);
+     ORDER BY (o.rep_id IS NULL), u.name`, params);
 
   const byRep = new Map<number, ProjectionRep>();
   for (const r of rows) {

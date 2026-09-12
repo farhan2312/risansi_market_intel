@@ -88,7 +88,7 @@ export default async function StageDashboardPage({ params, searchParams }: {
              o.quote_ref, o.quote_date::text       AS quote_date, o.market,
              o.client_id, c.legal_name AS client_name, c.code AS client_code,
              c.industry, c.client_type,
-             COALESCE(r.name, '—') AS rep_name,
+             COALESCE(r.name, 'Unassigned') AS rep_name,
              (SELECT tr.name FROM tour_routes tr WHERE tr.id = c.tour_id) AS tour_name,
              o.offer_value_inr::float8             AS offer_inr,
              o.revised_offer_value_inr::float8     AS revised_inr,

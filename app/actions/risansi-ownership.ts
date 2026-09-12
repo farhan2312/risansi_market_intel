@@ -4,6 +4,7 @@ import { getServerSession } from 'next-auth/next';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
+import { recordAudit } from '@/lib/audit';
 
 // Rep ownership: who owns a client, who covers it, and who manages whom.
 //
@@ -52,8 +53,36 @@ export async function setPrimaryRep(clientId: number, repId: number | null): Pro
       'UPDATE clients SET primary_rep_id = $2, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL',
       [clientId, repId]);
     if (!r.rowCount) return { ok: false, error: 'That client no longer exists, or has been archived.' };
+
+    // Opportunities with no rep belong to whoever now owns the client. They
+    // exist because migration 0073 took the house account off 372 of them and
+    // ten sat on clients nobody owned; those read "Unassigned" until this
+    // moment. Nothing that already has a rep is touched — the in-flight rule
+    // lets a rep finish what they started on a client that moved.
+    let picked = 0;
+    if (repId != null) {
+      const moved = await risansiPool.query<{ id: number; label: string }>(
+        `UPDATE opportunities o SET rep_id = $2, updated_at = NOW()
+          WHERE o.client_id = $1 AND o.rep_id IS NULL
+          RETURNING o.id, COALESCE(o.quote_ref, o.product) AS label`,
+        [clientId, repId]);
+      picked = moved.rowCount ?? 0;
+      for (const m of moved.rows) {
+        await recordAudit({
+          action: 'reassign', entityType: 'opportunity', entityId: m.id, entityLabel: m.label,
+          summary: "Unassigned opportunity given to the client's new owner",
+          metadata: { to_rep_id: repId, client_id: clientId },
+          actorEmail: me.email,
+        });
+      }
+    }
     touch();
-    return { ok: true, message: repId == null ? 'Owner cleared.' : 'Owner set.' };
+    return {
+      ok: true,
+      message: repId == null ? 'Owner cleared.'
+        : picked ? `Owner set. ${picked} unassigned opportunit${picked === 1 ? 'y' : 'ies'} moved to them.`
+        : 'Owner set.',
+    };
   } catch (e) { return fail(e); }
 }
 

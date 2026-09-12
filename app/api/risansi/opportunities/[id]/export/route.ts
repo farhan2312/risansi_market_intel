@@ -79,7 +79,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
             c.zone, c.address, c.market_type, c.is_tender, c.since_year,
             c.total_outstanding, c.last_visit_date::text AS last_visit_date,
             tr.name AS tour_name,
-            rep.name AS rep_name, rep.email AS rep_email,
+            COALESCE(rep.name, 'Unassigned') AS rep_name, rep.email AS rep_email,
             tsm.name AS tsm_name
        FROM opportunities o
        JOIN clients c        ON c.id = o.client_id

@@ -373,7 +373,7 @@ export default async function PipelinePage({
                         SELECT s.rep_id, 1 FROM client_secondary_reps s WHERE s.client_id = c.id) r2
                   JOIN users u2 ON u2.id = r2.user_id) AS tour_people,
                c.legal_name AS client_name, c.code AS client_code, c.industry,
-               COALESCE(r.name, '—') AS rep_name,
+               COALESCE(r.name, 'Unassigned') AS rep_name,
                (SELECT tr.name FROM tour_routes tr WHERE tr.id = c.tour_id) AS tour_name,
                ${CAN_EDIT_CASE}
         FROM opportunities o
@@ -421,7 +421,7 @@ export default async function PipelinePage({
                         SELECT s.rep_id, 1 FROM client_secondary_reps s WHERE s.client_id = c.id) r2
                   JOIN users u2 ON u2.id = r2.user_id) AS tour_people,
                c.legal_name AS client_name, c.code AS client_code, c.industry,
-               COALESCE(r.name, '—') AS rep_name,
+               COALESCE(r.name, 'Unassigned') AS rep_name,
                (SELECT tr.name FROM tour_routes tr WHERE tr.id = c.tour_id) AS tour_name,
                ${CAN_EDIT_CASE}
         FROM opportunities o
