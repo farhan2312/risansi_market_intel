@@ -137,6 +137,33 @@ export function buildTasksQuery(opts: TaskQueryOpts): { sql: string; params: (st
 }
 
 /**
+ * One row of facts per matched action, for the dashboard above the list.
+ *
+ * Same WHERE as the list — visibility, scope and filters — so the tiles and
+ * charts describe the same population the rows do. No LIMIT: the list caps at
+ * 200 for the screen, an average does not. Dates come back as text so the maths
+ * in risansi-action-stats is done on plain YYYY-MM-DD strings, never on a Date
+ * that has been shifted a day by the server's clock.
+ */
+export function buildTasksStatsQuery(opts: TaskQueryOpts): { sql: string; params: (string | number | string[])[] } {
+  const { where, params } = buildWhere(opts);
+  const sql = `
+    SELECT t.id, t.status, COALESCE(t.priority, 'Medium') AS priority,
+           t.due_date::text AS due_date,
+           t.created_at::date::text AS created_on,
+           t.completed_at::date::text AS completed_on,
+           COALESCE(r.name, t.assigned_to_external, 'Unassigned') AS owner,
+           c.legal_name AS client_name,
+           (SELECT count(*)::int FROM task_updates u WHERE u.task_id = t.id AND u.kind = 'due_date') AS extensions,
+           (SELECT count(*)::int FROM task_updates u WHERE u.task_id = t.id AND u.kind = 'comment') AS comments,
+           -- Hours from being raised to the first thing anybody did to it.
+           (SELECT round(EXTRACT(EPOCH FROM (min(u.created_at) - t.created_at)) / 3600.0, 1)::float8
+              FROM task_updates u WHERE u.task_id = t.id) AS first_response_h
+    ${TASK_FROM} ${where}`;
+  return { sql, params };
+}
+
+/**
  * Build the companion count query — open + overdue tallies over the *whole*
  * matched set (no LIMIT), so the header doesn't plateau at 200. Overdue uses the
  * same < CURRENT_DATE, non-completed rule as the Overdue bucket.

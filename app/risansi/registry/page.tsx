@@ -5,9 +5,11 @@ import { ActionQueueRow, type QueueTask } from '@/components/risansi/ActionQueue
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, hasRole } from '@/lib/risansi-auth';
 import {
-  buildTasksQuery, buildTasksCountQuery, TASK_DUE_BUCKETS,
+  buildTasksQuery, buildTasksCountQuery, buildTasksStatsQuery, TASK_DUE_BUCKETS,
   RESP_EXTERNAL, type TaskFilters,
 } from '@/lib/risansi-action-queue';
+import { summariseActions, type ActionStatRow } from '@/lib/risansi-action-stats';
+import { ActionStats } from '@/components/risansi/ActionStats';
 
 export const dynamic = 'force-dynamic';
 
@@ -96,6 +98,23 @@ export default async function ActionRegistryPage({
   const openCount    = counts.open;
   const overdueCount = counts.overdue;
 
+  // The dashboard above the All actions list: same WHERE as the list, no cap.
+  // Today on the Indian clock, because due dates are plain dates and Vercel
+  // runs on UTC — at 04:00 IST an action due today would otherwise read overdue.
+  const todayIst = new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10);
+  const stats = !mine && !blocked
+    ? await q(async () => {
+        const { sql, params } = buildTasksStatsQuery({ isAdmin, repId, email, filters, mine });
+        const { rows } = await risansiPool.query<ActionStatRow>(sql, params as (string | number)[]);
+        return summariseActions(rows, todayIst);
+      }, null)
+    : null;
+  // Owner and priority bars toggle the list's own filters.
+  const toggleList = (param: string, current: string[], value: string) => {
+    const next = current.includes(value) ? current.filter(v => v !== value) : [...current, value];
+    return buildHref({ [param]: next.length ? next.join(',') : null });
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
@@ -130,6 +149,18 @@ export default async function ActionRegistryPage({
           { param: 'due',      label: 'Due',         values: filters.due ?? [] },
           { param: 'priority', label: 'Priority',    values: filters.priority ?? [] },
         ]} />
+
+        {stats && (
+          <div style={{ marginTop: 10 }}>
+            <ActionStats
+              s={stats}
+              hrefOwner={name => toggleList('resp', filters.responsible ?? [], name)}
+              hrefPriority={p => toggleList('priority', filters.priority ?? [], p)}
+              selectedOwners={filters.responsible ?? []}
+              selectedPriorities={filters.priority ?? []}
+            />
+          </div>
+        )}
 
         <div className="panel" style={{ marginTop: 8 }}>
           <div className="panel-header">
