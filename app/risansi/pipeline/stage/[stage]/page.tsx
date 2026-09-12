@@ -253,7 +253,7 @@ export default async function StageDashboardPage({ params, searchParams }: {
                 <ChartPanel title="Domestic vs Export">
                   <StackedBar parts={marketParts(P('market').group(r => r.market))} hrefFor={hrefFor('market')} selected={sel.market} />
                 </ChartPanel>
-                <ChartPanel title="By rep" sub="opportunity rep">
+                <ChartPanel title="By rep" sub="client owner">
                   <BarList rows={P('rep').group(r => r.rep_name, 8)} hrefFor={hrefFor('rep')} selected={sel.rep} />
                 </ChartPanel>
                 <ChartPanel title="Top clients">
@@ -326,7 +326,7 @@ export default async function StageDashboardPage({ params, searchParams }: {
                   <ChartPanel title="Product mix">
                     <BarList rows={P('ptype').group(r => r.product_type)} hrefFor={hrefFor('ptype')} selected={sel.ptype} />
                   </ChartPanel>
-                  <ChartPanel title="By rep" sub="opportunity rep">
+                  <ChartPanel title="By rep" sub="client owner">
                     <BarList rows={P('rep').group(r => r.rep_name, 8)} hrefFor={hrefFor('rep')} selected={sel.rep} />
                   </ChartPanel>
                   {stage === 'Prospect' && (
@@ -447,6 +447,19 @@ function renderCell(r: Row, key: string, usdRate: number, inr: (v: number | null
         </span>
       );
     }
+    case 'rep_name':
+      // The client's owner; and, when the opportunity names somebody else, who.
+      return (
+        <span>
+          {r.rep_name}
+          {r.opp_rep_name && (
+            <span title="The opportunity itself names this person as its rep; the client is owned by the name above. They cannot work it until an admin makes them a covering rep."
+              style={{ display: 'block', fontSize: 10, color: 'var(--fg-3)' }}>
+              raised for {r.opp_rep_name}
+            </span>
+          )}
+        </span>
+      );
     case 'value_cr':
       return fmtCr(r.value_cr);
     case 'final_cr':

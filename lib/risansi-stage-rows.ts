@@ -24,6 +24,8 @@ export interface StageDashRow extends StageRow {
   quotation_link: string | null; doc_count: number;
   eta_text: string | null;
   enquiry_date: string | null;
+  /** The rep on the opportunity itself, when it is not the client's owner. Null when they are the same person. */
+  opp_rep_name: string | null;
 }
 
 export type SearchParams = Record<string, string | string[] | undefined>;
@@ -67,7 +69,14 @@ export async function loadStageRows(stage: DashStage, sp: SearchParams): Promise
              o.quote_ref, o.quote_date::text       AS quote_date, o.market,
              o.client_id, c.legal_name AS client_name, c.code AS client_code,
              c.industry, c.client_type,
-             COALESCE(r.name, 'Unassigned') AS rep_name,
+             -- Rep is the CLIENT'S owner, the same person the board's Rep filter
+             -- and Client 360 mean. The opportunity's own rep used to sit here,
+             -- so a page filtered to Himanshu listed rows that said Akshay —
+             -- quotes an admin had raised on Himanshu's clients naming Akshay —
+             -- and read as a bug. That person still shows, as opp_rep_name,
+             -- under the owner, when they differ.
+             COALESCE(ow.name, 'Unassigned') AS rep_name,
+             CASE WHEN r.id IS NOT NULL AND r.id IS DISTINCT FROM c.primary_rep_id THEN r.name END AS opp_rep_name,
              (SELECT tr.name FROM tour_routes tr WHERE tr.id = c.tour_id) AS tour_name,
              o.offer_value_inr::float8             AS offer_inr,
              o.revised_offer_value_inr::float8     AS revised_inr,
@@ -85,7 +94,8 @@ export async function loadStageRows(stage: DashStage, sp: SearchParams): Promise
                   ELSE (CURRENT_DATE - ${ageBasisSql(stage)})::int END AS age_days
         FROM opportunities o
         JOIN clients c ON c.id = o.client_id
-        LEFT JOIN users r ON r.id = o.rep_id
+        LEFT JOIN users r  ON r.id  = o.rep_id
+        LEFT JOIN users ow ON ow.id = c.primary_rep_id
        WHERE ${where}
        ORDER BY o.value_cr DESC NULLS LAST, o.id`,
     vals as (string | number)[],
