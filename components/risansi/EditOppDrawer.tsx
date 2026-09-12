@@ -16,7 +16,7 @@ import { OppStageSections } from './OppStageSections';
 import type { FieldValues } from './OppFields';
 
 import { MonthYearSelect } from './MonthYearSelect';
-import { SalesOrderList } from './SalesOrderList';
+import { OppStageMoveModal } from './OppStageMoveModal';
 import { SalesOrderManager } from './SalesOrderManager';
 import { PurchaseOrderManager } from './PurchaseOrderManager';
 import { QuotationPdfManager } from './QuotationPdfManager';
@@ -91,7 +91,15 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
   const competitors = useCompetitors();
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
-  const [stage, setStage]     = useState(opp.stage);
+  // The stage shown in the strip is always the record's own. Picking a
+  // different one does not change it here: it opens the move form — the same
+  // one a drag on the board opens — which asks for everything that stage needs,
+  // line items and the quotation document included. This form used to let you
+  // click Quoted and Save, which asked for the quote number and the offer but
+  // never the specifications or the per-line values, so a quote arrived on the
+  // board with no lines under it.
+  const stage = opp.stage;
+  const [moveTo, setMoveTo] = useState<OppStage | null>(null);
   const [quoteItems, setQuoteItems] = useState<QItem[]>([]);
   const [quoteMeta, setQuoteMeta]   = useState<QMeta | null>(null);
   const [revisions, setRevisions]   = useState<OfferRevision[]>([]);
@@ -118,14 +126,6 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
     f.name === 'drop_reason' ? DROP_REASONS
     : f.name === 'lost_to_competitor' ? [...competitors, ...LOST_COMPETITOR_TAIL]
     : undefined;
-  // Final value is controlled so the Sales-Order coverage preview stays live
-  // while the user types it during a Won transition. (value_cr/final_value_cr
-  // are Crores; the field takes rupees.)
-  const [finalInr, setFinalInr] = useState(() => {
-    const cr = opp.final_value_cr != null && opp.final_value_cr !== '' ? opp.final_value_cr : opp.value_cr;
-    return cr != null && cr !== '' ? String(Math.round(parseFloat(String(cr)) * 10_000_000)) : '';
-  });
-
   // Load the quoted items + quote-level attributes for the read view.
   useEffect(() => {
     let active = true;
@@ -382,33 +382,29 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
         <form onSubmit={handleSubmit} style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
-            {/* Stage */}
+            {/* Stage — the record's own; any other pill opens the move form */}
             <div>
               <label style={LABEL_STYLE}>Stage *</label>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {['Suspect', 'Prospect', 'Quoted', 'Negotiating', 'On Hold', 'Won', 'Lost', 'Dropped'].map(s => (
                   <button
-                    key={s} type="button" onClick={() => setStage(s)}
+                    key={s} type="button"
+                    onClick={() => { if (s !== stage) setMoveTo(s as OppStage); }}
+                    title={s === stage ? 'Current stage' : `Move to ${s} — asks for everything ${s} needs`}
                     style={{
                       padding: '6px 12px', borderRadius: 20,
                       border: `1px solid ${stage === s ? STAGE_TONE[s] : 'var(--line-strong)'}`,
                       background: stage === s ? STAGE_TONE[s] : 'white',
                       color: stage === s ? 'white' : 'var(--fg-3)',
-                      fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit',
+                      fontSize: 12, fontWeight: 500, cursor: s === stage ? 'default' : 'pointer', fontFamily: 'inherit',
                     }}
                   >{s}</button>
                 ))}
               </div>
               <input type="hidden" name="stage" value={stage} />
-              {(stage === 'Won' || stage === 'Lost') && (
-                <div style={{
-                  marginTop: 8, padding: '8px 12px', borderRadius: 6, fontSize: 12,
-                  background: stage === 'Won' ? '#D1FAE5' : '#FDE8E8',
-                  color: stage === 'Won' ? '#065F46' : '#9B1C1C',
-                }}>
-                  {stage === 'Won' ? '🎉 Mark as Won — add final value below' : '❌ Mark as Lost — add reason below'}
-                </div>
-              )}
+              <div style={{ fontSize: 10.5, color: 'var(--fg-3)', marginTop: 5 }}>
+                Click another stage to move it there. The move asks for that stage&apos;s details — for Quoted, the quote, its line items and the document.
+              </div>
             </div>
 
             {/* Every catalogue field for this stage, from one definition. This
@@ -425,11 +421,6 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
             {/* Quotation PDF — manage it at any stage from Quoted onward. */}
             {(QUOTED_PLUS.includes(opp.stage) || opp.quotation_link) && (
               <QuotationPdfManager oppId={Number(opp.id)} initialLink={opp.quotation_link ?? null} canEdit />
-            )}
-
-            {/* Sales Orders — required to move this opportunity to Won. */}
-            {stage === 'Won' && opp.stage !== 'Won' && (
-              <SalesOrderList finalValueInr={parseFloat(finalInr) || null} />
             )}
 
             {/* Tour — an opportunity belongs to the client's tour and all its
@@ -472,6 +463,19 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
         </form>
         )}
       </div>
+
+      {/* The move form, the same one a drag on the board opens. It sits above
+          the drawer (higher z-index) and, when the move lands, closes both —
+          the record the drawer was showing is now somewhere else. */}
+      {moveTo && (
+        <OppStageMoveModal
+          opp={{ ...(opp as unknown as Record<string, unknown>), id: opp.id, stage: opp.stage, client_name: opp.client_name, client_code: opp.client_code }}
+          target={moveTo}
+          usdRate={usdRate}
+          onCancel={() => setMoveTo(null)}
+          onDone={() => { setMoveTo(null); onClose(); router.refresh(); }}
+        />
+      )}
     </>
   );
 }
