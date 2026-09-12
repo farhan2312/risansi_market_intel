@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { updateTaskStatus } from '@/app/actions/risansi-tasks';
 import { ResolveActionDialog, ResolutionNote } from './ResolveActionDialog';
 
 export interface QueueTask {
@@ -36,7 +35,6 @@ const PRIORITY_DOT: Record<string, string> = {
 };
 
 export function ActionQueueRow({ task }: { task: QueueTask }) {
-  const [loading, setLoading] = useState(false);
   const router = useRouter();
 
   // due_date is a plain YYYY-MM-DD string. Compare against *today's* local date
@@ -46,15 +44,9 @@ export function ActionQueueRow({ task }: { task: QueueTask }) {
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const isOverdue = !!task.due_date && task.status !== 'completed' && task.due_date < todayStr;
 
-  // Closing asks what was done; reopening does not need to.
+  // Everything after an action is raised happens in one dialog: comment, move
+  // the date, mark it done, reopen — with the history above the box.
   const [resolving, setResolving] = useState(false);
-  const handleToggle = async () => {
-    if (task.status === 'open') { setResolving(true); return; }
-    setLoading(true);
-    await updateTaskStatus(task.id, 'open');
-    router.refresh();
-    setLoading(false);
-  };
 
   const assignee = task.assigned_rep_name && task.assigned_rep_name !== '—'
     ? task.assigned_rep_name
@@ -105,23 +97,28 @@ export function ActionQueueRow({ task }: { task: QueueTask }) {
         {task.status === 'completed' && <ResolutionNote note={task.resolution_note} compact />}
       </div>
 
+      {/* A button that reads as a button. The green "✓ Done" pill it replaces
+          looked like a status, and people read it as "this is done" rather than
+          "press to finish". */}
       <button
-        onClick={handleToggle}
-        disabled={loading}
+        type="button"
+        onClick={() => setResolving(true)}
+        title={task.status === 'completed' ? 'See the history, or reopen' : 'Add an update, move the date, or mark it done'}
         style={{
-          flexShrink: 0, padding: '3px 8px', borderRadius: 5,
-          border: `1px solid ${task.status === 'completed' ? 'var(--line-strong)' : 'var(--pos)'}`,
-          background: task.status === 'completed' ? 'var(--bg-elev)' : 'var(--pos-soft)',
-          color: task.status === 'completed' ? 'var(--fg-3)' : 'var(--pos)',
-          fontSize: 10, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer',
+          flexShrink: 0, padding: '5px 10px', borderRadius: 6, fontFamily: 'inherit',
+          border: '1px solid var(--line-strong)', background: 'var(--bg-paper)', color: 'var(--fg)',
+          fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+          display: 'inline-flex', alignItems: 'center', gap: 6,
         }}
       >
-        {loading ? '…' : task.status === 'completed' ? '↩ Reopen' : '✓ Done'}
+        {task.status === 'completed' ? 'History · Reopen' : 'Update / Mark as done'}
+        <span aria-hidden style={{ color: 'var(--fg-3)', fontSize: 10 }}>›</span>
       </button>
 
       {resolving && (
         <ResolveActionDialog
           action={{ id: task.id, title: task.title, existingNote: task.resolution_note }}
+          intent="update"
           onCancel={() => setResolving(false)}
           onDone={() => { setResolving(false); router.refresh(); }}
         />

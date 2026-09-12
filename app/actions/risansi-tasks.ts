@@ -216,8 +216,8 @@ export async function updateTaskStatus(
   await assertCanManageTask(taskId);
   if (status !== 'open' && status !== 'completed') throw new Error('Invalid status.');
 
-  const { rows } = await risansiPool.query<{ resolution_note: string | null }>(
-    'SELECT resolution_note FROM tasks WHERE id = $1', [taskId],
+  const { rows } = await risansiPool.query<{ resolution_note: string | null; status: string }>(
+    'SELECT resolution_note, status FROM tasks WHERE id = $1', [taskId],
   );
   if (!rows[0]) throw new Error('Action not found.');
   const existing = rows[0].resolution_note;
@@ -227,27 +227,212 @@ export async function updateTaskStatus(
     throw new Error('Add a resolution note describing what was done before closing this action.');
   }
 
-  await risansiPool.query(
-    `UPDATE tasks
-       SET status          = $1,
-           completed_at    = $2,
-           completed_by    = $3,
-           -- COALESCE, so the first note written is the one that survives.
-           resolution_note = COALESCE(resolution_note, $5),
-           updated_at      = NOW()
-     WHERE id = $4`,
-    [
-      status,
-      status === 'completed' ? new Date() : null,
-      status === 'completed' ? email : null,
-      taskId,
-      status === 'completed' && note ? note.slice(0, 2000) : null,
-    ],
-  );
+  const client = await risansiPool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `UPDATE tasks
+         SET status          = $1,
+             completed_at    = $2,
+             completed_by    = $3,
+             -- COALESCE, so the first note written is the one that survives.
+             resolution_note = COALESCE(resolution_note, $5),
+             updated_at      = NOW()
+       WHERE id = $4`,
+      [
+        status,
+        status === 'completed' ? new Date() : null,
+        status === 'completed' ? email : null,
+        taskId,
+        status === 'completed' && note ? note.slice(0, 2000) : null,
+      ],
+    );
+    // The history gets the event whichever door it came through.
+    if (status !== rows[0].status) {
+      await client.query(
+        `INSERT INTO task_updates (task_id, kind, comment, actor_email) VALUES ($1, $2, $3, $4)`,
+        [taskId, status === 'completed' ? 'completed' : 'reopened', note ? note.slice(0, 2000) : null, email],
+      );
+    }
+    await client.query('COMMIT');
+  } catch (e) { await client.query('ROLLBACK'); throw e; }
+  finally { client.release(); }
 
   revalidatePath('/risansi');
   revalidatePath('/risansi/field');
   revalidatePath('/risansi/registry');
+}
+
+// ── Update an action: comment, move the date, mark it done ─────
+//
+// One dialog, three things a person might be doing, and the words are required
+// exactly when they carry meaning: a comment on its own is optional (it IS the
+// update), moving the due date needs a reason, and closing needs to say what was
+// done. Everything lands in task_updates so the next person to open the action
+// sees how it got here. Refusals are returned, not thrown — a thrown message is
+// redacted in production and the dialog would show nothing useful.
+
+export type SaveResult = { ok: true } | { ok: false; error: string };
+const fail = (error: string): SaveResult => ({ ok: false, error });
+
+export interface ActionUpdateInput {
+  comment?: string;
+  /** YYYY-MM-DD, '' or null to clear. Omit to leave the date alone. */
+  dueDate?: string | null;
+  markDone?: boolean;
+}
+
+export async function updateAction(taskId: number, input: ActionUpdateInput): Promise<SaveResult> {
+  let email: string;
+  try {
+    email = await requireEmail();
+    await assertCanManageTask(taskId);
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : 'You do not have permission to change this action.');
+  }
+
+  const { rows } = await risansiPool.query<{ status: string; due_date: string | null; resolution_note: string | null }>(
+    'SELECT status, due_date::text AS due_date, resolution_note FROM tasks WHERE id = $1', [taskId],
+  );
+  const t = rows[0];
+  if (!t) return fail('This action no longer exists.');
+
+  const comment = (input.comment ?? '').trim().slice(0, 2000);
+  const markDone = !!input.markDone;
+
+  let newDue: string | null | undefined = undefined;
+  if (input.dueDate !== undefined) {
+    const v = (input.dueDate ?? '').trim();
+    if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) return fail('The date is not in a form I can read.');
+    newDue = v || null;
+  }
+  const dateChanged = newDue !== undefined && newDue !== t.due_date;
+
+  if (t.status === 'completed' && (markDone || dateChanged)) {
+    return fail('This action is already closed. Reopen it first if there is more to do.');
+  }
+  if (!comment && !dateChanged && !markDone) {
+    return fail('Nothing to save yet — add a comment, move the date, or mark it done.');
+  }
+  if (dateChanged && !comment) {
+    return fail(newDue ? 'Say why the date is moving.' : 'Say why the date is being cleared.');
+  }
+  if (markDone && !comment) return fail('Say what was done before closing this.');
+
+  const client = await risansiPool.connect();
+  try {
+    await client.query('BEGIN');
+    if (dateChanged) {
+      await client.query('UPDATE tasks SET due_date = $2, updated_at = NOW() WHERE id = $1', [taskId, newDue]);
+      await client.query(
+        `INSERT INTO task_updates (task_id, kind, comment, old_due_date, new_due_date, actor_email)
+         VALUES ($1, 'due_date', $2, $3, $4, $5)`,
+        [taskId, comment, t.due_date, newDue, email],
+      );
+    } else if (comment && !markDone) {
+      await client.query(
+        `INSERT INTO task_updates (task_id, kind, comment, actor_email) VALUES ($1, 'comment', $2, $3)`,
+        [taskId, comment, email],
+      );
+    }
+    if (markDone) {
+      await client.query(
+        `UPDATE tasks
+            SET status = 'completed', completed_at = NOW(), completed_by = $2,
+                -- the first closure's words are the ones tasks.resolution_note keeps;
+                -- every closure's words are in task_updates.
+                resolution_note = COALESCE(resolution_note, $3),
+                updated_at = NOW()
+          WHERE id = $1`,
+        [taskId, email, comment],
+      );
+      await client.query(
+        `INSERT INTO task_updates (task_id, kind, comment, actor_email) VALUES ($1, 'completed', $2, $3)`,
+        [taskId, comment, email],
+      );
+    }
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('[updateAction] failed', e);
+    return fail('The update could not be saved — please try again.');
+  } finally { client.release(); }
+
+  revalidatePath('/risansi');
+  revalidatePath('/risansi/field');
+  revalidatePath('/risansi/registry');
+  return { ok: true };
+}
+
+export interface ActionHistoryItem {
+  id: number;
+  kind: 'raised' | 'comment' | 'due_date' | 'completed' | 'reopened';
+  comment: string | null;
+  oldDue: string | null;
+  newDue: string | null;
+  actor: string;
+  /** ISO timestamp. */
+  at: string;
+}
+
+export interface ActionHistory {
+  title: string;
+  status: string;
+  dueDate: string | null;
+  clientName: string | null;
+  assignee: string;
+  items: ActionHistoryItem[];
+}
+
+export type Result<T> = { ok: true; data: T } | { ok: false; error: string };
+
+/** Everything that has happened to an action, newest first, ending with the day it was raised. */
+export async function listActionHistory(taskId: number): Promise<Result<ActionHistory>> {
+  try {
+    await requireEmail();
+    await assertCanManageTask(taskId);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'You cannot see this action.' };
+  }
+  const { rows: [t] } = await risansiPool.query<{
+    title: string; status: string; due_date: string | null; created_at: string; created_by: string | null;
+    creator: string | null; client_name: string | null; assignee: string | null; external: string | null;
+  }>(
+    `SELECT t.title, t.status, t.due_date::text AS due_date, t.created_at::text AS created_at, t.created_by,
+            (SELECT u.name FROM users u WHERE lower(u.email) = lower(t.created_by) LIMIT 1) AS creator,
+            c.legal_name AS client_name,
+            (SELECT u.name FROM users u WHERE u.id = t.assigned_to_rep) AS assignee,
+            t.assigned_to_external AS external
+       FROM tasks t LEFT JOIN clients c ON c.id = t.client_id
+      WHERE t.id = $1`, [taskId]);
+  if (!t) return { ok: false, error: 'This action no longer exists.' };
+
+  const { rows } = await risansiPool.query<{
+    id: number; kind: ActionHistoryItem['kind']; comment: string | null; old_due: string | null; new_due: string | null;
+    actor: string | null; at: string;
+  }>(
+    `SELECT u.id, u.kind, u.comment, u.old_due_date::text AS old_due, u.new_due_date::text AS new_due,
+            COALESCE((SELECT x.name FROM users x WHERE lower(x.email) = lower(u.actor_email) LIMIT 1), u.actor_email) AS actor,
+            u.created_at::text AS at
+       FROM task_updates u WHERE u.task_id = $1
+      ORDER BY u.created_at DESC, u.id DESC`, [taskId]);
+
+  const items: ActionHistoryItem[] = rows.map(r => ({
+    id: r.id, kind: r.kind, comment: r.comment, oldDue: r.old_due, newDue: r.new_due,
+    actor: r.actor ?? 'someone', at: r.at,
+  }));
+  items.push({
+    id: 0, kind: 'raised', comment: null, oldDue: null, newDue: t.due_date,
+    actor: t.creator ?? t.created_by ?? 'someone', at: t.created_at,
+  });
+
+  return {
+    ok: true,
+    data: {
+      title: t.title, status: t.status, dueDate: t.due_date, clientName: t.client_name,
+      assignee: t.assignee ?? t.external ?? 'Unassigned', items,
+    },
+  };
 }
 
 export async function deleteTask(taskId: number) {
