@@ -1,20 +1,18 @@
 import type { CSSProperties } from 'react';
 import { notFound } from 'next/navigation';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar } from '@/components/risansi';
-import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, clientScopeSql , OWN_OPEN } from '@/lib/risansi-auth';
 import { fmtCr, fmtUsdFromCr } from '@/lib/risansi-utils';
 import { getUsdRate } from '@/lib/risansi-settings';
 import { fmtUsdFromInr } from '@/lib/risansi-offer-revisions';
-import { parseOppFilters, buildOppFilter, oppFilterQuery } from '@/lib/risansi-opp-filters';
+import { oppFilterQuery } from '@/lib/risansi-opp-filters';
 import { quotationHref, isLegacyQuotation, quotationLinkCount } from '@/lib/risansi-quotation-link';
 import { LegacyMark } from '@/components/risansi/QuotationLinkView';
 import {
-  stageFromSlug, STAGE_COLOR, STAGE_BLURB, STAGE_COLUMNS, ageBasisSql, summariseStage,
-  summariseClosure, todayMonthIdx,
+  stageFromSlug, STAGE_COLOR, STAGE_BLURB, STAGE_COLUMNS, summariseStage, summariseClosure,
+  parseEtaMonth, selectionEntries, dimValue, DIM_LABEL,
+  type SelDim, type Selection,
 } from '@/lib/risansi-stage-dashboard';
+import { loadStageRows, type StageDashRow, type SearchParams } from '@/lib/risansi-stage-rows';
 import {
   ChartPanel, BarList, AgeingBars, StackedBar, TrendBars, OfferMovement, StageKpi,
   NoData, CHART_GRID, CHART_GRID_4, ClosureBars, CoverageList,
@@ -24,125 +22,83 @@ import {
 // the full list underneath. Reached by clicking a column header on the board.
 //
 // Every number on the page — tiles, charts, table — is derived from ONE query
-// for the stage's rows. Aggregating in JS rather than issuing a query per chart
-// costs nothing at these volumes (907 rows in the largest stage) and buys the
-// guarantee that a chart can never disagree with the table below it.
+// for the stage's rows (loadStageRows, shared with the Excel export).
+// Aggregating in JS rather than issuing a query per chart costs nothing at
+// these volumes (907 rows in the largest stage) and buys the guarantee that a
+// chart can never disagree with the table below it.
+//
+// Click a bar and the page narrows to it. The selection is in the URL
+// (`sel=dim:value`), one per dimension; the visual it came from keeps all its
+// bars with the chosen one lit, everything else — tiles, other charts, the
+// table, the export — sees only the matching rows. See risansi-stage-dashboard.
 
 export const dynamic = 'force-dynamic';
 
-interface Row {
-  id: string; product: string; product_type: string | null; stage: string;
-  value_cr: number; final_cr: number | null;
-  quote_ref: string | null; quote_date: string | null; market: string | null;
-  client_id: string; client_name: string; client_code: string;
-  industry: string | null; client_type: string | null;
-  rep_name: string | null; tour_name: string | null;
-  offer_inr: number | null; revised_inr: number | null; revised_on: string | null; rev_count: number;
-  so_sum_cr: number; so_numbers: string | null; po_number: string | null;
-  lost_to_competitor: string | null; lost_reason: string | null; drop_reason: string | null;
-  quotation_link: string | null;
-  doc_count: number;
-  age_days: number | null;
-  eta_text: string | null;
-}
+type Row = StageDashRow;
 
 const PAGE_SIZE = 100;
 
 export default async function StageDashboardPage({ params, searchParams }: {
   params: Promise<{ stage: string }>;
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
+  searchParams: Promise<SearchParams>;
 }) {
   const { stage: slug } = await params;
   const stage = stageFromSlug(slug);
   if (!stage) notFound();
 
   const sp = await searchParams;
-
-  // ── Scope, exactly as the board does it ──────────────────────
-  const session = await getServerSession(authOptions);
-  const role    = session?.user?.role ?? 'rep';
-  let currentRepId: number | null = session?.user?.repId ?? null;
-  if (role === 'rep' && currentRepId == null && session?.user?.email) {
-    const r = await risansiPool.query<{ id: number }>(
-      'SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1', [session.user.email]);
-    currentRepId = r.rows[0]?.id ?? null;
-  }
-
-  // The board's filters ride in on the URL, minus `stage` — this page IS the
-  // stage, so a stage param from the board would fight it.
-  const filters = parseOppFilters({ ...sp, stage: undefined });
-  const showAll = filters.showAllReps || role !== 'rep';
-  const scopedRepId = !showAll && filters.rep.length === 0 ? currentRepId : null;
-  const built = buildOppFilter(filters, scopedRepId);
-
-  const visUser = await getCurrentUser();
-  const ownerVis = clientScopeSql(visUser, 'o.client_id', OWN_OPEN.opportunity('o'));
-  const where = [`o.stage = $${built.nextIdx}`, ...built.conds, ...(ownerVis ? [ownerVis] : [])].join(' AND ');
-  const vals: (string | number | string[])[] = [...built.vals, stage];
-
-  const [rows, usdRate] = await Promise.all([
-    risansiPool.query<Row>(`
-      SELECT o.id, o.product, o.product_type, o.stage,
-             COALESCE(o.value_cr, 0)::float8       AS value_cr,
-             o.final_value_cr::float8              AS final_cr,
-             o.quote_ref, o.quote_date::text       AS quote_date, o.market,
-             o.client_id, c.legal_name AS client_name, c.code AS client_code,
-             c.industry, c.client_type,
-             COALESCE(r.name, 'Unassigned') AS rep_name,
-             (SELECT tr.name FROM tour_routes tr WHERE tr.id = c.tour_id) AS tour_name,
-             o.offer_value_inr::float8             AS offer_inr,
-             o.revised_offer_value_inr::float8     AS revised_inr,
-             o.revised_offer_date::text            AS revised_on,
-             (SELECT count(*) FROM opportunity_offer_revisions v WHERE v.opportunity_id = o.id)::int AS rev_count,
-             (SELECT COALESCE(SUM(s.so_value_cr), 0) FROM opportunity_sales_orders s WHERE s.opportunity_id = o.id)::float8 AS so_sum_cr,
-             (SELECT string_agg(s.so_number, ', ' ORDER BY s.so_date, s.id) FROM opportunity_sales_orders s WHERE s.opportunity_id = o.id) AS so_numbers,
-             o.po_number, o.lost_to_competitor, o.lost_reason, o.drop_reason, o.quotation_link,
-             o.eta_text,
-             (SELECT count(*) FROM opportunity_quotation_files qf WHERE qf.opportunity_id = o.id)::int AS doc_count,
-             -- Age from the stage's own reference date. opportunity_stage_log is
-             -- empty today (migration 0042 created it after years of swallowed
-             -- writes), so 'entered' degrades to created_at rather than to null.
-             CASE WHEN ${ageBasisSql(stage)} IS NULL THEN NULL
-                  ELSE (CURRENT_DATE - ${ageBasisSql(stage)})::int END AS age_days
-        FROM opportunities o
-        JOIN clients c ON c.id = o.client_id
-        LEFT JOIN users r ON r.id = o.rep_id
-       WHERE ${where}
-       ORDER BY o.value_cr DESC NULLS LAST, o.id`,
-      vals as (string | number)[],
-    ).then(r => r.rows.map(x => ({ ...x, value_cr: Number(x.value_cr ?? 0) }))).catch(() => [] as Row[]),
-    getUsdRate(),
-  ]);
+  const [{ all, rows, sel, todayIdx }, usdRate] = await Promise.all([loadStageRows(stage, sp), getUsdRate()]);
 
   // ── Aggregates ───────────────────────────────────────────────
-  // All of it lives in summariseStage (pure, exported, testable) rather than
-  // inline here, so the numbers can be exercised against real rows without a
-  // session — this page is auth-gated and renders empty without one.
+  // `rows` is the stage under every active selection: tiles and table use it.
+  // A chart whose own dimension is selected is drawn from the rows narrowed by
+  // the OTHER dimensions only, so its chosen bar stays on screen to be cleared.
   const A = summariseStage(rows);
   const {
-    n, totalCr, avgCr, clients, avgAge, oldest, ageBuckets, stale, staleCr,
-    inHandCr, soCr, withSo, moved, avgMove, totalRevs, trend, group, unrecorded,
+    n, totalCr, avgCr, clients, avgAge, oldest, stale, staleCr,
+    inHandCr, soCr, withSo, moved, avgMove, totalRevs, unrecorded,
   } = A;
-  // Forward-looking twin of the ageing buckets: when the rep says each quote
-  // lands. Only the Quoted page draws it, but it is cheap and it keeps the
-  // Quoted branch below free of maths.
-  const C = summariseClosure(rows, todayMonthIdx());
+  const selDims = Object.keys(sel) as SelDim[];
+  const matches = (d: SelDim, r: Row) => dimValue(d, r, todayIdx) === sel[d];
+  const forDim = (dim: SelDim) => (sel[dim] != null
+    ? all.filter(r => selDims.every(d => d === dim || matches(d, r)))
+    : rows);
+  const P = (dim: SelDim) => (sel[dim] != null ? summariseStage(forDim(dim)) : A);
+  const C = (dim: SelDim) => summariseClosure(forDim(dim), todayIdx);
+
+  // ── Links ────────────────────────────────────────────────────
+  const base = () => oppFilterQuery(sp, ['stage']);
+  const withSel = (s: Selection, page?: number) => {
+    const q = base();
+    for (const e of selectionEntries(s)) q.append('sel', e);
+    if (page && page > 1) q.set('page', String(page));
+    const qs = q.toString();
+    return qs ? `?${qs}` : '?';
+  };
+  const hrefFor = (dim: SelDim) => (value: string) => {
+    const next: Selection = { ...sel };
+    if (next[dim] === value) delete next[dim]; else next[dim] = value;
+    return withSel(next);
+  };
+  const hrefDrop = (dim: SelDim) => { const next = { ...sel }; delete next[dim]; return withSel(next); };
+  const pageHref = (p: number) => withSel(sel, p);
+
+  const boardQuery = base();
+  const backHref   = `/risansi/pipeline${boardQuery.toString() ? `?${boardQuery}` : ''}`;
+  // The table export carries the filters AND the bar selection, so what comes
+  // down is what is on screen. The full export is every field of the stage.
+  const exportQuery = base(); exportQuery.set('stage', stage);
+  for (const e of selectionEntries(sel)) exportQuery.append('sel', e);
+  const fullQuery = base(); fullQuery.set('stage', stage);
 
   // ── Paging ───────────────────────────────────────────────────
   const page  = Math.max(1, parseInt(typeof sp.page === 'string' ? sp.page : '1', 10) || 1);
   const pages = Math.max(1, Math.ceil(n / PAGE_SIZE));
   const slice = rows.slice((Math.min(page, pages) - 1) * PAGE_SIZE, Math.min(page, pages) * PAGE_SIZE);
 
-  const boardQuery  = oppFilterQuery(sp, ['stage']);
-  const backHref    = `/risansi/pipeline${boardQuery.toString() ? `?${boardQuery}` : ''}`;
-  const exportQuery = oppFilterQuery(sp, ['stage']); exportQuery.set('stage', stage);
-  const pageHref = (p: number) => {
-    const q = oppFilterQuery(sp, ['stage']); if (p > 1) q.set('page', String(p));
-    return `?${q.toString()}`;
-  };
-
   const hue = STAGE_COLOR[stage];
   const inr = (v: number | null | undefined) => (v == null ? '—' : '₹' + Math.round(v).toLocaleString('en-IN'));
+  const allTotal = all.reduce((s, r) => s + r.value_cr, 0);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -162,15 +118,43 @@ export default async function StageDashboardPage({ params, searchParams }: {
             </h1>
             <div style={{ fontSize: 12, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
               {n} opportunit{n === 1 ? 'y' : 'ies'} · {fmtCr(totalCr)} · ≈ {fmtUsdFromCr(totalCr, usdRate)}
+              {selDims.length > 0 && <span> · of {all.length} · {fmtCr(allTotal)}</span>}
             </div>
             <div style={{ fontSize: 11.5, color: 'var(--fg-3)', marginTop: 5, maxWidth: 640, lineHeight: 1.5 }}>{STAGE_BLURB[stage]}</div>
           </div>
-          <a href={`/api/risansi/opportunities/export?${exportQuery}`} style={EXPORT_BTN}>⤓ Export Excel</a>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+            <a href={`/api/risansi/opportunities/stage-export?${exportQuery}`} style={EXPORT_BTN}
+              title="The table below, as shown — filters and any bar you have clicked included">
+              ⤓ Export this table
+            </a>
+            <a href={`/api/risansi/opportunities/export?${fullQuery}`}
+              style={{ fontSize: 11, color: 'var(--fg-3)', textDecoration: 'none' }}
+              title="Every field of every opportunity in this stage, for ERP reconciliation">
+              Full export, all fields
+            </a>
+          </div>
         </div>
+
+        {/* Active bar selections */}
+        {selDims.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12, fontSize: 12 }}>
+            <span style={{ color: 'var(--fg-3)', fontSize: 11 }}>Filtered by</span>
+            {selDims.map(d => (
+              <a key={d} href={hrefDrop(d)} title="Remove this filter" style={CHIP}>
+                <span style={{ color: 'var(--fg-3)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{DIM_LABEL[d]}</span>
+                <span style={{ fontWeight: 600 }}>{sel[d]}</span>
+                <span aria-hidden style={{ color: 'var(--fg-3)' }}>×</span>
+              </a>
+            ))}
+            <a href={withSel({})} style={{ fontSize: 11.5, color: 'var(--accent)', textDecoration: 'none', marginLeft: 4 }}>Clear all</a>
+          </div>
+        )}
 
         {n === 0 ? (
           <div style={{ ...PANEL, padding: 40, textAlign: 'center', color: 'var(--fg-3)', fontSize: 13 }}>
-            Nothing sits in {stage} right now{boardQuery.toString() ? ' with the filters carried over from the board' : ''}.
+            Nothing sits in {stage} right now{boardQuery.toString() ? ' with the filters carried over from the board' : ''}
+            {selDims.length ? ' and the bars you have selected' : ''}.
+            {selDims.length > 0 && <> <a href={withSel({})} style={{ color: 'var(--accent)' }}>Clear the selection</a>.</>}
           </div>
         ) : (
           <>
@@ -224,73 +208,79 @@ export default async function StageDashboardPage({ params, searchParams }: {
             </div>
 
             {/* Charts */}
-            {stage === 'Quoted' ? (
+            {stage === 'Quoted' ? (() => {
               // Eight panels, two rows of four. Top row is about time — how long
               // each quote has been out, and when the rep says it lands, by month
               // and by quarter, and who is saying so at all. Bottom row is the mix.
+              const Cm = C('etam'), Cq = C('etaq'), Cr = C('rep');
+              const nAll = forDim('etam').length;
+              return (
               <div className={CHART_GRID_4}>
                 <ChartPanel
                   title="Quote ageing"
-                  sub={stale.length ? `${stale.length} over 60 days` : 'all fresh'}
-                  note="Days since the quotation went out. Anything past 60 days needs a call.">
-                  <AgeingBars buckets={ageBuckets} />
+                  sub={P('age').stale.length ? `${P('age').stale.length} over 60 days` : 'all fresh'}
+                  note="Days since the quotation went out. Anything past 60 days needs a call. Click a column to filter the page to it.">
+                  <AgeingBars buckets={P('age').ageBuckets} hrefFor={hrefFor('age')} selected={sel.age} />
                 </ChartPanel>
                 <ChartPanel
                   title="Closing by month"
-                  sub={`${C.dated} of ${n} dated · ${fmtCr(C.datedCr)}`}
+                  sub={`${Cm.dated} of ${nAll} dated · ${fmtCr(Cm.datedCr)}`}
                   note={[
                     'Target closure month as set on the card; bars by value.',
-                    C.undated
-                      ? `${C.undated} quote${C.undated === 1 ? '' : 's'} (${fmtCr(C.undatedCr)}) carry none and sit in No date.`
+                    Cm.undated
+                      ? `${Cm.undated} quote${Cm.undated === 1 ? '' : 's'} (${fmtCr(Cm.undatedCr)}) carry none and sit in No date.`
                       : 'Every quote carries one.',
-                    C.overdue ? `${C.overdue} past ${C.overdue === 1 ? 'its' : 'their'} month and still open: re-date or decide.` : '',
+                    Cm.overdue ? `${Cm.overdue} past ${Cm.overdue === 1 ? 'its' : 'their'} month and still open: re-date or decide.` : '',
                   ].filter(Boolean).join(' ')}>
-                  <ClosureBars buckets={C.months} />
+                  <ClosureBars buckets={Cm.months} hrefFor={hrefFor('etam')} selected={sel.etam} />
                 </ChartPanel>
                 <ChartPanel
                   title="Closing by quarter"
-                  sub={`this quarter ${fmtCr(C.quarters[1]?.value ?? 0)} · next ${fmtCr(C.quarters[2]?.value ?? 0)}`}
+                  sub={`this quarter ${fmtCr(Cq.quarters[1]?.value ?? 0)} · next ${fmtCr(Cq.quarters[2]?.value ?? 0)}`}
                   note="Financial year April to March. Overdue is any target month already past, the same line as the month view, so the current quarter shows only what is still ahead in it.">
-                  <ClosureBars buckets={C.quarters} />
+                  <ClosureBars buckets={Cq.quarters} hrefFor={hrefFor('etaq')} selected={sel.etaq} />
                 </ChartPanel>
                 <ChartPanel
                   title="Target date set"
-                  sub={`${n ? Math.round((C.dated / n) * 100) : 0}% of quotes · ${totalCr ? Math.round((C.datedCr / totalCr) * 100) : 0}% of value`}
+                  sub={`${forDim('rep').length ? Math.round((Cr.dated / forDim('rep').length) * 100) : 0}% of quotes · ${Cr.datedCr + Cr.undatedCr ? Math.round((Cr.datedCr / (Cr.datedCr + Cr.undatedCr)) * 100) : 0}% of value`}
                   note="Share of each rep's open quotes with a target month. A quote without one is invisible to the two charts on the left and to the sales projection on the Executive Review.">
-                  <CoverageList rows={C.byRep} />
+                  <CoverageList rows={Cr.byRep} hrefFor={hrefFor('rep')} selected={sel.rep} />
                 </ChartPanel>
 
-                <ChartPanel title="Product mix"><BarList rows={group(r => r.product_type)} /></ChartPanel>
-                <ChartPanel title="Domestic vs Export">
-                  <StackedBar parts={(() => {
-                    const g = group(r => r.market);
-                    const pick = (l: string) => g.find(x => x.label === l)?.value ?? 0;
-                    return [
-                      { label: 'Domestic', value: pick('DOMESTIC'), color: '#0A3D8F', sub: `${g.find(x => x.label === 'DOMESTIC')?.count ?? 0} opps` },
-                      { label: 'Export',   value: pick('EXPORT'),   color: '#c69347', sub: `${g.find(x => x.label === 'EXPORT')?.count ?? 0} opps` },
-                      { label: 'Unrecorded', value: pick('Unrecorded'), color: 'var(--fg-3)' },
-                    ];
-                  })()} />
+                <ChartPanel title="Product mix">
+                  <BarList rows={P('ptype').group(r => r.product_type)} hrefFor={hrefFor('ptype')} selected={sel.ptype} />
                 </ChartPanel>
-                <ChartPanel title="By rep" sub="tour owner"><BarList rows={group(r => r.rep_name, 8)} /></ChartPanel>
-                <ChartPanel title="Top clients"><BarList rows={group(r => r.client_name, 8)} /></ChartPanel>
+                <ChartPanel title="Domestic vs Export">
+                  <StackedBar parts={marketParts(P('market').group(r => r.market))} hrefFor={hrefFor('market')} selected={sel.market} />
+                </ChartPanel>
+                <ChartPanel title="By rep" sub="opportunity rep">
+                  <BarList rows={P('rep').group(r => r.rep_name, 8)} hrefFor={hrefFor('rep')} selected={sel.rep} />
+                </ChartPanel>
+                <ChartPanel title="Top clients">
+                  <BarList rows={P('client').group(r => r.client_name, 8)} hrefFor={hrefFor('client')} selected={sel.client} />
+                </ChartPanel>
               </div>
-            ) : (
+              );
+            })() : (
             <div style={CHART_GRID}>
               {stage === 'Won' ? (
                 <>
                   <ChartPanel title="Sales-Order coverage" sub={`${withSo} of ${n} have an SO`}
-                    note="Order in hand is won value with no Sales Order against it — the raise-an-SO to-do list.">
+                    note="Order in hand is won value with no Sales Order against it — the raise-an-SO to-do list. Click a part to filter.">
                     <StackedBar parts={[
-                      { label: 'SO created', value: soCr, color: 'var(--pos)', sub: `${withSo} opps` },
-                      { label: 'Awaiting SO', value: inHandCr, color: 'var(--warn, #F59E0B)', sub: `${n - withSo} opps` },
-                    ]} />
+                      { label: 'SO created', value: P('so').soCr, color: 'var(--pos)', sub: `${P('so').withSo} opps` },
+                      { label: 'Awaiting SO', value: P('so').inHandCr, color: 'var(--warn, #F59E0B)', sub: `${P('so').n - P('so').withSo} opps` },
+                    ]} hrefFor={hrefFor('so')} selected={sel.so} />
                   </ChartPanel>
                   <ChartPanel title="Won by month" sub="by quote date, last 12">
-                    <TrendBars points={trend} />
+                    <TrendBars points={P('qmonth').trend} hrefFor={hrefFor('qmonth')} selected={sel.qmonth} />
                   </ChartPanel>
-                  <ChartPanel title="Product mix"><BarList rows={group(r => r.product_type)} /></ChartPanel>
-                  <ChartPanel title="Top clients" sub="by won value"><BarList rows={group(r => r.client_name, 8)} /></ChartPanel>
+                  <ChartPanel title="Product mix">
+                    <BarList rows={P('ptype').group(r => r.product_type)} hrefFor={hrefFor('ptype')} selected={sel.ptype} />
+                  </ChartPanel>
+                  <ChartPanel title="Top clients" sub="by won value">
+                    <BarList rows={P('client').group(r => r.client_name, 8)} hrefFor={hrefFor('client')} selected={sel.client} />
+                  </ChartPanel>
                 </>
               ) : stage === 'Negotiating' ? (
                 <>
@@ -301,36 +291,48 @@ export default async function StageDashboardPage({ params, searchParams }: {
                       original: r.offer_inr, current: r.revised_inr, revisions: r.rev_count,
                     }))} />
                   </ChartPanel>
-                  <ChartPanel title="Days since quote"><AgeingBars buckets={ageBuckets} /></ChartPanel>
+                  <ChartPanel title="Days since quote">
+                    <AgeingBars buckets={P('age').ageBuckets} hrefFor={hrefFor('age')} selected={sel.age} />
+                  </ChartPanel>
                 </>
               ) : stage === 'Lost' ? (
                 <>
                   <ChartPanel title="Why we lost" sub={`${unrecorded(r => r.lost_reason)} unrecorded`}
                     note={unrecorded(r => r.lost_reason) > 0 ? 'Unrecorded rows are shown as their own bar rather than dropped — an empty chart would read as "no reason", not "nobody filled it in".' : undefined}>
-                    <BarList rows={group(r => r.lost_reason)} />
+                    <BarList rows={P('lost_reason').group(r => r.lost_reason)} hrefFor={hrefFor('lost_reason')} selected={sel.lost_reason} />
                   </ChartPanel>
                   <ChartPanel title="Lost to" sub={`${unrecorded(r => r.lost_to_competitor)} unrecorded`}>
-                    <BarList rows={group(r => r.lost_to_competitor)} />
+                    <BarList rows={P('lost_to').group(r => r.lost_to_competitor)} hrefFor={hrefFor('lost_to')} selected={sel.lost_to} />
                   </ChartPanel>
-                  <ChartPanel title="Product mix"><BarList rows={group(r => r.product_type)} /></ChartPanel>
+                  <ChartPanel title="Product mix">
+                    <BarList rows={P('ptype').group(r => r.product_type)} hrefFor={hrefFor('ptype')} selected={sel.ptype} />
+                  </ChartPanel>
                 </>
               ) : stage === 'Dropped' ? (
                 <>
                   <ChartPanel title="Why it was dropped" sub={`${unrecorded(r => r.drop_reason)} unrecorded`}
                     note={unrecorded(r => r.drop_reason) === n ? 'The drop-reason field is newer than these rows, so none carry one yet. It is asked for whenever a card is moved to Dropped from now on.' : undefined}>
-                    <BarList rows={group(r => r.drop_reason)} />
+                    <BarList rows={P('drop_reason').group(r => r.drop_reason)} hrefFor={hrefFor('drop_reason')} selected={sel.drop_reason} />
                   </ChartPanel>
-                  <ChartPanel title="Product mix"><BarList rows={group(r => r.product_type)} /></ChartPanel>
+                  <ChartPanel title="Product mix">
+                    <BarList rows={P('ptype').group(r => r.product_type)} hrefFor={hrefFor('ptype')} selected={sel.ptype} />
+                  </ChartPanel>
                 </>
               ) : (
                 <>
                   <ChartPanel title="Ageing" sub={stale.length ? `${stale.length} over 60 days` : 'all fresh'}>
-                    <AgeingBars buckets={ageBuckets} />
+                    <AgeingBars buckets={P('age').ageBuckets} hrefFor={hrefFor('age')} selected={sel.age} />
                   </ChartPanel>
-                  <ChartPanel title="Product mix"><BarList rows={group(r => r.product_type)} /></ChartPanel>
-                  <ChartPanel title="By rep" sub="tour owner"><BarList rows={group(r => r.rep_name, 8)} /></ChartPanel>
+                  <ChartPanel title="Product mix">
+                    <BarList rows={P('ptype').group(r => r.product_type)} hrefFor={hrefFor('ptype')} selected={sel.ptype} />
+                  </ChartPanel>
+                  <ChartPanel title="By rep" sub="opportunity rep">
+                    <BarList rows={P('rep').group(r => r.rep_name, 8)} hrefFor={hrefFor('rep')} selected={sel.rep} />
+                  </ChartPanel>
                   {stage === 'Prospect' && (
-                    <ChartPanel title="Top clients"><BarList rows={group(r => r.client_name, 8)} /></ChartPanel>
+                    <ChartPanel title="Top clients">
+                      <BarList rows={P('client').group(r => r.client_name, 8)} hrefFor={hrefFor('client')} selected={sel.client} />
+                    </ChartPanel>
                   )}
                 </>
               )}
@@ -340,7 +342,9 @@ export default async function StageDashboardPage({ params, searchParams }: {
             {/* The list */}
             <div style={PANEL}>
               <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 12, fontWeight: 500 }}>All {stage} opportunities</span>
+                <span style={{ fontSize: 12, fontWeight: 500 }}>
+                  {selDims.length ? `${stage} opportunities in the selection` : `All ${stage} opportunities`}
+                </span>
                 <span style={{ fontSize: 11, color: 'var(--fg-3)', marginLeft: 'auto', fontFamily: 'var(--font-mono)' }}>
                   {pages > 1 ? `${(page - 1) * PAGE_SIZE + 1}–${Math.min(page * PAGE_SIZE, n)} of ${n}` : `${n} rows`}
                 </span>
@@ -365,7 +369,7 @@ export default async function StageDashboardPage({ params, searchParams }: {
                             ...TD, textAlign: col.num ? 'right' : 'left',
                             fontFamily: col.num ? 'var(--font-mono)' : 'inherit',
                           }}>
-                            {renderCell(r, col.key, usdRate, inr)}
+                            {renderCell(r, col.key, usdRate, inr, todayIdx)}
                           </td>
                         ))}
                       </tr>
@@ -389,9 +393,19 @@ export default async function StageDashboardPage({ params, searchParams }: {
   );
 }
 
+/** Domestic / Export / Unrecorded parts from the market grouping, labelled the way the market dimension expects. */
+function marketParts(g: { label: string; count: number; value: number }[]) {
+  const pick = (l: string) => g.find(x => x.label === l);
+  return [
+    { label: 'Domestic',   value: pick('DOMESTIC')?.value ?? 0,   color: '#0A3D8F', sub: `${pick('DOMESTIC')?.count ?? 0} opps` },
+    { label: 'Export',     value: pick('EXPORT')?.value ?? 0,     color: '#c69347', sub: `${pick('EXPORT')?.count ?? 0} opps` },
+    { label: 'Unrecorded', value: pick('Unrecorded')?.value ?? 0, color: 'var(--fg-3)' },
+  ];
+}
+
 // ── Cell rendering ─────────────────────────────────────────────
 
-function renderCell(r: Row, key: string, usdRate: number, inr: (v: number | null | undefined) => string) {
+function renderCell(r: Row, key: string, usdRate: number, inr: (v: number | null | undefined) => string, todayIdx: number) {
   switch (key) {
     case 'client_name':
       return <a href={`/risansi/clients/${r.client_id}`} style={{ color: 'var(--fg)', textDecoration: 'none', fontWeight: 500 }}>{r.client_name}</a>;
@@ -416,6 +430,20 @@ function renderCell(r: Row, key: string, usdRate: number, inr: (v: number | null
             {r.quote_ref ?? '—'} ↗
           </a>
           {legacy && <LegacyMark count={quotationLinkCount(r.quotation_link)} />}
+        </span>
+      );
+    }
+    case 'eta_text': {
+      // The month the rep set, as typed. Red once that month has passed, grey
+      // when there is none — the same reading the closure charts give it.
+      const t = (r.eta_text ?? '').trim();
+      if (!t) return <span style={{ color: 'var(--fg-3)' }}>—</span>;
+      const idx = parseEtaMonth(t);
+      const late = idx != null && idx < todayIdx;
+      return (
+        <span title={late ? 'Target month has passed and this is still quoted' : idx == null ? 'Not a month I can read' : undefined}
+          style={{ color: late ? 'var(--neg)' : idx == null ? 'var(--fg-3)' : 'inherit', fontWeight: late ? 600 : 400 }}>
+          {late ? '⚠ ' : ''}{t}
         </span>
       );
     }
@@ -483,4 +511,9 @@ const EXPORT_BTN: CSSProperties = {
 const PAGE_BTN: CSSProperties = {
   padding: '4px 11px', fontSize: 11.5, border: '1px solid var(--line-strong)',
   borderRadius: 6, color: 'var(--fg-2)', textDecoration: 'none',
+};
+const CHIP: CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 9px 4px 10px',
+  background: 'var(--accent-soft, var(--bg-elev))', border: '1px solid var(--accent)', borderRadius: 999,
+  color: 'var(--fg)', textDecoration: 'none', fontSize: 12,
 };

@@ -18,6 +18,41 @@ export interface Slice { label: string; count: number; value: number }
 
 const fmtCrShort = (cr: number) => `₹${cr.toFixed(cr >= 10 ? 1 : 2)} Cr`;
 
+// ── Click to filter ────────────────────────────────────────────
+// Every chart takes an optional `hrefFor(label)` and `selected`. With hrefFor
+// each bar is a link that toggles that bar's selection in the URL, and the page
+// re-renders with the rest of the visuals and the table narrowed to it. When a
+// selection is active on this chart, the chosen bar stays lit and the others
+// step back — the chart itself is not filtered, so the choice can be undone.
+// Plain anchors, no client state: the URL is the state, and it rides into the
+// Excel export unchanged.
+
+export interface Pickable {
+  hrefFor?: (label: string) => string;
+  selected?: string | null;
+}
+
+/** Opacity for a bar given the chart's selection: full when chosen or nothing is chosen, dimmed otherwise. */
+const dim = (label: string, selected?: string | null) => (selected && selected !== label ? 0.38 : 1);
+
+/** Wrap a bar in a link when the chart is pickable. */
+function Pick({ href, label, selected, style, children, title }: {
+  href?: string; label: string; selected?: string | null; style?: CSSProperties; children: ReactNode; title?: string;
+}) {
+  const chosen = selected === label;
+  const base: CSSProperties = {
+    ...style, opacity: dim(label, selected), transition: 'opacity 120ms',
+    ...(chosen ? { outline: '2px solid var(--accent)', outlineOffset: 2, borderRadius: 6 } : {}),
+  };
+  if (!href) return <div style={base} title={title}>{children}</div>;
+  return (
+    <a href={href} title={title ?? (chosen ? 'Click to clear this filter' : 'Click to filter the page to this')}
+      style={{ ...base, color: 'inherit', textDecoration: 'none', cursor: 'pointer' }}>
+      {children}
+    </a>
+  );
+}
+
 // ── Panel wrapper ──────────────────────────────────────────────
 
 export function ChartPanel({ title, sub, children, note }: {
@@ -54,13 +89,13 @@ export function NoData({ msg }: { msg: string }) {
 // worth ₹18 Cr" and "180 deals worth ₹18 Cr" are different situations and a bar
 // alone can't tell them apart.
 
-export function BarList({ rows, metric = 'value', max: maxIn, emptyMsg }: {
+export function BarList({ rows, metric = 'value', max: maxIn, emptyMsg, hrefFor, selected }: {
   rows: Slice[];
   /** Which number sets the bar length. Counts suit "how many", value suits "how much". */
   metric?: 'value' | 'count';
   max?: number;
   emptyMsg?: string;
-}) {
+} & Pickable) {
   if (!rows.length) return <NoData msg={emptyMsg ?? 'Nothing to show for this stage yet.'} />;
   const pick = (r: Slice) => (metric === 'count' ? r.count : r.value);
   const max = maxIn ?? Math.max(...rows.map(pick), 0.0001);
@@ -70,7 +105,8 @@ export function BarList({ rows, metric = 'value', max: maxIn, emptyMsg }: {
         const pct = Math.max((pick(r) / max) * 100, 1.5);
         const hue = CHART_COLORS[i % CHART_COLORS.length];
         return (
-          <div key={r.label} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+          <Pick key={r.label} href={hrefFor?.(r.label)} label={r.label} selected={selected}
+            style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
             <span style={{
               width: 118, flexShrink: 0, fontSize: 11, color: 'var(--fg-2)',
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -84,7 +120,7 @@ export function BarList({ rows, metric = 'value', max: maxIn, emptyMsg }: {
             <span style={{ width: 74, flexShrink: 0, textAlign: 'right', fontSize: 11, fontWeight: 600, color: 'var(--fg)', fontFamily: 'var(--font-mono)' }}>
               {fmtCrShort(r.value)}
             </span>
-          </div>
+          </Pick>
         );
       })}
     </div>
@@ -96,12 +132,15 @@ export function BarList({ rows, metric = 'value', max: maxIn, emptyMsg }: {
 // as "getting worse". The 90d+ column is tinted red on stages where age is a
 // problem rather than a fact.
 
-export function AgeingBars({ buckets, warnFrom = 2, height = 130 }: {
+// Labels: the rupee value sits on top of the column and the count under the
+// label. Money is what the eye should land on first; how many quotes make it up
+// is the qualifier. (It was the other way round, and read as a count chart.)
+export function AgeingBars({ buckets, warnFrom = 2, height = 130, hrefFor, selected }: {
   buckets: Slice[];
   /** Index from which a bucket is coloured as a warning. */
   warnFrom?: number;
   height?: number;
-}) {
+} & Pickable) {
   const max = Math.max(...buckets.map(b => b.count), 1);
   return (
     <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, height: height + 44 }}>
@@ -109,15 +148,17 @@ export function AgeingBars({ buckets, warnFrom = 2, height = 130 }: {
         const h   = Math.max((b.count / max) * height, b.count > 0 ? 3 : 0);
         const hue = b.label === 'No date' ? 'var(--fg-3)' : i >= warnFrom ? 'var(--neg)' : 'var(--accent)';
         return (
-          <div key={b.label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--fg)' }}>{b.count}</span>
+          <Pick key={b.label} href={hrefFor?.(b.label)} label={b.label} selected={selected}
+            title={`${b.label} — ${b.count} · ${fmtCrShort(b.value)}`}
+            style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+            <span style={{ fontSize: 10.5, fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--fg)', whiteSpace: 'nowrap' }}>{fmtCrShort(b.value)}</span>
             <div style={{
               width: '100%', height: h, background: `color-mix(in oklab, ${hue} 22%, transparent)`,
               borderTop: `3px solid ${hue}`, borderRadius: '3px 3px 0 0',
             }} />
             <span style={{ fontSize: 10, color: 'var(--fg-3)' }}>{b.label}</span>
-            <span style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>{fmtCrShort(b.value)}</span>
-          </div>
+            <span style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>{b.count}</span>
+          </Pick>
         );
       })}
     </div>
@@ -139,7 +180,7 @@ const TONE: Record<ClosureTone, string> = {
   none:    'var(--fg-3)',
 };
 
-export function ClosureBars({ buckets, height = 110 }: { buckets: ClosureSlice[]; height?: number }) {
+export function ClosureBars({ buckets, height = 110, hrefFor, selected }: { buckets: ClosureSlice[]; height?: number } & Pickable) {
   // The undated pile is drawn as a strip underneath, not as a column: at 588 of
   // 704 quotes it is four times the biggest month, and as a column it flattened
   // every month into a sliver. The strip keeps it visible and keeps the months
@@ -157,24 +198,26 @@ export function ClosureBars({ buckets, height = 110 }: { buckets: ClosureSlice[]
         const hue = TONE[b.tone];
         const strong = b.tone === 'now' || b.tone === 'overdue';
         return (
-          <div key={b.label} title={`${b.label} — ${b.count} quote${b.count === 1 ? '' : 's'} · ${fmtCrShort(b.value)}`}
-            style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, fontFamily: 'var(--font-mono)', color: b.count ? 'var(--fg)' : 'var(--fg-4)' }}>{b.count}</span>
+          <Pick key={b.label} href={hrefFor?.(b.label)} label={b.label} selected={selected}
+            title={`${b.label} — ${b.count} quote${b.count === 1 ? '' : 's'} · ${fmtCrShort(b.value)}`}
+            style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+            <span style={{ fontSize: 10.5, fontWeight: 600, fontFamily: 'var(--font-mono)', color: b.count ? 'var(--fg)' : 'var(--fg-4)', whiteSpace: 'nowrap' }}>
+              {b.count ? fmtCrShort(b.value) : '—'}
+            </span>
             <div style={{
               width: '100%', height: h,
               background: `color-mix(in oklab, ${hue} ${strong ? 30 : 20}%, transparent)`,
               borderTop: `3px solid ${hue}`, borderRadius: '3px 3px 0 0',
             }} />
             <span style={{ fontSize: 10, color: strong ? 'var(--fg-2)' : 'var(--fg-3)', fontWeight: strong ? 600 : 400, whiteSpace: 'nowrap' }}>{b.label}</span>
-            <span style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
-              {b.count ? fmtCrShort(b.value) : '—'}
-            </span>
-          </div>
+            <span style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>{b.count}</span>
+          </Pick>
         );
       })}
     </div>
     {undated && (undated.count > 0 || datedN > 0) && (
-      <div style={{ marginTop: 12 }}>
+      <Pick href={hrefFor?.('No date')} label="No date" selected={selected} style={{ marginTop: 12, display: 'block' }}
+        title={`No date — ${undated.count} quote${undated.count === 1 ? '' : 's'} · ${fmtCrShort(undated.value)}`}>
         <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', background: 'var(--bg-sunk)' }}>
           <div style={{ width: `${(datedCr / Math.max(datedCr + undated.value, 0.0001)) * 100}%`, background: 'var(--accent)' }} />
           <div style={{ flex: 1, background: 'color-mix(in oklab, var(--fg-3) 45%, transparent)' }} />
@@ -183,7 +226,7 @@ export function ClosureBars({ buckets, height = 110 }: { buckets: ClosureSlice[]
           <span><span style={{ color: 'var(--fg-2)', fontWeight: 600 }}>{datedN}</span> dated · {fmtCrShort(datedCr)}</span>
           <span><span style={{ color: 'var(--fg-2)', fontWeight: 600 }}>{undated.count}</span> no date · {fmtCrShort(undated.value)}</span>
         </div>
-      </div>
+      </Pick>
     )}
     </div>
   );
@@ -194,7 +237,7 @@ export function ClosureBars({ buckets, height = 110 }: { buckets: ClosureSlice[]
 // a bar rather than a bar length, because the question is "what share", and
 // the absolute numbers ride alongside so 3 of 3 and 26 of 85 are not confused.
 
-export function CoverageList({ rows, limit = 8 }: { rows: RepCoverage[]; limit?: number }) {
+export function CoverageList({ rows, limit = 8, hrefFor, selected }: { rows: RepCoverage[]; limit?: number } & Pickable) {
   if (!rows.length) return <NoData msg="Nothing to show for this stage yet." />;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
@@ -202,7 +245,8 @@ export function CoverageList({ rows, limit = 8 }: { rows: RepCoverage[]; limit?:
         const pct = r.total ? (r.dated / r.total) * 100 : 0;
         const hue = pct >= 60 ? 'var(--pos)' : pct >= 25 ? 'var(--accent)' : 'var(--neg)';
         return (
-          <div key={r.label} style={{ display: 'flex', alignItems: 'center', gap: 9 }}
+          <Pick key={r.label} href={hrefFor?.(r.label)} label={r.label} selected={selected}
+            style={{ display: 'flex', alignItems: 'center', gap: 9 }}
             title={`${r.label}: ${r.dated} of ${r.total} quotes have a target month · ${fmtCrShort(r.datedCr)} of ${fmtCrShort(r.totalCr)}`}>
             <span style={{ width: 118, flexShrink: 0, fontSize: 11, color: 'var(--fg-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.label}</span>
             <div style={{ flex: 1, height: 16, background: 'var(--bg-sunk)', borderRadius: 4, overflow: 'hidden', minWidth: 40, position: 'relative' }}>
@@ -214,7 +258,7 @@ export function CoverageList({ rows, limit = 8 }: { rows: RepCoverage[]; limit?:
             <span style={{ width: 74, flexShrink: 0, textAlign: 'right', fontSize: 11, fontWeight: 600, color: 'var(--fg)', fontFamily: 'var(--font-mono)' }}>
               {r.dated ? fmtCrShort(r.datedCr) : '—'}
             </span>
-          </div>
+          </Pick>
         );
       })}
     </div>
@@ -225,30 +269,34 @@ export function CoverageList({ rows, limit = 8 }: { rows: RepCoverage[]; limit?:
 // For a two-or-three-part split of one total: SO covered vs awaiting,
 // domestic vs export.
 
-export function StackedBar({ parts, total }: {
+export function StackedBar({ parts, total, hrefFor, selected }: {
   parts: { label: string; value: number; color: string; sub?: string }[];
   total?: number;
-}) {
+} & Pickable) {
   const sum = total ?? parts.reduce((s, p) => s + p.value, 0);
   if (sum <= 0) return <NoData msg="No value recorded for this split yet." />;
   return (
     <div>
       <div style={{ display: 'flex', height: 26, borderRadius: 5, overflow: 'hidden', background: 'var(--bg-sunk)' }}>
         {parts.map(p => p.value > 0 && (
-          <div key={p.label} title={`${p.label} — ${fmtCrShort(p.value)}`}
-            style={{ width: `${(p.value / sum) * 100}%`, background: p.color }} />
+          <Pick key={p.label} href={hrefFor?.(p.label)} label={p.label} selected={selected}
+            title={`${p.label} — ${fmtCrShort(p.value)}`}
+            style={{ width: `${(p.value / sum) * 100}%`, background: p.color, display: 'block', borderRadius: 0 }}>
+            <span style={{ display: 'block', height: 26 }} />
+          </Pick>
         ))}
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 11 }}>
         {parts.map(p => (
-          <div key={p.label} style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+          <Pick key={p.label} href={hrefFor?.(p.label)} label={p.label} selected={selected}
+            style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
             <span style={{ width: 8, height: 8, borderRadius: 2, background: p.color, display: 'inline-block' }} />
             <span style={{ fontSize: 11, color: 'var(--fg-2)' }}>{p.label}</span>
             <span style={{ fontSize: 11.5, fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--fg)' }}>{fmtCrShort(p.value)}</span>
             <span style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
               {Math.round((p.value / sum) * 100)}%{p.sub ? ` · ${p.sub}` : ''}
             </span>
-          </div>
+          </Pick>
         ))}
       </div>
     </div>
@@ -257,25 +305,29 @@ export function StackedBar({ parts, total }: {
 
 // ── Monthly trend ──────────────────────────────────────────────
 
-export function TrendBars({ points, height = 120 }: {
-  points: { label: string; count: number; value: number }[];
+export function TrendBars({ points, height = 120, hrefFor, selected }: {
+  /** `key` is what a click selects (YYYY-MM); `label` is what is printed. */
+  points: { key?: string; label: string; count: number; value: number }[];
   height?: number;
-}) {
+} & Pickable) {
   if (!points.length) return <NoData msg="No dated activity to trend yet." />;
   const max = Math.max(...points.map(p => p.value), 0.0001);
   return (
     <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: height + 40 }}>
       {points.map(p => {
         const h = Math.max((p.value / max) * height, p.value > 0 ? 3 : 0);
+        const k = p.key ?? p.label;
         return (
-          <div key={p.label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, minWidth: 0 }}>
+          <Pick key={k} href={hrefFor?.(k)} label={k} selected={selected}
+            title={`${p.label} — ${p.count} · ${fmtCrShort(p.value)}`}
+            style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', gap: 3, minWidth: 0 }}>
             <span style={{ fontSize: 9.5, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>{p.count}</span>
-            <div title={`${p.label} — ${p.count} · ${fmtCrShort(p.value)}`} style={{
+            <div style={{
               width: '100%', height: h, background: 'color-mix(in oklab, var(--pos) 22%, transparent)',
               borderTop: '3px solid var(--pos)', borderRadius: '3px 3px 0 0',
             }} />
             <span style={{ fontSize: 9.5, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>{p.label}</span>
-          </div>
+          </Pick>
         );
       })}
     </div>

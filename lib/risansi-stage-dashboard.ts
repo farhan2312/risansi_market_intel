@@ -133,6 +133,9 @@ export const STAGE_COLUMNS: Record<DashStage, StageColumn[]> = {
     { key: 'quote_ref',  label: 'Quote No.', width: 150 },
     { key: 'quote_date', label: 'Quoted', width: 95 },
     { key: 'age_days',   label: 'Age', num: true, width: 70 },
+    // Beside the other two dates, so the row reads went out → how long ago →
+    // expected back. It is the month the rep set on the card, as typed.
+    { key: 'eta_text',   label: 'Expected closure', width: 110 },
     ...COMMON_HEAD,
     { key: 'market',     label: 'Market', width: 90 },
     { key: 'offer_inr',  label: 'Offer', num: true, width: 105 },
@@ -201,6 +204,7 @@ export interface StageRow {
   offer_inr: number | null; revised_inr: number | null; rev_count: number;
   so_sum_cr: number; lost_to_competitor: string | null; lost_reason: string | null;
   drop_reason: string | null; age_days: number | null;
+  eta_text?: string | null;
 }
 
 export interface Slice { label: string; count: number; value: number }
@@ -236,7 +240,24 @@ export function parseEtaMonth(eta: string | null | undefined): number | null {
   return y * 12 + m;
 }
 
-const monthLabel = (idx: number) => `${MONTH_LABEL[idx % 12]} ${String(Math.floor(idx / 12)).slice(2)}`;
+export const monthLabel = (idx: number) => `${MONTH_LABEL[idx % 12]} ${String(Math.floor(idx / 12)).slice(2)}`;
+
+/** Which column of the month view a target month falls in. */
+export function closureMonthBucket(idx: number | null, todayIdx: number, monthsAhead = 6): string {
+  if (idx == null) return 'No date';
+  if (idx < todayIdx) return 'Overdue';
+  if (idx >= todayIdx + monthsAhead) return 'Later';
+  return monthLabel(idx);
+}
+
+/** Which column of the quarter view a target month falls in. Overdue is the same line as the month view. */
+export function closureQuarterBucket(idx: number | null, todayIdx: number, quartersAhead = 4): string {
+  if (idx == null) return 'No date';
+  if (idx < todayIdx) return 'Overdue';
+  const thisQ = fyQuarter(todayIdx).key, q = fyQuarter(idx);
+  if (q.key >= thisQ + quartersAhead) return 'Later';
+  return q.label;
+}
 
 /** Indian financial year, April to March: 2026-10 is Q3 FY27. */
 export function fyQuarter(idx: number): { key: number; label: string } {
@@ -265,14 +286,16 @@ export function summariseClosure(rows: ClosureRow[], todayIdx: number, monthsAhe
     ({ label, count: xs.length, value: sum(xs), tone });
 
   const overdue = dated.filter(p => p.idx < todayIdx).map(p => p.r);
+  const inMonth   = (label: string) => parsed.filter(p => closureMonthBucket(p.idx, todayIdx, monthsAhead) === label).map(p => p.r);
+  const inQuarter = (label: string) => parsed.filter(p => closureQuarterBucket(p.idx, todayIdx, quartersAhead) === label).map(p => p.r);
 
   const months: ClosureSlice[] = [
     slice('Overdue', overdue, 'overdue'),
     ...Array.from({ length: monthsAhead }, (_, i) => {
-      const idx = todayIdx + i;
-      return slice(monthLabel(idx), dated.filter(p => p.idx === idx).map(p => p.r), i === 0 ? 'now' : 'ahead');
+      const label = monthLabel(todayIdx + i);
+      return slice(label, inMonth(label), i === 0 ? 'now' : 'ahead');
     }),
-    slice('Later', dated.filter(p => p.idx >= todayIdx + monthsAhead).map(p => p.r), 'later'),
+    slice('Later', inMonth('Later'), 'later'),
     slice('No date', undated, 'none'),
   ];
 
@@ -283,13 +306,10 @@ export function summariseClosure(rows: ClosureRow[], todayIdx: number, monthsAhe
       const key = thisQ + i;
       // Label from any month in that quarter: walk forward from today to find one.
       let probe = todayIdx; while (fyQuarter(probe).key < key) probe++;
-      return slice(
-        fyQuarter(probe).label,
-        dated.filter(p => p.idx >= todayIdx && fyQuarter(p.idx).key === key).map(p => p.r),
-        i === 0 ? 'now' : 'ahead',
-      );
+      const label = fyQuarter(probe).label;
+      return slice(label, inQuarter(label), i === 0 ? 'now' : 'ahead');
     }),
-    slice('Later', dated.filter(p => p.idx >= todayIdx && fyQuarter(p.idx).key >= thisQ + quartersAhead).map(p => p.r), 'later'),
+    slice('Later', inQuarter('Later'), 'later'),
     slice('No date', undated, 'none'),
   ];
 
@@ -313,6 +333,85 @@ export function summariseClosure(rows: ClosureRow[], todayIdx: number, monthsAhe
     overdue: overdue.length, overdueCr: sum(overdue),
     months, quarters, byRep,
   };
+}
+
+// ── Cross-filter selections ────────────────────────────────────
+// Click a bar and the rest of the page narrows to it, the way a Power BI visual
+// does. The selection lives in the URL as `sel=dim:value`, one entry per
+// dimension, so it survives a reload, rides into the Excel export, and can be
+// sent to somebody as a link. The visual a selection came from keeps all its
+// bars with the chosen one lit; every other visual, the tiles and the table
+// see only the matching rows. Selections on different dimensions combine.
+//
+// A dimension's value is the bar's LABEL — the same string the chart prints —
+// produced by one function for both the chart and the filter, so a click can
+// never select a bucket the chart did not draw.
+
+export type SelDim =
+  | 'age' | 'etam' | 'etaq' | 'ptype' | 'market' | 'rep' | 'client'
+  | 'so' | 'qmonth' | 'lost_reason' | 'lost_to' | 'drop_reason';
+export type Selection = Partial<Record<SelDim, string>>;
+
+export const SEL_DIMS: readonly SelDim[] = [
+  'age', 'etam', 'etaq', 'ptype', 'market', 'rep', 'client', 'so', 'qmonth', 'lost_reason', 'lost_to', 'drop_reason',
+];
+export const DIM_LABEL: Record<SelDim, string> = {
+  age: 'Age', etam: 'Closing month', etaq: 'Closing quarter', ptype: 'Type', market: 'Market',
+  rep: 'Rep', client: 'Client', so: 'SO coverage', qmonth: 'Won month',
+  lost_reason: 'Reason', lost_to: 'Lost to', drop_reason: 'Drop reason',
+};
+
+const groupLabel = (v: string | null | undefined) => (v ?? '').trim() || 'Unrecorded';
+
+/** The age column a row sits in — the same rule summariseStage uses to build the chart. */
+export function ageBucketLabel(ageDays: number | null): string {
+  if (ageDays == null) return 'No date';
+  const b = AGE_BUCKETS.find(b => ageDays >= b.min && (b.max == null || ageDays < b.max));
+  return b?.label ?? 'No date';
+}
+
+/** The bar this row belongs to, on the given dimension. */
+export function dimValue(dim: SelDim, r: StageRow, todayIdx: number): string {
+  switch (dim) {
+    case 'age':         return ageBucketLabel(r.age_days);
+    case 'etam':        return closureMonthBucket(parseEtaMonth(r.eta_text), todayIdx);
+    case 'etaq':        return closureQuarterBucket(parseEtaMonth(r.eta_text), todayIdx);
+    case 'ptype':       return groupLabel(r.product_type);
+    case 'market':      return r.market === 'DOMESTIC' ? 'Domestic' : r.market === 'EXPORT' ? 'Export' : 'Unrecorded';
+    case 'rep':         return groupLabel(r.rep_name);
+    case 'client':      return groupLabel(r.client_name);
+    case 'so':          return r.so_sum_cr > 0 ? 'SO created' : 'Awaiting SO';
+    case 'qmonth':      return r.quote_date ? r.quote_date.slice(0, 7) : 'none';
+    case 'lost_reason': return groupLabel(r.lost_reason);
+    case 'lost_to':     return groupLabel(r.lost_to_competitor);
+    case 'drop_reason': return groupLabel(r.drop_reason);
+  }
+}
+
+/** `sel=dim:value` entries from the query string, unknown dimensions ignored. */
+export function parseSelection(raw: string | string[] | undefined): Selection {
+  const out: Selection = {};
+  for (const e of Array.isArray(raw) ? raw : raw ? [raw] : []) {
+    const i = e.indexOf(':');
+    if (i < 1) continue;
+    const dim = e.slice(0, i) as SelDim, value = e.slice(i + 1);
+    if ((SEL_DIMS as readonly string[]).includes(dim) && value) out[dim] = value;
+  }
+  return out;
+}
+
+export const selectionEntries = (sel: Selection): string[] =>
+  (Object.entries(sel) as [SelDim, string][]).map(([d, v]) => `${d}:${v}`);
+
+/**
+ * The rows that match every selected dimension — except `except`, which is the
+ * dimension of the visual being drawn: that visual keeps its own bars and only
+ * narrows by the others, so the chosen bar stays visible to be un-chosen.
+ */
+export function applySelection<T extends StageRow>(rows: T[], sel: Selection, todayIdx: number, except?: SelDim): T[] {
+  const active = (Object.entries(sel) as [SelDim, string][]).filter(([d]) => d !== except);
+  if (!active.length) return rows;
+  return rows.filter(r => active.every(([d, v]) => dimValue(d, r, todayIdx) === v));
 }
 
 /** The current month as a month index, on the Indian clock — Vercel runs on UTC and 05:00 IST on the 1st is still last month there. */

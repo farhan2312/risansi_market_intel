@@ -28,8 +28,8 @@ for (const [rel, name] of [
   }).outputText);
 }
 const imp = (n) => import('file:///' + path.join(tmp, `${n}.mjs`).split(path.sep).join('/'));
-const { ChartPanel, AgeingBars, ClosureBars, CoverageList } = await imp('StageCharts');
-const { summariseStage, summariseClosure, todayMonthIdx } = await imp('risansi-stage-dashboard');
+const { ChartPanel, AgeingBars, ClosureBars, CoverageList, BarList } = await imp('StageCharts');
+const { summariseStage, summariseClosure, todayMonthIdx, applySelection, dimValue } = await imp('risansi-stage-dashboard');
 
 const env = {};
 for (const l of fs.readFileSync(path.join(ROOT, '.env.local'), 'utf8').split('\n')) {
@@ -64,6 +64,36 @@ check('month values sum to the total', Math.abs(C.months.reduce((s, b) => s + b.
 check('quarter values sum to the total', Math.abs(C.quarters.reduce((s, b) => s + b.value, 0) - totalCr) < 1e-6);
 check('overdue is the same line in both views', C.months[0].count === C.quarters[0].count);
 check('rep coverage totals sum to n', C.byRep.reduce((s, r) => s + r.total, 0) === n);
+// Click-to-filter: every bar a chart draws must select exactly the rows it
+// counts, on every dimension the Quoted page offers. If these disagree, a click
+// narrows the table to a different set than the bar the person pressed.
+const today = todayMonthIdx();
+const bars = {
+  age:    A.ageBuckets.map(b => [b.label, b.count]),
+  etam:   C.months.map(b => [b.label, b.count]),
+  etaq:   C.quarters.map(b => [b.label, b.count]),
+  ptype:  A.group(r => r.product_type).map(b => [b.label, b.count]),
+  rep:    A.group(r => r.rep_name).map(b => [b.label, b.count]),
+  client: A.group(r => r.client_name, 8).map(b => [b.label, b.count]),
+  market: [['Domestic', rows.filter(r => r.market === 'DOMESTIC').length], ['Export', rows.filter(r => r.market === 'EXPORT').length],
+           ['Unrecorded', rows.filter(r => r.market !== 'DOMESTIC' && r.market !== 'EXPORT').length]],
+};
+let barsChecked = 0;
+for (const [dim, list] of Object.entries(bars)) {
+  for (const [label, count] of list) {
+    const got = applySelection(rows, { [dim]: label }, today).length;
+    barsChecked++;
+    if (got !== count) { bad++; console.log(`  FAIL ${dim} "${label}": bar says ${count}, selection returns ${got}`); }
+  }
+}
+check(`every bar selects exactly its own rows (${barsChecked} bars over ${Object.keys(bars).length} dimensions)`, true);
+// Two dimensions combine: rows matching both, and a chart of one dim under the other's selection.
+const two = applySelection(rows, { etam: C.months[2].label, ptype: 'PCP' }, today);
+const exceptEtam = applySelection(rows, { etam: C.months[2].label, ptype: 'PCP' }, today, 'etam');
+check(`combined selection is the intersection (${two.length} rows) and the source chart keeps the other dims (${exceptEtam.length} rows)`,
+  two.every(r => dimValue('etam', r, today) === C.months[2].label && dimValue('ptype', r, today) === 'PCP')
+  && exceptEtam.every(r => dimValue('ptype', r, today) === 'PCP') && exceptEtam.length >= two.length);
+
 console.log(`\n  ${C.dated} of ${n} dated (${fmtCr(C.datedCr)} of ${fmtCr(totalCr)}) · ${C.overdue} overdue`);
 console.log('  ' + C.months.map(b => `${b.label} ${b.count}`).join(' · '));
 console.log('  ' + C.quarters.map(b => `${b.label} ${b.count}`).join(' · '));
@@ -79,13 +109,15 @@ const html = renderToStaticMarkup(h('div', { className: 'stage-grid-4' },
       C.undated ? `${C.undated} quotes (${fmtCr(C.undatedCr)}) carry none and sit in No date.` : 'Every quote carries one.',
       C.overdue ? `${C.overdue} past ${C.overdue === 1 ? 'its' : 'their'} month and still open: re-date or decide.` : '',
     ].filter(Boolean).join(' ') },
-    h(ClosureBars, { buckets: C.months })),
+    h(ClosureBars, { buckets: C.months, hrefFor: (l) => `?sel=etam:${encodeURIComponent(l)}`, selected: C.months[2].label })),
   h(ChartPanel, { title: 'Closing by quarter', sub: `this quarter ${fmtCr(C.quarters[1]?.value ?? 0)} · next ${fmtCr(C.quarters[2]?.value ?? 0)}`,
     note: 'Financial year April to March. Overdue is any target month already past, the same line as the month view, so the current quarter shows only what is still ahead in it.' },
     h(ClosureBars, { buckets: C.quarters })),
   h(ChartPanel, { title: 'Target date set', sub: `${Math.round((C.dated / n) * 100)}% of quotes · ${Math.round((C.datedCr / totalCr) * 100)}% of value`,
     note: 'Share of each rep\'s open quotes with a target month. A quote without one is invisible to the two charts on the left and to the sales projection on the Executive Review.' },
-    h(CoverageList, { rows: C.byRep })),
+    h(CoverageList, { rows: C.byRep, hrefFor: (l) => `?sel=rep:${encodeURIComponent(l)}` })),
+  h(ChartPanel, { title: 'Product mix (selected: PCP)' },
+    h(BarList, { rows: A.group(r => r.product_type), hrefFor: (l) => `?sel=ptype:${l}`, selected: 'PCP' })),
 ));
 fs.rmSync(tmp, { recursive: true, force: true });
 const out = path.join(ROOT, 'node_modules', '.cache-quoted-closure.html');
