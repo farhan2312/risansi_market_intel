@@ -7,6 +7,7 @@ import {
   type MovePreview,
 } from '@/app/actions/risansi-ownership';
 import { ClientOwnershipButton } from '@/components/risansi/ClientOwnershipButton';
+import { ArchiveClientToggle } from '@/components/risansi/ArchiveClientToggle';
 
 export interface Person { id: number; name: string; role: string; owned: number; covered: number; team?: number; }
 export interface UnownedClient { id: number; code: string; name: string; status: string; opps: number; visits: number; }
@@ -171,7 +172,9 @@ export function UnassignedClients({ clients, reps }: { clients: UnownedClient[];
     <div>
       <p style={NOTE}>
         These clients have no primary rep, so only admins can see them. Anything with history is
-        listed first — those are the ones costing you something while they sit here.
+        listed first — those are the ones costing you something while they sit here. Assign an
+        owner, or archive the ones nobody should be working; archiving asks first and names any
+        open work, and Admin › Recoverable brings a client back.
       </p>
       <Banner msg={msg} bad={bad} />
       <input
@@ -179,11 +182,12 @@ export function UnassignedClients({ clients, reps }: { clients: UnownedClient[];
         style={{ ...SEL, width: 260, marginBottom: 10 }}
       />
       <div style={{ ...CARD, overflowX: 'auto' }}>
-        <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 700 }}>
+        <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 780 }}>
           <thead>
             <tr>
               <th style={TH}>Code</th><th style={TH}>Client</th><th style={TH}>Status</th>
               <th style={{ ...TH, textAlign: 'right' }}>History</th><th style={TH}>Assign to</th>
+              <th style={TH}></th>
             </tr>
           </thead>
           <tbody>
@@ -213,6 +217,9 @@ export function UnassignedClients({ clients, reps }: { clients: UnownedClient[];
                       style={{ ...BTN_PRI, opacity: picks[c.id] ? 1 : 0.45, cursor: picks[c.id] ? 'pointer' : 'not-allowed' }}
                     >Assign</button>
                   </div>
+                </td>
+                <td style={{ ...TD, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <ArchiveClientToggle clientId={String(c.id)} name={c.name} archived={false} as="button" />
                 </td>
               </tr>
             ))}

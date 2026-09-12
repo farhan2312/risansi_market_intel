@@ -21,11 +21,18 @@ import { archiveClient, restoreClient, clientArchivePreview, type ArchivePreview
 const inr = (n: number) =>
   n >= 1e7 ? `₹${(n / 1e7).toFixed(2)} Cr` : n >= 1e5 ? `₹${(n / 1e5).toFixed(1)} L` : `₹${Math.round(n).toLocaleString('en-IN')}`;
 
-export function ArchiveClientToggle({ clientId, name, archived }: {
+export function ArchiveClientToggle({ clientId, name, archived, as = 'checkbox' }: {
   clientId: string;
   name: string;
   /** True when the row is an archived one, shown by the Show archived filter. */
   archived: boolean;
+  /**
+   * How the trigger looks. Client Master has an Archive column, where a tick
+   * reads naturally beside the other ticks; the Unassigned tab on Reps &
+   * Managers has a row of actions, where the same tick would look like a
+   * selection box. Same confirmation, same action, either way.
+   */
+  as?: 'checkbox' | 'button';
 }) {
   const router = useRouter();
   const [asking, setAsking] = useState(false);
@@ -62,15 +69,26 @@ export function ArchiveClientToggle({ clientId, name, archived }: {
 
   return (
     <>
-      <input
-        type="checkbox"
-        checked={archived}
-        readOnly
-        onClick={e => { e.preventDefault(); open(); }}
-        title={archived ? 'Archived — click to restore' : 'Archive this client'}
-        aria-label={archived ? `Restore ${name}` : `Archive ${name}`}
-        style={{ width: 15, height: 15, accentColor: 'var(--neg)', cursor: 'pointer' }}
-      />
+      {as === 'button' ? (
+        <button
+          type="button" onClick={open}
+          title={archived ? 'Restore this client' : 'Archive this client'}
+          aria-label={archived ? `Restore ${name}` : `Archive ${name}`}
+          style={{ ...BTN, padding: '6px 11px', fontSize: 12, color: archived ? 'var(--fg)' : 'var(--neg)' }}
+        >
+          {archived ? 'Restore' : 'Archive'}
+        </button>
+      ) : (
+        <input
+          type="checkbox"
+          checked={archived}
+          readOnly
+          onClick={e => { e.preventDefault(); open(); }}
+          title={archived ? 'Archived — click to restore' : 'Archive this client'}
+          aria-label={archived ? `Restore ${name}` : `Archive ${name}`}
+          style={{ width: 15, height: 15, accentColor: 'var(--neg)', cursor: 'pointer' }}
+        />
+      )}
 
       {asking && (
         <>
