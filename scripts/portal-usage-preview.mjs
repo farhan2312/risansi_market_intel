@@ -56,7 +56,7 @@ const pool = new pg.Pool({
 
 const winId = process.argv[3] ?? '90d';
 const win = PERSON_WINDOWS.find(w => w.id === winId) ?? PERSON_WINDOWS[0];
-const all = await loadPersonMetrics(pool, win.interval);
+const all = await loadPersonMetrics(pool, win.days);
 
 // Default to the busiest rep: the report is meant for sales staff, and an empty
 // one tells you nothing about whether the layout holds.

@@ -15,6 +15,7 @@ import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser } from '@/lib/risansi-auth';
 import { PortalUsageReport, moduleOf } from '@/components/risansi/PortalUsageReport';
 import { loadPersonMetrics, comparePerson, cohortFor, PERSON_WINDOWS } from '@/lib/risansi-person-metrics';
+import { windowStartSql } from '@/lib/risansi-audit-overall';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,7 +43,7 @@ export default async function PortalUsagePrint({ searchParams }: {
   const win = PERSON_WINDOWS.find(w => w.id === sp.win) ?? PERSON_WINDOWS[0];
   const email = (sp.user ?? '').trim().toLowerCase();
 
-  const all = await loadPersonMetrics(risansiPool, win.interval);
+  const all = await loadPersonMetrics(risansiPool, win.days);
   const subject = all.find(r => r.email.toLowerCase() === email);
   if (!subject) {
     return <div style={NOTICE}>
@@ -57,7 +58,7 @@ export default async function PortalUsagePrint({ searchParams }: {
   // Where their time went, and what the cohort's split looks like, so a rep who
   // lives in one screen is visible as such.
   const cohortIds = cohort.map(r => r.id).join(',') || '0';
-  const winClause = win.interval ? ` AND p.occurred_at >= NOW() - INTERVAL '${win.interval}'` : '';
+  const winClause = win.days ? ` AND p.occurred_at >= ${windowStartSql(win.days)}` : '';
   const modules = await risansiPool.query<{ path: string; mine: string; cohort_hours: string }>(`
     SELECT p.path,
            COALESCE(round(sum(p.active_seconds) FILTER (WHERE p.user_id = ${subject.id})/3600.0, 2), 0)::text AS mine,

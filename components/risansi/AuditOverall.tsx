@@ -71,9 +71,9 @@ export function AuditOverall({ d, win, role, user, people, print = false }: {
           <DrillTile kind="active"><Kpi label="Active users" value={`${k.activeUsers}`} sub={`of ${k.accounts} accounts · ${adoptionPct}%`} tone={adoptionPct >= 70 ? GREEN : adoptionPct >= 40 ? AMBER : RED} /></DrillTile>
           <DrillTile kind="never"><Kpi label="Never signed in" value={`${k.neverIn}`} sub="accounts with no login ever" tone={k.neverIn > 0 ? RED : GREEN} /></DrillTile>
           <DrillTile kind="dormant"><Kpi label="Dormant" value={`${k.dormant}`} sub="signed in once, nothing in 30 days" tone={k.dormant > 0 ? AMBER : GREEN} /></DrillTile>
-          <DrillTile kind="sessions"><Kpi label="Sessions" value={k.sessions.toLocaleString('en-IN')} sub={`avg ${k.avgSessionMin.toFixed(0)} min each`} /></DrillTile>
-          <DrillTile kind="hours"><Kpi label="Active hours" value={k.hours.toLocaleString('en-IN')} sub={`${k.pageViews.toLocaleString('en-IN')} page views`} /></DrillTile>
-          <DrillTile kind="records"><Kpi label="Records touched" value={k.records.toLocaleString('en-IN')} sub="things created, edited or deleted" tone={NAVY} /></DrillTile>
+          <DrillTile kind="sessions"><div title={COL_HELP.Sessions}><Kpi label="Sessions" value={k.sessions.toLocaleString('en-IN')} sub={`avg ${k.avgSessionMin.toFixed(0)} min each`} /></div></DrillTile>
+          <DrillTile kind="hours"><div title={COL_HELP.Hours}><Kpi label="Active hours" value={k.hours.toLocaleString('en-IN')} sub={`${k.pageViews.toLocaleString('en-IN')} page views`} /></div></DrillTile>
+          <DrillTile kind="records"><div title={COL_HELP.Records}><Kpi label="Records touched" value={k.records.toLocaleString('en-IN')} sub="things created, edited or deleted" tone={NAVY} /></div></DrillTile>
           <DrillTile kind="logins"><Kpi label="Sign-ins" value={k.logins.toLocaleString('en-IN')} sub={`${k.failed} failed`} tone={k.failed > k.logins * 0.15 ? AMBER : undefined} /></DrillTile>
         </div>
       </Section>
@@ -452,6 +452,23 @@ function Actions({ rows }: { rows: OverallData['actions'] }) {
 
 // ── 5. People ─────────────────────────────────────────────────────
 
+// What each column means, on hover. Written out because every one of these
+// has been asked about, and "Sessions" in particular is not what it sounds like.
+export const COL_HELP: Record<string, string> = {
+  Hours:
+    'Time with the portal actually in front of them, in the chosen window. Counted only while the tab is visible and there has been a click, key or scroll in the last 60 seconds; a tab left open in the background counts nothing. Summed across all pages.',
+  Sessions:
+    'How many separate browser tabs or windows they opened the portal in, in the chosen window. A session starts when a tab first loads the portal and ends when that tab is closed — so someone who works in three tabs, or closes and reopens the browser, counts several sessions in one sitting. It is a count of openings, not of working days.',
+  Days:
+    'Calendar days (Indian time) on which they did anything in the portal, in the chosen window. The window is whole days ending today — "7 days" is today and the six before it — so this can never exceed the window.',
+  Records:
+    'Things they created, changed or deleted in the chosen window — clients, visits, opportunities, actions, complaints, uploads. One count per saved change, from the audit log. Reading pages does not count.',
+  'Clients owned':
+    'Clients where they are the primary rep, as it stands today. Not windowed: it is the size of their book, the denominator the other columns should be read against.',
+  'Last seen':
+    'The most recent day they did anything in the portal, regardless of the window.',
+};
+
 function PeopleTable({ rows }: { rows: OverallData['people'] }) {
   const maxH = Math.max(...rows.map(r => r.hours), 0.1);
   const maxR = Math.max(...rows.map(r => r.records), 1);
@@ -461,7 +478,11 @@ function PeopleTable({ rows }: { rows: OverallData['people'] }) {
         <thead>
           <tr style={{ background: 'var(--bg-elev)' }}>
             {['Person', 'Role', 'Zone', 'Hours', '', 'Sessions', 'Days', 'Records', '', 'Clients owned', 'Last seen'].map((h, i) => (
-              <th key={i} style={{ ...TH, textAlign: i === 0 || i === 1 || i === 2 ? 'left' : 'right' }}>{h}</th>
+              <th key={i} title={COL_HELP[h]} style={{
+                ...TH, textAlign: i === 0 || i === 1 || i === 2 ? 'left' : 'right',
+                cursor: COL_HELP[h] ? 'help' : undefined,
+                textDecoration: COL_HELP[h] ? 'underline dotted' : undefined, textUnderlineOffset: 3,
+              }}>{h}</th>
             ))}
           </tr>
         </thead>

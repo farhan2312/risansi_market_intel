@@ -4,7 +4,7 @@ import { Topbar, Tag } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser } from '@/lib/risansi-auth';
 import { AccessDenied } from '../_components/AccessDenied';
-import { AuditOverall } from '@/components/risansi/AuditOverall';
+import { AuditOverall, COL_HELP } from '@/components/risansi/AuditOverall';
 import { loadOverall, OVERALL_WINDOWS, type OverallData } from '@/lib/risansi-audit-overall';
 import { PERSON_WINDOWS } from '@/lib/risansi-person-metrics';
 
@@ -572,6 +572,13 @@ function fmtDuration(sec: number): string {
 
 // ── Usage & Time tab ────────────────────────────────────────────
 
+const USAGE_HELP: Record<string, string> = {
+  'Active time': COL_HELP.Hours,
+  Sessions: COL_HELP.Sessions,
+  Pages: 'Distinct pages of the portal they opened in the window.',
+  'Last active': COL_HELP['Last seen'],
+};
+
 function UsageView({ users, pages, sessions, selUser, win }: {
   users: UsageUser[]; pages: UsagePage[]; sessions: UsageSession[]; selUser: string; win: string;
 }) {
@@ -659,7 +666,9 @@ function UsageView({ users, pages, sessions, selUser, win }: {
       <div style={PANEL}>
         <div style={{ overflowX: 'auto' }}>
           <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-            <thead><tr style={{ background: 'var(--bg-elev)' }}>{['User', 'Role', 'Active time', 'Sessions', 'Pages', 'Last active'].map(h => <th key={h} style={TH}>{h}</th>)}</tr></thead>
+            <thead><tr style={{ background: 'var(--bg-elev)' }}>{['User', 'Role', 'Active time', 'Sessions', 'Pages', 'Last active'].map(h => (
+              <th key={h} title={USAGE_HELP[h]} style={{ ...TH, cursor: USAGE_HELP[h] ? 'help' : undefined, textDecoration: USAGE_HELP[h] ? 'underline dotted' : undefined, textUnderlineOffset: 3 }}>{h}</th>
+            ))}</tr></thead>
             <tbody>
               {users.length === 0 ? (
                 <tr><td colSpan={6} style={EMPTY}>No activity recorded yet in this window. Data appears once users browse the portal.</td></tr>

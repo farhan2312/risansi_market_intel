@@ -504,14 +504,14 @@ export async function notifyBugReported(a: { title: string; severity?: string | 
         intro: `${a.reporterName || 'Someone'} filed a bug in the portal.`,
         title: a.title,
         meta: [...(a.severity ? [['Severity', a.severity] as [string, string]] : []), ...(a.pageUrl ? [['Page', a.pageUrl] as [string, string]] : []), ['Reported by', a.reporterName || '—']],
-        ctaLabel: 'Open the Bugs board', ctaPath: '/risansi/bugs',
+        ctaLabel: 'Open the Bugs board', ctaPath: '/risansi/admin/bugs',
         footer: 'You are receiving this as a system administrator.',
       });
     }
     await pushInApp(inAppIds(admins, a.reporterEmail || ''), {
       kind: 'bug_reported', section: 'Bugs', actor: a.reporterEmail || null,
       title: `New bug reported: ${a.title}`, body: a.severity ? `Severity: ${a.severity}` : null,
-      link: '/risansi/bugs', entityType: 'bug',
+      link: '/risansi/admin/bugs', entityType: 'bug',
     });
   } catch (e) { console.error('[notify] bug reported failed', e); }
 }

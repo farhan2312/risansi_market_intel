@@ -15,6 +15,7 @@
 //     data administration — uploads, corrections, client master work — which is
 //     why the comparisons below are drawn within a role rather than across all.
 import type { Pool } from 'pg';
+import { windowStartSql } from '@/lib/risansi-audit-overall';
 
 export interface PersonRow {
   id: number; name: string; email: string; role: string; zone: string;
@@ -29,27 +30,29 @@ export interface PersonRow {
   complaints_raised: number; exhibition_meetings: number; audited_actions: number;
 }
 
-/** Windows the individual report offers. `null` interval means all time. */
+/** Windows the individual report offers, in whole IST calendar days ending today; `null` is all time. */
 export const PERSON_WINDOWS = [
-  { id: '30d', label: 'Last 30 days', interval: '30 days' },
-  { id: '90d', label: 'Last 90 days', interval: '90 days' },
-  { id: '180d', label: 'Last 6 months', interval: '6 months' },
-  { id: 'all', label: 'All time', interval: null },
+  { id: '30d', label: 'Last 30 days', days: 30 },
+  { id: '90d', label: 'Last 90 days', days: 90 },
+  { id: '180d', label: 'Last 6 months', days: 182 },
+  { id: 'all', label: 'All time', days: null },
 ] as const;
 
 /**
  * Every active user with every metric.
  *
- * `interval` is a Postgres interval literal applied to the EVENT counts — time
- * in the app, sign-ins, and everything they recorded. It is deliberately NOT
- * applied to the client-book columns: how many clients somebody is responsible
- * for is a fact about today, not a thing that happened in the last 30 days, and
- * windowing it would make the denominator move with the numerator.
+ * `days` is the window applied to the EVENT counts — time in the app, sign-ins,
+ * and everything they recorded — as whole IST calendar days ending today, so
+ * "days active" can never exceed it (a rolling 30×24h window spans 31 dates).
+ * It is deliberately NOT applied to the client-book columns: how many clients
+ * somebody is responsible for is a fact about today, not a thing that happened
+ * in the last 30 days, and windowing it would make the denominator move with
+ * the numerator.
  */
-export async function loadPersonMetrics(pool: Pool, interval: string | null = null): Promise<PersonRow[]> {
+export async function loadPersonMetrics(pool: Pool, days: number | null = null): Promise<PersonRow[]> {
   // A window clause for one column, or nothing at all when the report is
-  // all-time. The literal is from PERSON_WINDOWS, never from user input.
-  const w = (col: string) => (interval ? ` AND ${col} >= NOW() - INTERVAL '${interval}'` : '');
+  // all-time. The number is from PERSON_WINDOWS, never from user input.
+  const w = (col: string) => (days ? ` AND ${col} >= ${windowStartSql(days)}` : '');
 
   // One row per active user. Every count is a scalar subquery keyed on the user
   // rather than a pile of joins: a user with 300 page views and 40 visits would

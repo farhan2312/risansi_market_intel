@@ -24,13 +24,22 @@ export interface OverallFilters {
   user: string;
 }
 
+// Windows are whole IST calendar days ending today: "7 days" is today and the
+// six before it. They used to be rolling — NOW() minus seven times 24 hours —
+// which at two in the afternoon starts at two in the afternoon eight dates ago,
+// so a person seen every day showed 8 under Days in a 7-day window. `days` is
+// how many dates the window holds; null is all time.
 export const OVERALL_WINDOWS = [
-  { id: '1d', label: 'Today', interval: '1 day' },
-  { id: '7d', label: '7 days', interval: '7 days' },
-  { id: '30d', label: '30 days', interval: '30 days' },
-  { id: '90d', label: '90 days', interval: '90 days' },
-  { id: 'all', label: 'All time', interval: null },
+  { id: '1d', label: 'Today', days: 1 },
+  { id: '7d', label: '7 days', days: 7 },
+  { id: '30d', label: '30 days', days: 30 },
+  { id: '90d', label: '90 days', days: 90 },
+  { id: 'all', label: 'All time', days: null },
 ] as const;
+
+/** SQL for the first instant of the window: IST midnight, `days - 1` days ago, as a timestamptz. */
+export const windowStartSql = (days: number) =>
+  `((date_trunc('day', NOW() ${IST}) - INTERVAL '${days - 1} days') ${IST})`;
 
 export interface OverallData {
   windowLabel: string;
@@ -67,12 +76,12 @@ export interface OverallData {
 export function clauses(f: OverallFilters, col: string, roleCol?: string, emailCol?: string) {
   const win = OVERALL_WINDOWS.find(w => w.id === f.win) ?? OVERALL_WINDOWS[1];
   const parts: string[] = [];
-  if (win.interval) parts.push(`${col} >= NOW() - INTERVAL '${win.interval}'`);
+  if (win.days) parts.push(`${col} >= ${windowStartSql(win.days)}`);
   // Role and user are matched against the users table wherever the source table
   // does not carry them, which is why the caller says which columns it has.
   if (f.role && roleCol) parts.push(`${roleCol} = '${f.role.replace(/'/g, "''")}'`);
   if (f.user && emailCol) parts.push(`lower(${emailCol}) = lower('${f.user.replace(/'/g, "''")}')`);
-  return { where: parts.length ? ' AND ' + parts.join(' AND ') : '', label: win.label, interval: win.interval };
+  return { where: parts.length ? ' AND ' + parts.join(' AND ') : '', label: win.label, days: win.days };
 }
 
 export async function loadOverall(pool: Pool, f: OverallFilters): Promise<OverallData> {
