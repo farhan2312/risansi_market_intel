@@ -14,8 +14,12 @@ const STAGE_RANK: Record<string, number> = {
 const PAGE_SIZE = 50;
 
 type SortKey = 'quote_date' | 'client' | 'stage' | 'value' | 'eta';
+// A Prospect or a Suspect has no quote date, and the column read "—" for every
+// one of them. It carries the enquiry date instead, marked as such, so the
+// first column always says when the deal entered the book. Sorting follows.
+const dateOf = (o: EditableOpp) => o.quote_date || o.enquiry_date || '';
 const SORT_ACCESSOR: Record<SortKey, (o: EditableOpp) => string | number> = {
-  quote_date: o => o.quote_date || '',
+  quote_date: dateOf,
   client:     o => (o.client_name || '').toLowerCase(),
   stage:      o => STAGE_RANK[o.stage] ?? 99,
   value:      o => o.value_cr ?? 0,
@@ -78,7 +82,7 @@ export function ActiveOppsTable({ opps, usdRate }: { opps: EditableOpp[]; usdRat
         <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
             <tr style={{ background: 'var(--bg-elev)' }}>
-              <SortableTH label="Quote Date" onClick={() => onSort('quote_date')} indicator={arrow('quote_date')} />
+              <SortableTH label="Quote / Enquiry Date" onClick={() => onSort('quote_date')} indicator={arrow('quote_date')} />
               <SortableTH label="Client" onClick={() => onSort('client')} indicator={arrow('client')} />
               <SortableTH label="Stage" onClick={() => onSort('stage')} indicator={arrow('stage')} />
               <SortableTH label="Value" onClick={() => onSort('value')} indicator={arrow('value')} align="right" />
@@ -97,8 +101,14 @@ export function ActiveOppsTable({ opps, usdRate }: { opps: EditableOpp[]; usdRat
                   onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-elev)')}
                   onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                 >
-                  <td data-label="Quote Date" style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>
-                    {opp.quote_date || '—'}
+                  <td data-label="Quote / Enquiry Date" style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>
+                    {opp.quote_date ? opp.quote_date
+                      : opp.enquiry_date ? (
+                        <span title="No quotation yet — this is the enquiry date">
+                          {opp.enquiry_date}
+                          <span style={{ marginLeft: 5, fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--fg-4)' }}>enq</span>
+                        </span>
+                      ) : '—'}
                   </td>
                   <td data-label="Client" style={TD}>
                     <div style={{ fontWeight: 600, color: 'var(--fg)', fontSize: 12 }}>{opp.client_name}</div>

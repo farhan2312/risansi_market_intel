@@ -52,6 +52,7 @@ export async function GET(request: Request) {
   if (f.so)              applied.push(['SO coverage', f.so]);
   if (f.qname)           applied.push(['Search', f.qname]);
   if (f.qfrom || f.qto)  applied.push(['Quote date', `${f.qfrom || '…'} to ${f.qto || '…'}`]);
+  if (f.efrom || f.eto)  applied.push(['Enquiry date', `${f.efrom || '…'} to ${f.eto || '…'}`]);
   for (const [d, v] of Object.entries(sel) as [SelDim, string][]) applied.push([`Bar · ${DIM_LABEL[d]}`, v]);
 
   const cols = [{ key: 'client_code', label: 'Client code', num: false, width: 110 }, ...STAGE_COLUMNS[stage]];
@@ -142,6 +143,7 @@ function cellValue(r: StageDashRow, key: string, todayIdx: number): Cell {
     case 'age_days':    return r.age_days;
     case 'rev_count':   return r.rev_count || null;
     case 'quote_date':  return asDate(r.quote_date);
+    case 'enquiry_date': return asDate(r.enquiry_date);
     case 'revised_on':  return asDate(r.revised_on);
     case 'so_status': {
       const base = r.final_cr != null ? Number(r.final_cr) : r.value_cr;

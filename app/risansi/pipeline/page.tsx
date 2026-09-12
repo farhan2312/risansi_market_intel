@@ -124,6 +124,10 @@ export default async function PipelinePage({
   const qname = typeof sp.qname === 'string' ? sp.qname.trim() : '';
   const qfrom = typeof sp.qfrom === 'string' ? sp.qfrom : '';
   const qto   = typeof sp.qto   === 'string' ? sp.qto   : '';
+  // Enquiry date, for the Prospect view: a Prospect has no quote date, so the
+  // Quote Date range could never find one.
+  const efrom = typeof sp.efrom === 'string' ? sp.efrom : '';
+  const eto   = typeof sp.eto   === 'string' ? sp.eto   : '';
 
   // Value buckets (on value_cr, in Crores). Boundaries are constants we control,
   // so they inline safely (no params). Selecting several ORs their ranges.
@@ -223,6 +227,8 @@ export default async function PipelinePage({
   }
   if (qfrom) { conds.push(`o.quote_date >= $${idx}`); vals.push(qfrom); idx++; }
   if (qto)   { conds.push(`o.quote_date <= $${idx}`); vals.push(qto);   idx++; }
+  if (efrom) { conds.push(`o.enquiry_date >= $${idx}`); vals.push(efrom); idx++; }
+  if (eto)   { conds.push(`o.enquiry_date <= $${idx}`); vals.push(eto);   idx++; }
 
   // Per-user owner visibility — null for admin/sysadmin (no restriction).
   // Appended as raw text (integers inlined, no params) so $-indices are unchanged.
@@ -654,7 +660,7 @@ export default async function PipelinePage({
     ? Math.round((totalWon / (totalWon + totalLost)) * 100)
     : 0;
 
-  const anyFilter = stageFilts.length > 0 || prodTypeFilts.length > 0 || repFilts.length > 0 || indFilts.length > 0 || ctypeFilts.length > 0 || probFilts.length > 0 || valFilts.length > 0 || !!soFilt || !!qname || !!qfrom || !!qto;
+  const anyFilter = stageFilts.length > 0 || prodTypeFilts.length > 0 || repFilts.length > 0 || indFilts.length > 0 || ctypeFilts.length > 0 || probFilts.length > 0 || valFilts.length > 0 || !!soFilt || !!qname || !!qfrom || !!qto || !!efrom || !!eto;
 
   // ── Clickable flow brackets ────────────────────────────────
   // See lib/risansi-pipeline-brackets.ts for what each one selects and why the
@@ -663,7 +669,7 @@ export default async function PipelinePage({
 
   // Carry the active filters onto the Excel export so it matches what's on screen.
   const exportParams = new URLSearchParams();
-  for (const k of ['stage', 'product_type', 'rep', 'industry', 'ctype', 'so', 'prob', 'val', 'qname', 'qfrom', 'qto']) {
+  for (const k of ['stage', 'product_type', 'rep', 'industry', 'ctype', 'so', 'prob', 'val', 'qname', 'qfrom', 'qto', 'efrom', 'eto']) {
     const v = sp[k];
     if (typeof v === 'string' && v) exportParams.set(k, v);
   }
@@ -805,6 +811,7 @@ export default async function PipelinePage({
           <MultiSelectFilter param="val"          label="Value"        options={VALUE_BUCKETS.map(b => b.label)} selected={valFilts} />
           <TextSearchFilter param="qname" placeholder="Quote no. / name…" />
           <DateRangeFilter fromParam="qfrom" toParam="qto" from={qfrom} to={qto} label="Quote Date" />
+          <DateRangeFilter fromParam="efrom" toParam="eto" from={efrom} to={eto} label="Enquiry Date" />
         </div>
         {anyFilter && (
           <div style={{ marginBottom: 12 }}>

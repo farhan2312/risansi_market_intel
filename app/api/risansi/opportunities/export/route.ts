@@ -121,6 +121,8 @@ export async function GET(req: Request) {
   const qname = (params.get('qname') ?? '').trim();
   const qfrom = (params.get('qfrom') ?? '').trim();
   const qto   = (params.get('qto')   ?? '').trim();
+  const efrom = (params.get('efrom') ?? '').trim();
+  const eto   = (params.get('eto')   ?? '').trim();
 
   const conds: string[] = [];
   const vals: (string | number | string[])[] = [];
@@ -145,6 +147,8 @@ export async function GET(req: Request) {
   if (qname) { conds.push(`(o.quote_ref ILIKE $${idx} OR c.legal_name ILIKE $${idx} OR o.product ILIKE $${idx})`); vals.push(`%${qname}%`); idx++; }
   if (qfrom) { conds.push(`o.quote_date >= $${idx}`); vals.push(qfrom); idx++; }
   if (qto)   { conds.push(`o.quote_date <= $${idx}`); vals.push(qto);   idx++; }
+  if (efrom) { conds.push(`o.enquiry_date >= $${idx}`); vals.push(efrom); idx++; }
+  if (eto)   { conds.push(`o.enquiry_date <= $${idx}`); vals.push(eto);   idx++; }
   const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
 
   // Human-readable list for the "Filters Applied" sheet.
@@ -160,6 +164,8 @@ export async function GET(req: Request) {
   if (qname) appliedFilters.push(['Quote no. / name search', qname]);
   if (qfrom) appliedFilters.push(['Quote date from', qfrom]);
   if (qto)   appliedFilters.push(['Quote date to', qto]);
+  if (efrom) appliedFilters.push(['Enquiry date from', efrom]);
+  if (eto)   appliedFilters.push(['Enquiry date to', eto]);
 
   let rows: Row[] = [];
   let sos: So[] = [];

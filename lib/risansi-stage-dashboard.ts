@@ -115,6 +115,8 @@ const COMMON_TAIL: StageColumn[] = [
 
 export const STAGE_COLUMNS: Record<DashStage, StageColumn[]> = {
   Suspect: [
+    // The date a stage with no quote has: when the enquiry came in.
+    { key: 'enquiry_date', label: 'Enquiry date', width: 100 },
     ...COMMON_HEAD,
     { key: 'value_cr',  label: 'Value', num: true, width: 90 },
     { key: 'tour_name', label: 'Tour', width: 130 },
@@ -122,6 +124,7 @@ export const STAGE_COLUMNS: Record<DashStage, StageColumn[]> = {
     { key: 'age_days',  label: 'Days in stage', num: true, width: 100 },
   ],
   Prospect: [
+    { key: 'enquiry_date', label: 'Enquiry date', width: 100 },
     ...COMMON_HEAD,
     { key: 'value_cr',    label: 'Value', num: true, width: 90 },
     { key: 'industry',    label: 'Industry', width: 120 },

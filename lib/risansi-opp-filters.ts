@@ -52,6 +52,9 @@ export interface OppFilters {
   qname:     string;
   qfrom:     string;
   qto:       string;
+  /** Enquiry date range — the date that exists for a Prospect, which has no quote date. */
+  efrom:     string;
+  eto:       string;
   /** ?rep=all — the reps-only scope toggle, not a rep selection. */
   showAllReps: boolean;
 }
@@ -76,6 +79,8 @@ export function parseOppFilters(sp: SearchParams): OppFilters {
     qname:    typeof sp.qname === 'string' ? sp.qname.trim() : '',
     qfrom:    typeof sp.qfrom === 'string' ? sp.qfrom : '',
     qto:      typeof sp.qto   === 'string' ? sp.qto   : '',
+    efrom:    typeof sp.efrom === 'string' ? sp.efrom : '',
+    eto:      typeof sp.eto   === 'string' ? sp.eto   : '',
     showAllReps: sp.rep === 'all',
   };
 }
@@ -137,6 +142,8 @@ export function buildOppFilter(f: OppFilters, scopedRepId: number | null, startI
   }
   if (f.qfrom) { conds.push(`o.quote_date >= $${idx}`); vals.push(f.qfrom); idx++; }
   if (f.qto)   { conds.push(`o.quote_date <= $${idx}`); vals.push(f.qto);   idx++; }
+  if (f.efrom) { conds.push(`o.enquiry_date >= $${idx}`); vals.push(f.efrom); idx++; }
+  if (f.eto)   { conds.push(`o.enquiry_date <= $${idx}`); vals.push(f.eto);   idx++; }
 
   return { conds, vals, nextIdx: idx };
 }
@@ -145,13 +152,13 @@ export function buildOppFilter(f: OppFilters, scopedRepId: number | null, startI
 export function anyOppFilter(f: OppFilters): boolean {
   return f.stage.length > 0 || f.prodType.length > 0 || f.rep.length > 0
     || f.industry.length > 0 || f.ctype.length > 0 || f.prob.length > 0
-    || f.val.length > 0 || !!f.so || !!f.qname || !!f.qfrom || !!f.qto;
+    || f.val.length > 0 || !!f.so || !!f.qname || !!f.qfrom || !!f.qto || !!f.efrom || !!f.eto;
 }
 
 /** The filter params, for carrying onto an export link or a stage page. */
 export const OPP_FILTER_PARAMS = [
   'stage', 'product_type', 'rep', 'industry', 'ctype', 'so', 'prob', 'val',
-  'qname', 'qfrom', 'qto',
+  'qname', 'qfrom', 'qto', 'efrom', 'eto',
 ] as const;
 
 /** Copy the active filter params out of a query string. */

@@ -23,6 +23,7 @@ export interface StageDashRow extends StageRow {
   revised_on: string | null; so_numbers: string | null; po_number: string | null;
   quotation_link: string | null; doc_count: number;
   eta_text: string | null;
+  enquiry_date: string | null;
 }
 
 export type SearchParams = Record<string, string | string[] | undefined>;
@@ -75,7 +76,7 @@ export async function loadStageRows(stage: DashStage, sp: SearchParams): Promise
              (SELECT COALESCE(SUM(s.so_value_cr), 0) FROM opportunity_sales_orders s WHERE s.opportunity_id = o.id)::float8 AS so_sum_cr,
              (SELECT string_agg(s.so_number, ', ' ORDER BY s.so_date, s.id) FROM opportunity_sales_orders s WHERE s.opportunity_id = o.id) AS so_numbers,
              o.po_number, o.lost_to_competitor, o.lost_reason, o.drop_reason, o.quotation_link,
-             o.eta_text,
+             o.eta_text, o.enquiry_date::text AS enquiry_date,
              (SELECT count(*) FROM opportunity_quotation_files qf WHERE qf.opportunity_id = o.id)::int AS doc_count,
              -- Age from the stage's own reference date. opportunity_stage_log is
              -- empty today (migration 0042 created it after years of swallowed
