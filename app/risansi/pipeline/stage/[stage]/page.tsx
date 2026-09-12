@@ -13,10 +13,11 @@ import { quotationHref, isLegacyQuotation, quotationLinkCount } from '@/lib/risa
 import { LegacyMark } from '@/components/risansi/QuotationLinkView';
 import {
   stageFromSlug, STAGE_COLOR, STAGE_BLURB, STAGE_COLUMNS, ageBasisSql, summariseStage,
+  summariseClosure, todayMonthIdx,
 } from '@/lib/risansi-stage-dashboard';
 import {
   ChartPanel, BarList, AgeingBars, StackedBar, TrendBars, OfferMovement, StageKpi,
-  NoData, CHART_GRID,
+  NoData, CHART_GRID, CHART_GRID_4, ClosureBars, CoverageList,
 } from '@/components/risansi/StageCharts';
 
 // A dashboard for one pipeline stage: what sits here, what shape it's in, and
@@ -42,6 +43,7 @@ interface Row {
   quotation_link: string | null;
   doc_count: number;
   age_days: number | null;
+  eta_text: string | null;
 }
 
 const PAGE_SIZE = 100;
@@ -95,6 +97,7 @@ export default async function StageDashboardPage({ params, searchParams }: {
              (SELECT COALESCE(SUM(s.so_value_cr), 0) FROM opportunity_sales_orders s WHERE s.opportunity_id = o.id)::float8 AS so_sum_cr,
              (SELECT string_agg(s.so_number, ', ' ORDER BY s.so_date, s.id) FROM opportunity_sales_orders s WHERE s.opportunity_id = o.id) AS so_numbers,
              o.po_number, o.lost_to_competitor, o.lost_reason, o.drop_reason, o.quotation_link,
+             o.eta_text,
              (SELECT count(*) FROM opportunity_quotation_files qf WHERE qf.opportunity_id = o.id)::int AS doc_count,
              -- Age from the stage's own reference date. opportunity_stage_log is
              -- empty today (migration 0042 created it after years of swallowed
@@ -120,6 +123,10 @@ export default async function StageDashboardPage({ params, searchParams }: {
     n, totalCr, avgCr, clients, avgAge, oldest, ageBuckets, stale, staleCr,
     inHandCr, soCr, withSo, moved, avgMove, totalRevs, trend, group, unrecorded,
   } = A;
+  // Forward-looking twin of the ageing buckets: when the rep says each quote
+  // lands. Only the Quoted page draws it, but it is cheap and it keeps the
+  // Quoted branch below free of maths.
+  const C = summariseClosure(rows, todayMonthIdx());
 
   // ── Paging ───────────────────────────────────────────────────
   const page  = Math.max(1, parseInt(typeof sp.page === 'string' ? sp.page : '1', 10) || 1);
@@ -217,6 +224,58 @@ export default async function StageDashboardPage({ params, searchParams }: {
             </div>
 
             {/* Charts */}
+            {stage === 'Quoted' ? (
+              // Eight panels, two rows of four. Top row is about time — how long
+              // each quote has been out, and when the rep says it lands, by month
+              // and by quarter, and who is saying so at all. Bottom row is the mix.
+              <div className={CHART_GRID_4}>
+                <ChartPanel
+                  title="Quote ageing"
+                  sub={stale.length ? `${stale.length} over 60 days` : 'all fresh'}
+                  note="Days since the quotation went out. Anything past 60 days needs a call.">
+                  <AgeingBars buckets={ageBuckets} />
+                </ChartPanel>
+                <ChartPanel
+                  title="Closing by month"
+                  sub={`${C.dated} of ${n} dated · ${fmtCr(C.datedCr)}`}
+                  note={[
+                    'Target closure month as set on the card; bars by value.',
+                    C.undated
+                      ? `${C.undated} quote${C.undated === 1 ? '' : 's'} (${fmtCr(C.undatedCr)}) carry none and sit in No date.`
+                      : 'Every quote carries one.',
+                    C.overdue ? `${C.overdue} past ${C.overdue === 1 ? 'its' : 'their'} month and still open: re-date or decide.` : '',
+                  ].filter(Boolean).join(' ')}>
+                  <ClosureBars buckets={C.months} />
+                </ChartPanel>
+                <ChartPanel
+                  title="Closing by quarter"
+                  sub={`this quarter ${fmtCr(C.quarters[1]?.value ?? 0)} · next ${fmtCr(C.quarters[2]?.value ?? 0)}`}
+                  note="Financial year April to March. Overdue is any target month already past, the same line as the month view, so the current quarter shows only what is still ahead in it.">
+                  <ClosureBars buckets={C.quarters} />
+                </ChartPanel>
+                <ChartPanel
+                  title="Target date set"
+                  sub={`${n ? Math.round((C.dated / n) * 100) : 0}% of quotes · ${totalCr ? Math.round((C.datedCr / totalCr) * 100) : 0}% of value`}
+                  note="Share of each rep's open quotes with a target month. A quote without one is invisible to the two charts on the left and to the sales projection on the Executive Review.">
+                  <CoverageList rows={C.byRep} />
+                </ChartPanel>
+
+                <ChartPanel title="Product mix"><BarList rows={group(r => r.product_type)} /></ChartPanel>
+                <ChartPanel title="Domestic vs Export">
+                  <StackedBar parts={(() => {
+                    const g = group(r => r.market);
+                    const pick = (l: string) => g.find(x => x.label === l)?.value ?? 0;
+                    return [
+                      { label: 'Domestic', value: pick('DOMESTIC'), color: '#0A3D8F', sub: `${g.find(x => x.label === 'DOMESTIC')?.count ?? 0} opps` },
+                      { label: 'Export',   value: pick('EXPORT'),   color: '#c69347', sub: `${g.find(x => x.label === 'EXPORT')?.count ?? 0} opps` },
+                      { label: 'Unrecorded', value: pick('Unrecorded'), color: 'var(--fg-3)' },
+                    ];
+                  })()} />
+                </ChartPanel>
+                <ChartPanel title="By rep" sub="tour owner"><BarList rows={group(r => r.rep_name, 8)} /></ChartPanel>
+                <ChartPanel title="Top clients"><BarList rows={group(r => r.client_name, 8)} /></ChartPanel>
+              </div>
+            ) : (
             <div style={CHART_GRID}>
               {stage === 'Won' ? (
                 <>
@@ -265,33 +324,18 @@ export default async function StageDashboardPage({ params, searchParams }: {
                 </>
               ) : (
                 <>
-                  <ChartPanel
-                    title={stage === 'Quoted' ? 'Quote ageing' : 'Ageing'}
-                    sub={stale.length ? `${stale.length} over 60 days` : 'all fresh'}
-                    note={stage === 'Quoted' ? 'Days since the quotation went out. Anything past 60 days needs a call.' : undefined}>
+                  <ChartPanel title="Ageing" sub={stale.length ? `${stale.length} over 60 days` : 'all fresh'}>
                     <AgeingBars buckets={ageBuckets} />
                   </ChartPanel>
                   <ChartPanel title="Product mix"><BarList rows={group(r => r.product_type)} /></ChartPanel>
-                  {stage === 'Quoted' && (
-                    <ChartPanel title="Domestic vs Export">
-                      <StackedBar parts={(() => {
-                        const g = group(r => r.market);
-                        const pick = (l: string) => g.find(x => x.label === l)?.value ?? 0;
-                        return [
-                          { label: 'Domestic', value: pick('DOMESTIC'), color: '#0A3D8F', sub: `${g.find(x => x.label === 'DOMESTIC')?.count ?? 0} opps` },
-                          { label: 'Export',   value: pick('EXPORT'),   color: '#c69347', sub: `${g.find(x => x.label === 'EXPORT')?.count ?? 0} opps` },
-                          { label: 'Unrecorded', value: pick('Unrecorded'), color: 'var(--fg-3)' },
-                        ];
-                      })()} />
-                    </ChartPanel>
-                  )}
                   <ChartPanel title="By rep" sub="tour owner"><BarList rows={group(r => r.rep_name, 8)} /></ChartPanel>
-                  {(stage === 'Prospect' || stage === 'Quoted') && (
+                  {stage === 'Prospect' && (
                     <ChartPanel title="Top clients"><BarList rows={group(r => r.client_name, 8)} /></ChartPanel>
                   )}
                 </>
               )}
             </div>
+            )}
 
             {/* The list */}
             <div style={PANEL}>

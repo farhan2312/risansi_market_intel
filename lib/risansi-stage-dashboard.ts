@@ -205,6 +205,122 @@ export interface StageRow {
 
 export interface Slice { label: string; count: number; value: number }
 
+// ── Target closure ─────────────────────────────────────────────
+// Quote ageing looks back: how long has this been out. These look forward: when
+// does the rep say it lands. Same rows, same value, the other direction.
+//
+// opportunities.eta_text is free text of the shape "Oct 2026". It is parsed the
+// way risansi-sales-projection parses it in SQL — month by its first three
+// letters, year as the digits — so a card the Executive Review counts in October
+// is counted in October here too, and one that neither can read is "No date"
+// in both rather than silently dropped.
+
+export interface ClosureRow { value_cr: number; eta_text: string | null; rep_name: string | null }
+
+/** Month tone, so a bar can say what kind of month it is without a legend. */
+export type ClosureTone = 'overdue' | 'now' | 'ahead' | 'later' | 'none';
+export interface ClosureSlice extends Slice { tone: ClosureTone }
+
+export interface RepCoverage { label: string; dated: number; total: number; datedCr: number; totalCr: number }
+
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+const MONTH_LABEL = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "Oct 2026" → months since year 0 (2026*12 + 9), or null when unreadable. */
+export function parseEtaMonth(eta: string | null | undefined): number | null {
+  if (!eta) return null;
+  const t = eta.trim().toLowerCase();
+  const m = MONTHS.indexOf(t.slice(0, 3));
+  const y = Number((t.match(/\d{4}/) ?? [])[0]);
+  if (m < 0 || !Number.isInteger(y) || y < 2000) return null;
+  return y * 12 + m;
+}
+
+const monthLabel = (idx: number) => `${MONTH_LABEL[idx % 12]} ${String(Math.floor(idx / 12)).slice(2)}`;
+
+/** Indian financial year, April to March: 2026-10 is Q3 FY27. */
+export function fyQuarter(idx: number): { key: number; label: string } {
+  const y = Math.floor(idx / 12), m = idx % 12;          // m: 0 = Jan
+  const fyEnd = m >= 3 ? y + 1 : y;                       // Apr..Dec → next year's FY
+  const q = m >= 3 ? Math.floor((m - 3) / 3) + 1 : 4;     // Apr–Jun Q1 … Jan–Mar Q4
+  return { key: fyEnd * 4 + q, label: `Q${q} FY${String(fyEnd).slice(2)}` };
+}
+
+/**
+ * Buckets a stage's rows by target closure month and by FY quarter, and says
+ * who is setting the date at all.
+ *
+ * `todayIdx` is the current month as a month index; passed in rather than read
+ * from the clock so the maths can be checked against fixed rows. Overdue is any
+ * target month strictly before it — the same line in both the month and the
+ * quarter view, so the current quarter shows only what is still ahead in it and
+ * the two panels never disagree about what is late.
+ */
+export function summariseClosure(rows: ClosureRow[], todayIdx: number, monthsAhead = 6, quartersAhead = 4) {
+  const parsed = rows.map(r => ({ r, idx: parseEtaMonth(r.eta_text) }));
+  const dated = parsed.filter(p => p.idx != null) as { r: ClosureRow; idx: number }[];
+  const undated = parsed.filter(p => p.idx == null).map(p => p.r);
+  const sum = (xs: ClosureRow[]) => xs.reduce((s, r) => s + r.value_cr, 0);
+  const slice = (label: string, xs: ClosureRow[], tone: ClosureTone): ClosureSlice =>
+    ({ label, count: xs.length, value: sum(xs), tone });
+
+  const overdue = dated.filter(p => p.idx < todayIdx).map(p => p.r);
+
+  const months: ClosureSlice[] = [
+    slice('Overdue', overdue, 'overdue'),
+    ...Array.from({ length: monthsAhead }, (_, i) => {
+      const idx = todayIdx + i;
+      return slice(monthLabel(idx), dated.filter(p => p.idx === idx).map(p => p.r), i === 0 ? 'now' : 'ahead');
+    }),
+    slice('Later', dated.filter(p => p.idx >= todayIdx + monthsAhead).map(p => p.r), 'later'),
+    slice('No date', undated, 'none'),
+  ];
+
+  const thisQ = fyQuarter(todayIdx).key;
+  const quarters: ClosureSlice[] = [
+    slice('Overdue', overdue, 'overdue'),
+    ...Array.from({ length: quartersAhead }, (_, i) => {
+      const key = thisQ + i;
+      // Label from any month in that quarter: walk forward from today to find one.
+      let probe = todayIdx; while (fyQuarter(probe).key < key) probe++;
+      return slice(
+        fyQuarter(probe).label,
+        dated.filter(p => p.idx >= todayIdx && fyQuarter(p.idx).key === key).map(p => p.r),
+        i === 0 ? 'now' : 'ahead',
+      );
+    }),
+    slice('Later', dated.filter(p => p.idx >= todayIdx && fyQuarter(p.idx).key >= thisQ + quartersAhead).map(p => p.r), 'later'),
+    slice('No date', undated, 'none'),
+  ];
+
+  // Who sets the date. Sorted by book size, because the rep with 70 undated
+  // quotes matters more than the one with 3, whatever their percentages say.
+  const byRep = (() => {
+    const m = new Map<string, RepCoverage>();
+    for (const p of parsed) {
+      const k = (p.r.rep_name ?? '').trim() || '—';
+      const cur = m.get(k) ?? { label: k, dated: 0, total: 0, datedCr: 0, totalCr: 0 };
+      cur.total++; cur.totalCr += p.r.value_cr;
+      if (p.idx != null) { cur.dated++; cur.datedCr += p.r.value_cr; }
+      m.set(k, cur);
+    }
+    return [...m.values()].sort((a, b) => b.total - a.total || a.label.localeCompare(b.label));
+  })();
+
+  return {
+    dated: dated.length, datedCr: sum(dated.map(p => p.r)),
+    undated: undated.length, undatedCr: sum(undated),
+    overdue: overdue.length, overdueCr: sum(overdue),
+    months, quarters, byRep,
+  };
+}
+
+/** The current month as a month index, on the Indian clock — Vercel runs on UTC and 05:00 IST on the 1st is still last month there. */
+export function todayMonthIdx(now = Date.now()): number {
+  const d = new Date(now + 5.5 * 3600e3);
+  return d.getUTCFullYear() * 12 + d.getUTCMonth();
+}
+
 /** Won value with no Sales Order against it uses final_value_cr when set, else value_cr. */
 export const wonBase = (r: Pick<StageRow, 'final_cr' | 'value_cr'>) =>
   (r.final_cr != null ? Number(r.final_cr) : r.value_cr);

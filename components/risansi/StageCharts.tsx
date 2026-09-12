@@ -12,7 +12,7 @@
 // "nobody recorded it".
 
 import type { CSSProperties, ReactNode } from 'react';
-import { CHART_COLORS } from '@/lib/risansi-stage-dashboard';
+import { CHART_COLORS, type ClosureSlice, type ClosureTone, type RepCoverage } from '@/lib/risansi-stage-dashboard';
 
 export interface Slice { label: string; count: number; value: number }
 
@@ -117,6 +117,103 @@ export function AgeingBars({ buckets, warnFrom = 2, height = 130 }: {
             }} />
             <span style={{ fontSize: 10, color: 'var(--fg-3)' }}>{b.label}</span>
             <span style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>{fmtCrShort(b.value)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Target-closure columns ─────────────────────────────────────
+// The forward-looking twin of AgeingBars. Sized by VALUE, not count, because
+// "when does the money land" is the question; the count sits on top so a month
+// made of one big quote and a month made of forty small ones read differently.
+// Each column carries its own tone — late, this month, ahead, later, undated —
+// so the chart needs no legend.
+
+const TONE: Record<ClosureTone, string> = {
+  overdue: 'var(--neg)',
+  now:     'var(--accent)',
+  ahead:   'var(--accent)',
+  later:   'color-mix(in oklab, var(--accent) 55%, var(--fg-3))',
+  none:    'var(--fg-3)',
+};
+
+export function ClosureBars({ buckets, height = 110 }: { buckets: ClosureSlice[]; height?: number }) {
+  // The undated pile is drawn as a strip underneath, not as a column: at 588 of
+  // 704 quotes it is four times the biggest month, and as a column it flattened
+  // every month into a sliver. The strip keeps it visible and keeps the months
+  // legible; the two together still account for every row.
+  const dated   = buckets.filter(b => b.tone !== 'none');
+  const undated = buckets.find(b => b.tone === 'none');
+  const datedCr = dated.reduce((s, b) => s + b.value, 0);
+  const datedN  = dated.reduce((s, b) => s + b.count, 0);
+  const max = Math.max(...dated.map(b => b.value), 0.0001);
+  return (
+    <div>
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: height + 44 }}>
+      {dated.map(b => {
+        const h   = Math.max((b.value / max) * height, b.count > 0 ? 3 : 0);
+        const hue = TONE[b.tone];
+        const strong = b.tone === 'now' || b.tone === 'overdue';
+        return (
+          <div key={b.label} title={`${b.label} — ${b.count} quote${b.count === 1 ? '' : 's'} · ${fmtCrShort(b.value)}`}
+            style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, fontFamily: 'var(--font-mono)', color: b.count ? 'var(--fg)' : 'var(--fg-4)' }}>{b.count}</span>
+            <div style={{
+              width: '100%', height: h,
+              background: `color-mix(in oklab, ${hue} ${strong ? 30 : 20}%, transparent)`,
+              borderTop: `3px solid ${hue}`, borderRadius: '3px 3px 0 0',
+            }} />
+            <span style={{ fontSize: 10, color: strong ? 'var(--fg-2)' : 'var(--fg-3)', fontWeight: strong ? 600 : 400, whiteSpace: 'nowrap' }}>{b.label}</span>
+            <span style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
+              {b.count ? fmtCrShort(b.value) : '—'}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+    {undated && (undated.count > 0 || datedN > 0) && (
+      <div style={{ marginTop: 12 }}>
+        <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', background: 'var(--bg-sunk)' }}>
+          <div style={{ width: `${(datedCr / Math.max(datedCr + undated.value, 0.0001)) * 100}%`, background: 'var(--accent)' }} />
+          <div style={{ flex: 1, background: 'color-mix(in oklab, var(--fg-3) 45%, transparent)' }} />
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5, fontSize: 10.5, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
+          <span><span style={{ color: 'var(--fg-2)', fontWeight: 600 }}>{datedN}</span> dated · {fmtCrShort(datedCr)}</span>
+          <span><span style={{ color: 'var(--fg-2)', fontWeight: 600 }}>{undated.count}</span> no date · {fmtCrShort(undated.value)}</span>
+        </div>
+      </div>
+    )}
+    </div>
+  );
+}
+
+// ── Coverage list ──────────────────────────────────────────────
+// How much of each person's book carries a target month. A filled fraction of
+// a bar rather than a bar length, because the question is "what share", and
+// the absolute numbers ride alongside so 3 of 3 and 26 of 85 are not confused.
+
+export function CoverageList({ rows, limit = 8 }: { rows: RepCoverage[]; limit?: number }) {
+  if (!rows.length) return <NoData msg="Nothing to show for this stage yet." />;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+      {rows.slice(0, limit).map(r => {
+        const pct = r.total ? (r.dated / r.total) * 100 : 0;
+        const hue = pct >= 60 ? 'var(--pos)' : pct >= 25 ? 'var(--accent)' : 'var(--neg)';
+        return (
+          <div key={r.label} style={{ display: 'flex', alignItems: 'center', gap: 9 }}
+            title={`${r.label}: ${r.dated} of ${r.total} quotes have a target month · ${fmtCrShort(r.datedCr)} of ${fmtCrShort(r.totalCr)}`}>
+            <span style={{ width: 118, flexShrink: 0, fontSize: 11, color: 'var(--fg-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.label}</span>
+            <div style={{ flex: 1, height: 16, background: 'var(--bg-sunk)', borderRadius: 4, overflow: 'hidden', minWidth: 40, position: 'relative' }}>
+              <div style={{ height: '100%', width: `${Math.max(pct, r.dated ? 1.5 : 0)}%`, background: `color-mix(in oklab, ${hue} 24%, transparent)`, borderLeft: r.dated ? `3px solid ${hue}` : 'none' }} />
+            </div>
+            <span style={{ width: 54, flexShrink: 0, textAlign: 'right', fontSize: 10.5, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
+              {r.dated}/{r.total}
+            </span>
+            <span style={{ width: 74, flexShrink: 0, textAlign: 'right', fontSize: 11, fontWeight: 600, color: 'var(--fg)', fontFamily: 'var(--font-mono)' }}>
+              {r.dated ? fmtCrShort(r.datedCr) : '—'}
+            </span>
           </div>
         );
       })}
@@ -259,3 +356,9 @@ export function StageKpi({ label, value, sub, color, alert }: {
 export const CHART_GRID: CSSProperties = {
   display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: 12, marginBottom: 14,
 };
+
+// Two rows of four, for the Quoted page, which has eight panels: the top row
+// about time (how old, when it lands), the bottom about mix (what, where, who).
+// A class rather than inline style because it collapses to two columns and
+// then one as the window narrows, and inline styles cannot carry a media query.
+export const CHART_GRID_4 = 'stage-grid-4';
