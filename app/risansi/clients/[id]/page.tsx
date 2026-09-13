@@ -23,8 +23,7 @@ import { EditContactButton } from '@/components/risansi/EditContactButton';
 import { BackButton } from '@/components/risansi/BackButton';
 import { MobileTabs } from '@/components/risansi/MobileTabs';
 import { ClientComplaints } from '@/components/risansi/ClientComplaints';
-import { type ComplaintRow } from '@/components/risansi/ComplaintDetail';
-import { type UserOpt } from '@/components/risansi/ComplaintFormModal';
+import { loadComplaintRows, type ComplaintListRow } from '@/lib/risansi-complaint-rows';
 import { isEpcOem } from '@/lib/risansi-client-types';
 import { ClientPumps, type PumpRow } from '@/components/risansi/ClientPumps';
 import { ClientComments, type CommentRow } from '@/components/risansi/ClientComments';
@@ -226,7 +225,7 @@ export default async function ClientProfilePage({
 
   // ── Fetch supporting data in parallel ─────────────────────
 
-  const [contacts, revRows, clientRevByFY, comp, visits, allOpps, activityLog, reps, complaints, complaintUsers, clientPumps, clientComments, clientActions] = await Promise.all([
+  const [contacts, revRows, clientRevByFY, comp, visits, allOpps, activityLog, reps, complaints, , clientPumps, clientComments, clientActions] = await Promise.all([
 
     // 2. Contacts — single source of truth
     q<Contact[]>(async () => {
@@ -407,32 +406,12 @@ export default async function ClientProfilePage({
       return rows;
     }, []),
 
-    // 9. Complaints for this client (the page is already client-access gated)
-    q<ComplaintRow[]>(async () => {
-      const { rows } = await risansiPool.query<ComplaintRow>(`
-        SELECT cm.id, cm.complaint_no, cm.legacy_ref, cm.client_id, cm.client_code,
-          cl.legal_name AS client_name, cm.channel, cm.complaint_date::text AS complaint_date,
-          cm.details, cm.part_name, cm.quantity, cm.pump_model,
-          cm.invoice_no, cm.invoice_date::text AS invoice_date,
-          cm.client_po_no, cm.client_po_date::text AS client_po_date,
-          cm.priority, cm.status, cm.due_date::text AS due_date,
-          cm.assigned_to_user, au.name AS assigned_name, cm.assigned_to_external,
-          cm.reported_by_raw, ru.name AS reported_name, cm.root_cause, cm.resolution, cm.created_by,
-          cm.created_at::text AS created_at, cm.updated_at::text AS updated_at
-        FROM complaints cm
-        LEFT JOIN clients cl ON cl.id = cm.client_id
-        LEFT JOIN users au ON au.id = cm.assigned_to_user
-        LEFT JOIN users ru ON ru.id = cm.reported_by_user
-        WHERE cm.client_id = $1
-        ORDER BY CASE cm.status WHEN 'Open' THEN 0 WHEN 'In Progress' THEN 1 WHEN 'Awaiting Client' THEN 2 WHEN 'Resolved' THEN 3 ELSE 4 END,
-          COALESCE(cm.complaint_date, cm.created_at::date) DESC, cm.id DESC`,
-        [client.id]);
-      return rows;
-    }, []),
+    // 9. Complaints for this client — every one, with who holds it now, from
+    //    the same loader as the Complaints page (the page is client-access gated)
+    q<ComplaintListRow[]>(() => loadComplaintRows(currentUser, { clientId: Number(client.id) }), []),
 
-    // 10. Users to escalate complaints to (any internal user)
-    q<UserOpt[]>(async () => (await risansiPool.query<UserOpt>(
-      `SELECT id::int AS id, name, role FROM users WHERE is_active = TRUE ORDER BY name`)).rows, []),
+    // 10. (was: users to escalate complaints to — the module owns that now)
+    Promise.resolve(null),
 
     // 11. RIL pump detail for this client (only the report fields)
     q<PumpRow[]>(async () => (await risansiPool.query<PumpRow>(`
@@ -908,11 +887,7 @@ export default async function ClientProfilePage({
             <ClientPumps pumps={clientPumps} installedRil={rilPumpsTotal} clientName={String(client.legal_name)} clientId={Number(client.id)} />
 
             {/* Complaints */}
-            <ClientComplaints
-              complaints={complaints} users={complaintUsers}
-              me={{ id: currentUser.id, email: currentUser.email, role: currentUser.role }}
-              clientId={Number(client.id)} clientName={String(client.legal_name)}
-            />
+            <ClientComplaints complaints={complaints} clientId={Number(client.id)} />
 
             {/* EPC / OEM account profile — captured on the visit Client Type page */}
             {isEpcOem(client.client_type) && (

@@ -452,13 +452,21 @@ export async function whyCannotVisitClient(repId: number, clientId: number): Pro
  */
 export async function canAccessComplaint(user: CurrentUser, complaintId: number): Promise<boolean> {
   if (hasRole(user.role, 'admin')) return true;
+  // The module's staff, and anyone in a complaint department, see every
+  // complaint — the workflow hands one record between them (matches
+  // complaintVisibilitySql, which returns null for the same people).
+  if (isStaff(user.role) || user.departments.length > 0) return true;
   const uid = intOrNull(user.id);
-  const { rows } = await risansiPool.query<{ client_id: number | null; assigned_to_user: number | null; created_by: string | null }>(
-    'SELECT client_id, assigned_to_user, created_by FROM complaints WHERE id = $1', [complaintId],
+  const { rows } = await risansiPool.query<{
+    client_id: number | null; assigned_to_user: number | null; created_by: string | null;
+    investigation_assigned_to: number | null; action_assigned_to: number | null; returnable_owner: number | null; reported_by_user: number | null;
+  }>(
+    `SELECT client_id, assigned_to_user, created_by, investigation_assigned_to, action_assigned_to, returnable_owner, reported_by_user
+       FROM complaints WHERE id = $1`, [complaintId],
   );
   const r = rows[0];
   if (!r) return false;
-  if (uid != null && r.assigned_to_user === uid) return true;
+  if (uid != null && [r.assigned_to_user, r.investigation_assigned_to, r.action_assigned_to, r.returnable_owner, r.reported_by_user].includes(uid)) return true;
   if (user.email && r.created_by && r.created_by.toLowerCase() === user.email.toLowerCase()) return true;
   if (r.client_id != null) return canViewClient(user, r.client_id);
   return false;
@@ -469,8 +477,9 @@ export function complaintVisibilitySql(user: CurrentUser, alias = 'cm'): string 
   if (hasRole(user.role, 'admin')) return null;
   // The module staff exist to work. Every complaint, because the workflow hands
   // one record between departments and a stores clerk cannot be shown only the
-  // complaints they happen to be named on before they are named on them.
-  if (isStaff(user.role)) return null;
+  // complaints they happen to be named on before they are named on them. The
+  // same for a rep or manager who also sits in a complaint department.
+  if (isStaff(user.role) || user.departments.length > 0) return null;
   const uid = intOrNull(user.id);
   if (uid == null) return 'FALSE';
   const email = (user.email ?? '').replace(/'/g, "''").toLowerCase();
@@ -480,6 +489,10 @@ export function complaintVisibilitySql(user: CurrentUser, alias = 'cm'): string 
   // happened to share a route with it.
   return `(
     ${alias}.assigned_to_user = ${uid}
+    OR ${alias}.investigation_assigned_to = ${uid}
+    OR ${alias}.action_assigned_to = ${uid}
+    OR ${alias}.returnable_owner = ${uid}
+    OR ${alias}.reported_by_user = ${uid}
     OR lower(${alias}.created_by) = '${email}'
     OR ${clientRuleSql(uid, `${alias}.client_id`)}
   )`;

@@ -1,58 +1,65 @@
+import type { CSSProperties } from 'react';
+import Link from 'next/link';
 import { Topbar } from '@/components/risansi';
-import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, complaintVisibilitySql, clientVisibilitySql } from '@/lib/risansi-auth';
-import { ComplaintsClient } from '@/components/risansi/ComplaintsClient';
-import { type ComplaintRow } from '@/components/risansi/ComplaintDetail';
-import { type ClientOpt, type UserOpt } from '@/components/risansi/ComplaintFormModal';
+import { getCurrentUser } from '@/lib/risansi-auth';
+import { loadComplaintRows, loadHolderDwells, parseComplaintFilters, FILTER_KEYS } from '@/lib/risansi-complaint-rows';
+import { summariseComplaints } from '@/lib/risansi-complaint-stats';
+import { ComplaintStats } from '@/components/risansi/complaints/ComplaintStats';
+import { ComplaintFilterBar, type FilterOptions } from '@/components/risansi/complaints/ComplaintFilterBar';
+import { ComplaintTable } from '@/components/risansi/complaints/ComplaintTable';
 
 export const dynamic = 'force-dynamic';
 
-async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
-  try { return await fn(); } catch (err) { console.error('[complaints]', err); return fallback; }
-}
+// Complaints: the numbers, then the list.
+//
+// The URL is the state. Filters, a clicked bar on the dashboard and the export
+// all read the same search params through parseComplaintFilters, so what is on
+// screen is what comes down as a sheet. Rows are the viewer's — a rep sees
+// their clients' complaints, the module's departments see all.
 
-export default async function ComplaintsPage() {
+export default async function ComplaintsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const sp = await searchParams;
   const me = await getCurrentUser();
-  const vis = complaintVisibilitySql(me, 'cm');
-  const cVis = clientVisibilitySql(me, 'c');
+  const filters = parseComplaintFilters(sp);
+  const value: Record<string, string | undefined> = {};
+  for (const k of FILTER_KEYS) value[k] = filters[k];
 
-  const [complaints, users, clients] = await Promise.all([
-    q<ComplaintRow[]>(async () => {
-      const { rows } = await risansiPool.query<ComplaintRow>(`
-        SELECT cm.id, cm.complaint_no, cm.legacy_ref, cm.client_id, cm.client_code,
-          cl.legal_name AS client_name, cm.channel, cm.complaint_date::text AS complaint_date,
-          cm.details, cm.part_name, cm.quantity, cm.pump_model,
-          cm.invoice_no, cm.invoice_date::text AS invoice_date,
-          cm.client_po_no, cm.client_po_date::text AS client_po_date,
-          cm.priority, cm.status, cm.due_date::text AS due_date,
-          cm.assigned_to_user, au.name AS assigned_name, cm.assigned_to_external,
-          cm.reported_by_raw, ru.name AS reported_name,
-          cm.root_cause, cm.resolution, cm.created_by,
-          cm.created_at::text AS created_at, cm.updated_at::text AS updated_at
-        FROM complaints cm
-        LEFT JOIN clients cl ON cl.id = cm.client_id
-        LEFT JOIN users au ON au.id = cm.assigned_to_user
-        LEFT JOIN users ru ON ru.id = cm.reported_by_user
-        ${vis ? `WHERE ${vis}` : ''}
-        ORDER BY
-          CASE cm.status WHEN 'Open' THEN 0 WHEN 'In Progress' THEN 1 WHEN 'Awaiting Client' THEN 2 WHEN 'Resolved' THEN 3 ELSE 4 END,
-          COALESCE(cm.complaint_date, cm.created_at::date) DESC, cm.id DESC
-      `);
-      return rows;
-    }, []),
-
-    q<UserOpt[]>(async () => (await risansiPool.query<UserOpt>(
-      `SELECT id::int AS id, name, role FROM users WHERE is_active = TRUE ORDER BY name`)).rows, []),
-
-    q<ClientOpt[]>(async () => (await risansiPool.query<ClientOpt>(`
-      SELECT c.id::int AS id, c.code, c.legal_name AS name
-        FROM clients c
-       WHERE c.deleted_at IS NULL AND c.status = 'ACTIVE'
-       ${cVis ? `AND (${cVis})` : ''}
-       ORDER BY c.legal_name ASC`)).rows, []),
+  const [rows, dwells, allRows] = await Promise.all([
+    loadComplaintRows(me, { filters }),
+    loadHolderDwells(me),
+    // The unfiltered set, for the filter options — so a value is still offered after another filter hides it.
+    Object.keys(filters).length ? loadComplaintRows(me) : null,
   ]);
+  const base = allRows ?? rows;
+  const s = summariseComplaints(rows, dwells.filter(d => rows.some(r => r.id === d.complaint_id)));
 
-  const active = complaints.filter(c => c.status !== 'Closed').length;
+  const uniq = (xs: (string | null)[]) => [...new Set(xs.filter((x): x is string => !!x))].sort();
+  const people = (pairs: [number | null, string | null][]) => {
+    const m = new Map<number, string>();
+    for (const [id, name] of pairs) if (id != null && name) m.set(id, name);
+    return [...m].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  };
+  const options: FilterOptions = {
+    types: uniq(base.map(r => r.complaint_type)),
+    categories: uniq(base.map(r => r.defect_category)),
+    responsibles: uniq(base.map(r => r.responsible_department)),
+    reps: people(base.map(r => [r.rep_user_id, r.rep_name])),
+    holders: people(base.map(r => [r.holder_user_id, r.holder_name])),
+  };
+
+  const href = (key: string, v: string) => {
+    const next = { ...value, [key]: value[key] === v ? undefined : v };
+    const usp = new URLSearchParams();
+    for (const [k, x] of Object.entries(next)) if (x) usp.set(k, x);
+    const q = usp.toString();
+    return q ? `/risansi/complaints?${q}` : '/risansi/complaints';
+  };
+  const exportHref = (() => {
+    const usp = new URLSearchParams();
+    for (const [k, x] of Object.entries(value)) if (x) usp.set(k, x);
+    const q = usp.toString();
+    return `/api/risansi/complaints/export${q ? `?${q}` : ''}`;
+  })();
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -60,17 +67,28 @@ export default async function ComplaintsPage() {
         <Topbar crumbs={['Risansi', 'Complaints']} />
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>Complaints</div>
-          <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>
-            {complaints.length} total · {active} active
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, marginBottom: 16, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>Complaints</div>
+            <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>
+              {rows.length} shown · {s.open} open · {s.overdue} overdue{Object.keys(filters).length ? ` · ${Object.keys(filters).length} filter${Object.keys(filters).length === 1 ? '' : 's'} on` : ''}
+            </div>
+          </div>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+            <a href={exportHref} style={GHOST} title="The table below, as it is filtered, as a sheet">⤓ Export this table</a>
+            <Link href="/risansi/complaints/new" style={PRIMARY}>⚠ Raise a complaint</Link>
           </div>
         </div>
-        <ComplaintsClient
-          complaints={complaints} users={users} clients={clients}
-          me={{ id: me.id, email: me.email, role: me.role }} canCreate
-        />
+
+        <ComplaintStats s={s} href={href} sel={value} />
+
+        <ComplaintFilterBar value={value} options={options} basePath="/risansi/complaints" />
+
+        <ComplaintTable rows={rows} />
       </div>
     </div>
   );
 }
+
+const PRIMARY: CSSProperties = { display: 'inline-block', padding: '8px 14px', fontSize: 12.5, fontWeight: 600, borderRadius: 6, background: 'var(--neg)', color: '#fff', textDecoration: 'none' };
+const GHOST: CSSProperties = { display: 'inline-block', padding: '8px 14px', fontSize: 12.5, fontWeight: 600, borderRadius: 6, border: '1px solid var(--line-strong)', background: 'var(--bg-paper)', color: 'var(--fg)', textDecoration: 'none' };

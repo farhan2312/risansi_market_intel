@@ -50,3 +50,4 @@ Risansi-Pipeline-*.xlsx
 # app/api/risansi/reports/ — the route built locally, was never committed, and
 # 404ed in production.
 /reports/
+public/_preview/
