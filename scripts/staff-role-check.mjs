@@ -36,13 +36,13 @@ const check = (label, got, want) => {
   console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${label.padEnd(58)} ${got}`);
 };
 
-const staff = { id: 99, email: 's@risansi.com', role: 'staff', departments: ['Quality'] };
+const staff = { id: 99, email: 's@risansi.com', role: 'staff', departments: ['QC'] };
 const rep   = { id: 5,  email: 'r@risansi.com', role: 'rep', departments: [] };
 const admin = { id: 1,  email: 'a@risansi.com', role: 'admin', departments: [] };
 
 // The two shapes that broke the single-column model.
-const storesAndDispatch = { id: 98, email: 'sd@risansi.com', role: 'staff', departments: ['Stores', 'Dispatch'] };
-const repWhoDispatches  = { id: 97, email: 'rd@risansi.com', role: 'rep',   departments: ['Dispatch'] };
+const storesAndDispatch = { id: 98, email: 'sd@risansi.com', role: 'staff', departments: ['Billing Team', 'Quotation Team'] };
+const repWhoDispatches  = { id: 97, email: 'rd@risansi.com', role: 'rep',   departments: ['Complaint Team'] };
 
 console.log('The ladder — staff must satisfy no rung:');
 for (const r of ['rep', 'manager', 'admin', 'sysadmin']) {
@@ -72,22 +72,22 @@ check('clientVisibilitySql(rep) still narrowed',
   A.clientVisibilitySql(rep) !== null && A.clientVisibilitySql(rep) !== 'FALSE', true);
 
 console.log('\nDepartments:');
-check("isDepartment('Quality')", A.isDepartment('Quality'), true);
+check("isDepartment('QC')", A.isDepartment('QC'), true);
 check("isDepartment('quality') — case matters, the CHECK is exact", A.isDepartment('quality'), false);
 check("isDepartment('Marketing')", A.isDepartment('Marketing'), false);
 check('DEPARTMENTS count', A.DEPARTMENTS.length, 7);
 
 console.log('\n  one person, two departments:');
-check('holds Stores', A.hasDepartment(storesAndDispatch, 'Stores'), true);
-check('holds Dispatch', A.hasDepartment(storesAndDispatch, 'Dispatch'), true);
-check('does not hold Quality', A.hasDepartment(storesAndDispatch, 'Quality'), false);
+check('holds Billing Team', A.hasDepartment(storesAndDispatch, 'Billing Team'), true);
+check('holds Quotation Team', A.hasDepartment(storesAndDispatch, 'Quotation Team'), true);
+check('does not hold QC', A.hasDepartment(storesAndDispatch, 'QC'), false);
 check('passes a stage owned by Stores OR Accounts',
-  A.hasAnyDepartment(storesAndDispatch, ['Stores', 'Accounts']), true);
+  A.hasAnyDepartment(storesAndDispatch, ['Billing Team', 'Purchase']), true);
 check('fails a stage owned by Quality OR Purchase',
-  A.hasAnyDepartment(storesAndDispatch, ['Quality', 'Purchase']), false);
+  A.hasAnyDepartment(storesAndDispatch, ['QC', 'Purchase']), false);
 
 console.log('\n  a rep who also handles dispatch keeps everything a rep has:');
-check('holds Dispatch', A.hasDepartment(repWhoDispatches, 'Dispatch'), true);
+check('holds Complaint Team', A.hasDepartment(repWhoDispatches, 'Complaint Team'), true);
 check('hasRole rep — unchanged by the department', A.hasRole(repWhoDispatches.role, 'rep'), true);
 check('is NOT staff', A.isStaff(repWhoDispatches.role), false);
 check('records still scoped, not refused',
@@ -140,7 +140,7 @@ const client = await pool.connect();
 const { rows: [someone] } = await client.query('SELECT id FROM users LIMIT 1');
 await client.query('BEGIN');
 await client.query(
-  `INSERT INTO user_departments (user_id, department) VALUES ($1,'Stores'),($1,'Dispatch')`,
+  `INSERT INTO user_departments (user_id, department) VALUES ($1,'Billing Team'),($1,'Quotation Team')`,
   [someone.id]);
 const { rows: [held] } = await client.query(
   `SELECT count(*)::int n FROM user_departments WHERE user_id = $1`, [someone.id]);

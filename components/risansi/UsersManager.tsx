@@ -27,7 +27,8 @@ export interface UserRow {
 // bottom of the ladder, it is off it. A staff user reaches Client 360 and
 // Complaints and nothing else, whatever their department.
 const ROLES = ['staff', 'rep', 'manager', 'admin', 'sysadmin'];
-const DEPARTMENTS = ['Quality', 'Service', 'Production', 'Stores', 'Accounts', 'Purchase', 'Dispatch'];
+// The same list as lib/risansi-auth DEPARTMENTS, which is what the server accepts.
+const DEPARTMENTS = ['Complaint Team', 'QC', 'Quotation Team', 'Billing Team', 'Purchase'];
 
 // Account + access management for every user. Lives on /admin (sysadmin only).
 // Ownership and teams are handled separately on Reps & Managers.

@@ -6,12 +6,13 @@ import risansiPool from '@/lib/db-risansi';
 
 export type RisansiRole = 'staff' | 'rep' | 'manager' | 'admin' | 'sysadmin';
 
-/** The functions a person can work in. Flat: none of these outranks another,
- *  and a person holds ZERO OR MORE of them — Stores and Dispatch are one job
- *  in several places here. Independent of `role`: a rep who also handles
- *  dispatch keeps every bit of their rep access and gains a complaint stage. */
+/** The complaint-module functions a person can work in, as the specification
+ *  names them (migration 0075). Flat: none of these outranks another, and a
+ *  person holds ZERO OR MORE of them. Independent of `role`: a rep who also
+ *  sits on the Complaint Team keeps every bit of their rep access and gains the
+ *  complaint pages that team owns. */
 export const DEPARTMENTS = [
-  'Quality', 'Service', 'Production', 'Stores', 'Accounts', 'Purchase', 'Dispatch',
+  'Complaint Team', 'QC', 'Quotation Team', 'Billing Team', 'Purchase',
 ] as const;
 export type Department = typeof DEPARTMENTS[number];
 export const isDepartment = (v: unknown): v is Department =>
