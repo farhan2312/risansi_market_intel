@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 import { recordAudit } from '@/lib/audit';
+import { orphanSql } from '@/lib/risansi-auth';
 
 // Rep ownership: who owns a client, who covers it, and who manages whom.
 //
@@ -54,34 +55,59 @@ export async function setPrimaryRep(clientId: number, repId: number | null): Pro
       [clientId, repId]);
     if (!r.rowCount) return { ok: false, error: 'That client no longer exists, or has been archived.' };
 
-    // Opportunities with no rep belong to whoever now owns the client. They
-    // exist because migration 0073 took the house account off 372 of them and
-    // ten sat on clients nobody owned; those read "Unassigned" until this
-    // moment. Nothing that already has a rep is touched — the in-flight rule
-    // lets a rep finish what they started on a client that moved.
-    let picked = 0;
+    // Open work on the client follows its owner. Decided 13 Sep, after the
+    // Blocked rule: an open opportunity or visit whose rep has no relation to
+    // the client — no rep at all (migration 0073), or a stranger to it
+    // (orphanSql) — moves to the new owner, who is the person the board's Rep
+    // filter and Client 360 already credit with it. A covering rep, or a
+    // manager of the owner, is not a stranger and keeps their record. Closed
+    // work is history and is not touched.
+    let opps = 0, visits = 0;
     if (repId != null) {
-      const moved = await risansiPool.query<{ id: number; label: string }>(
+      const stray = (repCol: string) => `(${repCol} IS NULL OR ${orphanSql(repCol, 'c')})`;
+      const movedOpps = await risansiPool.query<{ id: number; label: string; from_rep: number | null }>(
         `UPDATE opportunities o SET rep_id = $2, updated_at = NOW()
-          WHERE o.client_id = $1 AND o.rep_id IS NULL
-          RETURNING o.id, COALESCE(o.quote_ref, o.product) AS label`,
+           FROM clients c
+          WHERE c.id = $1 AND o.client_id = c.id
+            AND o.stage IN ('Suspect', 'Prospect', 'Quoted', 'Negotiating', 'On Hold')
+            AND ${stray('o.rep_id')}
+          RETURNING o.id, COALESCE(o.quote_ref, o.product) AS label, o.rep_id AS from_rep`,
         [clientId, repId]);
-      picked = moved.rowCount ?? 0;
-      for (const m of moved.rows) {
+      opps = movedOpps.rowCount ?? 0;
+      for (const m of movedOpps.rows) {
         await recordAudit({
           action: 'reassign', entityType: 'opportunity', entityId: m.id, entityLabel: m.label,
-          summary: "Unassigned opportunity given to the client's new owner",
+          summary: "Open opportunity moved to the client's new owner",
+          metadata: { to_rep_id: repId, client_id: clientId },
+          actorEmail: me.email,
+        });
+      }
+      const movedVisits = await risansiPool.query<{ id: number; visit_date: string }>(
+        `UPDATE visits v SET rep_id = $2, updated_at = NOW()
+           FROM clients c
+          WHERE c.id = $1 AND v.client_id = c.id
+            AND v.status <> 'completed' AND v.submitted_at IS NULL
+            AND ${stray('v.rep_id')}
+          RETURNING v.id, v.visit_date::text AS visit_date`,
+        [clientId, repId]);
+      visits = movedVisits.rowCount ?? 0;
+      for (const m of movedVisits.rows) {
+        await recordAudit({
+          action: 'reassign', entityType: 'visit', entityId: m.id, entityLabel: m.visit_date,
+          summary: "Open visit moved to the client's new owner",
           metadata: { to_rep_id: repId, client_id: clientId },
           actorEmail: me.email,
         });
       }
     }
     touch();
+    const moved = [
+      opps ? `${opps} open opportunit${opps === 1 ? 'y' : 'ies'}` : '',
+      visits ? `${visits} open visit${visits === 1 ? '' : 's'}` : '',
+    ].filter(Boolean).join(' and ');
     return {
       ok: true,
-      message: repId == null ? 'Owner cleared.'
-        : picked ? `Owner set. ${picked} unassigned opportunit${picked === 1 ? 'y' : 'ies'} moved to them.`
-        : 'Owner set.',
+      message: repId == null ? 'Owner cleared.' : moved ? `Owner set. ${moved} moved to them.` : 'Owner set.',
     };
   } catch (e) { return fail(e); }
 }
