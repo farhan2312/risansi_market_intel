@@ -751,15 +751,18 @@ export default async function FieldActivityPage({
   // Week-grid rows: the roster when we have it, else the reps seen in visits.
   const weekReps = calReps.length ? calReps : derivedReps;
 
+  // A tab link carries EVERYTHING in the current URL and changes only the tab.
+  // It used to copy seven named filters and drop the rest — the feed's date
+  // range, the reports' search and purpose, the week the calendar was on — so
+  // a range set on Visit Reports was gone after a look at the Calendar. Each
+  // tab's own parameters are already namespaced (ffrom/fto, rfrom/rto, week,
+  // month), so carrying all of them is safe; nothing here is a filter that
+  // means something different on another tab.
   function tabHref(t: string, extra?: Record<string, string>) {
-    const p = new URLSearchParams({ tab: t, ...extra });
-    if (filters.zones.length)      p.set('zone',     filters.zones.join(','));
-    if (filters.tours.length)      p.set('tour',     filters.tours.join(','));
-    if (filters.reps.length)       p.set('rep',      filters.reps.join(','));
-    if (filters.managers.length)   p.set('manager',  filters.managers.join(','));
-    if (filters.statuses.length)   p.set('cstatus',  filters.statuses.join(','));
-    if (filters.industries.length) p.set('industry', filters.industries.join(','));
-    if (filters.vstatus.length)    p.set('vstatus',  filters.vstatus.join(','));
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(sp)) if (typeof v === 'string' && v) p.set(k, v);
+    p.set('tab', t);
+    for (const [k, v] of Object.entries(extra ?? {})) p.set(k, v);
     return `/risansi/field?${p.toString()}`;
   }
 

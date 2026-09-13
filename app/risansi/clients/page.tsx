@@ -377,22 +377,16 @@ export default async function ClientListPage({
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
+  // Every link this page builds — tab, sort, page — starts from EVERYTHING in
+  // the current URL and changes only what it is asked to. It used to rebuild
+  // the URL from a list of known filters, and the list was behind the filters:
+  // Country was added to the bar and not to the list, so choosing a country and
+  // then switching tab, or turning a page, quietly dropped it. A filter added
+  // tomorrow cannot be forgotten here again.
   function buildUrl(overrides: Record<string, string | number | undefined>): string {
     const base: Record<string, string> = {};
-    if (tab !== 'all')      base.tab      = tab;
-    if (q_str)              base.q        = q_str;
-    if (indFilts.length)    base.industry = indFilts.join(',');
-    if (zoneFilts.length)   base.zone     = zoneFilts.join(',');
-    if (tierFilts.length)   base.tier     = tierFilts.join(',');
-    if (ctypeFilts.length)  base.ctype    = ctypeFilts.join(',');
-    if (statFilts.length)   base.status   = statFilts.join(',');
-    if (repFilts.length)    base.rep      = repFilts.join(',');
-    if (fyFilts.length)     base.fy       = fyFilts.join(',');
-    if (revFilts.length)    base.rev      = revFilts.join(',');
-    if (visitFilts.length)  base.visit    = visitFilts.join(',');
-    if (sugarFilt)          base.sugar    = sugarFilt;
-    if (sortKey)            base.sort     = sortKey;
-    if (orderDir === 'DESC') base.order   = 'desc';
+    for (const [k, v] of Object.entries(sp)) if (typeof v === 'string' && v) base[k] = v;
+    if (tab === 'all') delete base.tab;
     base.page = String(pageNum);
     const merged = { ...base, ...Object.fromEntries(
       Object.entries(overrides).map(([k, v]) => [k, v == null ? undefined : String(v)])
