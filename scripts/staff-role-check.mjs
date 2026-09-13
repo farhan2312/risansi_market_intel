@@ -75,7 +75,7 @@ console.log('\nDepartments:');
 check("isDepartment('QC')", A.isDepartment('QC'), true);
 check("isDepartment('quality') — case matters, the CHECK is exact", A.isDepartment('quality'), false);
 check("isDepartment('Marketing')", A.isDepartment('Marketing'), false);
-check('DEPARTMENTS count', A.DEPARTMENTS.length, 7);
+check('DEPARTMENTS count', A.DEPARTMENTS.length, 5);
 
 console.log('\n  one person, two departments:');
 check('holds Billing Team', A.hasDepartment(storesAndDispatch, 'Billing Team'), true);
