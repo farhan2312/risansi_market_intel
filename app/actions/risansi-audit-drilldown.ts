@@ -12,6 +12,7 @@
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser } from '@/lib/risansi-auth';
 import { clauses, type OverallFilters } from '@/lib/risansi-audit-overall';
+import { LIVE_CLIENT } from '@/lib/risansi-opportunity-scope';
 
 export type DrillKind =
   | 'accounts' | 'active' | 'never' | 'dormant'
@@ -189,6 +190,7 @@ export async function auditDrilldown(
               FROM opportunities o LEFT JOIN clients c ON c.id = o.client_id
              WHERE o.stage IN ('Quoted','Negotiating')
                AND COALESCE(o.quote_date, o.created_at::date) < CURRENT_DATE - 60
+               AND ${LIVE_CLIENT('o')}
              ORDER BY COALESCE(o.quote_date, o.created_at::date) LIMIT ${LIMIT + 1}`,
     },
   };

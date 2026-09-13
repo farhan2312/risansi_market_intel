@@ -14,6 +14,7 @@
 // the working day would appear to start before dawn.
 
 import type { Pool } from 'pg';
+import { LIVE_CLIENT } from '@/lib/risansi-opportunity-scope';
 
 export const IST = `AT TIME ZONE 'Asia/Kolkata'`;
 
@@ -270,7 +271,8 @@ export async function loadOverall(pool: Pool, f: OverallFilters): Promise<Overal
              'no visit on record', 'warn'
       UNION ALL SELECT 'Opportunities quoted over 60 days',
              (SELECT count(*) FROM opportunities o WHERE o.stage IN ('Quoted','Negotiating')
-               AND COALESCE(o.quote_date, o.created_at::date) < CURRENT_DATE - 60)::text,
+               AND COALESCE(o.quote_date, o.created_at::date) < CURRENT_DATE - 60
+               AND ${LIVE_CLIENT('o')})::text,
              'still open, no decision', 'warn'`, []),
 
     q<{ from: string | null; to: string | null }[]>(`

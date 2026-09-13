@@ -42,7 +42,8 @@ export function execScopeSql(
   if (!tsmId) return 'FALSE';
   const owns = `c.primary_rep_id = ${tsmId}`;
   const covers = `c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = ${tsmId})`;
-  return `((${accountScope === 'all' ? `${owns} OR ${covers}` : owns})${visAnd})`;
+  // c.deleted_at IS NULL: an archived client's figures leave the review with it.
+  return `((${accountScope === 'all' ? `${owns} OR ${covers}` : owns}) AND c.deleted_at IS NULL${visAnd})`;
 }
 
 export interface FyWindows {

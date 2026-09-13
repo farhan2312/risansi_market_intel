@@ -6,6 +6,7 @@ import { getGreeting, fmtCr, formatRev, getCurrentFY } from '@/lib/risansi-utils
 import { getCurrentUser, clientVisibilitySql, clientScopeSql , OWN_OPEN } from '@/lib/risansi-auth';
 import { EmptyState } from '@/components/risansi/EmptyState';
 import Link from 'next/link';
+import { AND_LIVE_CLIENT } from '@/lib/risansi-opportunity-scope';
 
 // ── Safe query wrapper ─────────────────────────────────────────
 
@@ -45,7 +46,7 @@ export default async function MobileDayPage() {
   const vVis  = clientScopeSql(currentUser, 'v.client_id', OWN_OPEN.visit('v'));
   const vAnd  = vVis ? ` AND (${vVis})` : '';
   const oVis  = clientScopeSql(currentUser, 'o.client_id', OWN_OPEN.opportunity('o'));
-  const oAnd  = oVis ? ` AND (${oVis})` : '';
+  const oAnd  = (oVis ? ` AND (${oVis})` : '') + AND_LIVE_CLIENT('o');   // archived clients' opps leave with them
 
   // Fiscal year windows (dynamic, April→March).
   const fy        = getCurrentFY();

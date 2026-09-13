@@ -15,6 +15,7 @@ import {
   fyYtdPct, fyDaysLeft, formatIndianDate, formatTime, fmtCr, fmtL,
   getGreeting, formatRev, PLAN_VISIT_LABEL,
 } from '@/lib/risansi-utils';
+import { AND_LIVE_CLIENT } from '@/lib/risansi-opportunity-scope';
 
 // ── Safe query wrapper ─────────────────────────────────────────
 
@@ -100,7 +101,9 @@ export default async function ExecDashboardPage() {
   const cVis = clientVisibilitySql(currentUser, 'c');               // clients aliased c
   const cVisAnd = cVis ? ` AND (${cVis})` : '';
   const oppOwnerVis = clientScopeSql(currentUser, 'o.client_id', OWN_OPEN.opportunity('o'));  // opportunities aliased o
-  const oppOwnerAnd = oppOwnerVis ? ` AND (${oppOwnerVis})` : '';
+  // Plus the archived-client guard: an archived client's opportunities leave
+  // every tile and list with it (lib/risansi-opportunity-scope).
+  const oppOwnerAnd = (oppOwnerVis ? ` AND (${oppOwnerVis})` : '') + AND_LIVE_CLIENT('o');
   const visitOwnerVis = clientScopeSql(currentUser, 'v.client_id', OWN_OPEN.visit('v')); // visits aliased v
   const visitOwnerAnd = visitOwnerVis ? ` AND (${visitOwnerVis})` : '';
 

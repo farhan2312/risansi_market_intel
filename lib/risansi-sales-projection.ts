@@ -14,9 +14,12 @@
 // Nothing here infers a date. Deriving one from the quote date and an average
 // cycle would fill the table, and every figure in it would be invented.
 import type { Pool } from 'pg';
+import { LIVE_CLIENT } from '@/lib/risansi-opportunity-scope';
 
 /** Open = still live. Dropped is dead and has no place in a forecast. */
-const OPEN = `o.stage NOT IN ('Won','Lost','Dropped')`;
+// Open, and on a client that still exists: an archived client's quotes are not
+// expected to close (lib/risansi-opportunity-scope).
+const OPEN = `o.stage NOT IN ('Won','Lost','Dropped') AND ${LIVE_CLIENT('o')}`;
 
 /** The value of an opportunity, in rupees, by the same rule the rest of the app
  *  uses: the quoted offer where there is one, the estimate otherwise. */

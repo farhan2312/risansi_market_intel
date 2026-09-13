@@ -15,6 +15,7 @@ import { TextSearchFilter } from '@/components/risansi/TextSearchFilter';
 import { DateRangeFilter } from '@/components/risansi/DateRangeFilter';
 import { ForecastBar } from '@/components/risansi/ForecastBar';
 import { oppFilterQuery } from '@/lib/risansi-opp-filters';
+import { LIVE_CLIENT, AND_LIVE_CLIENT } from '@/lib/risansi-opportunity-scope';
 import {
   bracketLink, soCoverageSql, isSoCoverage, SO_COVERAGE_LABELS,
 } from '@/lib/risansi-pipeline-brackets';
@@ -234,11 +235,16 @@ export default async function PipelinePage({
   // Appended as raw text (integers inlined, no params) so $-indices are unchanged.
   const visUser     = await getCurrentUser();
   const ownerVis    = clientScopeSql(visUser, 'o.client_id', OWN_OPEN.opportunity('o'));
-  const ownerVisAnd = ownerVis ? ` AND (${ownerVis})` : '';
+  // Every one of these carries the archived-client guard, because an archived
+  // client's opportunities must leave the board with it. Attached here rather
+  // than to the nine queries below: the visibility fragment is what they all
+  // already share, so a tenth query written tomorrow inherits it.
+  const ownerVisAnd = (ownerVis ? ` AND (${ownerVis})` : '') + AND_LIVE_CLIENT('o');
   const ownerVisPo  = clientScopeSql(visUser, 'po.client_id');
-  const ownerVisPoAnd = ownerVisPo ? ` AND (${ownerVisPo})` : '';
+  const ownerVisPoAnd = (ownerVisPo ? ` AND (${ownerVisPo})` : '') + AND_LIVE_CLIENT('po');
   const ownerVisBare  = clientScopeSql(visUser, 'client_id');
-  const ownerVisBareAnd = ownerVisBare ? ` AND (${ownerVisBare})` : '';
+  const ownerVisBareAnd = (ownerVisBare ? ` AND (${ownerVisBare})` : '')
+    + ` AND ${LIVE_CLIENT('opportunities')}`;
   const ownerVisCId   = clientScopeSql(visUser, 'c.id');
   const ownerVisCIdAnd = ownerVisCId ? ` AND (${ownerVisCId})` : '';
 

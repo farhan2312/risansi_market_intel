@@ -6,6 +6,7 @@ import risansiPool from '@/lib/db-risansi';
 import { clientRepNamesSql } from '@/lib/risansi-client-rep';
 import { getCurrentUser, clientVisibilitySql, clientScopeSql , OWN_OPEN } from '@/lib/risansi-auth';
 import { fmtCr } from '@/lib/risansi-utils';
+import { AND_LIVE_CLIENT } from '@/lib/risansi-opportunity-scope';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
@@ -153,7 +154,7 @@ export default async function CompetePage({
   const vOwnerVis    = clientScopeSql(currentUser, 'v.client_id', OWN_OPEN.visit('v'));
   const vOwnerAnd    = vOwnerVis ? ` AND (${vOwnerVis})` : '';
   const oOwnerVis    = clientScopeSql(currentUser, 'o.client_id', OWN_OPEN.opportunity('o'));
-  const oOwnerAnd    = oOwnerVis ? ` AND (${oOwnerVis})` : '';
+  const oOwnerAnd    = (oOwnerVis ? ` AND (${oOwnerVis})` : '') + AND_LIVE_CLIENT('o');   // archived clients' opps leave with them
   const cVis         = clientVisibilitySql(currentUser, 'c');
   const cVisAnd      = cVis ? ` AND (${cVis})` : '';
 

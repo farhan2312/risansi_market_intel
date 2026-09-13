@@ -353,8 +353,10 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   const tsmId = Number(tsm);
   const ownsF = `c.primary_rep_id = ${tsmId}`;
   const coversF = `c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = ${tsmId})`;
+  // c.deleted_at IS NULL: an archived client's opportunities and revenue leave
+  // the review with it. Same guard as execScopeSql, which the drill-downs use.
   const tourF = tsm
-    ? `((${accountScope === 'all' ? `${ownsF} OR ${coversF}` : ownsF})${visAnd})`
+    ? `((${accountScope === 'all' ? `${ownsF} OR ${coversF}` : ownsF}) AND c.deleted_at IS NULL${visAnd})`
     : 'FALSE';
 
   // Attendance counts visits by rep and never touches `clients`, so tourF can't

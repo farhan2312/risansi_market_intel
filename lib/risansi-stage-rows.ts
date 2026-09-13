@@ -59,7 +59,9 @@ export async function loadStageRows(stage: DashStage, sp: SearchParams): Promise
 
   const visUser = await getCurrentUser();
   const ownerVis = clientScopeSql(visUser, 'o.client_id', OWN_OPEN.opportunity('o'));
-  const where = [`o.stage = $${built.nextIdx}`, ...built.conds, ...(ownerVis ? [ownerVis] : [])].join(' AND ');
+  // c.deleted_at IS NULL: an archived client's opportunities leave the stage
+  // pages and their export with it (lib/risansi-opportunity-scope).
+  const where = [`o.stage = $${built.nextIdx}`, 'c.deleted_at IS NULL', ...built.conds, ...(ownerVis ? [ownerVis] : [])].join(' AND ');
   const vals: (string | number | string[])[] = [...built.vals, stage];
 
   const all = await risansiPool.query<StageDashRow>(`
