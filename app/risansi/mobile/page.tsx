@@ -5,6 +5,7 @@ import risansiPool from '@/lib/db-risansi';
 import { getGreeting, fmtCr, formatRev, getCurrentFY } from '@/lib/risansi-utils';
 import { getCurrentUser, clientVisibilitySql, clientScopeSql , OWN_OPEN } from '@/lib/risansi-auth';
 import { EmptyState } from '@/components/risansi/EmptyState';
+import { EditVisitButton } from '@/components/risansi/EditVisitButton';
 import Link from 'next/link';
 import { AND_LIVE_CLIENT } from '@/lib/risansi-opportunity-scope';
 
@@ -17,6 +18,7 @@ async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
 interface TodayVisit {
   id: string; client_name: string; code: string; industry: string | null;
   purpose: string | null; status: string;
+  visit_date: string; rep_id: string | null; rep_name: string | null; submitted: boolean;
 }
 interface OverdueClient { id: string; code: string; legal_name: string; days_since: number | null; }
 interface Task { id: string; title: string; due_date: string | null; priority: string | null; client_name: string | null; }
@@ -103,8 +105,10 @@ export default async function MobileDayPage() {
 
     // Today's visits list
     q<TodayVisit[]>(async () => (await risansiPool.query<TodayVisit>(
-      `SELECT v.id, c.legal_name AS client_name, c.code, c.industry, v.purpose, v.status
-       FROM visits v JOIN clients c ON c.id = v.client_id
+      `SELECT v.id, c.legal_name AS client_name, c.code, c.industry, v.purpose, v.status,
+              v.visit_date::text AS visit_date, v.rep_id::text AS rep_id, u.name AS rep_name,
+              (v.submitted_at IS NOT NULL) AS submitted
+       FROM visits v JOIN clients c ON c.id = v.client_id LEFT JOIN users u ON u.id = v.rep_id
        WHERE v.visit_date = CURRENT_DATE${vAnd}
        ORDER BY v.created_at`)).rows, []),
 
@@ -164,7 +168,16 @@ export default async function MobileDayPage() {
       ) : (
         <div style={{ padding: '8px 16px 0', display: 'flex', flexDirection: 'column', gap: 8 }}>
           {todayVisits.map(v => (
-            <Link key={v.id} href={`/risansi/visits/${v.id}`} style={{ textDecoration: 'none' }}>
+            // The pencil sits beside the link, not inside it: a modal inside an
+            // anchor lets any click in it fire the link (see EditVisitButton).
+            <div key={v.id} style={{ position: 'relative' }}>
+              {v.status !== 'completed' && !v.submitted && (
+                <div style={{ position: 'absolute', top: 10, right: 12, zIndex: 1 }}>
+                  <EditVisitButton role={role} compact
+                    visit={{ id: v.id, visit_date: v.visit_date, purpose: v.purpose || 'Routine', client_name: v.client_name, rep_id: v.rep_id ?? '', rep_name: v.rep_name ?? '' }} />
+                </div>
+              )}
+            <Link href={`/risansi/visits/${v.id}`} style={{ textDecoration: 'none' }}>
               <div style={{ background: STATUS_BG[v.status] ?? 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 10, padding: '12px 14px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -178,12 +191,14 @@ export default async function MobileDayPage() {
                     flexShrink: 0, fontSize: 11, fontWeight: 500, color: STATUS_COLOR[v.status] ?? 'var(--fg-3)',
                     textTransform: 'capitalize', padding: '3px 8px', background: 'var(--bg-paper)',
                     border: `1px solid ${STATUS_COLOR[v.status] ?? 'var(--line)'}`, borderRadius: 20,
+                    marginRight: v.status !== 'completed' && !v.submitted ? 30 : 0,
                   }}>
                     {v.status.replace('-', ' ')}
                   </div>
                 </div>
               </div>
             </Link>
+            </div>
           ))}
         </div>
       )}
