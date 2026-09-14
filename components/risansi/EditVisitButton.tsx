@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, type CSSProperties, type MouseEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { updateVisitPlan, deleteVisitPlan } from '@/app/actions/risansi';
 
@@ -87,7 +88,13 @@ export function EditVisitButton({ visit, role, compact = false }: {
         </svg>
       </button>
 
-      {open && (
+      {/* Portalled to <body>: in the Visit Feed this button sits inside the
+          card's <Link>, and a modal rendered in place is inside that anchor
+          too. Save and Cancel preventDefault, but a click on the date field
+          or a dropdown did not — so the link fired and the page went to the
+          visit before anything was saved. Reps edit from the feed; that is
+          why they could not save. Outside the anchor, nothing to fire. */}
+      {open && typeof document !== 'undefined' && createPortal(
         <div onClick={stop} style={OVERLAY}>
           {/* Clicking outside does NOT close: the date picker and the dropdowns
               open past the edge of this box, and a stray click was throwing
@@ -149,7 +156,8 @@ export function EditVisitButton({ visit, role, compact = false }: {
               )}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );
