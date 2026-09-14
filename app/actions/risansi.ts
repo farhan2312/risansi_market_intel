@@ -47,6 +47,43 @@ function quotedItemHasData(it: object): boolean {
   return FIELDS.some(f => String(row[f] ?? '').trim() !== '');
 }
 
+interface QuotedItemInput { pump_model?: unknown; pump_qty?: unknown; pump_speed?: unknown; geared_motor_detail?: unknown; motor_price?: unknown; gearbox_vbelt_price?: unknown; offer_value_inr?: unknown; detailed_specifications?: unknown; }
+const itemStr = (v: unknown) => { const t = String(v ?? '').trim(); return t ? t : null; };
+const itemNum = (v: unknown) => { const f = parseFloat(String(v ?? '').replace(/[^0-9.\-]/g, '')); return Number.isFinite(f) ? f : null; };
+const itemInt = (v: unknown) => { const p = parseInt(String(v ?? '').replace(/[^0-9\-]/g, ''), 10); return Number.isFinite(p) ? p : null; };
+
+/** The rows in a form's items_json, blanks dropped; null when the form carried no such field. */
+function parseItemsJson(raw: FormDataEntryValue | null): QuotedItemInput[] | null {
+  if (raw === null) return null;
+  try {
+    const parsed = JSON.parse(String(raw) || '[]');
+    return Array.isArray(parsed) ? (parsed as QuotedItemInput[]).filter(quotedItemHasData) : [];
+  } catch { return []; }
+}
+
+/**
+ * Replace an opportunity's quoted line items. Shared by saveQuotedDetails and
+ * updateOpportunity — the move form and the edit drawer both went through the
+ * latter from 26 Aug, which wrote none of this, so the items typed into a move
+ * to Quoted were never stored (and Market and Total Offer with them).
+ */
+async function replaceQuotedItems(oppId: number, items: QuotedItemInput[]): Promise<void> {
+  await risansiPool.query('DELETE FROM opportunity_items WHERE opportunity_id = $1', [oppId]);
+  let so = 0;
+  for (const it of items) {
+    await risansiPool.query(
+      `INSERT INTO opportunity_items (opportunity_id, sort_order, pump_model, pump_qty, pump_speed,
+         geared_motor_detail, motor_price, gearbox_vbelt_price, offer_value_inr, detailed_specifications)
+       -- Ten columns, ten placeholders. It read $11 for seven weeks, which made
+       -- every save of a quotation that had any quoted items fail outright.
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [oppId, so++, itemStr(it.pump_model), itemInt(it.pump_qty), itemStr(it.pump_speed),
+       itemStr(it.geared_motor_detail), itemNum(it.motor_price), itemNum(it.gearbox_vbelt_price),
+       itemNum(it.offer_value_inr), itemStr(it.detailed_specifications)],
+    );
+  }
+}
+
 /**
  * Replace an opportunity's revised-offer history with `rows`, and re-point the
  * two legacy mirror columns at the newest revision.
@@ -1319,14 +1356,8 @@ export async function saveQuotedDetails(oppId: number, formData: FormData): Prom
   const n = (k: string) => parseMoneyInput(formData.get(k));   // comma-safe: see lib/risansi-money
   const i = (k: string) => { const v = formData.get(k) as string | null; const p = v ? parseInt(v, 10) : NaN; return Number.isFinite(p) ? p : null; };
   // Item helpers (values arrive inside items_json).
-  const iStr = (v: unknown) => { const t = String(v ?? '').trim(); return t ? t : null; };
-  const iNum = (v: unknown) => { const f = parseFloat(String(v ?? '').replace(/[^0-9.\-]/g, '')); return Number.isFinite(f) ? f : null; };
-  const iInt = (v: unknown) => { const p = parseInt(String(v ?? '').replace(/[^0-9\-]/g, ''), 10); return Number.isFinite(p) ? p : null; };
-
-  interface ItemInput { pump_model?: unknown; pump_qty?: unknown; pump_speed?: unknown; geared_motor_detail?: unknown; motor_price?: unknown; gearbox_vbelt_price?: unknown; offer_value_inr?: unknown; detailed_specifications?: unknown; }
-  let items: ItemInput[] = [];
-  try { const parsed = JSON.parse((formData.get('items_json') as string) || '[]'); if (Array.isArray(parsed)) items = parsed; } catch { /* ignore */ }
-  items = items.filter(quotedItemHasData);
+  const iStr = itemStr, iNum = itemNum, iInt = itemInt;
+  const items = parseItemsJson(formData.get('items_json')) ?? [];
 
   const itemsSum = items.reduce((a, it) => a + (iNum(it.offer_value_inr) ?? 0), 0);
   const offerInr = n('offer_value_inr') ?? (itemsSum || null);
@@ -1391,20 +1422,7 @@ export async function saveQuotedDetails(oppId: number, formData: FormData): Prom
   }
 
   // Replace the opportunity's quoted items.
-  await risansiPool.query('DELETE FROM opportunity_items WHERE opportunity_id = $1', [oppId]);
-  let so = 0;
-  for (const it of items) {
-    await risansiPool.query(
-      `INSERT INTO opportunity_items (opportunity_id, sort_order, pump_model, pump_qty, pump_speed,
-         geared_motor_detail, motor_price, gearbox_vbelt_price, offer_value_inr, detailed_specifications)
-       -- Ten columns, ten placeholders. It read $11 for seven weeks, which made
-       -- every save of a quotation that had any quoted items fail outright.
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-      [oppId, so++, iStr(it.pump_model), iInt(it.pump_qty), iStr(it.pump_speed),
-       iStr(it.geared_motor_detail), iNum(it.motor_price), iNum(it.gearbox_vbelt_price),
-       iNum(it.offer_value_inr), iStr(it.detailed_specifications)],
-    );
-  }
+  await replaceQuotedItems(oppId, items);
 
   try {
     await risansiPool.query(
@@ -1534,7 +1552,15 @@ export async function updateOpportunity(oppId: number, formData: FormData): Prom
   // Opportunity already falls back this way; without the same fallback here, a
   // Prospect moved to Quoted kept value_cr = NULL and showed ₹0 on the board
   // while carrying a real offer.
-  const offerForValue = parseMoneyInput(formData.get('offer_value_inr')) ?? NaN;
+  // The line items, when the form carries them (the move to Quoted and the
+  // edit drawer do; the Won/Lost modal does not). A blank Total Offer falls
+  // back to their sum, as saveQuotedDetails and createPipelineOpportunity do.
+  const items = parseItemsJson(formData.get('items_json'));
+  const itemsSum = (items ?? []).reduce((a, it) => a + (itemNum(it.offer_value_inr) ?? 0), 0);
+  const offerTyped = parseMoneyInput(formData.get('offer_value_inr'));
+  const offerForValue = offerTyped ?? (itemsSum || NaN);
+  const revParsed = parseOfferRevisionsJson(formData.get('offer_revisions_json'));
+  if (formData.get('offer_revisions_json') !== null && revParsed.error) return fail(revParsed.error);
   // Probability is entered as the RIL code (1–4); the numeric % is derived from
   // it. When the form omits the field entirely (e.g. OppCompletionModal marking
   // Won), both are left untouched — see the preserve guard below.
@@ -1592,6 +1618,17 @@ export async function updateOpportunity(oppId: number, formData: FormData): Prom
     suspect_reason:       (formData.get('suspect_reason') as string | null) || null,
     hold_reason:          (formData.get('hold_reason') as string | null) || null,
     po_date:              (formData.get('po_date') as string | null) || null,
+    // The quotation's own columns. These were only ever written by
+    // saveQuotedDetails, which no form has called since the stage-move form
+    // replaced the Quoted modal — so Market and Total Offer typed into a move
+    // to Quoted "saved" and were gone on reopening. Same guard as the rest:
+    // a form that does not carry the field leaves the stored value alone.
+    market:               (formData.get('market') as string | null) || null,
+    enquiry_no:           (formData.get('enquiry_no') as string | null)?.trim() || null,
+    enquiry_date:         (formData.get('enquiry_date') as string | null) || null,
+    offer_value_inr:      offerForValue > 0 ? offerForValue : null,
+    pump_model:           itemStr(items?.[0]?.pump_model),
+    pump_qty:             itemInt(items?.[0]?.pump_qty),
   };
 
   // Ownership is no longer set from the Edit drawer — it's derived from the
@@ -1615,9 +1652,15 @@ export async function updateOpportunity(oppId: number, formData: FormData): Prom
                    'unit_project','notes','po_number','lost_to_competitor',
                    'lost_to_competitor_other','lost_reason',
                    'opportunity_type','opportunity_source','opportunity_category',
-                   'client_reference','suspect_reason','hold_reason','po_date']) {
+                   'client_reference','suspect_reason','hold_reason','po_date',
+                   'market','enquiry_no','enquiry_date']) {
     if (formData.get(k) === null) delete candidates[k];
   }
+  // A Total Offer is required at every quote stage, so a blank one is never a
+  // request to clear it: only a typed amount or a line-item sum writes it.
+  if (!(offerForValue > 0)) delete candidates.offer_value_inr;
+  // pump_model / pump_qty mirror the first line item; only a form with items decides them.
+  if (items === null) { delete candidates.pump_model; delete candidates.pump_qty; }
   // value_cr / final_value_cr are derived from rupee inputs; guard on the source.
   // Leave value_cr alone only when NEITHER source was submitted.
   if (formData.get('value_inr') === null && formData.get('offer_value_inr') === null) {
@@ -1656,6 +1699,9 @@ export async function updateOpportunity(oppId: number, formData: FormData): Prom
   } else {
     await risansiPool.query(updateSql, [...vals, oppId]);
   }
+
+  if (items !== null) await replaceQuotedItems(oppId, items);
+  if (formData.get('offer_revisions_json') !== null) await syncOfferRevisions(oppId, revParsed.rows, user.email ?? null);
 
   await logActivity('opportunity', String(oppId), `updated opportunity · ${candidates.stage}`, user.email!);
   revalidatePath('/risansi/pipeline');

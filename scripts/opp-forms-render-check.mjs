@@ -87,5 +87,17 @@ for (const from of ['Prospect', 'Suspect', 'Quoted']) {
   }
 }
 fs.rmSync(tmp, { recursive: true, force: true });
-console.log(bad ? `\n${bad} form(s) throw on render` : '\nevery move form renders');
+
+// Every field the forms ask for must be one updateOpportunity reads. From 26 Aug
+// to 13 Sep the move to Quoted sent Market and Total Offer to an action that
+// never looked at them, so both "saved" and were gone on reopening. A field
+// that is rendered but not read is that bug again.
+const { OPP_FIELDS } = await load('lib/risansi-opportunity-fields.ts');
+const actions = fs.readFileSync(path.join(ROOT, 'app/actions/risansi.ts'), 'utf8');
+const body = actions.slice(actions.indexOf('export async function updateOpportunity('));
+const unread = OPP_FIELDS.map(f => f.name).filter(n => !body.includes(`formData.get('${n}')`));
+for (const n of unread) { bad++; console.log(`  FAIL updateOpportunity never reads '${n}', which a form sends`); }
+if (!unread.length) console.log('  ok   updateOpportunity reads every catalogue field');
+
+console.log(bad ? `\n${bad} problem(s)` : '\nevery move form renders and every field is read');
 process.exit(bad ? 1 : 0);

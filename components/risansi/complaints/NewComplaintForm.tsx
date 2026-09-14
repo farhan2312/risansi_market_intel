@@ -31,10 +31,21 @@ export function NewComplaintForm({ clients, preselect, lookups, users }: {
   const [looking, setLooking] = useState(false);
 
   const set = (name: string, v: unknown) => { setValues(cur => ({ ...cur, [name]: v })); setMsg(null); };
+  // Word-start matching: "des" finds DESAI and AQUA DESIGNS, not anandESHwar.
+  // Every typed word must start a word of the name or the code; names that
+  // begin with the first word come first.
   const shown = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const list = q ? clients.filter(c => c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q)) : clients;
-    return list.slice(0, 80);
+    const words = search.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length) return clients.slice(0, 80);
+    const scored: { c: ClientOpt; rank: number }[] = [];
+    for (const c of clients) {
+      const name = c.name.toLowerCase(), code = c.code.toLowerCase();
+      const hay = `${name} ${code}`;
+      if (!words.every(w => hay.startsWith(w) || hay.includes(` ${w}`) || hay.includes(`(${w}`) || hay.includes(`-${w}`) || hay.includes(`.${w}`) || hay.includes(`/${w}`))) continue;
+      const rank = name.startsWith(words[0]) ? 0 : code.startsWith(words[0]) ? 1 : 2;
+      scored.push({ c, rank });
+    }
+    return scored.sort((a, b) => a.rank - b.rank || a.c.name.localeCompare(b.c.name)).slice(0, 80).map(x => x.c);
   }, [clients, search]);
   const chosen = clients.find(c => c.id === clientId) ?? null;
   const missing = page1.fields.filter(f => f.required && (values[f.name] == null || values[f.name] === '')).map(f => f.label);
@@ -83,7 +94,11 @@ export function NewComplaintForm({ clients, preselect, lookups, users }: {
             </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 320px) 1fr', gap: 12, alignItems: 'start' }}>
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Type a client name or code…" autoFocus style={INPUT} />
+              <div>
+                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Type a client name or code…" autoFocus style={INPUT}
+                  onKeyDown={e => { if (e.key === 'Enter' && shown.length) { e.preventDefault(); setClientId(shown[0].id); } }} />
+                <div style={HINT}>{search.trim() ? `${shown.length}${shown.length === 80 ? '+' : ''} match${shown.length === 1 ? '' : 'es'} — click one, or press Enter for the first.` : 'Matches the start of any word in the name or code.'}</div>
+              </div>
               <select size={Math.min(8, Math.max(3, shown.length))} value={clientId} onChange={e => setClientId(Number(e.target.value))}
                 style={{ ...INPUT, height: 'auto', padding: 4 }}>
                 {shown.map(c => <option key={c.id} value={c.id} style={{ padding: '4px 6px' }}>{c.name} · {c.code}</option>)}
