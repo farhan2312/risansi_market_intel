@@ -348,8 +348,10 @@ export default function AssignVisitDrawer({
 
       {/* Backdrop */}
       {open && (
+        // The backdrop dims, it does not close: a click that strays past the
+        // drawer's edge used to throw away the visit being planned. The x in
+        // the header and Escape close it.
         <div
-          onClick={close}
           style={{
             position: 'fixed', inset: 0, zIndex: 40,
             background: 'rgba(10,22,40,0.35)',
@@ -358,7 +360,7 @@ export default function AssignVisitDrawer({
       )}
 
       {/* Slide-in drawer */}
-      <div className="risansi-drawer" style={{
+      <div className="risansi-drawer" onKeyDown={(e) => { if (e.key === 'Escape') close(); }} style={{
         position: 'fixed', top: 0, right: 0, bottom: 0,
         width: 480, zIndex: 50,
         background: 'var(--bg-paper)', color: 'var(--fg)',

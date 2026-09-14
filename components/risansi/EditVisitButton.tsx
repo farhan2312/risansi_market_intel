@@ -88,11 +88,15 @@ export function EditVisitButton({ visit, role, compact = false }: {
       </button>
 
       {open && (
-        <div onClick={(e) => { stop(e); setOpen(false); }} style={OVERLAY}>
-          {/* Only stop propagation here — do NOT preventDefault, or clicks on the
-              native date picker (which opens on click) get suppressed. */}
-          <div onClick={(e) => e.stopPropagation()} style={MODAL}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--fg)', marginBottom: 2 }}>Edit Visit</div>
+        <div onClick={stop} style={OVERLAY}>
+          {/* Clicking outside does NOT close: the date picker and the dropdowns
+              open past the edge of this box, and a stray click was throwing
+              away half-made edits. Only Cancel, the x and Escape close it.
+              Only stop propagation here — do NOT preventDefault, or clicks on
+              the native date picker (which opens on click) get suppressed. */}
+          <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } }} style={MODAL}>
+            <button type="button" onClick={(e) => { stop(e); setOpen(false); }} aria-label="Close" title="Close (Esc)" style={CLOSE_X}>×</button>
+            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--fg)', marginBottom: 2, paddingRight: 28 }}>Edit Visit</div>
             <div style={{ fontSize: 12, color: 'var(--fg-3)', marginBottom: 16 }}>{visit.client_name}</div>
 
             <label style={LBL}>Visit date</label>
@@ -166,8 +170,13 @@ const OVERLAY: CSSProperties = {
   display: 'grid', placeItems: 'center', zIndex: 1000, padding: 20,
 };
 const MODAL: CSSProperties = {
-  width: '100%', maxWidth: 380, background: 'var(--bg-paper)', borderRadius: 12,
+  position: 'relative', width: '100%', maxWidth: 380, background: 'var(--bg-paper)', borderRadius: 12,
   padding: '20px 22px', boxShadow: '0 24px 60px rgba(0,0,0,0.3)', cursor: 'default',
+};
+const CLOSE_X: CSSProperties = {
+  position: 'absolute', top: 10, right: 10, width: 30, height: 30, borderRadius: 8,
+  border: '1px solid var(--line)', background: 'var(--bg-paper)', color: 'var(--fg-3)',
+  fontSize: 20, lineHeight: 1, cursor: 'pointer', fontFamily: 'inherit',
 };
 const LBL: CSSProperties = {
   display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--fg-2)',
