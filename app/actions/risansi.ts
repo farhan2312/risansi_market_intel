@@ -993,6 +993,9 @@ export async function createOpportunity(clientId: string, formData: FormData) {
 
 export async function updateClientTier(clientId: string, formData: FormData) {
   const user = await requireSession();
+  // Nothing in the interface calls this any more, but a 'use server' export is
+  // still an endpoint. The tier is part of the client record, which admins edit.
+  if (!hasRole(user.role, 'admin')) throw new Error('Only an admin can change a client tier.');
 
   const newTier = (formData.get('tier') as string | null)?.trim() ?? null;
 
