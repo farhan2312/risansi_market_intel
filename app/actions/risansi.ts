@@ -2093,13 +2093,19 @@ export async function checkInNewVisit(data: {
   const viewer = await getCurrentUser();
   if (!(await canViewClient(viewer, Number(clientId)))) return fail('You do not have access to this client.');
 
-  // And the visit must belong to somebody who works the client — the same
-  // rule Plan Visit applies. A rep's own client list is already scoped that
-  // way, so this mostly guards the admin phone and the odd stale page.
-  const repNum = Number(repId);
-  if (!Number.isInteger(repNum) || repNum <= 0) {
-    return fail('Your account is not linked to a rep profile, so it cannot check in. Ask a sysadmin to link it under Users & Access.');
+  // Whose visit it is follows the same rule as Plan Visit: a rep is always
+  // themselves, whatever the page sent; a manager may name themselves or
+  // someone on their team; an admin anyone. The page sends the signed-in
+  // user, so on the phone this is "me" — the rule is for anything else.
+  let repNum: number;
+  try {
+    repNum = await resolveAssignableRepId(user, repId || null);
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : 'Your account is not linked to a rep profile, so it cannot check in. Ask a sysadmin to link it under Users & Access.');
   }
+  // And that person must work the client — owner, covering rep, or their
+  // manager. A rep's own client list is already scoped that way, so this
+  // mostly guards the admin phone and the odd stale page.
   const refusal = await whyCannotVisitClient(repNum, Number(clientId));
   if (refusal) return fail(refusal);
 
