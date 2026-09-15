@@ -796,6 +796,11 @@ export async function submitVisit(visitId: string) {
   if (visit.rep_id == null || submitterRepId == null || Number(visit.rep_id) !== Number(submitterRepId)) {
     throw new Error('Only the assigned rep can submit this visit.');
   }
+  // And the client must be theirs — the same Blocked rule the page applies
+  // when it hides the button. Without this, an orphaned visit could still be
+  // closed by hand, and a closed visit moves the client's last-visit date.
+  const blocked = await whyCannotVisitClient(Number(visit.rep_id), Number(visit.client_id));
+  if (blocked) throw new Error(blocked);
 
   const sugar     = sugarRes.rows[0];
   const dispOpps  = dispRes.rows;
