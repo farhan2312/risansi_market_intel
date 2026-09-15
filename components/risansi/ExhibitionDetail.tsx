@@ -619,10 +619,24 @@ function MeetingsTab({ exhibitionId, meetings, canManage }: {
 
   return (
     <div>
-      {canManage && !adding && !editing && (
-        <button onClick={() => setAdding(true)} style={{ ...BTN_PRIMARY, marginBottom: 14 }}>
-          + Capture meeting
-        </button>
+      {!adding && !editing && (canManage || meetings.length > 0) && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
+          {canManage && (
+            <button onClick={() => setAdding(true)} style={BTN_PRIMARY}>
+              + Capture meeting
+            </button>
+          )}
+          {/* The same workbook as after closure — the meetings and contacts so
+              far, with the rest of the event — so the list can go to somebody
+              mid-show without waiting for the review. */}
+          {meetings.length > 0 && (
+            <a href={`/api/risansi/exhibitions/${exhibitionId}/export`}
+              title="Every meeting and the contact it produced, as a sheet — plus the event, team, expenses and review so far"
+              style={{ padding: '8px 14px', borderRadius: 6, border: '1px solid var(--line-strong)', background: 'var(--bg-paper)', color: 'var(--fg)', fontSize: 13, fontWeight: 500, textDecoration: 'none', whiteSpace: 'nowrap', marginLeft: canManage ? 'auto' : 0 }}>
+              ⤓ Export meetings to Excel
+            </a>
+          )}
+        </div>
       )}
       {(adding || editing) && (
         <MeetingForm
