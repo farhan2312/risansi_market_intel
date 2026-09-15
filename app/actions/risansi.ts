@@ -2163,6 +2163,9 @@ export async function submitOpportunity(formData: FormData) {
   const notes       = (formData.get('notes')         as string | null)?.trim() || null;
 
   if (!clientId) throw new Error('Client ID required');
+  // No screen calls this any more, but a 'use server' export is still an
+  // endpoint: the same client scope as createPipelineOpportunity.
+  if (!(await canViewClient(await getCurrentUser(), Number(clientId)))) throw new Error('You do not have access to this client.');
 
   // Single explicit owner: rep → self; manager → required & within tours;
   // admin → required. (No client-primary fallback.)
@@ -2170,6 +2173,9 @@ export async function submitOpportunity(formData: FormData) {
     user,
     (formData.get('rep_id') as string | null)?.trim() ?? null,
   );
+  // And that person must work the client, as everywhere else.
+  const refusal = await whyCannotVisitClient(repId, Number(clientId));
+  if (refusal) throw new Error(refusal);
 
   // Try full insert into opportunities table (with all spec columns)
   let newId: string | null = null;
