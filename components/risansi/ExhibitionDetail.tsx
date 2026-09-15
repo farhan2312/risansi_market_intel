@@ -115,7 +115,17 @@ export function ExhibitionDetail(props: {
               .filter(Boolean).join('  ·  ') || 'No details recorded yet'}
           </div>
         </div>
-        <ApprovalBar exhibition={ex} canManage={canManage} isApprover={isApprover} readiness={readiness} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {/* Once closed, the whole record as a workbook — the same link as on
+              the review page's closed banner, here so it can be found from any tab. */}
+          {ex.status === 'Closed' && (
+            <a href={`/api/risansi/exhibitions/${ex.id}/export`} title="Everything about this exhibition as a workbook"
+              style={{ padding: '8px 14px', borderRadius: 6, border: '1px solid var(--line-strong)', background: 'var(--bg-paper)', color: 'var(--fg)', fontSize: 13, fontWeight: 500, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+              ⤓ Export to Excel
+            </a>
+          )}
+          <ApprovalBar exhibition={ex} canManage={canManage} isApprover={isApprover} readiness={readiness} />
+        </div>
       </div>
 
       {/* KPIs */}
