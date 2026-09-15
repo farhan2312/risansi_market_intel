@@ -6,6 +6,7 @@ import { getGreeting, fmtCr, formatRev, getCurrentFY } from '@/lib/risansi-utils
 import { getCurrentUser, clientVisibilitySql, clientScopeSql , OWN_OPEN } from '@/lib/risansi-auth';
 import { EmptyState } from '@/components/risansi/EmptyState';
 import { EditVisitButton } from '@/components/risansi/EditVisitButton';
+import { MobilePlanVisit } from '@/components/risansi/MobilePlanVisit';
 import Link from 'next/link';
 import { AND_LIVE_CLIENT } from '@/lib/risansi-opportunity-scope';
 
@@ -202,6 +203,13 @@ export default async function MobileDayPage() {
           ))}
         </div>
       )}
+
+      {/* Plan a visit — the Field Activity drawer, same rules, phone-sized. The
+          drawer fetches the assignable people itself (/api/risansi/reps, scoped
+          by role); the empty list here is only its fallback. */}
+      <div style={{ padding: '12px 16px 0' }}>
+        <MobilePlanVisit reps={[]} role={role} repId={repId} currentUserName={displayName ?? undefined} />
+      </div>
 
       {/* Start new visit CTA */}
       {!todayVisits.some(v => v.status === 'checked-in') && (
