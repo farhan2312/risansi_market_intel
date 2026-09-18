@@ -6,7 +6,8 @@ import { useRouter } from 'next/navigation';
 import { OfferRevisionsList } from './OfferRevisionsField';
 import { useCompetitors } from './useCompetitors';
 import type { OfferRevision } from '@/lib/risansi-offer-revisions';
-import { updateOpportunity, deleteOpportunity } from '@/app/actions/risansi';
+import { updateOpportunity, deleteOpportunity, saveQuotedItems } from '@/app/actions/risansi';
+import { QuoteLineItems, emptyItem, type QuoteItem as LineItem } from './QuoteLineItems';
 import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
 import {
   DROP_REASONS, LOST_COMPETITOR_TAIL, OPP_FIELDS, isFieldVisible,
@@ -126,7 +127,9 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
     f.name === 'drop_reason' ? DROP_REASONS
     : f.name === 'lost_to_competitor' ? [...competitors, ...LOST_COMPETITOR_TAIL]
     : undefined;
-  // Load the quoted items + quote-level attributes for the read view.
+  // Load the quoted items + quote-level attributes for the read view. Bumping
+  // itemsVersion reloads them after an inline edit of the lines.
+  const [itemsVersion, setItemsVersion] = useState(0);
   useEffect(() => {
     let active = true;
     fetch(`/api/risansi/opportunities/${opp.id}/items`)
@@ -134,7 +137,7 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
       .then(d => { if (active) { setQuoteItems(d.items ?? []); setQuoteMeta(d.meta ?? null); setRevisions(Array.isArray(d.revisions) ? d.revisions : []); } })
       .catch(() => {});
     return () => { active = false; };
-  }, [opp.id]);
+  }, [opp.id, itemsVersion]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -436,7 +439,8 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
               </div>
             </div>
 
-            <QuotedItemsSection items={quoteItems} meta={quoteMeta} revisions={revisions} usdRate={usdRate} />
+            <QuotedItemsSection items={quoteItems} meta={quoteMeta} revisions={revisions} usdRate={usdRate}
+              editOppId={Number(opp.id)} onItemsSaved={() => { setItemsVersion(v => v + 1); router.refresh(); }} />
 
             {/* History, below the fields and above the actions — it informs the
                 edit without being part of it. */}
@@ -513,8 +517,36 @@ function DetailGrid({ rows }: { rows: [string, string][] }) {
   );
 }
 
-function QuotedItemsSection({ items, meta, revisions, usdRate }: { items: QItem[]; meta: QMeta | null; revisions: OfferRevision[]; usdRate: number }) {
+function QuotedItemsSection({ items, meta, revisions, usdRate, editOppId, onItemsSaved }: {
+  items: QItem[]; meta: QMeta | null; revisions: OfferRevision[]; usdRate: number;
+  /** When given, the Quoted Items card carries a pencil that opens the lines for editing in place. */
+  editOppId?: number;
+  onItemsSaved?: () => void;
+}) {
   const inr = (v: number | null | undefined) => v != null ? '₹' + Math.round(v).toLocaleString('en-IN') : null;
+  // Inline editing of the techno-commercial lines. Opens pre-filled from what
+  // is on record; Save replaces the lines through saveQuotedItems and the
+  // caller reloads them. Kept out of the main form so a change here does not
+  // wait on, or get lost in, Save Changes above.
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<LineItem[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+  const toDraft = (xs: QItem[]): LineItem[] => xs.length ? xs.map(it => ({
+    pump_model: it.pump_model ?? '', pump_qty: it.pump_qty != null ? String(it.pump_qty) : '', pump_speed: it.pump_speed ?? '',
+    geared_motor_detail: it.geared_motor_detail ?? '', motor_price: it.motor_price != null ? String(it.motor_price) : '',
+    gearbox_vbelt_price: it.gearbox_vbelt_price != null ? String(it.gearbox_vbelt_price) : '',
+    offer_value_inr: it.offer_value_inr != null ? String(it.offer_value_inr) : '', detailed_specifications: it.detailed_specifications ?? '',
+  })) : [emptyItem()];
+  const openEditor = () => { setDraft(toDraft(items)); setErr(''); setEditing(true); };
+  const save = async () => {
+    if (editOppId == null) return;
+    setSaving(true); setErr('');
+    const res = await saveQuotedItems(editOppId, draft);
+    setSaving(false);
+    if (!res.ok) { setErr(res.error); return; }
+    setEditing(false); onItemsSaved?.();
+  };
   const facts: [string, string][] = [];
   if (meta) {
     const add = (l: string, v: unknown) => { const s = v == null ? '' : String(v).trim(); if (s && s !== '—') facts.push([l, s]); };
@@ -526,7 +558,7 @@ function QuotedItemsSection({ items, meta, revisions, usdRate }: { items: QItem[
     // The revised offer used to be two flat facts here. It's a history now —
     // rendered below as a list so every re-price is visible, not just the last.
   }
-  if (!items.length && !facts.length && !revisions.length) return null;
+  if (!items.length && !facts.length && !revisions.length && editOppId == null) return null;
   return (
     <div style={{ marginTop: 4, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
       <div style={{ ...LABEL_STYLE, marginBottom: 8 }}>Quotation Details</div>
@@ -547,9 +579,33 @@ function QuotedItemsSection({ items, meta, revisions, usdRate }: { items: QItem[
         </div>
       )}
       {meta?.quotation_link && <QuotationLinkView value={meta.quotation_link} label="Open quotation" />}
-      {items.length > 0 && (
+      {(items.length > 0 || editOppId != null) && (
         <>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--fg-3)', margin: '12px 0 6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Quoted Items ({items.length})</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0 6px' }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Quoted Items ({items.length})</span>
+            {editOppId != null && !editing && (
+              <button type="button" onClick={openEditor} title={items.length ? 'Edit the techno-commercial details of these lines' : 'Add the quoted lines'}
+                style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 9px', fontSize: 11.5, fontWeight: 600, fontFamily: 'inherit', border: '1px solid var(--line-strong)', borderRadius: 6, background: 'var(--bg-paper)', color: 'var(--fg-2)', cursor: 'pointer' }}>
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round"><path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10z" /><path d="M10.5 3.5l2 2" /></svg>
+                {items.length ? 'Edit items' : 'Add items'}
+              </button>
+            )}
+          </div>
+          {editing ? (
+            <div style={{ border: '1px solid var(--line-strong)', borderRadius: 8, padding: '10px 12px', background: 'var(--bg-paper)' }}>
+              <QuoteLineItems items={draft} onChange={setDraft} />
+              {err && <div style={{ color: 'var(--neg)', fontSize: 12, marginTop: 8 }}>{err}</div>}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 10 }}>
+                <button type="button" onClick={() => setEditing(false)} disabled={saving}
+                  style={{ padding: '7px 12px', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', border: '1px solid var(--line-strong)', borderRadius: 6, background: 'var(--bg-paper)', color: 'var(--fg)', cursor: 'pointer' }}>Cancel</button>
+                <button type="button" onClick={save} disabled={saving}
+                  style={{ padding: '7px 14px', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', border: 'none', borderRadius: 6, background: '#0A3D8F', color: '#fff', cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
+                  {saving ? 'Saving…' : 'Save items'}
+                </button>
+              </div>
+              <div style={{ fontSize: 10.5, color: 'var(--fg-3)', marginTop: 6 }}>Saves the lines on their own — the rest of the form is untouched. A blank Total Offer takes their sum.</div>
+            </div>
+          ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {items.map(it => (
               <div key={it.id} style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '9px 11px', background: 'var(--bg-elev)' }}>
@@ -567,7 +623,9 @@ function QuotedItemsSection({ items, meta, revisions, usdRate }: { items: QItem[
                 {it.detailed_specifications && <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 4, whiteSpace: 'pre-wrap' }}>{it.detailed_specifications}</div>}
               </div>
             ))}
+            {!items.length && <div style={{ fontSize: 11.5, color: 'var(--fg-3)' }}>No quoted lines on record.</div>}
           </div>
+          )}
         </>
       )}
     </div>

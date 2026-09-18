@@ -1721,6 +1721,35 @@ export async function updateOpportunity(oppId: number, formData: FormData): Prom
   return { ok: true };
 }
 
+// ── Quoted items, on their own ─────────────────────────────────
+// The techno-commercial lines of a quotation — model, quantity, speed, geared
+// motor, prices, specification — edited from the drawer's Quoted Items card
+// without re-running the whole opportunity form. Same permission as any edit
+// of the opportunity; a Won or Lost deal stays locked.
+export async function saveQuotedItems(oppId: number, items: unknown): Promise<SaveResult> {
+  const user = await requireSession();
+  const { rows: cur } = await risansiPool.query<{ stage: string; rep_id: number | null; client_id: number | null; offer_value_inr: string | null }>(
+    'SELECT stage, rep_id, client_id, offer_value_inr FROM opportunities WHERE id = $1', [oppId]);
+  if (!cur[0]) return fail('Opportunity not found.');
+  if (!(await userCanEditOpp(user, cur[0].rep_id, cur[0].client_id))) return fail('You do not have permission to edit this opportunity.');
+  if (cur[0].stage === 'Won' || cur[0].stage === 'Lost') return fail(`This opportunity is ${cur[0].stage} and its details are locked.`);
+  const rows = parseItemsJson(typeof items === 'string' ? items : JSON.stringify(items ?? [])) ?? [];
+  await replaceQuotedItems(oppId, rows);
+  // The first line names the pump on the card; a blank Total Offer takes the sum.
+  const sum = rows.reduce((a, it) => a + (itemNum(it.offer_value_inr) ?? 0), 0);
+  await risansiPool.query(
+    `UPDATE opportunities
+        SET pump_model = $2, pump_qty = $3,
+            offer_value_inr = CASE WHEN offer_value_inr IS NULL OR offer_value_inr = 0 THEN NULLIF($4, 0) ELSE offer_value_inr END,
+            value_cr = CASE WHEN (value_cr IS NULL OR value_cr = 0) AND $4 > 0 THEN $4 / 10000000 ELSE value_cr END,
+            updated_at = NOW()
+      WHERE id = $1`,
+    [oppId, itemStr(rows[0]?.pump_model), itemInt(rows[0]?.pump_qty), sum]);
+  await logActivity('opportunity', String(oppId), `quoted items updated · ${rows.length} line${rows.length === 1 ? '' : 's'}`, user.email!);
+  revalidatePath('/risansi/pipeline');
+  return { ok: true };
+}
+
 // ── Sales Orders (against a Won opportunity) ───────────────────
 // SOs fulfil a Won opp over time. They deliberately bypass the Won "edit lock":
 // the deal itself is frozen once Won, but SO progress keeps moving until the SO
