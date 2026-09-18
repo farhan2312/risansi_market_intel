@@ -4,15 +4,16 @@ import { Topbar } from '@/components/risansi';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { getCurrentUser, getReviewableRepIds, clientVisibilitySql, clientScopeSql , OWN_OPEN } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
-import { ExecutiveViews, type ExecData, type Row } from '@/components/risansi/ExecutiveViews';
+import { ExecutiveViews, ExecTabs, type ExecData, type Row, type ExecTab } from '@/components/risansi/ExecutiveViews';
+import { ProjectionFilters } from '@/components/risansi/ProjectionFilters';
 import { ExecutiveSelector, type SelRep } from '@/components/risansi/ExecutiveSelector';
 import { ExecDrilldownProvider } from '@/components/risansi/ExecDrilldown';
 import { SalesProjection } from '@/components/risansi/SalesProjection';
-import { loadProjection } from '@/lib/risansi-sales-projection';
+import { loadProjection, loadProjectionOptions, parseProjectionFilters } from '@/lib/risansi-sales-projection';
 // CANON / CATS / TURN_ORDER live in the lib the drill-down also reads, so the
 // page and its breakdowns cannot classify a client two different ways.
 import { CANON, CATS, TURN_ORDER } from '@/lib/risansi-exec-review';
-import { AccountSelector, ViewSwitch, type NameOpt } from '@/components/risansi/AccountSelector';
+import { AccountSelector, type NameOpt } from '@/components/risansi/AccountSelector';
 import type { CurrentFyView } from '@/components/risansi/AccountReview';
 import { GroupReview, OemReview, type GroupReviewData, type GroupUnit, type OemReviewData } from '@/components/risansi/AccountReview';
 import { CLIENT_STATUS_COLORS } from '@/lib/risansi-client-status';
@@ -39,7 +40,7 @@ const FY_EXPR = (col: string) => `CASE WHEN EXTRACT(MONTH FROM ${col}) >= 4
   ELSE LPAD(((EXTRACT(YEAR FROM ${col})::int - 1) % 100)::text,2,'0')||'-'||LPAD((EXTRACT(YEAR FROM ${col})::int % 100)::text,2,'0') END`;
 
 export default async function ExecutiveReviewPage({ searchParams }: {
-  searchParams: Promise<{ tsm?: string; month?: string; months?: string; view?: string; ctype?: string; name?: string; tview?: string; scope?: string; proj?: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined> & { tsm?: string; month?: string; months?: string; view?: string; tab?: string; ctype?: string; name?: string; tview?: string; scope?: string; proj?: string }>;
 }) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) redirect('/api/auth/signin');
@@ -55,8 +56,26 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   const clientVis = clientVisibilitySql(me, 'c');
   const visAnd = clientVis ? ` AND (${clientVis})` : '';
 
+  // ── Which tab. `view=account` is the older spelling, kept for saved links. ──
+  const tab: ExecTab = sp.tab === 'account' || (sp.tab == null && sp.view === 'account') ? 'account'
+    : sp.tab === 'projection' ? 'projection' : 'tsm';
+  // A tab link keeps the params that mean something on the target tab and
+  // drops the rest, so switching never carries a stale picker across.
+  const KEEP: Record<ExecTab, string[]> = {
+    tsm: ['tsm', 'scope'], account: ['ctype', 'name', 'tview'],
+    projection: ['proj', 'prep', 'pptype', 'pind', 'pctype', 'pstage', 'pprob', 'pmarket', 'pmin'],
+  };
+  const tabHref = (t: ExecTab) => {
+    const q = new URLSearchParams();
+    if (t !== 'tsm') q.set('tab', t);
+    for (const k of KEEP[t]) { const v = sp[k]; if (typeof v === 'string' && v) q.set(k, v); }
+    const qs = q.toString();
+    return `/risansi/executive-review${qs ? `?${qs}` : ''}`;
+  };
+  const tabs = <ExecTabs active={tab} hrefFor={tabHref} />;
+
   // ── Account Review: a group of mills, or a single OEM ──────────
-  if (sp.view === 'account') {
+  if (tab === 'account') {
     // 'group' aggregates the units of a named group. Every other value is one of
     // the CANON buckets and gives a single-client review — which is what the OEM
     // branch always was, just filtered to one type. Traders, Direct Mills and the
@@ -158,6 +177,7 @@ export default async function ExecutiveReviewPage({ searchParams }: {
             </div>
             <AccountSelector ctype={ctype} name={picked} options={options} typeOptions={typeOptions} />
           </div>
+          {tabs}
           {body}
         </div>
       </div>
@@ -371,8 +391,11 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   // Rep-wise expected closures, for the projection section below the review.
   // Never throws the page away: a broken forecast should not take the whole
   // Executive Review with it.
-  const projection = await q(
-    () => loadProjection(risansiPool, fy, allowedRepIds), null);
+  const projFilters = parseProjectionFilters(sp);
+  const [projection, projOptions] = await Promise.all([
+    tab === 'projection' ? q(() => loadProjection(risansiPool, fy, allowedRepIds, projFilters), null) : Promise.resolve(null),
+    tab === 'projection' ? q(() => loadProjectionOptions(risansiPool, allowedRepIds), null) : Promise.resolve(null),
+  ]);
 
   const [clients, turnover, quotation, offers, attendance, kpiRow] = await Promise.all([
     // 1. Clients Summary
@@ -603,34 +626,50 @@ export default async function ExecutiveReviewPage({ searchParams }: {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ position: 'sticky', top: 0, zIndex: 10 }}><Topbar crumbs={['Risansi', 'Executive Review']} /></div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px 40px', background: 'var(--bg)' }}>
-        <ExecDrilldownProvider tsm={tsm} scope={accountScope}>
-        <ExecutiveViews
-          data={data}
-          periodLabel={periodLabel}
-          note={note}
-          selector={<div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-            <ViewSwitch />
-            <ExecutiveSelector reps={reps} tsm={tsm} scope={accountScope} />
-          </div>}
-        />
-        </ExecDrilldownProvider>
-
-        {/* Rep-wise expected closures. Scoped by allowedRepIds — the same list
-            the selector above is built from — so this section can never show a
-            rep the viewer is not allowed to see. */}
-        {projection && (
-          <SalesProjection
-            d={projection}
-            mode={projMode}
-            hrefFor={(m) => {
-              const q = new URLSearchParams();
-              for (const [k, v] of Object.entries(sp)) {
-                if (typeof v === 'string' && v !== '' && k !== 'proj') q.set(k, v);
-              }
-              q.set('proj', m);
-              return `/risansi/executive-review?${q.toString()}`;
-            }}
+        {tab === 'projection' ? (
+          <>
+            <div style={{ marginBottom: 4 }}>
+              <h1 style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)', margin: 0 }}>Executive Review</h1>
+              <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>Sales projection · {periodText}</div>
+            </div>
+            {tabs}
+            {/* Rep-wise expected closures. Scoped by allowedRepIds — the same
+                list the TSM picker is built from — so this tab can never show a
+                rep the viewer is not allowed to see; the Rep filter narrows
+                within that. */}
+            {projection && (
+              <SalesProjection
+                d={projection}
+                mode={projMode}
+                embedded
+                subtitle={`Expected closures · FY ${yy(fy)} · open pipeline only${Object.values(projFilters).some(v => Array.isArray(v) ? v.length : v != null) ? ' · filtered' : ''}`}
+                filters={projOptions ? <ProjectionFilters options={projOptions} value={{
+                  prep: typeof sp.prep === 'string' ? sp.prep : undefined, pptype: typeof sp.pptype === 'string' ? sp.pptype : undefined,
+                  pind: typeof sp.pind === 'string' ? sp.pind : undefined, pctype: typeof sp.pctype === 'string' ? sp.pctype : undefined,
+                  pstage: typeof sp.pstage === 'string' ? sp.pstage : undefined, pprob: typeof sp.pprob === 'string' ? sp.pprob : undefined,
+                  pmarket: typeof sp.pmarket === 'string' ? sp.pmarket : undefined, pmin: typeof sp.pmin === 'string' ? sp.pmin : undefined,
+                }} /> : null}
+                hrefFor={(m) => {
+                  const q = new URLSearchParams();
+                  for (const [k, v] of Object.entries(sp)) {
+                    if (typeof v === 'string' && v !== '' && k !== 'proj') q.set(k, v);
+                  }
+                  q.set('proj', m);
+                  return `/risansi/executive-review?${q.toString()}`;
+                }}
+              />
+            )}
+          </>
+        ) : (
+          <ExecDrilldownProvider tsm={tsm} scope={accountScope}>
+          <ExecutiveViews
+            data={data}
+            periodLabel={periodLabel}
+            note={note}
+            tabs={tabs}
+            selector={<ExecutiveSelector reps={reps} tsm={tsm} scope={accountScope} />}
           />
+          </ExecDrilldownProvider>
         )}
       </div>
     </div>

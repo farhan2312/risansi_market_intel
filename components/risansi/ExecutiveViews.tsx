@@ -1,5 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react';
+import Link from 'next/link';
 import { DrillCell } from './ExecDrilldown';
+import { StackedHBars, GroupedBars, Donut, HBars, fmtCr } from './ExecCharts';
 import type { DrillParams } from '@/app/actions/risansi-exec-drilldown';
 
 // ────────────────────────────────────────────────────────────────
@@ -41,7 +43,7 @@ export interface ExecData {
 
 const inr = (n: number) => n.toLocaleString('en-IN');
 
-export function MiniTable({ title, note, table, full }: { title: string; note?: string; table: ExecTable; full?: boolean }) {
+export function MiniTable({ title, note, table, full, chart }: { title: string; note?: string; table: ExecTable; full?: boolean; chart?: ReactNode }) {
   const { headers, rows, moneyFrom, colors = [], notes = [] } = table;
   return (
     <div style={{ ...PANEL, ...(full ? { gridColumn: '1 / -1' } : {}) }}>
@@ -49,6 +51,9 @@ export function MiniTable({ title, note, table, full }: { title: string; note?: 
         <span style={PANEL_TITLE}>{title}</span>
         {note && <span style={META}>{note}</span>}
       </div>
+      {/* The picture first, the figures under it: the chart says the shape,
+          the table keeps the exact numbers and the drill-through on each. */}
+      {chart && <div style={{ padding: '14px 14px 6px' }}>{chart}</div>}
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
@@ -88,9 +93,44 @@ export function MiniTable({ title, note, table, full }: { title: string; note?: 
   );
 }
 
-export function ExecutiveViews({ data, selector, periodLabel, note }: {
-  data: ExecData; selector: ReactNode; periodLabel: string; note?: string;
+// ── Tabs ───────────────────────────────────────────────────────
+// Three views of the same review: the person, the account, the forecast.
+// Plain links, so a tab is a URL somebody can be sent.
+export type ExecTab = 'tsm' | 'account' | 'projection';
+export const EXEC_TABS: { key: ExecTab; label: string; hint: string }[] = [
+  { key: 'tsm',        label: 'TSM Review',       hint: 'One rep or manager: their book, quotes, turnover, visits' },
+  { key: 'account',    label: 'Account Review',   hint: 'A group of mills or a single OEM across the years' },
+  { key: 'projection', label: 'Sales Projection', hint: 'Expected closures by rep, month and quarter' },
+];
+export function ExecTabs({ active, hrefFor }: { active: ExecTab; hrefFor: (t: ExecTab) => string }) {
+  return (
+    <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--line)', marginBottom: 16, overflowX: 'auto' }}>
+      {EXEC_TABS.map(t => {
+        const on = t.key === active;
+        return (
+          <Link key={t.key} href={hrefFor(t.key)} title={t.hint} style={{
+            padding: '10px 16px', fontSize: 13, fontWeight: on ? 600 : 500, textDecoration: 'none', whiteSpace: 'nowrap',
+            color: on ? 'var(--accent)' : 'var(--fg-3)', borderBottom: on ? '2px solid var(--accent)' : '2px solid transparent', marginBottom: -1,
+          }}>{t.label}</Link>
+        );
+      })}
+    </div>
+  );
+}
+
+export function ExecutiveViews({ data, selector, periodLabel, note, tabs }: {
+  data: ExecData; selector: ReactNode; periodLabel: string; note?: string; tabs?: ReactNode;
 }) {
+  // The pictures over the tables. Each is built from the same rows the table
+  // shows, so the two cannot disagree; Grand Total rows are left out.
+  const body = (t: ExecTable) => t.rows.filter(r => !r.strong);
+  const clientRows = body(data.clientsSummary).map(r => ({ label: r.label, parts: [r.vals[0] ?? 0, r.vals[1] ?? 0, r.vals[2] ?? 0] }));
+  const quoteCats = body(data.quotationSummary).map(r => ({ label: r.label, values: [r.vals[0] ?? 0, r.vals[1] ?? 0] }));
+  const turnCats = body(data.turnoverSummary).map(r => ({ label: r.label, values: [r.vals[1] ?? 0, r.vals[2] ?? 0] }));
+  const turnClients = body(data.turnoverSummary).map(r => ({ label: r.label, value: r.vals[0] ?? 0 }));
+  const offerSlices = body(data.offerStatus).map(r => ({ label: r.label, value: r.vals[0] ?? 0 }));
+  const attCats = body(data.attendance).map(r => ({ label: r.label, values: [r.vals[0] ?? 0, r.vals[1] ?? 0] }));
+  const [h1, h2] = [data.turnoverSummary.headers[2] ?? 'This FY', data.turnoverSummary.headers[3] ?? 'Last FY'];
   return (
     <section>
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 4 }}>
@@ -100,6 +140,7 @@ export function ExecutiveViews({ data, selector, periodLabel, note }: {
         </div>
         {selector}
       </div>
+      {tabs}
       {note && <p style={{ fontSize: 11.5, color: 'var(--fg-3)', margin: '8px 0 0', maxWidth: 900, lineHeight: 1.5 }}>{note}</p>}
 
       {/* KPI row */}
@@ -138,11 +179,21 @@ export function ExecutiveViews({ data, selector, periodLabel, note }: {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
-        <MiniTable title="Clients Summary" note="active clients by type" table={data.clientsSummary} />
-        <MiniTable title="Quotation Summary" note="₹ by channel" table={data.quotationSummary} />
-        <MiniTable title="Turnover Summary" note="rows: 5-yr band · cols: selected month(s)" table={data.turnoverSummary} full />
-        <MiniTable title="Offer Status" note="₹ by opportunity status" table={data.offerStatus} />
-        <MiniTable title="Attendance" note="field visits" table={data.attendance} />
+        <MiniTable title="Clients Summary" note="clients by type and status" table={data.clientsSummary}
+          chart={<StackedHBars rows={clientRows} series={['Active', 'Prospective', 'Inactive']} colors={['var(--pos)', 'var(--warn)', 'var(--neg)']} />} />
+        <MiniTable title="Quotation Summary" note="₹ by channel" table={data.quotationSummary}
+          chart={<GroupedBars cats={quoteCats} series={['Active quotes', 'Order received']} colors={['var(--accent)', 'var(--pos)']} fmt={fmtCr} />} />
+        <MiniTable title="Turnover Summary" note="rows: 5-yr band · cols: whole fiscal years" table={data.turnoverSummary} full
+          chart={
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: 20 }}>
+              <div><div style={CHART_T}>Turnover by band, {h1} vs {h2}</div><GroupedBars cats={turnCats} series={[h1, h2]} colors={['var(--accent)', 'var(--fg-3)']} fmt={fmtCr} height={110} /></div>
+              <div><div style={CHART_T}>Clients in each band</div><HBars rows={turnClients} color="var(--pos)" highlightMax /></div>
+            </div>
+          } />
+        <MiniTable title="Offer Status" note="₹ by opportunity status" table={data.offerStatus}
+          chart={<Donut slices={offerSlices} colors={['var(--accent)', 'var(--warn)', 'var(--neg)', 'var(--pos)', 'var(--fg-3)']} fmt={fmtCr} />} />
+        <MiniTable title="Attendance" note="field visits" table={data.attendance}
+          chart={<GroupedBars cats={attCats} series={['Visit days', 'Clients']} colors={['var(--accent)', 'var(--pos)']} height={100} />} />
       </div>
     </section>
   );
@@ -152,6 +203,7 @@ const PANEL: CSSProperties = { background: 'var(--bg-paper)', border: '1px solid
 const PANEL_H: CSSProperties = { padding: '12px 14px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 };
 const PANEL_TITLE: CSSProperties = { fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--title)' };
 const META: CSSProperties = { fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', marginLeft: 'auto' };
+const CHART_T: CSSProperties = { fontSize: 10.5, fontWeight: 600, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 };
 const METRIC_LABEL: CSSProperties = { fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fg-3)', fontWeight: 600 };
 const TH: CSSProperties = { padding: '8px 12px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600, color: 'var(--fg-3)', background: 'var(--bg-elev)', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
 const TD: CSSProperties = { padding: '8px 12px', verticalAlign: 'middle', whiteSpace: 'nowrap' };

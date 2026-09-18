@@ -1,6 +1,7 @@
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import Link from 'next/link';
 import { quartersOf, type Projection } from '@/lib/risansi-sales-projection';
+import { GroupedBars, HBars, fmtCr } from './ExecCharts';
 
 // Expected closures by rep, across the fiscal year.
 //
@@ -19,11 +20,16 @@ const MONTH_LABEL = (ym: string) => {
     + (m === 4 ? ` ${String(y).slice(2)}` : '');
 };
 
-export function SalesProjection({ d, mode, hrefFor }: {
+export function SalesProjection({ d, mode, hrefFor, filters, subtitle, embedded }: {
   d: Projection;
   mode: 'monthly' | 'quarterly';
   /** Builds the link that switches mode, preserving the page's other params. */
   hrefFor: (mode: 'monthly' | 'quarterly') => string;
+  /** The filter bar, rendered under the heading when the section is a tab of its own. */
+  filters?: ReactNode;
+  subtitle?: string;
+  /** On its own tab: no top margin, the heading is the tab's. */
+  embedded?: boolean;
 }) {
   const quarters = quartersOf(d.months);
   const periods = mode === 'monthly'
@@ -53,13 +59,24 @@ export function SalesProjection({ d, mode, hrefFor }: {
   const weighted = d.reps.reduce((s, r) => s + r.cells.reduce((a, x) => a + x.weighted, 0), 0);
   const weightedBase = d.reps.reduce((s, r) => s + r.cells.reduce((a, x) => a + x.weightedBase, 0), 0);
 
+  // The periods as a chart: gross beside weighted, the figure over every bar,
+  // then the reps ranked by what they expect to land this FY.
+  const periodCats = periods.map(p => ({
+    label: p.label,
+    values: [
+      colTotal(p.months),
+      d.reps.reduce((s, r) => s + r.cells.filter(x => p.months.includes(x.bucket)).reduce((a, x) => a + x.weighted, 0), 0),
+    ],
+  }));
+  const repBars = d.reps.map(r => ({ label: r.name, value: fyTotal(r) })).filter(r => r.value > 0).slice(0, 10);
+
   return (
-    <section style={{ marginTop: 26 }}>
+    <section style={{ marginTop: embedded ? 0 : 26 }}>
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
         <div>
           <h2 style={{ fontSize: 17, fontWeight: 600, color: 'var(--fg)', margin: 0 }}>Sales Projection</h2>
           <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 2 }}>
-            Expected closures by rep · FY {String(d.fyStart).slice(2)}-{String(d.fyStart + 1).slice(2)} · open pipeline only
+            {subtitle ?? `Expected closures by rep · FY ${String(d.fyStart).slice(2)}-${String(d.fyStart + 1).slice(2)} · open pipeline only`}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 2, border: '1px solid var(--line-strong)', borderRadius: 7, overflow: 'hidden' }}>
@@ -112,6 +129,22 @@ export function SalesProjection({ d, mode, hrefFor }: {
           </div>
         )}
       </div>
+
+      {filters}
+
+      {/* The picture of the forecast, before the grid. */}
+      {d.reps.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 3fr) minmax(0, 2fr)', gap: 12, marginBottom: 12 }}>
+          <div style={{ border: '1px solid var(--line)', borderRadius: 'var(--radius)', background: 'var(--bg-paper)', padding: '12px 14px' }}>
+            <div style={CH_T}>Expected to close, by {mode === 'monthly' ? 'month' : 'quarter'}</div>
+            <GroupedBars cats={periodCats} series={['Gross', 'Weighted by probability']} colors={['var(--accent)', 'var(--pos)']} fmt={fmtCr} height={120} />
+          </div>
+          <div style={{ border: '1px solid var(--line)', borderRadius: 'var(--radius)', background: 'var(--bg-paper)', padding: '12px 14px' }}>
+            <div style={CH_T}>By rep · dated within the FY</div>
+            {repBars.length ? <HBars rows={repBars} fmt={fmtCr} highlightMax /> : <div style={{ fontSize: 12, color: 'var(--fg-3)' }}>Nothing dated within the FY.</div>}
+          </div>
+        </div>
+      )}
 
       <div style={{ overflowX: 'auto', border: '1px solid var(--line)', borderRadius: 'var(--radius)', background: 'var(--bg-paper)' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -199,6 +232,7 @@ export function SalesProjection({ d, mode, hrefFor }: {
   );
 }
 
+const CH_T: CSSProperties = { fontSize: 10.5, fontWeight: 600, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 };
 const TH: CSSProperties = {
   padding: '8px 10px', fontSize: 9.5, textTransform: 'uppercase', letterSpacing: '0.06em',
   fontWeight: 700, color: 'var(--fg-3)', borderBottom: '1px solid var(--line)',

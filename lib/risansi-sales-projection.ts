@@ -73,13 +73,54 @@ export interface Projection {
   };
 }
 
+/** The narrowing a reader may ask for on the projection tab. Every key is optional. */
+export interface ProjectionFilters {
+  rep?: number | null;           // one rep, within the visible set
+  prodType?: string[];
+  industry?: string[];
+  ctype?: string[];
+  stage?: string[];              // Quoted / Negotiating / On Hold / Suspect / Prospect
+  prob?: string[];               // probability codes
+  market?: string[];
+  minValue?: number | null;      // rupees
+}
+
+export const PROJECTION_FILTER_KEYS = ['prep', 'pptype', 'pind', 'pctype', 'pstage', 'pprob', 'pmarket', 'pmin'] as const;
+
+/** Read the projection filters off the page's search params. */
+export function parseProjectionFilters(sp: Record<string, string | string[] | undefined>): ProjectionFilters {
+  const list = (k: string) => { const v = sp[k]; const arr = Array.isArray(v) ? v : typeof v === 'string' && v ? v.split(',') : []; return arr.map(x => x.trim()).filter(Boolean); };
+  const rep = typeof sp.prep === 'string' && /^\d+$/.test(sp.prep) ? Number(sp.prep) : null;
+  const min = typeof sp.pmin === 'string' && /^\d+(\.\d+)?$/.test(sp.pmin) ? Number(sp.pmin) : null;
+  return { rep, prodType: list('pptype'), industry: list('pind'), ctype: list('pctype'), stage: list('pstage'), prob: list('pprob'), market: list('pmarket'), minValue: min };
+}
+
+/** Distinct values on the open pipeline the viewer may see, to fill the filter dropdowns. */
+export async function loadProjectionOptions(pool: Pool, repIds: number[] | null): Promise<{
+  reps: { id: number; name: string }[]; prodTypes: string[]; industries: string[]; ctypes: string[]; stages: string[]; probs: string[]; markets: string[];
+}> {
+  if (repIds !== null && repIds.length === 0) return { reps: [], prodTypes: [], industries: [], ctypes: [], stages: [], probs: [], markets: [] };
+  const repFilter = repIds === null ? '' : ` AND o.rep_id = ANY($1::int[])`;
+  const params = repIds === null ? [] : [repIds];
+  const q = async (expr: string) => (await pool.query<{ v: string }>(
+    `SELECT DISTINCT ${expr} AS v FROM opportunities o JOIN clients c ON c.id = o.client_id WHERE ${OPEN}${repFilter} AND ${expr} IS NOT NULL AND ${expr} <> '' ORDER BY 1`, params)).rows.map(r => r.v);
+  const [reps, prodTypes, industries, ctypes, stages, probs, markets] = await Promise.all([
+    pool.query<{ id: number; name: string }>(
+      `SELECT DISTINCT u.id, u.name FROM opportunities o JOIN users u ON u.id = o.rep_id WHERE ${OPEN}${repFilter} ORDER BY u.name`, params).then(r => r.rows),
+    q('o.product_type'), q('c.industry'), q('c.client_type'), q('o.stage'), q('o.probability_code'), q('o.market'),
+  ]);
+  return { reps, prodTypes, industries, ctypes, stages, probs, markets };
+}
+
 /**
  * @param repIds  Visible reps. `null` means every rep — pass the same list the
  *                Executive Review's own selector was built from, so this section
  *                can never show a rep the viewer cannot otherwise see.
+ * @param f       Further narrowing from the projection tab's filters; a rep
+ *                chosen there must still be within `repIds`.
  */
 export async function loadProjection(
-  pool: Pool, fyStart: number, repIds: number[] | null,
+  pool: Pool, fyStart: number, repIds: number[] | null, f: ProjectionFilters = {},
 ): Promise<Projection> {
   const months: string[] = [];
   for (let i = 0; i < 12; i++) {
@@ -94,8 +135,21 @@ export async function loadProjection(
       coverage: { openGross: 0, openCount: 0, datedGross: 0, datedCount: 0, share: null, overdueGross: 0, withProbGross: 0 },
     };
   }
-  const repFilter = repIds === null ? '' : ` AND o.rep_id = ANY($1::int[])`;
-  const params = repIds === null ? [] : [repIds];
+  // The visibility list first, then the reader's own filters, all as
+  // parameters. A rep picked on the tab outside the visible set yields nothing.
+  const conds: string[] = [];
+  const params: (number | string | number[] | string[])[] = [];
+  const add = (sql: string, v: number | string | number[] | string[]) => { params.push(v); conds.push(sql.replace('?', `$${params.length}`)); };
+  if (repIds !== null) add('o.rep_id = ANY(?::int[])', repIds);
+  if (f.rep != null) add('o.rep_id = ?', f.rep);
+  if (f.prodType?.length) add('o.product_type = ANY(?::text[])', f.prodType);
+  if (f.stage?.length)    add('o.stage = ANY(?::text[])', f.stage);
+  if (f.prob?.length)     add('o.probability_code = ANY(?::text[])', f.prob);
+  if (f.market?.length)   add('o.market = ANY(?::text[])', f.market);
+  if (f.industry?.length) add('o.client_id IN (SELECT id FROM clients WHERE industry = ANY(?::text[]))', f.industry);
+  if (f.ctype?.length)    add('o.client_id IN (SELECT id FROM clients WHERE client_type = ANY(?::text[]))', f.ctype);
+  if (f.minValue != null && f.minValue > 0) add(`${VALUE} >= ?`, f.minValue);
+  const repFilter = conds.length ? ` AND ${conds.join(' AND ')}` : '';
 
   // One row per rep per bucket. The bucket is worked out in SQL so a rep with no
   // opportunity in a month simply has no row, rather than the query returning a
