@@ -12,7 +12,7 @@ import {
   parseEtaMonth, selectionEntries, dimValue, DIM_LABEL,
   type SelDim, type Selection,
 } from '@/lib/risansi-stage-dashboard';
-import { loadStageRows, type StageDashRow, type SearchParams } from '@/lib/risansi-stage-rows';
+import { loadStageRows, loadFyActuals, type StageDashRow, type SearchParams } from '@/lib/risansi-stage-rows';
 import {
   ChartPanel, BarList, AgeingBars, StackedBar, TrendBars, OfferMovement, StageKpi,
   NoData, CHART_GRID, CHART_GRID_4, ClosureBars, CoverageList,
@@ -47,7 +47,11 @@ export default async function StageDashboardPage({ params, searchParams }: {
   if (!stage) notFound();
 
   const sp = await searchParams;
-  const [{ all, rows, sel, todayIdx }, usdRate] = await Promise.all([loadStageRows(stage, sp), getUsdRate()]);
+  // The Quoted month view opens at April and shows invoiced revenue for the
+  // closed months, so it needs the FY actuals under the same client filters.
+  const [{ all, rows, sel, todayIdx }, usdRate, actuals] = await Promise.all([
+    loadStageRows(stage, sp), getUsdRate(), stage === 'Quoted' ? loadFyActuals(sp) : Promise.resolve(null),
+  ]);
 
   // ── Aggregates ───────────────────────────────────────────────
   // `rows` is the stage under every active selection: tiles and table use it.
@@ -64,7 +68,7 @@ export default async function StageDashboardPage({ params, searchParams }: {
     ? all.filter(r => selDims.every(d => d === dim || matches(d, r)))
     : rows);
   const P = (dim: SelDim) => (sel[dim] != null ? summariseStage(forDim(dim)) : A);
-  const C = (dim: SelDim) => summariseClosure(forDim(dim), todayIdx);
+  const C = (dim: SelDim) => summariseClosure(forDim(dim), todayIdx, undefined, 4, actuals);
 
   // ── Links ────────────────────────────────────────────────────
   const base = () => oppFilterQuery(sp, ['stage']);
@@ -216,23 +220,28 @@ export default async function StageDashboardPage({ params, searchParams }: {
               const nAll = forDim('etam').length;
               return (
               <div className={CHART_GRID_4}>
+                {/* The whole financial year, April to March: closed months as
+                    invoiced revenue, this month onward as what the quotes say.
+                    Fourteen columns, so it takes three cells of the row. */}
+                <div className="stage-span-3">
+                <ChartPanel
+                  title={`Closing by month · FY ${String(Math.floor((todayIdx + 9) / 12)).slice(2)}-${String(Math.floor((todayIdx + 9) / 12) + 1).slice(2)}`}
+                  sub={`${Cm.dated} of ${nAll} dated · ${fmtCr(Cm.datedCr)} projected${(() => { const a = Cm.months.filter(m => m.tone === 'actual').reduce((x, m) => x + m.value, 0); return a ? ` · ${fmtCr(a)} invoiced so far` : ''; })()}`}
+                  note={[
+                    'Closed months show invoiced revenue (Revenue upload); this month onward shows quotes by their target closure month, by value.',
+                    Cm.undated
+                      ? `${Cm.undated} quote${Cm.undated === 1 ? '' : 's'} (${fmtCr(Cm.undatedCr)}) carry no month and sit in No date.`
+                      : 'Every quote carries one.',
+                    Cm.overdue ? `${Cm.overdue} past ${Cm.overdue === 1 ? 'its' : 'their'} month and still open: re-date or decide.` : '',
+                  ].filter(Boolean).join(' ')}>
+                  <ClosureBars buckets={Cm.months} hrefFor={hrefFor('etam')} selected={sel.etam} />
+                </ChartPanel>
+                </div>
                 <ChartPanel
                   title="Quote ageing"
                   sub={P('age').stale.length ? `${P('age').stale.length} over 60 days` : 'all fresh'}
                   note="Days since the quotation went out. Anything past 60 days needs a call. Click a column to filter the page to it.">
                   <AgeingBars buckets={P('age').ageBuckets} hrefFor={hrefFor('age')} selected={sel.age} />
-                </ChartPanel>
-                <ChartPanel
-                  title="Closing by month"
-                  sub={`${Cm.dated} of ${nAll} dated · ${fmtCr(Cm.datedCr)}`}
-                  note={[
-                    'Target closure month as set on the card; bars by value.',
-                    Cm.undated
-                      ? `${Cm.undated} quote${Cm.undated === 1 ? '' : 's'} (${fmtCr(Cm.undatedCr)}) carry none and sit in No date.`
-                      : 'Every quote carries one.',
-                    Cm.overdue ? `${Cm.overdue} past ${Cm.overdue === 1 ? 'its' : 'their'} month and still open: re-date or decide.` : '',
-                  ].filter(Boolean).join(' ')}>
-                  <ClosureBars buckets={Cm.months} hrefFor={hrefFor('etam')} selected={sel.etam} />
                 </ChartPanel>
                 <ChartPanel
                   title="Closing by quarter"
@@ -253,12 +262,16 @@ export default async function StageDashboardPage({ params, searchParams }: {
                 <ChartPanel title="Domestic vs Export">
                   <StackedBar parts={marketParts(P('market').group(r => r.market))} hrefFor={hrefFor('market')} selected={sel.market} />
                 </ChartPanel>
+                <div className="stage-span-2">
                 <ChartPanel title="By rep" sub="client owner">
                   <BarList rows={P('rep').group(r => r.rep_name, 8)} hrefFor={hrefFor('rep')} selected={sel.rep} />
                 </ChartPanel>
+                </div>
+                <div className="stage-span-2">
                 <ChartPanel title="Top clients">
                   <BarList rows={P('client').group(r => r.client_name, 8)} hrefFor={hrefFor('client')} selected={sel.client} />
                 </ChartPanel>
+                </div>
               </div>
               );
             })() : (

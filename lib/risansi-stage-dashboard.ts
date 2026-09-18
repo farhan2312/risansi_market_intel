@@ -224,9 +224,15 @@ export interface Slice { label: string; count: number; value: number }
 
 export interface ClosureRow { value_cr: number; eta_text: string | null; rep_name: string | null }
 
-/** Month tone, so a bar can say what kind of month it is without a legend. */
-export type ClosureTone = 'overdue' | 'now' | 'ahead' | 'later' | 'none';
+/**
+ * Month tone, so a bar can say what kind of month it is without a legend.
+ * 'actual' is a closed month of this FY, valued by invoiced revenue rather than
+ * quotes; 'missing' is a closed month whose revenue has not been uploaded yet.
+ */
+export type ClosureTone = 'overdue' | 'actual' | 'missing' | 'now' | 'ahead' | 'later' | 'none';
 export interface ClosureSlice extends Slice { tone: ClosureTone }
+/** Invoiced revenue for one closed month: crores, and how many clients invoiced. */
+export interface MonthActual { valueCr: number; count: number }
 
 export interface RepCoverage { label: string; dated: number; total: number; datedCr: number; totalCr: number }
 
@@ -245,8 +251,20 @@ export function parseEtaMonth(eta: string | null | undefined): number | null {
 
 export const monthLabel = (idx: number) => `${MONTH_LABEL[idx % 12]} ${String(Math.floor(idx / 12)).slice(2)}`;
 
-/** Which column of the month view a target month falls in. */
-export function closureMonthBucket(idx: number | null, todayIdx: number, monthsAhead = 6): string {
+/** April of the financial year a month index belongs to: Sep 26 → Apr 26, Feb 27 → Apr 26. */
+export function fyStartIdx(idx: number): number {
+  const y = Math.floor(idx / 12), m = idx % 12;
+  return (m >= 3 ? y : y - 1) * 12 + 3;
+}
+/** Months from `todayIdx` to the end of its financial year, inclusive: Sep → 7 (Sep..Mar). */
+export const fyMonthsAhead = (todayIdx: number) => fyStartIdx(todayIdx) + 12 - todayIdx;
+
+/**
+ * Which column of the month view a target month falls in. The view runs to
+ * the end of the financial year, so "Later" is April onward; anything before
+ * this month is Overdue whatever month it named.
+ */
+export function closureMonthBucket(idx: number | null, todayIdx: number, monthsAhead = fyMonthsAhead(todayIdx)): string {
   if (idx == null) return 'No date';
   if (idx < todayIdx) return 'Overdue';
   if (idx >= todayIdx + monthsAhead) return 'Later';
@@ -280,7 +298,12 @@ export function fyQuarter(idx: number): { key: number; label: string } {
  * quarter view, so the current quarter shows only what is still ahead in it and
  * the two panels never disagree about what is late.
  */
-export function summariseClosure(rows: ClosureRow[], todayIdx: number, monthsAhead = 6, quartersAhead = 4) {
+export function summariseClosure(
+  rows: ClosureRow[], todayIdx: number,
+  monthsAhead = fyMonthsAhead(todayIdx), quartersAhead = 4,
+  /** Invoiced revenue by month index for the closed months of this FY; when given, the month view opens at April. */
+  actuals?: Map<number, MonthActual> | null,
+) {
   const parsed = rows.map(r => ({ r, idx: parseEtaMonth(r.eta_text) }));
   const dated = parsed.filter(p => p.idx != null) as { r: ClosureRow; idx: number }[];
   const undated = parsed.filter(p => p.idx == null).map(p => p.r);
@@ -292,8 +315,18 @@ export function summariseClosure(rows: ClosureRow[], todayIdx: number, monthsAhe
   const inMonth   = (label: string) => parsed.filter(p => closureMonthBucket(p.idx, todayIdx, monthsAhead) === label).map(p => p.r);
   const inQuarter = (label: string) => parsed.filter(p => closureQuarterBucket(p.idx, todayIdx, quartersAhead) === label).map(p => p.r);
 
+  // Closed months of the FY, from April to last month: what was invoiced, not
+  // what was quoted. Quotes that named those months and are still open are on
+  // the Overdue line; the month itself shows the business that landed.
+  const past: ClosureSlice[] = actuals
+    ? Array.from({ length: Math.max(0, todayIdx - fyStartIdx(todayIdx)) }, (_, i) => {
+        const idx = fyStartIdx(todayIdx) + i, a = actuals.get(idx);
+        return { label: monthLabel(idx), count: a?.count ?? 0, value: a?.valueCr ?? 0, tone: a ? 'actual' as const : 'missing' as const };
+      })
+    : [];
   const months: ClosureSlice[] = [
     slice('Overdue', overdue, 'overdue'),
+    ...past,
     ...Array.from({ length: monthsAhead }, (_, i) => {
       const label = monthLabel(todayIdx + i);
       return slice(label, inMonth(label), i === 0 ? 'now' : 'ahead');

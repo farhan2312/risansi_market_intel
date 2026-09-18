@@ -5,8 +5,8 @@ import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, clientScopeSql, OWN_OPEN } from '@/lib/risansi-auth';
 import { parseOppFilters, buildOppFilter } from '@/lib/risansi-opp-filters';
 import {
-  ageBasisSql, applySelection, parseSelection, todayMonthIdx,
-  type DashStage, type Selection, type StageRow,
+  ageBasisSql, applySelection, parseSelection, todayMonthIdx, fyStartIdx,
+  type DashStage, type Selection, type StageRow, type MonthActual,
 } from '@/lib/risansi-stage-dashboard';
 
 // The rows behind a stage dashboard — one query, one place.
@@ -106,4 +106,61 @@ export async function loadStageRows(stage: DashStage, sp: SearchParams): Promise
   const sel = parseSelection(sp.sel);
   const todayIdx = todayMonthIdx();
   return { all, rows: applySelection(all, sel, todayIdx), sel, todayIdx, role };
+}
+
+// ── Invoiced revenue for the closed months of this financial year ──────────
+//
+// The Quoted page's month view opens at April: closed months show what was
+// actually invoiced (client_revenue_monthly), the current month onward shows
+// what the quotes say will land. Only the client-level filters carry over —
+// the client's owner (Rep), industry, client type, and the viewer's scope —
+// because a revenue row has no product type, probability or quote date.
+export async function loadFyActuals(sp: SearchParams): Promise<Map<number, MonthActual>> {
+  const session = await getServerSession(authOptions);
+  const role    = session?.user?.role ?? 'rep';
+  let currentRepId: number | null = session?.user?.repId ?? null;
+  if (role === 'rep' && currentRepId == null && session?.user?.email) {
+    const { rows } = await risansiPool.query<{ id: number }>(
+      'SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1', [session.user.email]);
+    currentRepId = rows[0]?.id ?? null;
+  }
+  const f = parseOppFilters({ ...sp, stage: undefined });
+  const showAll = f.showAllReps || role !== 'rep';
+  const scopedRepId = !showAll && f.rep.length === 0 ? currentRepId : null;
+
+  const conds: string[] = ['c.deleted_at IS NULL'];
+  const vals: (string | number | string[])[] = [];
+  if (scopedRepId != null) {
+    vals.push(scopedRepId);
+    conds.push(`(c.primary_rep_id = $${vals.length} OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = $${vals.length}))`);
+  }
+  if (f.rep.length) {
+    vals.push(f.rep);
+    conds.push(`EXISTS (SELECT 1 FROM users u2 WHERE u2.name = ANY($${vals.length}::text[])
+                  AND (c.primary_rep_id = u2.id OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = u2.id)))`);
+  }
+  if (f.industry.length) { vals.push(f.industry); conds.push(`c.industry = ANY($${vals.length}::text[])`); }
+  if (f.ctype.length)    { vals.push(f.ctype);    conds.push(`c.client_type = ANY($${vals.length}::text[])`); }
+  const vis = clientScopeSql(await getCurrentUser(), 'c.id');
+  if (vis) conds.push(vis);
+
+  const todayIdx = todayMonthIdx();
+  const start = fyStartIdx(todayIdx);
+  const from = `${Math.floor(start / 12)}-${String(start % 12 + 1).padStart(2, '0')}-01`;
+  const to   = `${Math.floor(todayIdx / 12)}-${String(todayIdx % 12 + 1).padStart(2, '0')}-01`;
+  vals.push(from, to);
+  const { rows } = await risansiPool.query<{ ym: string; cr: string; n: string }>(
+    `SELECT to_char(date_trunc('month', r.month), 'YYYY-MM') AS ym,
+            (COALESCE(sum(r.total_value), 0) / 10000000)::text AS cr,
+            count(DISTINCT r.client_id)::text AS n
+       FROM client_revenue_monthly r JOIN clients c ON c.id = r.client_id
+      WHERE ${conds.join(' AND ')} AND r.month >= $${vals.length - 1}::date AND r.month < $${vals.length}::date
+      GROUP BY 1`, vals as (string | number)[],
+  ).catch(() => ({ rows: [] as { ym: string; cr: string; n: string }[] }));
+  const out = new Map<number, MonthActual>();
+  for (const r of rows) {
+    const [y, m] = r.ym.split('-').map(Number);
+    out.set(y * 12 + (m - 1), { valueCr: Number(r.cr), count: Number(r.n) });
+  }
+  return out;
 }

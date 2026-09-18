@@ -174,47 +174,69 @@ export function AgeingBars({ buckets, warnFrom = 2, height = 130, hrefFor, selec
 
 const TONE: Record<ClosureTone, string> = {
   overdue: 'var(--neg)',
+  actual:  'var(--pos)',
+  missing: 'var(--fg-4)',
   now:     'var(--accent)',
   ahead:   'var(--accent)',
   later:   'color-mix(in oklab, var(--accent) 55%, var(--fg-3))',
   none:    'var(--fg-3)',
 };
+const isActualTone = (t: ClosureTone) => t === 'actual' || t === 'missing';
+const fmtCrTight = (cr: number) => `₹${cr.toFixed(cr >= 10 ? 0 : 1)}Cr`;
 
 export function ClosureBars({ buckets, height = 110, hrefFor, selected }: { buckets: ClosureSlice[]; height?: number } & Pickable) {
   // The undated pile is drawn as a strip underneath, not as a column: at 588 of
   // 704 quotes it is four times the biggest month, and as a column it flattened
   // every month into a sliver. The strip keeps it visible and keeps the months
   // legible; the two together still account for every row.
-  const dated   = buckets.filter(b => b.tone !== 'none');
+  // Closed months of the FY (tone actual / missing) are drawn on the same
+  // scale but are revenue, not quotes: they are left out of the dated totals
+  // and are not pickable, since no quote row belongs to them.
+  const drawn   = buckets.filter(b => b.tone !== 'none');
+  const dated   = drawn.filter(b => !isActualTone(b.tone));
+  const hasActuals = drawn.some(b => isActualTone(b.tone));
   const undated = buckets.find(b => b.tone === 'none');
   const datedCr = dated.reduce((s, b) => s + b.value, 0);
   const datedN  = dated.reduce((s, b) => s + b.count, 0);
-  const max = Math.max(...dated.map(b => b.value), 0.0001);
+  const max = Math.max(...drawn.map(b => b.value), 0.0001);
+  const tight = drawn.length > 9;
+  const fmt = tight ? fmtCrTight : fmtCrShort;
   return (
     <div>
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: height + 44 }}>
-      {dated.map(b => {
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: tight ? 5 : 8, height: height + 44 }}>
+      {drawn.map(b => {
         const h   = Math.max((b.value / max) * height, b.count > 0 ? 3 : 0);
         const hue = TONE[b.tone];
         const strong = b.tone === 'now' || b.tone === 'overdue';
+        const actual = isActualTone(b.tone);
+        const title = b.tone === 'actual' ? `${b.label} — invoiced ${fmtCrShort(b.value)} across ${b.count} client${b.count === 1 ? '' : 's'}`
+          : b.tone === 'missing' ? `${b.label} — revenue not uploaded yet`
+          : `${b.label} — ${b.count} quote${b.count === 1 ? '' : 's'} · ${fmtCrShort(b.value)}`;
         return (
-          <Pick key={b.label} href={hrefFor?.(b.label)} label={b.label} selected={selected}
-            title={`${b.label} — ${b.count} quote${b.count === 1 ? '' : 's'} · ${fmtCrShort(b.value)}`}
+          <Pick key={b.label} href={actual ? undefined : hrefFor?.(b.label)} label={b.label} selected={selected} title={title}
             style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
-            <span style={{ fontSize: 10.5, fontWeight: 600, fontFamily: 'var(--font-mono)', color: b.count ? 'var(--fg)' : 'var(--fg-4)', whiteSpace: 'nowrap' }}>
-              {b.count ? fmtCrShort(b.value) : '—'}
+            <span style={{ fontSize: tight ? 9.5 : 10.5, fontWeight: 600, fontFamily: 'var(--font-mono)', color: b.count ? (b.tone === 'actual' ? 'var(--pos)' : 'var(--fg)') : 'var(--fg-4)', whiteSpace: 'nowrap' }}>
+              {b.count ? fmt(b.value) : b.tone === 'missing' ? '…' : '—'}
             </span>
             <div style={{
               width: '100%', height: h,
               background: `color-mix(in oklab, ${hue} ${strong ? 30 : 20}%, transparent)`,
               borderTop: `3px solid ${hue}`, borderRadius: '3px 3px 0 0',
             }} />
-            <span style={{ fontSize: 10, color: strong ? 'var(--fg-2)' : 'var(--fg-3)', fontWeight: strong ? 600 : 400, whiteSpace: 'nowrap' }}>{b.label}</span>
+            <span style={{ fontSize: tight ? 9.5 : 10, color: strong ? 'var(--fg-2)' : 'var(--fg-3)', fontWeight: strong ? 600 : 400, whiteSpace: 'nowrap' }}>{tight ? b.label.replace(/ \d\d$/, '') : b.label}</span>
             <span style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>{b.count}</span>
           </Pick>
         );
       })}
     </div>
+    {hasActuals && (
+      <div style={{ display: 'flex', gap: 12, fontSize: 9.5, color: 'var(--fg-3)', marginTop: 6 }}>
+        <span><Sw c="var(--pos)" /> invoiced (closed months)</span>
+        <span><Sw c="var(--accent)" /> projected from quotes</span>
+        <span><Sw c="var(--neg)" /> overdue</span>
+        <span><Sw c="var(--fg-4)" /> … not uploaded</span>
+      </div>
+    )}
     {undated && (undated.count > 0 || datedN > 0) && (
       <Pick href={hrefFor?.('No date')} label="No date" selected={selected} style={{ marginTop: 12, display: 'block' }}
         title={`No date — ${undated.count} quote${undated.count === 1 ? '' : 's'} · ${fmtCrShort(undated.value)}`}>
@@ -231,6 +253,8 @@ export function ClosureBars({ buckets, height = 110, hrefFor, selected }: { buck
     </div>
   );
 }
+
+const Sw = ({ c }: { c: string }) => <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: c, marginRight: 3, verticalAlign: 'middle' }} />;
 
 // ── Coverage list ──────────────────────────────────────────────
 // How much of each person's book carries a target month. A filled fraction of

@@ -368,8 +368,18 @@ body {
   gap: 12px;
   margin-bottom: 14px;
 }
-@media (max-width: 1500px) { .stage-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 760px)  { .stage-grid-4 { grid-template-columns: minmax(0, 1fr); } }
+/* Wide panels inside it: a fourteen-column month chart takes three cells, a
+   long bar list two. Clamped as the grid narrows so a span never exceeds the row. */
+.stage-grid-4 .stage-span-3 { grid-column: span 3; display: grid; }
+.stage-grid-4 .stage-span-2 { grid-column: span 2; display: grid; }
+@media (max-width: 1500px) {
+  .stage-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stage-grid-4 .stage-span-3 { grid-column: span 2; }
+}
+@media (max-width: 760px) {
+  .stage-grid-4 { grid-template-columns: minmax(0, 1fr); }
+  .stage-grid-4 .stage-span-3, .stage-grid-4 .stage-span-2 { grid-column: span 1; }
+}
 
 @media print {
   aside,
