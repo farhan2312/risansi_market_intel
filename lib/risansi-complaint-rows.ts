@@ -16,6 +16,7 @@ export interface ComplaintListRow {
   client_id: number | null; client_name: string | null; client_code: string | null;
   status: string; schema_version: number; severity: Severity | null;
   complaint_type: string | null; defect_category: string | null; defect_reason: string | null;
+  root_cause_category: string | null; part_type: string | null; part_name: string | null;
   responsible_department: string | null; channel: string | null;
   complaint_date: string | null; created_at: string; resolved_at: string | null; closed_at: string | null;
   details: string | null; contact_person: string | null;
@@ -25,7 +26,9 @@ export interface ComplaintListRow {
   target_completion_date: string | null; overdue: boolean;
   repeat_complaint: boolean | null; reopen_count: number;
   investigation_assigned_to: number | null; action_assigned_to: number | null;
-  action_category: string | null; pump_model: string | null; pump_serial_no: string | null;
+  action_category: string | null; pump_model: string | null; pump_serial_no: string | null; quantity: number | null;
+  /** Customer communication files (letters, emails, confirmations), for a link straight from the list. */
+  customer_files: { id: number; file_name: string }[];
 }
 
 export interface ComplaintFilters {
@@ -41,9 +44,23 @@ export interface ComplaintFilters {
   q?: string;           // free text
   overdue?: string;     // '1'
   from?: string; to?: string; // complaint_date range
+  rcc?: string;         // root_cause_category (page 4)
+  ptype?: string;       // part_type (page 2)
+  pname?: string;       // part_name (page 2), matched loosely
 }
 
-export const FILTER_KEYS: (keyof ComplaintFilters)[] = ['status', 'sev', 'dept', 'holder', 'type', 'cat', 'resp', 'rep', 'era', 'q', 'overdue', 'from', 'to'];
+export const FILTER_KEYS: (keyof ComplaintFilters)[] = ['status', 'sev', 'dept', 'holder', 'type', 'cat', 'resp', 'rep', 'era', 'q', 'overdue', 'from', 'to', 'rcc', 'ptype', 'pname'];
+
+/** Column sorts the list offers; anything else falls back to the default (open first, longest-sitting first). */
+export const SORT_KEYS = ['raised', 'since', 'age', 'target'] as const;
+export type ComplaintSortKey = typeof SORT_KEYS[number];
+export interface ComplaintSort { key: ComplaintSortKey; dir: 'asc' | 'desc' }
+
+export function parseComplaintSort(sp: Record<string, string | string[] | undefined>): ComplaintSort | null {
+  const v = typeof sp.sort === 'string' ? sp.sort : '';
+  const m = v.match(/^(raised|since|age|target)_(asc|desc)$/);
+  return m ? { key: m[1] as ComplaintSortKey, dir: m[2] as 'asc' | 'desc' } : null;
+}
 
 export function parseComplaintFilters(sp: Record<string, string | string[] | undefined>): ComplaintFilters {
   const f: ComplaintFilters = {};
@@ -53,7 +70,14 @@ export function parseComplaintFilters(sp: Record<string, string | string[] | und
 
 const OPEN_LIST = [...STATUSES.filter(isOpenStatus), ...LEGACY_STATUSES.filter(isOpenStatus)];
 
-export async function loadComplaintRows(user: CurrentUser, opts: { clientId?: number; filters?: ComplaintFilters } = {}): Promise<ComplaintListRow[]> {
+const SORT_SQL: Record<ComplaintSortKey, string> = {
+  raised: 'COALESCE(x.complaint_date::date, x.created_at::date)',
+  since:  'x.since::timestamptz',
+  age:    'x.age_days',
+  target: 'x.target_completion_date',
+};
+
+export async function loadComplaintRows(user: CurrentUser, opts: { clientId?: number; filters?: ComplaintFilters; sort?: ComplaintSort | null } = {}): Promise<ComplaintListRow[]> {
   const f = opts.filters ?? {};
   const conds: string[] = [];
   const outer: string[] = [];   // on the lateral holder row, so after the subquery
@@ -73,6 +97,9 @@ export async function loadComplaintRows(user: CurrentUser, opts: { clientId?: nu
   if (f.cat) add('c.defect_category = ?', f.cat);
   if (f.resp) add('c.responsible_department = ?', f.resp);
   if (f.rep) add('c.rep_user_id = ?', Number(f.rep) || 0);
+  if (f.rcc) add('c.root_cause_category = ?', f.rcc);
+  if (f.ptype) add('c.part_type = ?', f.ptype);
+  if (f.pname) add('c.part_name ILIKE ?', `%${f.pname.trim()}%`);
   if (f.era === 'legacy') conds.push('c.schema_version < 2');
   else if (f.era === 'workflow') conds.push('c.schema_version >= 2');
   if (f.from) add('COALESCE(c.complaint_date, c.created_at::date) >= ?::date', f.from);
@@ -90,6 +117,7 @@ export async function loadComplaintRows(user: CurrentUser, opts: { clientId?: nu
     SELECT * FROM (
       SELECT c.id, c.complaint_no, c.legacy_ref, c.client_id, cl.legal_name AS client_name, cl.code AS client_code,
              c.status, c.schema_version, c.severity, c.complaint_type, c.defect_category, c.defect_reason,
+             c.root_cause_category, c.part_type, c.part_name,
              c.responsible_department, c.channel,
              c.complaint_date::text AS complaint_date, c.created_at::text AS created_at,
              c.resolved_at::text AS resolved_at, c.closed_at::text AS closed_at,
@@ -101,7 +129,9 @@ export async function loadComplaintRows(user: CurrentUser, opts: { clientId?: nu
              (c.target_completion_date IS NOT NULL AND c.target_completion_date < CURRENT_DATE
               AND c.status NOT IN ('Resolved', 'Closed')) AS overdue,
              c.repeat_complaint, COALESCE(c.reopen_count, 0)::int AS reopen_count,
-             c.investigation_assigned_to, c.action_assigned_to, c.action_category, c.pump_model, c.pump_serial_no
+             c.investigation_assigned_to, c.action_assigned_to, c.action_category, c.pump_model, c.pump_serial_no, c.quantity,
+             COALESCE((SELECT json_agg(json_build_object('id', a.id, 'file_name', a.file_name) ORDER BY a.uploaded_at)
+                         FROM complaint_attachments a WHERE a.complaint_id = c.id AND a.category = 'customer'), '[]'::json) AS customer_files
         FROM complaints c
         LEFT JOIN clients cl ON cl.id = c.client_id
         LEFT JOIN users ur ON ur.id = c.rep_user_id
@@ -113,8 +143,9 @@ export async function loadComplaintRows(user: CurrentUser, opts: { clientId?: nu
        ${conds.length ? `WHERE ${conds.join(' AND ')}` : ''}
     ) x
     ${outer.length ? `WHERE ${outer.join(' AND ')}` : ''}
-    ORDER BY CASE WHEN x.status IN ('Resolved', 'Closed') THEN 1 ELSE 0 END,
-             x.overdue DESC, x.days_in_status DESC, x.id DESC`, params);
+    ORDER BY ${opts.sort
+      ? `${SORT_SQL[opts.sort.key]} ${opts.sort.dir === 'asc' ? 'ASC NULLS LAST' : 'DESC NULLS LAST'}, x.id ${opts.sort.dir === 'asc' ? 'ASC' : 'DESC'}`
+      : `CASE WHEN x.status IN ('Resolved', 'Closed') THEN 1 ELSE 0 END, x.overdue DESC, x.days_in_status DESC, x.id DESC`}`, params);
   return rows;
 }
 

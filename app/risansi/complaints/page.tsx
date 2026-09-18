@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react';
 import Link from 'next/link';
 import { Topbar } from '@/components/risansi';
 import { getCurrentUser } from '@/lib/risansi-auth';
-import { loadComplaintRows, loadHolderDwells, parseComplaintFilters, FILTER_KEYS } from '@/lib/risansi-complaint-rows';
+import { loadComplaintRows, loadHolderDwells, parseComplaintFilters, parseComplaintSort, FILTER_KEYS, type ComplaintSortKey } from '@/lib/risansi-complaint-rows';
 import { summariseComplaints } from '@/lib/risansi-complaint-stats';
 import { ComplaintStats } from '@/components/risansi/complaints/ComplaintStats';
 import { ComplaintFilterBar, type FilterOptions } from '@/components/risansi/complaints/ComplaintFilterBar';
@@ -21,11 +21,12 @@ export default async function ComplaintsPage({ searchParams }: { searchParams: P
   const sp = await searchParams;
   const me = await getCurrentUser();
   const filters = parseComplaintFilters(sp);
+  const sort = parseComplaintSort(sp);
   const value: Record<string, string | undefined> = {};
   for (const k of FILTER_KEYS) value[k] = filters[k];
 
   const [rows, dwells, allRows] = await Promise.all([
-    loadComplaintRows(me, { filters }),
+    loadComplaintRows(me, { filters, sort }),
     loadHolderDwells(me),
     // The unfiltered set, for the filter options — so a value is still offered after another filter hides it.
     Object.keys(filters).length ? loadComplaintRows(me) : null,
@@ -43,23 +44,26 @@ export default async function ComplaintsPage({ searchParams }: { searchParams: P
     types: uniq(base.map(r => r.complaint_type)),
     categories: uniq(base.map(r => r.defect_category)),
     responsibles: uniq(base.map(r => r.responsible_department)),
+    rootCauses: uniq(base.map(r => r.root_cause_category)),
+    partTypes: uniq(base.map(r => r.part_type)),
+    partNames: uniq(base.map(r => r.part_name)),
     reps: people(base.map(r => [r.rep_user_id, r.rep_name])),
     holders: people(base.map(r => [r.holder_user_id, r.holder_name])),
   };
 
-  const href = (key: string, v: string) => {
-    const next = { ...value, [key]: value[key] === v ? undefined : v };
+  const sortParam = sort ? `${sort.key}_${sort.dir}` : undefined;
+  const urlFor = (path: string, patch: Record<string, string | undefined>) => {
+    const next: Record<string, string | undefined> = { ...value, sort: sortParam, ...patch };
     const usp = new URLSearchParams();
     for (const [k, x] of Object.entries(next)) if (x) usp.set(k, x);
     const q = usp.toString();
-    return q ? `/risansi/complaints?${q}` : '/risansi/complaints';
+    return q ? `${path}?${q}` : path;
   };
-  const exportHref = (() => {
-    const usp = new URLSearchParams();
-    for (const [k, x] of Object.entries(value)) if (x) usp.set(k, x);
-    const q = usp.toString();
-    return `/api/risansi/complaints/export${q ? `?${q}` : ''}`;
-  })();
+  const href = (key: string, v: string) => urlFor('/risansi/complaints', { [key]: value[key] === v ? undefined : v });
+  // A header click: first click sorts newest / largest first, the second flips it, the third clears.
+  const sortHref = (key: ComplaintSortKey) =>
+    urlFor('/risansi/complaints', { sort: !sort || sort.key !== key ? `${key}_desc` : sort.dir === 'desc' ? `${key}_asc` : undefined });
+  const exportHref = urlFor('/api/risansi/complaints/export', {});
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -82,9 +86,9 @@ export default async function ComplaintsPage({ searchParams }: { searchParams: P
 
         <ComplaintStats s={s} href={href} sel={value} />
 
-        <ComplaintFilterBar value={value} options={options} basePath="/risansi/complaints" />
+        <ComplaintFilterBar value={{ ...value, sort: sortParam }} options={options} basePath="/risansi/complaints" />
 
-        <ComplaintTable rows={rows} />
+        <ComplaintTable rows={rows} sort={sort} sortHref={sortHref} />
       </div>
     </div>
   );

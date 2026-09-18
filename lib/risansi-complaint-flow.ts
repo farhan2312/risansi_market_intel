@@ -156,7 +156,7 @@ export const PAGES: ComplaintPage[] = [
       { name: 'basic_value', label: 'Basic value of items (₹)', type: 'money' },
       { name: 'client_po_no', label: 'Client PO no.', type: 'text' },
       { name: 'client_po_date', label: 'Client PO date', type: 'date' },
-      { name: 'pump_serial_no', label: 'Pump serial no.', type: 'text', required: true, fromPump: true, hint: 'The traceability key. Looks up the installed base too.' },
+      { name: 'pump_serial_no', label: 'Pump serial no.', type: 'text', fromPump: true, hint: 'The traceability key when known — looks up the installed base too. Not always on the pump or the paperwork, so not mandatory.' },
       { name: 'pump_model', label: 'Pump model no.', type: 'text', required: true, fromPump: true },
       { name: 'internal_model_no', label: 'Internal model no.', type: 'text' },
       { name: 'model_version', label: 'Version', type: 'text' },

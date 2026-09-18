@@ -48,8 +48,12 @@ const full = {
   ...no, risk_safety: false, risk_shutdown: false, risk_pump_failure: false, risk_major_perf: false, risk_repeat_failure: false,
 };
 check('Open → Under Investigation with pages 1–3 complete: no gate', F.gateFor('Open', 'Under Investigation', { values: full, severity: 'S2', hasCapaDocument: false }), []);
-check('Open → Under Investigation with no pump serial: named',
-  F.gateFor('Open', 'Under Investigation', { values: { ...full, pump_serial_no: '' }, severity: 'S2', hasCapaDocument: false }), ['Order & Pump: Pump serial no.']);
+// The serial is not always on the pump or the paperwork (decided 18 Sep), so
+// its absence holds nothing back; a missing pump model still does.
+check('Open → Under Investigation with no pump serial: not held',
+  F.gateFor('Open', 'Under Investigation', { values: { ...full, pump_serial_no: '' }, severity: 'S2', hasCapaDocument: false }), []);
+check('Open → Under Investigation with no pump model: named',
+  F.gateFor('Open', 'Under Investigation', { values: { ...full, pump_model: '' }, severity: 'S2', hasCapaDocument: false }), ['Order & Pump: Pump model no.']);
 check('Open → Under Investigation with risk unanswered: asks for the risk page',
   F.gateFor('Open', 'Under Investigation', { values: full, severity: null, hasCapaDocument: false }),
   ['Risk & Criticality: answer the risk questions so the severity is known']);

@@ -198,7 +198,7 @@ export default async function ComplaintPage({ params, searchParams }: {
             {page.id === 6 && (
               <div style={{ marginTop: 16 }}>
                 <div style={LBL}>Documents & attachments</div>
-                <ComplaintAttachments complaintId={id} files={files} canEdit={canEditFiles} canEditCapa={canEditCapa} />
+                <ComplaintAttachments complaintId={id} files={files} canEdit={canEditFiles} canEditCapa={canEditCapa} only={['capa', 'customer', 'other']} />
               </div>
             )}
             {page.id === 4 && legacy && c.root_cause == null && (

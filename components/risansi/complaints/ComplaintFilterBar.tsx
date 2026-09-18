@@ -10,6 +10,7 @@ import { STATUSES, DEPARTMENTS_LIST, SEVERITY_LABEL } from '@/lib/risansi-compla
 
 export interface FilterOptions {
   types: string[]; categories: string[]; responsibles: string[];
+  rootCauses: string[]; partTypes: string[]; partNames: string[];
   reps: { id: number; name: string }[]; holders: { id: number; name: string }[];
 }
 
@@ -29,7 +30,8 @@ export function ComplaintFilterBar({ value, options, basePath }: {
     const s = usp.toString();
     router.push(s ? `${basePath}?${s}` : basePath);
   };
-  const active = Object.entries(value).filter(([, v]) => v).length;
+  // `sort` rides along in value so a filter change keeps the column order, but it is not a filter.
+  const active = Object.entries(value).filter(([k, v]) => v && k !== 'sort').length;
 
   return (
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
@@ -48,6 +50,9 @@ export function ComplaintFilterBar({ value, options, basePath }: {
       <Sel label="Type" v={value.type} onChange={v => set({ type: v })} opts={options.types.map(t => [t, t])} />
       <Sel label="Category" v={value.cat} onChange={v => set({ cat: v })} opts={options.categories.map(t => [t, t])} />
       <Sel label="Responsible" v={value.resp} onChange={v => set({ resp: v })} opts={options.responsibles.map(t => [t, t])} />
+      <Sel label="Root cause" v={value.rcc} onChange={v => set({ rcc: v })} opts={options.rootCauses.map(t => [t, t])} />
+      <Sel label="Part type" v={value.ptype} onChange={v => set({ ptype: v })} opts={options.partTypes.map(t => [t, t])} />
+      <Sel label="Part name" v={value.pname} onChange={v => set({ pname: v })} opts={options.partNames.map(t => [t, t])} />
       {options.reps.length > 1 && (
         <Sel label="Rep" v={value.rep} onChange={v => set({ rep: v })} opts={options.reps.map(r => [String(r.id), r.name])} />
       )}
@@ -59,7 +64,7 @@ export function ComplaintFilterBar({ value, options, basePath }: {
       <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>to</span>
       <input type="date" value={value.to ?? ''} onChange={e => set({ to: e.target.value || undefined })} style={{ ...INPUT, width: 130 }} title="Raised to" />
       {active > 0 && (
-        <button type="button" onClick={() => router.push(basePath)} style={CLEAR}>Clear {active} filter{active === 1 ? '' : 's'}</button>
+        <button type="button" onClick={() => router.push(value.sort ? `${basePath}?sort=${value.sort}` : basePath)} style={CLEAR}>Clear {active} filter{active === 1 ? '' : 's'}</button>
       )}
     </div>
   );
