@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, MultiSelectFilter, ActiveFilterBar } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, clientScopeSql, OWN_OPEN, orphanSql } from '@/lib/risansi-auth';
+import { getCurrentUser, clientScopeSql, OWN_OPEN, orphanSql, hasRole } from '@/lib/risansi-auth';
 import { getCurrentFY, fmtCr, fmtUsdFromCr } from '@/lib/risansi-utils';
 import { getUsdRate } from '@/lib/risansi-settings';
 import { PROBABILITY_CODE_OPTIONS } from '@/lib/risansi-probability-codes';
@@ -528,12 +528,19 @@ export default async function PipelinePage({
       // Anyone who owns or covers at least one client. A name matching no
       // clients would filter the board to nothing, so it does not belong in the
       // list — the old version had the same intent but asked about routes.
+      // An admin sees everyone; anyone else sees themselves and their team —
+      // the same list Field Activity offers, so the two pages agree on who
+      // a manager may narrow the board to (19 Sep: a manager was offered all
+      // nineteen names here).
+      const teamOnly = !hasRole(role, 'admin') && currentRepId != null;
       const { rows } = await risansiPool.query<{ name: string }>(
         `SELECT DISTINCT u.name FROM users u
           WHERE u.is_active = TRUE
             AND (EXISTS (SELECT 1 FROM clients c WHERE c.primary_rep_id = u.id AND c.deleted_at IS NULL)
                  OR EXISTS (SELECT 1 FROM client_secondary_reps s WHERE s.rep_id = u.id))
+            ${teamOnly ? `AND (u.id = $1 OR u.id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $1))` : ''}
           ORDER BY u.name`,
+        teamOnly ? [currentRepId] : [],
       );
       return rows.map(r => r.name);
     }, []),
