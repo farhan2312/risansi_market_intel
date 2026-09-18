@@ -16,7 +16,13 @@ export type Row = {
   label: string; vals: (number | null)[]; strong?: boolean;
   drill?: (DrillParams | null)[];
 };
-export interface ExecTable { headers: string[]; rows: Row[]; moneyFrom: number }
+export interface ExecTable {
+  headers: string[]; rows: Row[]; moneyFrom: number;
+  /** Per value column: a colour for the header and the figures (undefined = plain). */
+  colors?: (string | undefined)[];
+  /** Per value column: what the column counts, as the header's tooltip. */
+  notes?: (string | undefined)[];
+}
 // A breakdown row inside a KPI card (e.g. "Visited (≤90d) · 42").
 export interface ExecKpiLine { label: string; value: string; color?: string; drill?: DrillParams }
 export interface ExecKpi {
@@ -36,7 +42,7 @@ export interface ExecData {
 const inr = (n: number) => n.toLocaleString('en-IN');
 
 export function MiniTable({ title, note, table, full }: { title: string; note?: string; table: ExecTable; full?: boolean }) {
-  const { headers, rows, moneyFrom } = table;
+  const { headers, rows, moneyFrom, colors = [], notes = [] } = table;
   return (
     <div style={{ ...PANEL, ...(full ? { gridColumn: '1 / -1' } : {}) }}>
       <div style={PANEL_H}>
@@ -46,7 +52,14 @@ export function MiniTable({ title, note, table, full }: { title: string; note?: 
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
-            <tr>{headers.map((h, i) => <th key={h} style={{ ...TH, textAlign: i === 0 ? 'left' : 'right' }}>{h}</th>)}</tr>
+            <tr>{headers.map((h, i) => {
+              const c = i > 0 ? colors[i - 1] : undefined;
+              return (
+                <th key={h} title={i > 0 ? notes[i - 1] : undefined} style={{ ...TH, textAlign: i === 0 ? 'left' : 'right', color: c ?? TH.color }}>
+                  {c && <span aria-hidden style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: c, marginRight: 5, verticalAlign: 'middle' }} />}{h}
+                </th>
+              );
+            })}</tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
@@ -58,7 +71,10 @@ export function MiniTable({ title, note, table, full }: { title: string; note?: 
                   const text = v == null ? '—' : (vi >= moneyFrom ? '₹' : '') + inr(v);
                   const d = r.drill?.[vi];
                   return (
-                    <td key={vi} style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: r.strong ? 700 : 400, color: v == null ? 'var(--fg-3)' : 'var(--fg)', borderTop: r.strong ? '2px solid var(--line-strong)' : '1px solid var(--line)' }}>
+                    <td key={vi} style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: r.strong ? 700 : 400,
+                                          color: v == null || v === 0 ? 'var(--fg-3)' : colors[vi] ?? 'var(--fg)',
+                                          background: colors[vi] && v ? `color-mix(in oklab, ${colors[vi]} ${r.strong ? 14 : 8}%, transparent)` : undefined,
+                                          borderTop: r.strong ? '2px solid var(--line-strong)' : '1px solid var(--line)' }}>
                       {d && v ? <DrillCell params={d}>{text}</DrillCell> : text}
                     </td>
                   );

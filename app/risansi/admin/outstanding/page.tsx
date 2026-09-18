@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { Topbar } from '@/components/risansi';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
+import { DEBTOR_BOOK } from '@/lib/risansi-outstanding-debtors';
 import { OutstandingUploadBox } from '@/components/risansi/OutstandingUploadBox';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
@@ -139,7 +140,7 @@ export default async function OutstandingAdminPage() {
                       <td style={{ ...TD, ...MONO, color: 'var(--fg-3)' }}>{r.code}</td>
                       <td style={{ ...TD, minWidth: 180 }}><a href={`/risansi/clients/${r.code}`} style={{ color: '#1A5CB8', textDecoration: 'none', fontWeight: 500 }}>{r.legal_name}</a></td>
                       <td style={{ ...TD, ...MONO, color: 'var(--fg-3)' }}>{r.debtor ?? '—'}</td>
-                      <td style={{ ...TD, color: 'var(--fg-2)' }}>{r.owner ?? '—'}</td>
+                      <td style={{ ...TD, color: 'var(--fg-2)' }}>{r.owner ?? (r.debtor ? DEBTOR_BOOK[r.debtor] ?? r.debtor : '—')}</td>
                       <td style={{ ...TD, ...MONO, textAlign: 'right', fontWeight: 600, color: 'var(--neg)' }}>{fmtInr(r.amount)}</td>
                       <td style={{ ...TD, ...MONO, fontSize: 11 }}>{fmtDate(r.as_of)}</td>
                     </tr>

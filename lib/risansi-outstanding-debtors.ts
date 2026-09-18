@@ -12,15 +12,18 @@
 // inside the action could surface a reason. Keeping the constant out of that
 // file is what stops it happening again.
 //
-// AV / MRK / SV are personal initials (confident); NI / SI / VA are territory or
-// ambiguous codes mapped on best judgment — still worth a sanity check with the
-// team. The raw sheet code is stored on the client row too, so nothing is lost
-// if a mapping turns out to be wrong.
+// AV / MRK / SV are personal initials, so they name a person. NI / SI / VA are
+// territories (North India, South India, …), not people: mapping NI to a rep
+// put "Amit Srivastava" on the Outstanding tile of 133 clients he had nothing
+// to do with (18 Sep). A territory code stays a territory code — it is kept on
+// the client row as outstanding_debtor_code and shown as the book it sits in.
 export const DEBTOR_USER: Record<string, number> = {
   AV:  5,   // Anil Vankudre
   MRK: 6,   // Madhav R Kulkarni
   SV:  9,   // Sudhir Vichare
-  NI:  4,   // Amit Srivastava (North India)
-  SI:  10,  // Guna Sekaran (South India)
-  VA:  20,  // Vishal Gaikwad (best guess)
+};
+
+/** What a territory debtor code means, for display. */
+export const DEBTOR_BOOK: Record<string, string> = {
+  NI: 'North India book', SI: 'South India book', VA: 'VA book',
 };

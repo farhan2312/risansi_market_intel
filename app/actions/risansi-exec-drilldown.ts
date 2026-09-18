@@ -160,8 +160,15 @@ export async function execDrilldown(p: DrillParams): Promise<DrillResult | null>
 
       // ── Clients Summary: one client type ──────────────────────
       case 'clients_by_type': {
-        const rows = await run(CLIENT_LIST(`c.status='ACTIVE' AND ${CANON} = '${key}'`));
-        return { title: `${p.key} · active clients`, subtitle: sub, unit: 'count', rows, total: rows.length };
+        const COL: Record<string, [string, string]> = {
+          active:      [`c.status='ACTIVE'`, 'active clients'],
+          prospective: [`c.status IN ('PROSPECTIVE_LEAD','PROSPECTIVE_CLIENT')`, 'prospective clients'],
+          inactive:    [`c.status IN ('INACTIVE','CLOSED')`, 'inactive & closed clients'],
+          total:       [`c.status <> 'DUPLICATE'`, 'all clients'],
+        };
+        const [cond, label] = COL[p.col ?? 'active'] ?? COL.active;
+        const rows = await run(CLIENT_LIST(`${cond} AND ${CANON} = '${key}'`));
+        return { title: `${p.key} · ${label}`, subtitle: sub, unit: 'count', rows, total: rows.length };
       }
 
       // ── Quotation Summary: channel x active / order received ──

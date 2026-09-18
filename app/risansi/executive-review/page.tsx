@@ -376,9 +376,15 @@ export default async function ExecutiveReviewPage({ searchParams }: {
 
   const [clients, turnover, quotation, offers, attendance, kpiRow] = await Promise.all([
     // 1. Clients Summary
-    q(async () => (await risansiPool.query<{ cat: string; nn: string }>(
-      `SELECT ${CANON} cat, count(*)::text nn FROM clients c
-        WHERE ${tourF} AND c.status='ACTIVE' AND c.deleted_at IS NULL GROUP BY 1`)).rows, []),
+    // Every live client by type, split by where it stands: Active, Prospective
+    // (lead or client), Inactive (inactive or closed). Duplicates are not clients.
+    q(async () => (await risansiPool.query<{ cat: string; active: string; prospective: string; inactive: string }>(
+      `SELECT ${CANON} cat,
+              count(*) FILTER (WHERE c.status = 'ACTIVE')::text AS active,
+              count(*) FILTER (WHERE c.status IN ('PROSPECTIVE_LEAD','PROSPECTIVE_CLIENT'))::text AS prospective,
+              count(*) FILTER (WHERE c.status IN ('INACTIVE','CLOSED'))::text AS inactive
+         FROM clients c
+        WHERE ${tourF} AND c.deleted_at IS NULL AND c.status <> 'DUPLICATE' GROUP BY 1`)).rows, []),
 
     // 2. Turnover Summary — classify each ACTIVE client, aggregate per FY
     q(async () => (await risansiPool.query<{ bucket: string; clients: string; fyc: string; f1: string; f2: string; f3: string }>(
@@ -464,13 +470,18 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   ]);
 
   // ── shape into ExecData ──
-  const cmMap = Object.fromEntries(clients.map(r => [r.cat, Number(r.nn)]));
-  const clientRows: Row[] = CATS.map(cat => ({ label: cat, vals: [cmMap[cat] ?? 0] }));
-  const cmTotal = clients.reduce((s, r) => s + Number(r.nn), 0);
-  clientRows.push({ label: 'Grand Total', vals: [cmTotal], strong: true });
-  for (const r of clientRows) {
-    if (!r.strong) r.drill = [{ kind: 'clients_by_type', tsm, key: r.label }];
-  }
+  const cmMap = Object.fromEntries(clients.map(r => [r.cat, r]));
+  const CLIENT_COLS = ['active', 'prospective', 'inactive'] as const;
+  const clientRows: Row[] = CATS.map(cat => {
+    const r = cmMap[cat];
+    const v = CLIENT_COLS.map(k => (r ? Number(r[k]) : 0));
+    return {
+      label: cat, vals: [...v, v.reduce((a, b) => a + b, 0)],
+      drill: [...CLIENT_COLS, 'total' as const].map(col => ({ kind: 'clients_by_type' as const, tsm, key: cat, col })),
+    };
+  });
+  const cmTot = CLIENT_COLS.map(k => clients.reduce((s, r) => s + Number(r[k]), 0));
+  clientRows.push({ label: 'Grand Total', vals: [...cmTot, cmTot.reduce((a, b) => a + b, 0)], strong: true });
 
   const tMap = Object.fromEntries(turnover.map(r => [r.bucket, r]));
   const turnRows: Row[] = TURN_ORDER.filter(b => tMap[b]).map(b => {
@@ -521,7 +532,12 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   attRows.push({ label: 'Total', vals: [at.d, null], strong: true });
 
   const data: ExecData = {
-    clientsSummary:  { headers: ['Client type', 'Clients'], rows: clientRows, moneyFrom: 99 },
+    clientsSummary:  {
+      headers: ['Client type', 'Active', 'Prospective', 'Inactive', 'Total'], rows: clientRows, moneyFrom: 99,
+      // Green / amber / red, so the shape of a book reads before the numbers do.
+      colors: ['var(--pos)', 'var(--warn)', 'var(--neg)', undefined],
+      notes: ['status Active', 'Prospective-Lead + Prospective-Client', 'Inactive + Closed', 'every live client of this type'],
+    },
     turnoverSummary: { headers: ['Turnover band', 'Clients', `TO ${yy(fy)}`, `TO ${yy(fy - 1)}`, `TO ${yy(fy - 2)}`, `TO ${yy(fy - 3)}`], rows: turnRows, moneyFrom: 1 },
     quotationSummary:{ headers: ['Channel', 'Active', 'Order Received', 'Total'], rows: quoteRows, moneyFrom: 0 },
     offerStatus:     { headers: ['Offer status', 'Total Offer Value (INR)'], rows: offerRows, moneyFrom: 0 },

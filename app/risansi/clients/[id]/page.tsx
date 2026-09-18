@@ -733,7 +733,7 @@ export default async function ClientProfilePage({
             value={client.total_outstanding != null ? formatRev(Number(client.total_outstanding)) : '—'}
             valueColor={client.total_outstanding ? 'var(--neg)' : undefined}
             sub={client.total_outstanding != null
-              ? `as of ${client.outstanding_as_of ? new Date(client.outstanding_as_of).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}${client.outstanding_owner_name ? ' · ' + client.outstanding_owner_name : ''}`
+              ? `as of ${client.outstanding_as_of ? new Date(client.outstanding_as_of).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}`
               : 'None on record'} />
         </div>
 
