@@ -184,7 +184,11 @@ export default async function PipelinePage({
     vals.push(scopedRepId); idx++;
   }
 
+  // Remembered so the Won predicate below can neutralise it: a Stage filter
+  // narrows the board, but must not zero the Won base of the forecast tiles.
+  let stageCondIdx = -1;
   if (stageFilts.length > 0) {
+    stageCondIdx = conds.length;
     conds.push(`o.stage = ANY($${idx}::text[])`);
     vals.push(stageFilts); idx++;
   }
@@ -321,21 +325,19 @@ export default async function PipelinePage({
   // pushed below — reused by the stage-totals query, which has no CAN_EDIT clause.
   const filterVals = [...vals];
 
-  // Won KPI predicate. The Won tile is the true total of Won opportunities in
-  // scope, and its own predicate rather than filterClause: a Stage filter must
-  // not zero it, and it must be uncapped — the kanban's closed-card query is
-  // limited to 200 rows, which is why that column reads far below the truth.
-  const wonC: string[] = ["o.stage = 'Won'"];
-  const wonV: (string | number | string[])[] = [];
-  if (scopedRepId != null)  { wonC.push(`o.client_id IN (SELECT c2.id FROM clients c2 WHERE c2.primary_rep_id = $${wonV.length + 1} OR c2.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = $${wonV.length + 1}))`); wonV.push(scopedRepId); }
-  if (prodTypeFilts.length) { wonC.push(`o.product_type = ANY($${wonV.length + 1}::text[])`);                                wonV.push(prodTypeFilts); }
-  if (repFilts.length)      { wonC.push(`o.client_id IN (SELECT c2.id FROM clients c2 JOIN users u2 ON u2.name = ANY($${wonV.length + 1}::text[]) AND (c2.primary_rep_id = u2.id OR c2.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = u2.id)))`); wonV.push(repFilts); }
-  if (indFilts.length)      { wonC.push(`o.client_id IN (SELECT id FROM clients WHERE industry = ANY($${wonV.length + 1}::text[]))`); wonV.push(indFilts); }
-  if (ctypeFilts.length)    { wonC.push(`o.client_id IN (SELECT id FROM clients WHERE client_type = ANY($${wonV.length + 1}::text[]))`); wonV.push(ctypeFilts); }
-  if (probFilts.length)     { wonC.push(`o.probability_code = ANY($${wonV.length + 1}::text[])`);                            wonV.push(probFilts); }
-  if (valFilts.length)      { const v = valueRangeSql('o.value_cr', valFilts); if (v) wonC.push(v); }
-  if (soCoverageSql(soFilt, 'o')) { wonC.push(soCoverageSql(soFilt, 'o')); }
-  const wonWhere = `WHERE ${wonC.join(' AND ')}${ownerVisAnd}`;
+  // Won KPI predicate: the SAME filters as the open pipe — rep, product type,
+  // industry, client type, probability, value band, SO coverage, the search
+  // box, quote and enquiry dates, a ?client= — so Best-case and
+  // Probability-weighted move with every filter the way the open half does.
+  // Only the Stage filter is neutralised (a board narrowed to Quoted still has
+  // a Won base), and it is uncapped, unlike the kanban's closed-card query.
+  // It used to be a hand-copied subset that knew nothing of the date ranges or
+  // the search box, so those filters changed the open half of the tile and
+  // left the Won half where it was.
+  const wonConds = conds.map((c, i) => (i === stageCondIdx ? `(${c} OR o.stage = 'Won')` : c));
+  const wonWhere = `WHERE o.stage = 'Won'${wonConds.length ? ` AND ${wonConds.join(' AND ')}` : ''}${ownerVisAnd}`;
+  const wonV = filterVals;
+  const WON_FROM = 'FROM opportunities o JOIN clients c ON c.id = o.client_id';
 
   // Per-opportunity edit permission, evaluated in SQL:
   //   admin/sysadmin → all · assigned rep → own · anyone who works the client.
@@ -559,7 +561,7 @@ export default async function PipelinePage({
     //    the realised base for every forecast figure below.
     q<number>(async () => {
       const { rows } = await risansiPool.query<{ won_cr: string }>(
-        `SELECT COALESCE(SUM(COALESCE(o.final_value_cr, o.value_cr, 0)), 0)::text AS won_cr FROM opportunities o ${wonWhere}`,
+        `SELECT COALESCE(SUM(COALESCE(o.final_value_cr, o.value_cr, 0)), 0)::text AS won_cr ${WON_FROM} ${wonWhere}`,
         wonV as (string | number)[],
       );
       return Number(rows[0]?.won_cr ?? 0);
@@ -574,7 +576,7 @@ export default async function PipelinePage({
                   COALESCE(o.final_value_cr, o.value_cr, 0)
                   - COALESCE((SELECT SUM(so.so_value_cr) FROM opportunity_sales_orders so WHERE so.opportunity_id = o.id), 0)
                 , 0)), 0)::text AS oih_cr
-           FROM opportunities o ${wonWhere}`,
+           ${WON_FROM} ${wonWhere}`,
         wonV as (string | number)[],
       );
       return Number(rows[0]?.oih_cr ?? 0);
@@ -588,7 +590,7 @@ export default async function PipelinePage({
         `SELECT COALESCE(SUM(
                   (SELECT COALESCE(SUM(so.so_value_cr), 0) FROM opportunity_sales_orders so WHERE so.opportunity_id = o.id)
                 ), 0)::text AS booked_cr
-           FROM opportunities o ${wonWhere}`,
+           ${WON_FROM} ${wonWhere}`,
         wonV as (string | number)[],
       );
       return Number(rows[0]?.booked_cr ?? 0);
