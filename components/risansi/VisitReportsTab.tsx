@@ -158,7 +158,7 @@ function VisitReportRowItem({ visit }: { visit: VisitReportRow }) {
         </div>
 
         {/* Col 4 — equipment / opps */}
-        <div style={{ fontSize: 11, color: 'var(--fg-3)', textAlign: 'right', whiteSpace: 'nowrap' }}
+        <div className="vr-equip" style={{ fontSize: 11, color: 'var(--fg-3)', textAlign: 'right', whiteSpace: 'nowrap' }}
           title={ril + comp > 0 ? `${ril + comp} pump${ril + comp === 1 ? '' : 's'} seen on this visit: ${ril} Risansi, ${comp} competitor` : undefined}>
           {ril + comp > 0 && (
             <div>

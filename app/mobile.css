@@ -329,6 +329,8 @@
   /* Meeting cards: the right-hand meta column drops under the name instead of
      squeezing it to a few characters. */
   .risansi-main .exh-meeting-head { flex-direction: column !important; gap: 6px !important; }
+  /* Visit report card: the pump line sits under the flags once the row stacks, so it reads left like them. */
+  .risansi-main .vr-equip { text-align: left !important; }
   /* The Excel export links (header, Meetings tab, closed banner): a full-width, thumb-sized button. */
   .risansi-main .exh-export { display: flex !important; align-items: center; justify-content: center; width: 100% !important; min-height: 44px !important; margin-left: 0 !important; box-sizing: border-box; }
   .risansi-main .exh-meeting-meta { text-align: left !important; }
