@@ -6,22 +6,10 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { hasRole } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 
-// ── Month parsing ──────────────────────────────────────────────
-
-const MONTH_MAP: Record<string, string> = {
-  Jan:'01', Feb:'02', Mar:'03', Apr:'04',
-  May:'05', Jun:'06', Jul:'07', Aug:'08',
-  Sep:'09', Oct:'10', Nov:'11', Dec:'12',
-};
-
-function parseMonth(raw: string): string | null {
-  const parts = raw?.trim().split('-');
-  if (parts?.length !== 2) return null;
-  const mon = MONTH_MAP[parts[0]];
-  const yr  = parts[1];
-  if (!mon || !/^\d{4}$/.test(yr)) return null;
-  return `${yr}-${mon}-01`;
-}
+// Period parsing lives in lib/risansi-revenue-period (a 'use server' file may
+// export nothing but async functions).
+import { parsePeriod } from '@/lib/risansi-revenue-period';
+function parseMonth(raw: string): string | null { return parsePeriod(raw)?.month ?? null; }
 
 // ── uploadRevenue ──────────────────────────────────────────────
 
@@ -79,7 +67,8 @@ export async function uploadRevenue(rows: UploadPayloadRow[]): Promise<UploadRes
 
   for (const row of rows) {
     const clientId  = codeToId[row.client_code.toUpperCase()];
-    const monthDate = parseMonth(row.month);
+    const period    = parsePeriod(row.month);
+    const monthDate = period?.month ?? null;
 
     if (!clientId || !monthDate) {
       skipped++;
@@ -101,9 +90,10 @@ export async function uploadRevenue(rows: UploadPayloadRow[]): Promise<UploadRes
 
     await risansiPool.query(
       `INSERT INTO client_revenue_monthly
-         (client_id, month, pump_value, spare_value, total_value, entered_by, entered_at, upload_id)
-       VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7)
+         (client_id, month, half, pump_value, spare_value, total_value, entered_by, entered_at, upload_id)
+       VALUES ($1, $2, $8, $3, $4, $5, $6, NOW(), $7)
        ON CONFLICT (client_id, month) DO UPDATE SET
+         half        = EXCLUDED.half,
          pump_value  = EXCLUDED.pump_value,
          spare_value = EXCLUDED.spare_value,
          total_value = EXCLUDED.total_value,
@@ -111,7 +101,7 @@ export async function uploadRevenue(rows: UploadPayloadRow[]): Promise<UploadRes
          entered_at  = NOW(),
          upload_id   = EXCLUDED.upload_id`,
       // ON CONFLICT: the latest upload to touch a (client, month) cell owns it.
-      [clientId, monthDate, pump, spare, total, session!.user!.email, uploadId],
+      [clientId, monthDate, pump, spare, total, session!.user!.email, uploadId, period?.half ?? null],
     );
 
     if (existing.rows.length > 0) updated++;

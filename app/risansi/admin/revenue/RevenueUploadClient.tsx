@@ -155,7 +155,7 @@ export function RevenueUploadClient({ existingCodes }: { existingCodes: Set<stri
           ⬇ Download Template
         </a>
         <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>
-          Expected columns: Client Code · Client Name · Month · Pump Value · Spare Value &nbsp;·&nbsp; Month format: May-2026
+          Expected columns: Client Code · Client Name · Month · Pump Value · Spare Value &nbsp;·&nbsp; Month format: May-2026 for a whole month, or May-2026 H1 (days 1–15) / May-2026 H2 (16 to month end) for a fortnight
         </span>
       </div>
 

@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, Donut } from '@/components/risansi';
+import { periodLabel } from '@/lib/risansi-revenue-period';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, clientVisibilitySql } from '@/lib/risansi-auth';
 import { formatRev } from '@/lib/risansi-utils';
@@ -16,11 +17,18 @@ async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
 
 const INR_TO_L = 100_000;
 
-// 'YYYY-MM-01' + n months (n may be negative)
+// 'YYYY-MM-DD' + n months (n may be negative); the day is kept, so a
+// fortnight on the 16th shifts to the 16th.
 function addMonths(ymd: string, n: number): string {
-  const [y, m] = ymd.split('-').map(Number);
+  const [y, m, d0] = ymd.split('-').map(Number);
   const d = new Date(Date.UTC(y, (m - 1) + n, 1));
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-01`;
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d0 || 1).padStart(2, '0')}`;
+}
+/** The exclusive end of a period key: a 16th runs to the next month; a 1st runs to the 16th in the 15-day view, else to next month. */
+function periodEndOf(ymd: string, fortnight: boolean): string {
+  const day = Number(ymd.slice(8, 10));
+  if (day >= 16) return addMonths(ymd.slice(0, 8) + '01', 1);
+  return fortnight ? ymd.slice(0, 8) + '16' : addMonths(ymd, 1);
 }
 function monthLabel(ymd: string): string {
   const [y, m] = ymd.split('-').map(Number);
@@ -38,7 +46,7 @@ interface ByIndustry { industry: string; clients: number; pump: number; spare: n
 interface ByRep { rep: string; zone: string | null; clients: number; total: number; target_cr: number | null; }
 interface ByCat { category: string; clients: number; total: number; }
 interface YoY { fyStart: number; pump: number; spare: number; total: number; }
-interface MonthPoint { ym: string; pump: number; spare: number; total: number; }
+interface MonthPoint { ym: string; half: number | null; pump: number; spare: number; total: number; }
 
 export default async function RevenuePage({
   searchParams,
@@ -87,20 +95,29 @@ export default async function RevenuePage({
   const PREV_FY_START = `${selectedFy - 1}-04-01`;
   const PREV_FY_END   = `${selectedFy}-04-01`;
 
-  // ── Period (month filter or full FY) ────────────────────────
-  const monthSel = typeof sp.month === 'string' && /^\d{4}-\d{2}-01$/.test(sp.month) ? sp.month : null;
+  // ── Granularity: by month, or by fortnight where the upload recorded halves ──
+  const fortnight = sp.gran === '15';
+  // Period keys are the stored dates: the 1st of a month (a whole month, or
+  // its first half) or the 16th (its second half).
+  // ── Period (one period, or the full FY) ─────────────────────
+  const monthSel = typeof sp.month === 'string' && /^\d{4}-\d{2}-(01|16)$/.test(sp.month) ? sp.month : null;
   const periodStart = monthSel ?? CUR_FY_START;
-  const periodEnd   = monthSel ? addMonths(monthSel, 1) : CUR_FY_END;
+  const periodEnd   = monthSel ? periodEndOf(monthSel, fortnight) : CUR_FY_END;
   const prevStart   = monthSel ? addMonths(monthSel, -12) : PREV_FY_START;
   const prevEnd     = monthSel ? addMonths(periodEnd, -12) : PREV_FY_END;
+  // The key each recorded row groups under: its own date in the 15-day view,
+  // the month's first in the monthly view (so two halves add up to a month).
+  const periodKey = fortnight ? `to_char(crm.month,'YYYY-MM-DD')` : `to_char(crm.month,'YYYY-MM-01')`;
 
-  function buildUrl(over: { view?: string | null; month?: string | null; fy?: number | null }): string {
+  function buildUrl(over: { view?: string | null; month?: string | null; fy?: number | null; gran?: string | null }): string {
     const view  = 'view' in over ? over.view  : (personal ? null : (isRep ? 'full' : null));
     const month = 'month' in over ? over.month : monthSel;
     const fy    = 'fy' in over ? over.fy : selectedFy;
+    const gran  = 'gran' in over ? over.gran : (fortnight ? '15' : null);
     const p = new URLSearchParams();
     if (view) p.set('view', view);
     if (fy && fy !== fyList[0]) p.set('fy', String(fy));
+    if (gran) p.set('gran', gran);
     if (month) p.set('month', month);
     const qs = p.toString();
     return `/risansi/revenue${qs ? `?${qs}` : ''}`;
@@ -157,18 +174,18 @@ export default async function RevenuePage({
     // 4. Monthly trend — distinct months present (annual snapshots), most recent 24
     q<MonthPoint[]>(async () => {
       const [sql, params] = withRep(
-        `SELECT to_char(crm.month,'YYYY-MM-01') AS ym,
+        `SELECT ${periodKey} AS ym, MAX(crm.half) AS half,
                 COALESCE(SUM(crm.pump_value),0)::text AS pump,
                 COALESCE(SUM(crm.spare_value),0)::text AS spare,
                 COALESCE(SUM(crm.total_value),0)::text AS total
          FROM client_revenue_monthly crm
          JOIN clients c ON c.id = crm.client_id
          WHERE c.deleted_at IS NULL${repCond}
-         GROUP BY ym ORDER BY ym DESC LIMIT 24`,
+         GROUP BY ym ORDER BY ym DESC LIMIT ${fortnight ? 36 : 24}`,
         [],
       );
-      const { rows } = await risansiPool.query<{ ym: string; pump: string; spare: string; total: string }>(sql, params);
-      return rows.map(r => ({ ym: r.ym, pump: Number(r.pump), spare: Number(r.spare), total: Number(r.total) })).reverse();
+      const { rows } = await risansiPool.query<{ ym: string; half: number | null; pump: string; spare: string; total: string }>(sql, params);
+      return rows.map(r => ({ ym: r.ym, half: r.half, pump: Number(r.pump), spare: Number(r.spare), total: Number(r.total) })).reverse();
     }, []),
 
     // 5. By industry (period)
@@ -255,15 +272,16 @@ export default async function RevenuePage({
       return rows.map(r => ({ category: r.category, clients: Number(r.clients), total: Number(r.total) }));
     }, []),
 
-    // 9. Month tiles — distinct months present in the current FY
-    q<string[]>(async () => {
-      const { rows } = await risansiPool.query<{ ym: string }>(
-        `SELECT DISTINCT to_char(crm.month,'YYYY-MM-01') AS ym
+    // 9. Period tiles — the periods recorded in the current FY: months, or in
+    //    the 15-day view each recorded half (a month uploaded whole stays one tile).
+    q<{ ym: string; half: number | null }[]>(async () => {
+      const { rows } = await risansiPool.query<{ ym: string; half: number | null }>(
+        `SELECT ${periodKey} AS ym, MAX(crm.half) AS half
            FROM client_revenue_monthly crm JOIN clients c ON c.id = crm.client_id
-          WHERE crm.month >= $1 AND crm.month < $2 AND c.deleted_at IS NULL${repCond} ORDER BY ym`,
+          WHERE crm.month >= $1 AND crm.month < $2 AND c.deleted_at IS NULL${repCond} GROUP BY 1 ORDER BY 1`,
         [CUR_FY_START, CUR_FY_END],
       );
-      return rows.map(r => r.ym);
+      return rows;
     }, []),
   ]);
 
@@ -291,7 +309,8 @@ export default async function RevenuePage({
   const catTotal    = byCat.reduce((s, r) => s + r.total, 0);
   const hasAnyData  = summary.total > 0 || byIndustry.length > 0 || topClients.length > 0 || yoy.some(y => y.total > 0);
 
-  const subtitle = monthSel ? `Showing ${monthLabelLong(monthSel)}` : `${fyLabel(selectedFy)} · All months`;
+  const selTile = monthTiles.find(m => m.ym === monthSel);
+  const subtitle = monthSel ? `Showing ${periodLabel(monthSel, selTile?.half ?? (fortnight && monthSel.endsWith('-01') ? null : undefined), { long: true })}` : `${fyLabel(selectedFy)} · ${fortnight ? 'all periods, by fortnight' : 'all months'}`;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -344,28 +363,40 @@ export default async function RevenuePage({
               </>
             )}
 
-            {/* Section 1 — month tiles (chips on desktop, dropdown on mobile) */}
-            <div className="r-desktop-only" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
+            {/* Section 1 — period tiles (chips on desktop, dropdown on mobile),
+                and the Monthly / 15-day switch. The 15-day view shows halves
+                where the upload recorded them; a month uploaded whole is still
+                one tile, labelled as the month. */}
+            <div className="r-desktop-only" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
+              <div style={{ display: 'flex', border: '1px solid var(--line-strong)', borderRadius: 7, overflow: 'hidden', marginRight: 8 }}>
+                {([['30', 'Monthly'], ['15', '15-day']] as const).map(([g, l]) => {
+                  const on = (g === '15') === fortnight;
+                  return <a key={g} href={buildUrl({ gran: g === '15' ? '15' : null, month: null })} title={g === '15' ? 'Each recorded fortnight (1–15, 16–end); months uploaded whole stay whole' : 'Whole months; fortnights add up into their month'}
+                    style={{ padding: '6px 12px', fontSize: 12, fontWeight: on ? 600 : 400, textDecoration: 'none', background: on ? 'var(--accent)' : 'var(--bg-paper)', color: on ? '#fff' : 'var(--fg-2)' }}>{l}</a>;
+                })}
+              </div>
               <a href={buildUrl({ month: null })} style={tile(!monthSel)}>All</a>
               {monthTiles.map(m => (
-                <a key={m} href={buildUrl({ month: m })} style={tile(monthSel === m)}>{monthLabel(m)}</a>
+                <a key={m.ym} href={buildUrl({ month: m.ym })} style={tile(monthSel === m.ym)}>{periodLabel(m.ym, m.half)}</a>
               ))}
             </div>
-            <div className="r-mobile-only" style={{ marginBottom: 14 }}>
-              <UrlSelect prefix="Month" ariaLabel="Month" value={monthSel ?? 'all'}
-                options={[{ value: 'all', label: 'All months', href: buildUrl({ month: null }) },
-                          ...monthTiles.map(m => ({ value: m, label: monthLabel(m), href: buildUrl({ month: m }) }))]} />
+            <div className="r-mobile-only" style={{ marginBottom: 14, display: 'grid', gap: 8 }}>
+              <UrlSelect prefix="View" ariaLabel="Granularity" value={fortnight ? '15' : '30'}
+                options={[{ value: '30', label: 'Monthly', href: buildUrl({ gran: null, month: null }) }, { value: '15', label: '15-day', href: buildUrl({ gran: '15', month: null }) }]} />
+              <UrlSelect prefix={fortnight ? 'Period' : 'Month'} ariaLabel="Period" value={monthSel ?? 'all'}
+                options={[{ value: 'all', label: fortnight ? 'All periods' : 'All months', href: buildUrl({ month: null }) },
+                          ...monthTiles.map(m => ({ value: m.ym, label: periodLabel(m.ym, m.half), href: buildUrl({ month: m.ym }) }))]} />
             </div>
 
             {/* Section 2 — KPI strip */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 14 }}>
               <Kpi label={monthSel ? 'Period Total' : `${fyLabel(selectedFy)} Total`} value={formatRev(summary.total)}
-                sub={delta != null ? `${delta >= 0 ? '▲' : '▼'} ${delta >= 0 ? '+' : ''}${delta.toFixed(1)}% vs ${monthSel ? 'same month LY' : fyLabel(selectedFy - 1)}` : 'no prior-period data'}
+                sub={delta != null ? `${delta >= 0 ? '▲' : '▼'} ${delta >= 0 ? '+' : ''}${delta.toFixed(1)}% vs ${monthSel ? (fortnight ? 'same period LY' : 'same month LY') : fyLabel(selectedFy - 1)}` : 'no prior-period data'}
                 subColor={delta == null ? 'var(--fg-3)' : delta >= 0 ? 'var(--pos)' : 'var(--neg)'}
                 sub2={momSelected
                   ? (momSelected.change != null
-                      ? `${momSelected.change >= 0 ? '▲' : '▼'} ${momSelected.change >= 0 ? '+' : ''}${momSelected.change.toFixed(1)}% vs ${monthLabel(monthly[monthly.findIndex(x => x.ym === monthSel) - 1]?.ym ?? '')}`
-                      : 'no prior month recorded')
+                      ? `${momSelected.change >= 0 ? '▲' : '▼'} ${momSelected.change >= 0 ? '+' : ''}${momSelected.change.toFixed(1)}% vs ${(() => { const pr = monthly[monthly.findIndex(x => x.ym === monthSel) - 1]; return pr ? periodLabel(pr.ym, pr.half) : ''; })()}`
+                      : `no prior ${fortnight ? 'period' : 'month'} recorded`)
                   : undefined}
                 sub2Color={momSelected?.change == null ? 'var(--fg-3)' : momSelected.change >= 0 ? 'var(--pos)' : 'var(--neg)'} />
               <Kpi label="Pump Revenue" value={formatRev(summary.pump)} sub={`${pumpPct.toFixed(0)}% of total`} />
@@ -488,7 +519,7 @@ export default async function RevenuePage({
 
             {/* Section 5 — monthly trend */}
             <div style={{ ...PANEL, marginBottom: 14 }}>
-              <div style={PANEL_H}><span style={PANEL_TITLE}>Revenue Trend</span><span style={META}>per recorded period · ₹ Lakhs</span></div>
+              <div style={PANEL_H}><span style={PANEL_TITLE}>Revenue Trend</span><span style={META}>{fortnight ? 'per recorded fortnight' : 'per month'} · ₹ Lakhs</span></div>
               <div style={{ padding: '16px 18px' }}>
                 {monthly.some(m => m.total > 0) ? <MonthlyTrend rows={monthly} selected={monthSel} /> : <Empty>No trend data</Empty>}
               </div>
@@ -639,9 +670,10 @@ function MonthlyTrend({ rows, selected }: { rows: MonthPoint[]; selected: string
         const sel = selected === r.ym;
         return (
           <g key={r.ym}>
-            <title>{`${monthLabel(r.ym)} · Pump ${formatRev(r.pump)} · Spare ${formatRev(r.spare)} · Total ${formatRev(r.total)}`}</title>
-            <rect x={x} y={H - h} width={bw} height={h} rx={2} fill={sel ? '#D97706' : '#1A5CB8'} />
-            <text x={x + bw / 2} y={H + 14} textAnchor="middle" fontSize="9" fill={sel ? '#D97706' : 'var(--fg-3)'} fontFamily="var(--font-mono)">{monthLabel(r.ym)}</text>
+            <title>{`${periodLabel(r.ym, r.half)} · Pump ${formatRev(r.pump)} · Spare ${formatRev(r.spare)} · Total ${formatRev(r.total)}`}</title>
+            <rect x={x} y={H - h} width={bw} height={h} rx={2} fill={sel ? '#D97706' : r.half ? (r.half === 1 ? '#1A5CB8' : '#5B8FD6') : '#1A5CB8'} />
+            <text x={x + bw / 2} y={H - h - 3} textAnchor="middle" fontSize="8" fill="var(--fg-2)" fontFamily="var(--font-mono)">{r.total > 0 ? Math.round(r.total / INR_TO_L) : ''}</text>
+            <text x={x + bw / 2} y={H + 14} textAnchor="middle" fontSize="9" fill={sel ? '#D97706' : 'var(--fg-3)'} fontFamily="var(--font-mono)">{r.half ? `${monthLabel(r.ym)} ${r.half === 1 ? '¹' : '²'}` : monthLabel(r.ym)}</text>
           </g>
         );
       })}
