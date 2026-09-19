@@ -111,7 +111,7 @@ function VisitReportRowItem({ visit }: { visit: VisitReportRow }) {
         onClick={() => setExpanded(x => !x)}
         style={{
           display: 'grid',
-          gridTemplateColumns: '140px 1fr 130px 80px auto',
+          gridTemplateColumns: '140px 1fr 130px auto auto',
           gap: 12, padding: '12px 16px',
           borderBottom: '1px solid var(--line)',
           cursor: 'pointer',
@@ -158,8 +158,14 @@ function VisitReportRowItem({ visit }: { visit: VisitReportRow }) {
         </div>
 
         {/* Col 4 — equipment / opps */}
-        <div style={{ fontSize: 11, color: 'var(--fg-3)', textAlign: 'center' }}>
-          {ril + comp > 0 && <div>🔧 {ril} RIL · {comp} Comp</div>}
+        <div style={{ fontSize: 11, color: 'var(--fg-3)', textAlign: 'right', whiteSpace: 'nowrap' }}
+          title={ril + comp > 0 ? `${ril + comp} pump${ril + comp === 1 ? '' : 's'} seen on this visit: ${ril} Risansi, ${comp} competitor` : undefined}>
+          {ril + comp > 0 && (
+            <div>
+              <span style={{ fontWeight: 700, color: 'var(--fg)', fontFamily: 'var(--font-mono)' }}>{ril + comp}</span> pump{ril + comp === 1 ? '' : 's'}
+              <span style={{ color: 'var(--fg-4)' }}> · </span>{ril} RIL<span style={{ color: 'var(--fg-4)' }}> · </span>{comp} competitor
+            </div>
+          )}
           {autoOpps > 0 && <div style={{ color: BRAND }}>🎯 {autoOpps} opp</div>}
         </div>
 
@@ -238,8 +244,8 @@ function VisitReportRowItem({ visit }: { visit: VisitReportRow }) {
             {/* Col 3 — equipment + items + summary */}
             <div>
               <SectionTitle>Equipment &amp; Items</SectionTitle>
-              {ril  > 0 && <DetailRow label="RIL Equipment"        value={`${ril} units`} />}
-              {comp > 0 && <DetailRow label="Competitor Equipment" value={`${comp} units`} />}
+              {ril  > 0 && <DetailRow label="RIL Pumps"        value={`${ril} pump${ril === 1 ? '' : 's'}`} />}
+              {comp > 0 && <DetailRow label="Competitor Pumps" value={`${comp} pump${comp === 1 ? '' : 's'}`} />}
               {num(visit.displacement_opp_count) > 0 && (
                 <DetailRow label="Displacement Opps" value={`${num(visit.displacement_opp_count)} flagged`} valueColor={BRAND} />
               )}

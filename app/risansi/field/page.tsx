@@ -521,8 +521,10 @@ export default async function FieldActivityPage({
            c.id::text AS client_id, c.legal_name AS client_name, c.code AS client_code,
            c.industry, c.is_sugar, c.city, c.state, c.tier,
            COALESCE(r.name, '—') AS rep_name, r.id::text AS rep_id,
-           COUNT(DISTINCT e.id) FILTER (WHERE e.is_ril = TRUE)        AS ril_equip_count,
-           COUNT(DISTINCT e.id) FILTER (WHERE e.is_ril = FALSE)       AS competitor_equip_count,
+           -- Pumps, not rows: a line "Roto · PCP · qty 4" is four pumps. Counted
+           -- per visit in a subquery, since the joins below multiply rows.
+           (SELECT COALESCE(SUM(COALESCE(e2.qty, 1)), 0) FROM equipment e2 WHERE e2.visit_id = v.id AND e2.is_ril = TRUE)  AS ril_equip_count,
+           (SELECT COALESCE(SUM(COALESCE(e2.qty, 1)), 0) FROM equipment e2 WHERE e2.visit_id = v.id AND e2.is_ril = FALSE) AS competitor_equip_count,
            COUNT(DISTINCT e.id) FILTER (WHERE e.is_opportunity = TRUE) AS displacement_opp_count,
            COUNT(DISTINCT o.id) FILTER (WHERE o.auto_created = TRUE)   AS auto_opp_count,
            COUNT(DISTINCT t.id) AS task_count,
