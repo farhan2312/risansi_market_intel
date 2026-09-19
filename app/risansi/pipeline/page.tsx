@@ -653,7 +653,16 @@ export default async function PipelinePage({
   const SPARES_WIN_PROBABILITY = 90;
   const oppWeight = (o: OppRow) =>
     /spare/i.test(o.product_type ?? '') ? SPARES_WIN_PROBABILITY : (o.probability ?? 50);
-  const weightedOpen = openOpps.reduce((s, o) => s + o.value_cr * (oppWeight(o) / 100), 0);
+  // The forecast set is the quoted pipe: Quoted and Negotiating only. A
+  // Suspect or Prospect carries no offer, so it has no place in a best case,
+  // and On Hold is parked by definition. Won is realised, not forecast, and
+  // is not added to either figure (19 Sep) — the target bar still shows it
+  // beside the weighted pipe, because reaching the target is won plus pipe.
+  const forecastOpps = openOpps.filter(o => o.stage === 'Quoted' || o.stage === 'Negotiating');
+  const forecastQuoted = forecastOpps.filter(o => o.stage === 'Quoted');
+  const forecastNegotiating = forecastOpps.filter(o => o.stage === 'Negotiating');
+  const forecastGross = forecastOpps.reduce((s, o) => s + o.value_cr, 0);
+  const weightedOpen = forecastOpps.reduce((s, o) => s + o.value_cr * (oppWeight(o) / 100), 0);
   // Won opportunities are the realised base for every forecast figure — the
   // sales-Booked tile stays for reference but no longer drives the maths.
   const wonCount     = stageTotals.Won?.count ?? 0;
@@ -664,8 +673,8 @@ export default async function PipelinePage({
   const quotedCount     = stageTotals.Quoted?.count ?? 0;
   const negotiatingCr    = stageTotals.Negotiating?.valueCr ?? 0;
   const negotiatingCount = stageTotals.Negotiating?.count ?? 0;
-  const bestCase     = wonTotal + openTotal;
-  const probabilityWeighted = wonTotal + weightedOpen;
+  const bestCase     = forecastGross;
+  const probabilityWeighted = weightedOpen;
   const target       = annualTarget > 0 ? annualTarget : 32;
   const toGo         = Math.max(0, target - wonTotal);
 
@@ -707,7 +716,7 @@ export default async function PipelinePage({
             <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 4, fontFamily: 'var(--font-mono)' }}>
               {openOpps.length} open opportunit{openOpps.length !== 1 ? 'ies' : ''}
               {' · '}{fmtCr(openTotal)} open value
-              {' · '}weighted forecast {fmtCr(probabilityWeighted)}
+              {' · '}weighted forecast {fmtCr(probabilityWeighted)} (quoted + negotiating)
               {winRatePct > 0 && ` · win rate FY ${winRatePct}%`}
             </div>
           </div>
@@ -788,18 +797,20 @@ export default async function PipelinePage({
 
             {/* Row 2 — forecast, unchanged. */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 2fr', gap: 16, alignItems: 'center', marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--line)' }}>
-              <ForecastBlock label="Best-case (100% pipe)" value={bestCase}
-                sub={`${fmtCr(wonTotal)} won + ${fmtCr(openTotal)} open`} color="var(--fg)" rate={usdRate} />
-              <ForecastBlock label="Probability-weighted" value={probabilityWeighted}
-                sub={`${fmtCr(weightedOpen)} weighted pipe + won`} color="var(--accent)" highlight rate={usdRate} />
+              <ForecastBlock label="Best-case · Quoted + Negotiating" value={bestCase}
+                sub={`${forecastQuoted.length} quoted ${fmtCr(forecastQuoted.reduce((a, o) => a + o.value_cr, 0))} + ${forecastNegotiating.length} negotiating ${fmtCr(forecastNegotiating.reduce((a, o) => a + o.value_cr, 0))} · at 100% · no Suspect, Prospect, On Hold or Won`}
+                color="var(--fg)" rate={usdRate} />
+              <ForecastBlock label="Probability-weighted · same set" value={probabilityWeighted}
+                sub={`each quote × its own probability (spares at ${SPARES_WIN_PROBABILITY}%, unrated at 50%) · ${bestCase > 0 ? Math.round((probabilityWeighted / bestCase) * 100) : 0}% of best case · Won not included`}
+                color="var(--accent)" highlight rate={usdRate} />
               <ForecastBlock label="Annual Target" value={target}
                 sub={`${fmtCr(toGo)} to go`} color="var(--fg-2)" />
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--fg-3)', marginBottom: 6 }}>
                   <span>Target {fmtCr(target)}</span>
                   {target > 0 && (
-                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent)' }}>
-                      Weighted {Math.round((probabilityWeighted / target) * 100)}%
+                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent)' }} title="Won so far plus the probability-weighted quoted pipe, against the annual target">
+                      Won + weighted {Math.round(((wonTotal + probabilityWeighted) / target) * 100)}%
                     </span>
                   )}
                 </div>
