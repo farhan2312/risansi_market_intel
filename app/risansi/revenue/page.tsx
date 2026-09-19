@@ -380,9 +380,12 @@ export default async function RevenuePage({
                 <a key={m.ym} href={buildUrl({ month: m.ym })} style={tile(monthSel === m.ym)}>{periodLabel(m.ym, m.half)}</a>
               ))}
             </div>
-            <div className="r-mobile-only" style={{ marginBottom: 14, display: 'grid', gap: 8 }}>
+            {/* mobile.css forces .r-mobile-only to display:block, so each select gets its own row. */}
+            <div className="r-mobile-only" style={{ marginBottom: 8 }}>
               <UrlSelect prefix="View" ariaLabel="Granularity" value={fortnight ? '15' : '30'}
                 options={[{ value: '30', label: 'Monthly', href: buildUrl({ gran: null, month: null }) }, { value: '15', label: '15-day', href: buildUrl({ gran: '15', month: null }) }]} />
+            </div>
+            <div className="r-mobile-only" style={{ marginBottom: 14 }}>
               <UrlSelect prefix={fortnight ? 'Period' : 'Month'} ariaLabel="Period" value={monthSel ?? 'all'}
                 options={[{ value: 'all', label: fortnight ? 'All periods' : 'All months', href: buildUrl({ month: null }) },
                           ...monthTiles.map(m => ({ value: m.ym, label: periodLabel(m.ym, m.half), href: buildUrl({ month: m.ym }) }))]} />
