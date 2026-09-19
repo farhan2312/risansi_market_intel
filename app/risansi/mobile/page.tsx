@@ -83,9 +83,9 @@ export default async function MobileDayPage() {
       `SELECT COUNT(*)::text n FROM clients c WHERE c.status='ACTIVE' AND c.deleted_at IS NULL
         AND (c.last_visit_date IS NULL OR c.last_visit_date < CURRENT_DATE - INTERVAL '90 days')${cAnd}`)).rows[0]?.n ?? 0), 0),
 
-    // Open pipeline value (Cr)
+    // Open pipeline value (Cr) — the quoted pipe, Quoted and Negotiating, as on the desktop dashboard.
     q<number>(async () => Number((await risansiPool.query<{ t: string }>(
-      `SELECT COALESCE(SUM(o.value_cr),0)::text t FROM opportunities o WHERE o.stage NOT IN ('Won','Lost')${oAnd}`)).rows[0]?.t ?? 0), 0),
+      `SELECT COALESCE(SUM(o.value_cr),0)::text t FROM opportunities o WHERE o.stage IN ('Quoted','Negotiating')${oAnd}`)).rows[0]?.t ?? 0), 0),
 
     // FY revenue (₹) for my clients
     q<number>(async () => Number((await risansiPool.query<{ t: string }>(
@@ -288,7 +288,7 @@ export default async function MobileDayPage() {
           <Kpi label="Done · 7 days"  value={String(doneThisWeek)} sub="visits completed" href="/risansi/field?tab=feed" />
           <Kpi label="Overdue"        value={String(overdueCount)} accent={overdueCount > 0 ? 'var(--neg)' : 'var(--pos)'}
             sub="90+ days no visit" href="/risansi/field?tab=overdue" />
-          <Kpi label="Open Pipeline"  value={pipeline > 0 ? fmtCr(pipeline) : '—'} sub="open opportunities" href="/risansi/pipeline" />
+          <Kpi label="Open Pipeline"  value={pipeline > 0 ? fmtCr(pipeline) : '—'} sub="quoted + negotiating" href="/risansi/pipeline" />
           <Kpi label={`${fy.label} Rev`}   value={fyRev > 0 ? formatRev(fyRev) : '—'}
             sub={fyDelta != null ? `${fyDelta >= 0 ? '▲ +' : '▼ '}${fyDelta.toFixed(0)}% vs LY` : `target ₹${annTarget} Cr`}
             subColor={fyDelta == null ? 'var(--fg-3)' : fyDelta >= 0 ? 'var(--pos)' : 'var(--neg)'} href="/risansi/revenue" />

@@ -680,8 +680,13 @@ export default async function ExecDashboardPage() {
   // Split the opportunity stages into the open funnel and the landed Won outcome.
   const funnelOpen       = funnel.filter(r => (OPEN_STAGES as readonly string[]).includes(r.stage));
   const wonRow           = funnel.find(r => r.stage === 'Won') ?? { stage: 'Won', count: 0, value: 0 };
-  const pipelineTotal    = funnelOpen.reduce((s, r) => s + r.value, 0);   // open pipeline ₹, excludes Won
-  const openCount        = funnelOpen.reduce((s, r) => s + r.count, 0);
+  // Open Pipeline is the quoted pipe: Quoted and Negotiating only (19 Sep).
+  // A Suspect or Prospect carries no offer and On Hold is parked, so none of
+  // them is money in play; the funnel below still shows every stage.
+  const quotedPipe       = funnelOpen.filter(r => r.stage === 'Quoted' || r.stage === 'Negotiating');
+  const pipelineTotal    = quotedPipe.reduce((s, r) => s + r.value, 0);
+  const openCount        = quotedPipe.reduce((s, r) => s + r.count, 0);
+  const quotedCount      = funnelOpen.find(r => r.stage === 'Quoted')?.count ?? 0;
   const negotiatingCount = funnelOpen.find(r => r.stage === 'Negotiating')?.count ?? 0;
 
   const shareTotal = Math.max(cibTotals.total, 1);
@@ -822,11 +827,11 @@ export default async function ExecDashboardPage() {
 
           {/* Open pipeline small metric */}
           <SmallMetric
-            label="Open Pipeline"
+            label="Open Pipeline · Quoted + Negotiating"
             value={pipelineTotal > 0 ? fmtCr(pipelineTotal) : '—'}
-            delta={pipelineTotal > 0 ? `${openCount} opps · ${negotiatingCount} in negotiation` : 'No open opportunities'}
+            delta={pipelineTotal > 0 ? `${quotedCount} quoted · ${negotiatingCount} in negotiation` : 'No quoted opportunities'}
             deltaPos={pipelineTotal > 0}
-            sub={pipelineTotal > 0 ? 'Open opportunities' : 'Add via Opportunities →'}
+            sub={pipelineTotal > 0 ? 'Quoted value at 100% · no Suspect, Prospect or On Hold' : 'Add via Opportunities →'}
             subHref={pipelineTotal === 0 ? '/risansi/pipeline' : undefined}
             spark={[]}
           />
@@ -1032,7 +1037,7 @@ export default async function ExecDashboardPage() {
             {/* Summary strip: open pipeline · order in hand · order booked · won */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', borderBottom: '1px solid var(--line)' }}>
               <OppStat label="Open Pipeline" value={pipelineTotal > 0 ? fmtCr(pipelineTotal) : '—'}
-                sub={`${openCount} open opp${openCount === 1 ? '' : 's'}`} color="var(--fg)" />
+                sub={`${openCount} quoted + negotiating`} color="var(--fg)" />
               <OppStat label="Order in Hand" value={orderInHand.inHand > 0 ? fmtCr(orderInHand.inHand) : '—'}
                 sub="won · not yet in SO" color="var(--accent)" divider />
               <OppStat label="Order Booked" value={orderInHand.booked > 0 ? fmtCr(orderInHand.booked) : '—'}
@@ -1043,7 +1048,7 @@ export default async function ExecDashboardPage() {
 
             {/* Open-stage funnel — bars sized by opportunity count, ₹ shown alongside */}
             <div style={{ padding: '8px 14px' }}>
-              {openCount === 0 ? (
+              {funnelOpen.reduce((s, r) => s + r.count, 0) === 0 ? (
                 <div style={{ textAlign: 'center', padding: '28px 16px' }}>
                   <div style={{ fontSize: 13, color: 'var(--fg-3)', marginBottom: 12 }}>No open opportunities</div>
                   <a
