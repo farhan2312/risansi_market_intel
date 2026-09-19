@@ -68,21 +68,27 @@ export function QuoteLineItems({ items, onChange, sumLabel = true }: {
           modal 600, so this table was in permanent horizontal scroll in both.
           At the current widths (840 and 780 of usable room) it now fits, and
           620 keeps it honest on a tablet rather than pretending it still does. */}
+      {/* On a phone (mobile.css) the header row hides, each line becomes a
+          card of labelled fields — the .qli-lbl span shows there and nowhere
+          else — and the 620px floor comes off. */}
       <div style={{ overflowX: 'auto' }}>
-        <div style={{ minWidth: 620 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: 6, marginBottom: 4 }}>
+        <div className="qli-min" style={{ minWidth: 620 }}>
+          <div className="qli-head" style={{ display: 'grid', gridTemplateColumns: GRID, gap: 6, marginBottom: 4 }}>
             {COLS.map(c => <div key={c.key} style={HEAD}>{c.label}</div>)}
             <div />
           </div>
 
           {items.map((row, i) => (
-            <div key={i} style={{ display: 'grid', gridTemplateColumns: GRID, gap: 6, marginBottom: 6 }}>
+            <div key={i} className="qli-row" style={{ display: 'grid', gridTemplateColumns: GRID, gap: 6, marginBottom: 6 }}>
               {COLS.map(c => (
-                <input
-                  key={c.key} value={row[c.key]} placeholder={c.ph}
-                  onChange={e => set(i, c.key, e.target.value)}
-                  style={INPUT}
-                />
+                <label key={c.key} className="qli-cell" style={{ display: 'contents' }}>
+                  <span className="qli-lbl">{c.label}</span>
+                  <input
+                    value={row[c.key]} placeholder={c.ph}
+                    onChange={e => set(i, c.key, e.target.value)}
+                    style={INPUT}
+                  />
+                </label>
               ))}
               <button
                 type="button"

@@ -331,6 +331,14 @@
   .risansi-main .exh-meeting-head { flex-direction: column !important; gap: 6px !important; }
   /* Visit report card: the pump line sits under the flags once the row stacks, so it reads left like them. */
   .risansi-main .vr-equip { text-align: left !important; }
+  /* Quote line items: one card per line, every field labelled, no 620px floor. */
+  .risansi-main .qli-min { min-width: 0 !important; }
+  .risansi-main .qli-head { display: none !important; }
+  .risansi-main .qli-row { grid-template-columns: 1fr 1fr !important; gap: 8px !important; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-elev); margin-bottom: 10px !important; }
+  .risansi-main .qli-cell { display: block !important; }
+  .risansi-main .qli-cell:first-child { grid-column: 1 / -1; }
+  .risansi-main .qli-lbl { display: block !important; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--fg-3); margin-bottom: 3px; }
+  .risansi-main .qli-cell input { width: 100% !important; min-height: 40px; box-sizing: border-box; }
   /* Client 360 complaints: number and pills on one line, the text on its own below,
      rather than a two-word description squeezed between a number and two pills. */
   .risansi-main .c360-cmp-row { flex-wrap: wrap !important; row-gap: 4px !important; }
