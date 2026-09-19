@@ -22,7 +22,7 @@ export function ComplaintTimeline({ status, dwells, legacy }: { status: string; 
   const steps = legacy ? ['Open', 'Resolved', 'Closed'] : [...STATUSES];
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))`, gap: 4 }}>
+    <div className="cmp-timeline" style={{ display: 'grid', gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))`, gap: 4 }}>
       {steps.map((s, i) => {
         const idx = legacy ? (s === 'Open' ? 0 : s === 'Resolved' ? 5 : 6) : i;
         const done = idx < cur || (closed && idx <= cur);
@@ -32,7 +32,7 @@ export function ComplaintTimeline({ status, dwells, legacy }: { status: string; 
         return (
           <div key={s} style={{ minWidth: 0 }} title={`${s}${days ? ` · ${fmtDays(days)} in this status` : ''}`}>
             <div style={{ height: 6, borderRadius: 3, background: hue, opacity: done || now ? 1 : 0.5 }} />
-            <div style={{ marginTop: 6, fontSize: 10.5, fontWeight: now ? 700 : 500, color: now ? 'var(--accent)' : done ? 'var(--fg-2)' : 'var(--fg-3)', lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <div data-label style={{ marginTop: 6, fontSize: 10.5, fontWeight: now ? 700 : 500, color: now ? 'var(--accent)' : done ? 'var(--fg-2)' : 'var(--fg-3)', lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {now && <span aria-hidden>● </span>}{s}
             </div>
             <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: now ? 'var(--accent)' : 'var(--fg-3)' }}>

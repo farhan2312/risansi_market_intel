@@ -167,7 +167,7 @@ export default async function ComplaintPage({ params, searchParams }: {
 
         {/* Pages */}
         <div style={{ ...PANEL, marginBottom: 12 }}>
-          <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--line)', padding: '0 8px', overflowX: 'auto' }}>
+          <div className="cmp-pages" style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--line)', padding: '0 8px', overflowX: 'auto' }}>
             {PAGES.map(p => {
               const missing = legacy ? 0 : missingOnPage(p, c).length;
               const on = p.id === page.id;

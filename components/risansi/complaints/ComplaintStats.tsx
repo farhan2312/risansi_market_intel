@@ -25,7 +25,8 @@ export function ComplaintStats({ s, href, sel }: {
   const net = s.raised30 - s.closed30;
   return (
     <div style={{ marginBottom: 14 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 12 }}>
+      {/* r-grid-4: two tiles per row on a phone rather than eight in a column. */}
+      <div className="r-grid-4" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 12 }}>
         <StageKpi label="Open" value={String(s.open)} sub={`of ${s.total} · ${s.closed} closed${s.legacy ? ` · ${s.legacy} legacy` : ''}`} />
         <StageKpi label="Overdue" value={String(s.overdue)} sub={s.overdue ? 'past their target completion date' : 'nothing past its target'}
           color={s.overdue ? 'var(--neg)' : undefined} alert={s.overdue > 0} />

@@ -74,6 +74,14 @@
   .risansi-main [style*="repeat(7"] { grid-template-columns: repeat(7, 1fr) !important; }
   .risansi-main .r-keepcols { grid-template-columns: revert !important; }
 
+  /* Complaint timeline: seven statuses in a row is a strip on a desktop and
+     seven slivers on a phone. Two per row, labels allowed to wrap. */
+  .risansi-main .cmp-timeline { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; row-gap: 10px !important; }
+  .risansi-main .cmp-timeline [data-label] { white-space: normal !important; overflow: visible !important; }
+  /* Complaint page tabs: pills that scroll sideways. */
+  .risansi-main .cmp-pages { gap: 6px !important; padding: 6px 8px !important; }
+  .risansi-main .cmp-pages a { border-bottom: none !important; margin-bottom: 0 !important; border-radius: 999px !important; padding: 8px 12px !important; background: var(--bg-elev); }
+
   /* Tables that aren't card-converted scroll horizontally instead of squishing.
      display:block makes the table a scroll container while its rows keep the
      table layout (columns stay aligned). r-cards tables are excluded. */
