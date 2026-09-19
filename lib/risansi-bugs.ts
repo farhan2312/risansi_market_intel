@@ -6,8 +6,11 @@ export type BugStatus = typeof BUG_STATUSES[number];
 
 export const BUG_STATUS_LABELS: Record<BugStatus, string> = {
   reported:    'Reported',
-  recorded:    'Recorded',
-  in_progress: 'In Progress',
+  // Renamed 19 Sep: the keys stay (they are the stored values on every bug),
+  // only the words changed. `recorded` is a report the admin has read and
+  // needs more from the reporter; `in_progress` is one parked for now.
+  recorded:    'Needs Clarification',
+  in_progress: 'On Hold',
   testing:     'Testing',
   fixed:       'Fixed / Closed',
 };
@@ -15,8 +18,8 @@ export const BUG_STATUS_LABELS: Record<BugStatus, string> = {
 // One-line hint under each pipeline column header.
 export const BUG_STATUS_HINTS: Record<BugStatus, string> = {
   reported:    'User submitted',
-  recorded:    'Verified by admin',
-  in_progress: 'Being worked on',
+  recorded:    'Admin needs more from the reporter',
+  in_progress: 'Parked for now',
   testing:     'Under verification',
   fixed:       'Resolved & closed',
 };

@@ -365,7 +365,7 @@ function BugDetailModal({ bug, onClose, onMove, onSeverity, onType, onSaveNotes,
           {/* Timeline / turnaround */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, padding: '12px 14px', background: 'var(--bg-sunk)', borderRadius: 6 }}>
             <TimeRow label="Reported" who={bug.reporter_name} when={fmt(bug.created_at)} />
-            <TimeRow label="Recorded" who={bug.recorded_by} when={fmt(bug.recorded_at)} />
+            <TimeRow label="Picked up" who={bug.recorded_by} when={fmt(bug.recorded_at)} />
             <TimeRow label="Resolved" who={bug.resolved_by} when={fmt(bug.resolved_at)} />
             <TimeRow label="Turnaround" who={null} when={turnaround(bug.created_at, bug.resolved_at)} accent />
           </div>

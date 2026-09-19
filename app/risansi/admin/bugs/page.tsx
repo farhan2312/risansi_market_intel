@@ -88,7 +88,7 @@ export default async function BugsPage({ searchParams }: {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 16 }}>
           <Kpi label="Total Bugs"    value={String(kpi.total)}  color="var(--fg)" />
           <Kpi label="Open"          value={String(kpi.open)}   color="var(--accent)" sub="Not yet fixed" />
-          <Kpi label="In Progress"   value={String(kpi.active)} color="#D97706" sub="Working + testing" />
+          <Kpi label="On Hold + Testing" value={String(kpi.active)} color="#D97706" sub="parked or under verification" />
           <Kpi label="Fixed"         value={String(kpi.fixed)}  color="var(--pos)" sub="Resolved & closed" />
           <Kpi label="Avg Turnaround" value={avgLabel}          color="var(--fg)" sub="Reported → fixed" />
         </div>
