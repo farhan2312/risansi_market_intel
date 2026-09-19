@@ -119,7 +119,7 @@ export function ExhibitionDetail(props: {
           {/* Once closed, the whole record as a workbook — the same link as on
               the review page's closed banner, here so it can be found from any tab. */}
           {ex.status === 'Closed' && (
-            <a href={`/api/risansi/exhibitions/${ex.id}/export`} title="Everything about this exhibition as a workbook"
+            <a href={`/api/risansi/exhibitions/${ex.id}/export`} title="Everything about this exhibition as a workbook" className="exh-export"
               style={{ padding: '8px 14px', borderRadius: 6, border: '1px solid var(--line-strong)', background: 'var(--bg-paper)', color: 'var(--fg)', fontSize: 13, fontWeight: 500, textDecoration: 'none', whiteSpace: 'nowrap' }}>
               ⤓ Export to Excel
             </a>
@@ -630,7 +630,7 @@ function MeetingsTab({ exhibitionId, meetings, canManage }: {
               far, with the rest of the event — so the list can go to somebody
               mid-show without waiting for the review. */}
           {meetings.length > 0 && (
-            <a href={`/api/risansi/exhibitions/${exhibitionId}/export`}
+            <a href={`/api/risansi/exhibitions/${exhibitionId}/export`} className="exh-export"
               title="Every meeting and the contact it produced, as a sheet — plus the event, team, expenses and review so far"
               style={{ padding: '8px 14px', borderRadius: 6, border: '1px solid var(--line-strong)', background: 'var(--bg-paper)', color: 'var(--fg)', fontSize: 13, fontWeight: 500, textDecoration: 'none', whiteSpace: 'nowrap', marginLeft: canManage ? 'auto' : 0 }}>
               ⤓ Export meetings to Excel

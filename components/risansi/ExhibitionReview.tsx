@@ -627,7 +627,7 @@ function ClosedBanner({ closedAt, closedByName, exhibitionId, isSysadmin }: {
           <b>🔒 Closed{closedAt ? ` on ${closedAt.slice(0, 10)}` : ''}{closedByName ? ` by ${closedByName}` : ''}.</b>
           {' '}Meetings, expenses and the review are read-only.
         </span>
-        <a href={`/api/risansi/exhibitions/${exhibitionId}/export`} style={{ ...BTN_PRIMARY, marginLeft: 'auto', textDecoration: 'none', whiteSpace: 'nowrap' }}
+        <a href={`/api/risansi/exhibitions/${exhibitionId}/export`} className="exh-export" style={{ ...BTN_PRIMARY, marginLeft: 'auto', textDecoration: 'none', whiteSpace: 'nowrap' }}
           title="Everything about this exhibition as a workbook: the event, every meeting with its contact, the contacts alone, the team, expenses, the review and the history">
           ⤓ Export to Excel
         </a>
