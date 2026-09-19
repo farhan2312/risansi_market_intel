@@ -35,10 +35,10 @@ export function ClientComplaints({ complaints, clientId }: { complaints: Complai
             const isOpen = isOpenStatus(c.status);
             const legacy = c.schema_version < 2;
             return (
-              <Link key={c.id} href={`/risansi/complaints/${c.id}`}
+              <Link key={c.id} href={`/risansi/complaints/${c.id}`} className="c360-cmp-row"
                 style={{ ...ROW, borderBottom: i < complaints.length - 1 ? '1px solid var(--line)' : 'none', opacity: isOpen ? 1 : 0.7 }}>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--fg-3)', flexShrink: 0, width: 92 }}>{c.complaint_no}</span>
-                <span style={{ flex: 1, minWidth: 0 }}>
+                <span className="c360-cmp-no" style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--fg-3)', flexShrink: 0, width: 92 }}>{c.complaint_no}</span>
+                <span className="c360-cmp-text" style={{ flex: 1, minWidth: 0 }}>
                   <span style={{ display: 'block', fontSize: 12, color: 'var(--fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {c.complaint_type ? <b style={{ fontWeight: 600 }}>{c.complaint_type}{c.defect_category ? ` · ${c.defect_category}` : ''} — </b> : null}{c.details}
                   </span>

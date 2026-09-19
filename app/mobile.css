@@ -331,6 +331,12 @@
   .risansi-main .exh-meeting-head { flex-direction: column !important; gap: 6px !important; }
   /* Visit report card: the pump line sits under the flags once the row stacks, so it reads left like them. */
   .risansi-main .vr-equip { text-align: left !important; }
+  /* Client 360 complaints: number and pills on one line, the text on its own below,
+     rather than a two-word description squeezed between a number and two pills. */
+  .risansi-main .c360-cmp-row { flex-wrap: wrap !important; row-gap: 4px !important; }
+  .risansi-main .c360-cmp-no { width: auto !important; margin-right: auto; }
+  .risansi-main .c360-cmp-text { flex-basis: 100% !important; order: 9; }
+  .risansi-main .c360-cmp-text > span:first-child { white-space: normal !important; }
   /* The Excel export links (header, Meetings tab, closed banner): a full-width, thumb-sized button. */
   .risansi-main .exh-export { display: flex !important; align-items: center; justify-content: center; width: 100% !important; min-height: 44px !important; margin-left: 0 !important; box-sizing: border-box; }
   .risansi-main .exh-meeting-meta { text-align: left !important; }
