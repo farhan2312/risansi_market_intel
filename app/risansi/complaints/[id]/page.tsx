@@ -15,6 +15,15 @@ import { ComplaintMoveBar } from '@/components/risansi/complaints/ComplaintMoveB
 import { ComplaintAttachments, type AttachmentMeta } from '@/components/risansi/complaints/ComplaintAttachments';
 import { ComplaintNotes, type NoteRow } from '@/components/risansi/complaints/ComplaintNotes';
 
+// Every date field of the form, re-selected as text after `c.*`.
+//
+// A `date` column comes back from pg as a JS Date, and serialising that to the
+// client shifts it by the server's offset: 25 Aug became "2026-08-24T20:00:00Z",
+// which the form's date input either showed as the 24th or refused outright,
+// so the field looked blank and had to be typed again on every save. Selected
+// again as text (last wins), each is a plain YYYY-MM-DD.
+const DATE_FIELDS = PAGES.flatMap(p => p.fields.filter(f => f.type === 'date').map(f => f.name));
+
 export const dynamic = 'force-dynamic';
 
 // One complaint, end to end.
@@ -47,7 +56,8 @@ export default async function ComplaintPage({ params, searchParams }: {
       inv_name: string | null; act_name: string | null; ret_name: string | null; severity: Severity | null;
       created_at: string; legacy_ref: string | null; assigned_name: string | null; assigned_to_external: string | null;
     }>(`
-      SELECT c.*, cl.legal_name AS client_name, cl.code AS client_code,
+      SELECT c.*, ${DATE_FIELDS.map(f => `c.${f}::text AS ${f}`).join(', ')},
+             cl.legal_name AS client_name, cl.code AS client_code,
              ur.name AS rep_name, rp.name AS reporter_name, iu.name AS inv_name, au.name AS act_name, ru.name AS ret_name,
              ol.name AS assigned_name, c.created_at::text AS created_at
         FROM complaints c
