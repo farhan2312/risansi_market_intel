@@ -21,7 +21,7 @@ import { pushInApp } from '@/lib/risansi-inapp';
 import { notifyCheckIn, notifyOppClosed, notifySalesOrder, notifyNewLead, notifyQuotationIssued } from '@/lib/risansi-notify';
 import { requiredFieldNames, labelsFor, OPP_FIELDS, CREATE_STAGES, STAGE_PROB, isDropReason, type CreateStage, type OppStage } from '@/lib/risansi-opportunity-fields';
 import { pctForProbabilityCode } from '@/lib/risansi-probability-codes';
-import { normaliseIndustry, istToday } from '@/lib/risansi-utils';
+import { normaliseIndustry, istToday, normaliseDate } from '@/lib/risansi-utils';
 import { parseMoneyInput, parsePositiveMoney, moneyToCr } from '@/lib/risansi-money';
 
 // ── Helper ─────────────────────────────────────────────────────
@@ -1256,6 +1256,20 @@ export async function createPipelineOpportunity(formData: FormData): Promise<Cre
     notes: s('notes'), auto_created: false, created_by: user.email,
   };
 
+  // Every date the catalogue knows about, in the shape Postgres wants. A page
+  // that ships a `date` column without casting it hands the form a serialised
+  // JS Date; without this the whole save is refused (see normaliseDate).
+  for (const f of OPP_FIELDS) {
+    if (f.kind === 'date' && f.name in candidates) candidates[f.name] = normaliseDate(candidates[f.name]);
+  }
+
+  // Every date the catalogue knows about, in the shape Postgres wants. A page
+  // that ships a `date` column without casting it hands the form a serialised
+  // JS Date; without this the whole save is refused (see normaliseDate).
+  for (const f of OPP_FIELDS) {
+    if (f.kind === 'date' && f.name in candidates) candidates[f.name] = normaliseDate(candidates[f.name]);
+  }
+
   const cols = await writableColumns(Object.keys(candidates));
   const insertSql = `INSERT INTO opportunities (${cols.join(', ')}, created_at, updated_at)
        VALUES (${cols.map((_, i) => `$${i + 1}`).join(', ')}, NOW(), NOW())
@@ -1521,7 +1535,7 @@ export async function updateOpportunity(oppId: number, formData: FormData): Prom
     const today = istToday();
     for (const f of OPP_FIELDS) {
       if (!f.noFuture) continue;
-      const v = (formData.get(f.name) as string | null)?.trim();
+      const v = normaliseDate(formData.get(f.name));
       if (v && v > today) return fail(`${f.label} cannot be in the future — ${v} is after ${today}.`);
     }
   }
@@ -1676,6 +1690,13 @@ export async function updateOpportunity(oppId: number, formData: FormData): Prom
   // unrelated reason never silently wipes its probability, and marking Won via
   // OppCompletionModal (which sends no code) preserves it too.
   if (!probCode) { delete candidates.probability; delete candidates.probability_code; }
+
+  // Every date the catalogue knows about, in the shape Postgres wants. A page
+  // that ships a `date` column without casting it hands the form a serialised
+  // JS Date; without this the whole save is refused (see normaliseDate).
+  for (const f of OPP_FIELDS) {
+    if (f.kind === 'date' && f.name in candidates) candidates[f.name] = normaliseDate(candidates[f.name]);
+  }
 
   const cols = await writableColumns(Object.keys(candidates));
   if (cols.length === 0) return { ok: true };

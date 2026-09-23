@@ -272,6 +272,30 @@ export function getAlertLevel(
  * user-entered date against "today" has to use this, or a PO raised at 9am in
  * Lucknow reads as dated in the future.
  */
+/**
+ * A date field's value, as the database wants it: 'YYYY-MM-DD', or null.
+ *
+ * Forms send a date input's value, which is already in that shape. What they
+ * also send, when a page hands the client a `date` column without casting it
+ * to text, is a serialised JS Date — "Wed Jul 15 2026 00:00:00 GMT+0400".
+ * Postgres rejects that outright, and the future-date check compared it as a
+ * string against today, so a July PO date was refused for being "after
+ * 2026-09-24" and the whole save was lost with it (24 Sep). Parsing here
+ * means neither can happen again, wherever the value came from.
+ */
+export function normaliseDate(raw: unknown): string | null {
+  const s = String(raw ?? '').trim();
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const iso = s.match(/^(\d{4}-\d{2}-\d{2})T/);          // an ISO timestamp: the date part is already UTC-correct
+  if (iso) return iso[1];
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  // A parsed Date is local to the server; read its local parts so the day is
+  // the day the string named, not the day it becomes in UTC.
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export function istToday(): string {
   const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
   return ist.toISOString().slice(0, 10);

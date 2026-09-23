@@ -110,6 +110,15 @@ export interface OppFieldDef {
   asked: OppStage;
   /** Stages on which it must be filled. */
   requiredAt?: OppStage[];
+  /**
+   * Stages that ask for it AGAIN, in their own "fill this in now" section.
+   *
+   * A field is normally asked once and then carried as context. Some answers
+   * go stale: the expected closure month set when the quote went out is the
+   * one thing a negotiation changes, and leaving it read-only there meant the
+   * forecast kept a date nobody had revisited since the quote.
+   */
+  reaskedAt?: OppStage[];
   /** Shown ONLY on these stages, rather than from `asked` onward. */
   onlyStages?: OppStage[];
   options?: readonly string[];
@@ -157,7 +166,10 @@ export const OPP_FIELDS: OppFieldDef[] = [
   { name: 'market',          label: 'Market',         kind: 'select', asked: 'Quoted', requiredAt: [...QUOTE_STAGES], options: ['DOMESTIC', 'EXPORT'] },
   { name: 'offer_value_inr', label: 'Total Offer (₹)', kind: 'inr',   asked: 'Quoted', requiredAt: [...QUOTE_STAGES], help: 'Auto-sums the line items if left blank' },
   { name: 'probability_code', label: 'Probability',   kind: 'prob_code', asked: 'Quoted' },
-  { name: 'eta_text',        label: 'Expected Close', kind: 'month',  asked: 'Quoted' },
+  // Asked again while negotiating: the closure month is what moves when a deal
+  // is being argued over, and Best-case and Probability-weighted are built from
+  // Quoted plus Negotiating, so both halves need a date somebody stands behind.
+  { name: 'eta_text',        label: 'Expected Close', kind: 'month',  asked: 'Quoted', reaskedAt: ['Negotiating'] },
 
   // ── On Hold ─────────────────────────────────────────────────
   { name: 'hold_reason', label: 'Hold Reason', kind: 'select', asked: 'On Hold', onlyStages: ['On Hold'], requiredAt: ['On Hold'], options: HOLD_REASONS },
@@ -251,14 +263,17 @@ export function isFieldRequired(f: OppFieldDef, stage: OppStage, values?: Record
   return isFieldVisible(f, stage, values) && (f.requiredAt ?? []).includes(stage);
 }
 
-/** Fields first asked AT this stage — the "fill this in now" section. */
+/** True when this stage puts the field in its own "fill this in now" section. */
+const asksNow = (f: OppFieldDef, stage: OppStage) => f.asked === stage || !!f.reaskedAt?.includes(stage);
+
+/** Fields this stage asks for — first time, or asked again (see `reaskedAt`). */
 export function fieldsNewAt(stage: OppStage, values?: Record<string, string>): OppFieldDef[] {
-  return OPP_FIELDS.filter(f => isFieldVisible(f, stage, values) && f.asked === stage);
+  return OPP_FIELDS.filter(f => isFieldVisible(f, stage, values) && asksNow(f, stage));
 }
 
 /** Fields carried in from earlier stages — the "already recorded" section. */
 export function fieldsCarriedInto(stage: OppStage, values?: Record<string, string>): OppFieldDef[] {
-  return OPP_FIELDS.filter(f => isFieldVisible(f, stage, values) && f.asked !== stage);
+  return OPP_FIELDS.filter(f => isFieldVisible(f, stage, values) && !asksNow(f, stage));
 }
 
 export function requiredFieldNames(stage: OppStage): string[] {

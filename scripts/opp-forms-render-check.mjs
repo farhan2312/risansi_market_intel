@@ -99,5 +99,14 @@ const unread = OPP_FIELDS.map(f => f.name).filter(n => !body.includes(`formData.
 for (const n of unread) { bad++; console.log(`  FAIL updateOpportunity never reads '${n}', which a form sends`); }
 if (!unread.length) console.log('  ok   updateOpportunity reads every catalogue field');
 
-console.log(bad ? `\n${bad} problem(s)` : '\nevery move form renders and every field is read');
+// Every date the forms carry must reach the browser as text. A `date` column
+// shipped raw serialises to "Wed Jul 15 2026 00:00:00 GMT+0400", which the
+// form hands straight back on the next save: Postgres refuses it and the
+// whole edit is lost. po_date was uncast for as long as Won existed (24 Sep).
+const board = fs.readFileSync(path.join(ROOT, 'app/risansi/pipeline/page.tsx'), 'utf8');
+const uncast = OPP_FIELDS.filter(f => f.kind === 'date' && !board.includes(`o.${f.name}::text`));
+for (const f of uncast) { bad++; console.log(`  FAIL the board ships ${f.name} without ::text — the form will send a JS Date back`); }
+if (!uncast.length) console.log('  ok   every date field the board carries is cast to text');
+
+console.log(bad ? `\n${bad} problem(s)` : '\nevery move form renders, every field is read, every date is text');
 process.exit(bad ? 1 : 0);
