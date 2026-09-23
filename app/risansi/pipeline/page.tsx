@@ -14,7 +14,7 @@ import { OpportunitiesTabs } from '@/components/risansi/OpportunitiesTabs';
 import { TextSearchFilter } from '@/components/risansi/TextSearchFilter';
 import { DateRangeFilter } from '@/components/risansi/DateRangeFilter';
 import { ForecastBar } from '@/components/risansi/ForecastBar';
-import { oppFilterQuery } from '@/lib/risansi-opp-filters';
+import { oppFilterQuery, repBookSql } from '@/lib/risansi-opp-filters';
 import { LIVE_CLIENT, AND_LIVE_CLIENT } from '@/lib/risansi-opportunity-scope';
 import {
   bracketLink, soCoverageSql, isSoCoverage, SO_COVERAGE_LABELS,
@@ -197,12 +197,10 @@ export default async function PipelinePage({
     vals.push(prodTypeFilts); idx++;
   }
   if (repFilts.length > 0) {
-    // Picking a rep shows the opportunities of the clients that rep works — the
-    // ones they own or cover — not opps merely stored against their id.
-    conds.push(`EXISTS (SELECT 1 FROM users u2
-                          WHERE u2.name = ANY($${idx}::text[])
-                            AND (c.primary_rep_id = u2.id
-                                 OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = u2.id)))`);
+    // The clients that rep works, and their team's when they are a manager —
+    // the same book their own board shows. Not opps merely stored against
+    // their id. See repBookSql.
+    conds.push(repBookSql(`$${idx}::text[]`));
     vals.push(repFilts); idx++;
   }
   if (indFilts.length > 0) {
@@ -267,10 +265,7 @@ export default async function PipelinePage({
     revVals.push(scopedRepId); rIdx++;
   }
   if (repFilts.length > 0) {
-    revConds.push(`EXISTS (SELECT 1 FROM users u2
-                            WHERE u2.name = ANY($${rIdx}::text[])
-                              AND (c.primary_rep_id = u2.id
-                                   OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = u2.id)))`);
+    revConds.push(repBookSql(`$${rIdx}::text[]`));
     revVals.push(repFilts); rIdx++;
   }
   if (indFilts.length > 0) {
@@ -298,7 +293,7 @@ export default async function PipelinePage({
     const c: string[] = [];
     const v: (string | number | string[])[] = [];
     if (prodTypeFilts.length)   { c.push(`${a}.product_type = ANY($${v.length + 1}::text[])`);                                 v.push(prodTypeFilts); }
-    if (repFilts.length)        { c.push(`${a}.client_id IN (SELECT c2.id FROM clients c2 JOIN users u2 ON u2.name = ANY($${v.length + 1}::text[]) AND (c2.primary_rep_id = u2.id OR c2.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = u2.id)))`);  v.push(repFilts); }
+    if (repFilts.length)        { c.push(`${a}.client_id IN (SELECT c.id FROM clients c WHERE ${repBookSql(`$${v.length + 1}::text[]`)})`);  v.push(repFilts); }
     if (indFilts.length)        { c.push(`${a}.client_id IN (SELECT id FROM clients WHERE industry = ANY($${v.length + 1}::text[]))`); v.push(indFilts); }
     if (ctypeFilts.length)      { c.push(`${a}.client_id IN (SELECT id FROM clients WHERE client_type = ANY($${v.length + 1}::text[]))`); v.push(ctypeFilts); }
     if (probFilts.length)       { c.push(`${a}.probability_code = ANY($${v.length + 1}::text[])`);                             v.push(probFilts); }

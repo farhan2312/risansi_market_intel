@@ -103,6 +103,28 @@ export interface BuiltFilter {
  * self-scope rather than ANDing with it: a rep who picks a colleague means "show
  * me theirs", and ANDing the two produced an unexplained empty board.
  */
+/**
+ * The book a chosen rep answers for, as SQL over a `clients c` join.
+ *
+ * The clients they own or cover — and, when they are a manager, the clients
+ * their team owns or covers, because that is the board they themselves see.
+ * Without the team limb, "Rep: Anil Vankudre" from an admin login returned
+ * less than Anil's own board did and the two totals disagreed on screen
+ * (23 Sep: ten quoted opportunities on his team's accounts).
+ *
+ * Under tours this had to mean "clients on a route they are on", which caught
+ * every other rep's clients on a shared route.
+ */
+export function repBookSql(namesParam: string): string {
+  return `EXISTS (SELECT 1 FROM users u2
+            WHERE u2.name = ANY(${namesParam})
+              AND (c.primary_rep_id = u2.id
+                   OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = u2.id)
+                   OR c.primary_rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = u2.id)
+                   OR c.id IN (SELECT client_id FROM client_secondary_reps
+                                WHERE rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = u2.id))))`;
+}
+
 export function buildOppFilter(f: OppFilters, scopedRepId: number | null, startIdx = 1): BuiltFilter {
   const conds: string[] = [];
   const vals: (string | number | string[])[] = [];
@@ -120,13 +142,7 @@ export function buildOppFilter(f: OppFilters, scopedRepId: number | null, startI
   if (f.stage.length)    { conds.push(`o.stage = ANY($${idx}::text[])`);           vals.push(f.stage);    idx++; }
   if (f.prodType.length) { conds.push(`o.product_type = ANY($${idx}::text[])`);    vals.push(f.prodType); idx++; }
   if (f.rep.length) {
-    // Picking a rep shows the opportunities of the clients that rep works: the
-    // ones they own or cover. Under tours this had to mean "clients on a route
-    // they are on", which caught every other rep's clients on a shared route.
-    conds.push(`EXISTS (SELECT 1 FROM users u2
-                  WHERE u2.name = ANY($${idx}::text[])
-                    AND (c.primary_rep_id = u2.id
-                         OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = u2.id)))`);
+    conds.push(repBookSql(`$${idx}::text[]`));
     vals.push(f.rep); idx++;
   }
   if (f.industry.length) { conds.push(`c.industry = ANY($${idx}::text[])`);        vals.push(f.industry); idx++; }

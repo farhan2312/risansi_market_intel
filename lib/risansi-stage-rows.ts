@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, clientScopeSql, OWN_OPEN } from '@/lib/risansi-auth';
-import { parseOppFilters, buildOppFilter } from '@/lib/risansi-opp-filters';
+import { parseOppFilters, buildOppFilter, repBookSql } from '@/lib/risansi-opp-filters';
 import {
   ageBasisSql, applySelection, parseSelection, todayMonthIdx, fyStartIdx,
   type DashStage, type Selection, type StageRow, type MonthActual,
@@ -136,8 +136,7 @@ export async function loadFyActuals(sp: SearchParams): Promise<Map<number, Month
   }
   if (f.rep.length) {
     vals.push(f.rep);
-    conds.push(`EXISTS (SELECT 1 FROM users u2 WHERE u2.name = ANY($${vals.length}::text[])
-                  AND (c.primary_rep_id = u2.id OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = u2.id)))`);
+    conds.push(repBookSql(`$${vals.length}::text[]`));
   }
   if (f.industry.length) { vals.push(f.industry); conds.push(`c.industry = ANY($${vals.length}::text[])`); }
   if (f.ctype.length)    { vals.push(f.ctype);    conds.push(`c.client_type = ANY($${vals.length}::text[])`); }

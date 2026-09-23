@@ -6,6 +6,7 @@ import { getCurrentUser, clientScopeSql , OWN_OPEN } from '@/lib/risansi-auth';
 import { DROP_REASONS, PRODUCT_TYPES as OPP_PRODUCT_TYPES } from '@/lib/risansi-opportunity-fields';
 import { APP_URL } from '@/lib/risansi-app-url';
 import { quotationExportLink, quotationRecordLabel } from '@/lib/risansi-quotation-link';
+import { repBookSql } from '@/lib/risansi-opp-filters';
 import { LIVE_CLIENT } from '@/lib/risansi-opportunity-scope';
 
 export const runtime = 'nodejs';
@@ -133,7 +134,7 @@ export async function GET(req: Request) {
   conds.push(LIVE_CLIENT('o'));   // an archived client's opportunities are not exported
   if (stageFilts.length)    { conds.push(`o.stage = ANY($${idx}::text[])`);            vals.push(stageFilts);    idx++; }
   if (prodTypeFilts.length) { conds.push(`o.product_type = ANY($${idx}::text[])`);     vals.push(prodTypeFilts); idx++; }
-  if (repFilts.length)      { conds.push(`EXISTS (SELECT 1 FROM users u2 WHERE u2.name = ANY($${idx}::text[]) AND (c.primary_rep_id = u2.id OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = u2.id)))`); vals.push(repFilts); idx++; }
+  if (repFilts.length)      { conds.push(repBookSql(`$${idx}::text[]`)); vals.push(repFilts); idx++; }
   if (indFilts.length)      { conds.push(`c.industry = ANY($${idx}::text[])`);          vals.push(indFilts);      idx++; }
   if (ctypeFilts.length)    { conds.push(`c.client_type = ANY($${idx}::text[])`);       vals.push(ctypeFilts);    idx++; }
   if (probFilts.length)     { conds.push(`o.probability_code = ANY($${idx}::text[])`);  vals.push(probFilts);     idx++; }
