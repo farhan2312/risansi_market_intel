@@ -9,6 +9,7 @@ import {
   type FollowUpType,
 } from '@/app/actions/risansi-exhibitions';
 import type { MeetingRow, ExpenseRow, ReviewRow } from './ExhibitionDetail';
+import { PotentialLeads } from './PotentialLeads';
 import type { UserOpt } from './ExhibitionsClient';
 
 /**
@@ -28,6 +29,11 @@ export interface ReviewMeeting extends MeetingRow {
   linked_visit_id: number | null;
   linked_task_id: number | null;
   linked_opportunity_id: number | null;
+  /** The high-potential mark and what the review decided about it. */
+  lead_client_id: number | null;
+  lead_client_code: string | null;
+  lead_opportunity_id: number | null;
+  lead_skipped_reason: string | null;
 }
 
 const DISPOSITIONS: { value: FollowUpType; label: string; needsClient: boolean; hint: string }[] = [
@@ -61,8 +67,21 @@ export function ExhibitionReviewWorkbench({
         </div>
       )}
 
-      {/* Step 1 — meetings */}
+      {/* Step 1 — meetings. The marked ones come first: they are the reason
+          somebody walked a stand, and the review is where they become leads. */}
       <section>
+        <PotentialLeads
+          exhibitionId={exhibitionId}
+          editable={isOwner && !closed}
+          meetings={meetings.filter(m => m.high_potential).map(m => ({
+            id: m.id, company_name: m.company_name, contact_person: m.contact_person, designation: m.designation,
+            phone: m.phone, email: m.email, city: m.city, requirement: m.requirement, interest: m.interest,
+            potential_value_inr: m.potential_value_inr, met_by_name: m.met_by_name, met_on: m.met_on,
+            client_id: m.client_id, client_code: m.client_code, client_legal_name: m.client_legal_name,
+            lead_client_id: m.lead_client_id, lead_client_code: m.lead_client_code,
+            lead_opportunity_id: m.lead_opportunity_id, lead_skipped_reason: m.lead_skipped_reason,
+          }))}
+        />
         <StepHead n={1} title="Decide each meeting"
           done={meetings.length > 0 && decided === meetings.length}
           sub={`${decided} of ${meetings.length} decided`} />

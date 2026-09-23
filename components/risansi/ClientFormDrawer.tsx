@@ -23,9 +23,19 @@ type ContactRow = {
 
 interface Props {
   mode: 'create' | 'edit';
-  client?: any;                 // pre-filled data (edit mode only)
+  client?: any;                 // pre-filled data (edit mode, or defaults in create mode)
   existingContacts?: any[];     // live (non-imported) contacts for edit mode
   allowCodeEdit?: boolean;      // edit mode: allow changing the client code (Client Master only)
+  /**
+   * Create mode: save through this instead of addClient.
+   *
+   * The exhibition review turns a marked meeting into a lead, and needs the
+   * new client's id to link the meeting and raise its opportunity. The form
+   * itself is the same one the Client Master uses, which is the point — a
+   * lead born at a stand is a client record like any other.
+   */
+  submit?: (fd: FormData) => Promise<void>;
+  title?: string;
   onClose: () => void;
 }
 
@@ -45,7 +55,7 @@ function withCurrent(opts: string[], current: unknown): string[] {
 
 // ── Component ──────────────────────────────────────────────────
 
-export function ClientFormDrawer({ mode, client, existingContacts, allowCodeEdit, onClose }: Props) {
+export function ClientFormDrawer({ mode, client, existingContacts, allowCodeEdit, submit, title, onClose }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [visible, setVisible] = useState(false);
@@ -183,7 +193,7 @@ export function ClientFormDrawer({ mode, client, existingContacts, allowCodeEdit
     startTransition(async () => {
       try {
         if (mode === 'create') {
-          await addClient(fd);
+          if (submit) await submit(fd); else await addClient(fd);
         } else {
           await updateClient(Number(client.id), fd);
         }
@@ -235,7 +245,7 @@ export function ClientFormDrawer({ mode, client, existingContacts, allowCodeEdit
           padding: '16px 20px', borderBottom: '1px solid var(--line)', flexShrink: 0,
         }}>
           <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--title)', letterSpacing: '-0.01em' }}>
-            {mode === 'create' ? 'New Client' : 'Edit Client'}
+            {title ?? (mode === 'create' ? 'New Client' : 'Edit Client')}
             {mode === 'edit' && (
               <span style={{ fontFamily: 'monospace', fontWeight: 400, color: 'var(--fg-3)', marginLeft: 8, fontSize: 13 }}>
                 · {client?.code}

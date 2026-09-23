@@ -79,9 +79,12 @@ export default async function ExhibitionDetailPage({ params }: { params: Promise
                 m.met_by, m.met_by_name, m.met_on::text AS met_on,
                 c.code AS client_code, c.legal_name AS client_legal_name, c.status AS client_status,
                 m.follow_up_type, m.follow_up_owner_id, fo.name AS follow_up_owner_name,
-                m.follow_up_note, m.linked_visit_id, m.linked_task_id, m.linked_opportunity_id
+                m.follow_up_note, m.linked_visit_id, m.linked_task_id, m.linked_opportunity_id,
+                m.high_potential, m.lead_client_id, lc.code AS lead_client_code,
+                m.lead_opportunity_id, m.lead_skipped_reason
            FROM exhibition_meetings m
            LEFT JOIN clients c ON c.id = m.client_id
+           LEFT JOIN clients lc ON lc.id = m.lead_client_id
            LEFT JOIN users fo ON fo.id = m.follow_up_owner_id
           WHERE m.exhibition_id = $1
           ORDER BY m.met_on DESC NULLS LAST, m.id DESC`, [id]);

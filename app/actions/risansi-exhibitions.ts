@@ -5,6 +5,7 @@ import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, hasRole, whyCannotVisitClient } from '@/lib/risansi-auth';
 import { recordAudit } from '@/lib/audit';
 import { checkInvoice } from '@/lib/risansi-exhibition-files';
+import { normalizeClientName, uniqueLeadCode } from '@/lib/risansi-lead-code';
 import { pushInApp } from '@/lib/risansi-inapp';
 import {
   isExhibitionStatus, isDecision, UNLOCKED_STATUSES,
@@ -14,9 +15,11 @@ import {
 /**
  * Exhibition module server actions.
  *
- * Self-contained: these only ever touch exhibition_* tables. The one exception is
- * a READ of `clients` to resolve a lookup id, and a read of `users` to name people.
- * Nothing here creates or edits a client, a task or an opportunity.
+ * Self-contained but for one thing: these only touch exhibition_* tables, read
+ * `clients` to resolve a lookup id and `users` to name people — and, at the
+ * post-event review, turn a meeting the rep marked as high potential into a
+ * client and an opportunity. That conversion is the single deliberate write
+ * outside the module (convertMeetingToLead), and only the reviewer may run it.
  */
 
 type Me = { id: number | null; email: string | null; role: string };
@@ -510,6 +513,7 @@ export async function saveExhibitionMeeting(exhibitionId: number, fd: FormData, 
     str(fd, 'phone'), str(fd, 'email'), str(fd, 'city'), str(fd, 'discussion'),
     str(fd, 'requirement'), str(fd, 'outcome'), str(fd, 'next_action'),
     str(fd, 'follow_up_date'), str(fd, 'interest'), inr(fd, 'potential_value_inr'),
+    fd.get('high_potential') === '1',
   ];
 
   // The id is returned so the caller can attach anything that needs one — a
@@ -523,8 +527,8 @@ export async function saveExhibitionMeeting(exhibitionId: number, fd: FormData, 
          client_id=$2, company_name=$3, contact_person=$4, designation=$5, phone=$6,
          email=$7, city=$8, discussion=$9, requirement=$10, outcome=$11,
          next_action=$12, follow_up_date=$13, interest=$14, potential_value_inr=$15,
-         updated_at=NOW()
-       WHERE id=$16 AND exhibition_id=$1`,
+         high_potential=$16, updated_at=NOW()
+       WHERE id=$17 AND exhibition_id=$1`,
       [...vals, meetingId],
     );
   } else {
@@ -532,9 +536,9 @@ export async function saveExhibitionMeeting(exhibitionId: number, fd: FormData, 
       `INSERT INTO exhibition_meetings
          (exhibition_id, client_id, company_name, contact_person, designation, phone,
           email, city, discussion, requirement, outcome, next_action, follow_up_date,
-          interest, potential_value_inr, met_by, met_by_name, met_on)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
-               (SELECT name FROM users WHERE id=$16), COALESCE($17::date, CURRENT_DATE))
+          interest, potential_value_inr, high_potential, met_by, met_by_name, met_on)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
+               (SELECT name FROM users WHERE id=$17), COALESCE($18::date, CURRENT_DATE))
        RETURNING id`,
       [...vals, user.id, str(fd, 'met_on')],
     );
@@ -983,9 +987,166 @@ export async function reviewExhibitionExpenses(exhibitionId: number) {
  * What still blocks closing. Returned as a list so the UI can name every reason
  * at once instead of failing one at a time.
  */
+// ── A marked meeting becomes a lead ──────────────────────────────
+//
+// The rep marks a company at the stand; the person running the post-event
+// review decides. Converting writes outside the exhibition tables — a client
+// and an opportunity — which is the one deliberate exception to the rule at
+// the top of this file, and it is why only the reviewer may do it.
+
+/** What the lead form opens with: the meeting, as a client record. */
+export async function meetingLeadPrefill(exhibitionId: number, meetingId: number): Promise<{
+  legal_name: string; city: string | null; contact_person: string | null; designation: string | null;
+  phone: string | null; email: string | null; potential_value_inr: number | null; requirement: string | null;
+  exhibition_name: string; met_on: string | null; blocked: string | null;
+} | null> {
+  await requireUser();
+  await assertCanManage(exhibitionId);
+  const { rows } = await risansiPool.query<{
+    company_name: string; city: string | null; contact_person: string | null; designation: string | null;
+    phone: string | null; email: string | null; potential_value_inr: string | null; requirement: string | null;
+    client_id: number | null; client_name: string | null; lead_client_id: number | null;
+    exhibition_name: string; met_on: string | null;
+  }>(
+    `SELECT m.company_name, m.city, m.contact_person, m.designation, m.phone, m.email,
+            m.potential_value_inr::text, m.requirement, m.client_id, c.legal_name AS client_name,
+            m.lead_client_id, e.name AS exhibition_name, m.met_on::text AS met_on
+       FROM exhibition_meetings m
+       JOIN exhibitions e ON e.id = m.exhibition_id
+       LEFT JOIN clients c ON c.id = m.client_id
+      WHERE m.id = $1 AND m.exhibition_id = $2`, [meetingId, exhibitionId]);
+  const m = rows[0];
+  if (!m) return null;
+  return {
+    legal_name: m.company_name, city: m.city, contact_person: m.contact_person, designation: m.designation,
+    phone: m.phone, email: m.email, potential_value_inr: m.potential_value_inr == null ? null : Number(m.potential_value_inr),
+    requirement: m.requirement, exhibition_name: m.exhibition_name, met_on: m.met_on,
+    // Already on the books, either from the lookup at the stand or from an
+    // earlier conversion: there is nothing to create.
+    blocked: m.client_id != null ? `${m.client_name ?? 'This company'} is already a client — raise an opportunity on the account instead.`
+      : m.lead_client_id != null ? 'A lead has already been created from this meeting.' : null,
+  };
+}
+
+/**
+ * Create the lead: a Prospective-Lead client, its first contact, and a Suspect
+ * opportunity carrying the potential value, all linked back to the meeting.
+ *
+ * The form is the Client Master's own, so everything it enforces about a client
+ * record holds here too; the LEAD_ code is generated from the name the same way.
+ */
+export async function convertMeetingToLead(exhibitionId: number, meetingId: number, fd: FormData): Promise<void> {
+  const user = await requireUser();
+  await assertOwner(exhibitionId, user);           // the reviewer, or a sysadmin
+
+  const { rows: mRows } = await risansiPool.query<{
+    company_name: string; client_id: number | null; lead_client_id: number | null;
+    potential_value_inr: string | null; requirement: string | null; met_by: number | null;
+    contact_person: string | null; designation: string | null; phone: string | null; email: string | null;
+    exhibition_name: string;
+  }>(
+    `SELECT m.company_name, m.client_id, m.lead_client_id, m.potential_value_inr::text, m.requirement,
+            m.met_by, m.contact_person, m.designation, m.phone, m.email, e.name AS exhibition_name
+       FROM exhibition_meetings m JOIN exhibitions e ON e.id = m.exhibition_id
+      WHERE m.id = $1 AND m.exhibition_id = $2`, [meetingId, exhibitionId]);
+  const meeting = mRows[0];
+  if (!meeting) throw new Error('Meeting not found.');
+  if (meeting.client_id != null) throw new Error('This company is already a client — raise an opportunity on the account instead.');
+  if (meeting.lead_client_id != null) throw new Error('A lead has already been created from this meeting.');
+
+  const legalName = normalizeClientName((fd.get('legal_name') as string | null) ?? meeting.company_name);
+  if (!legalName) throw new Error('Company name is required.');
+
+  const { rows: taken } = await risansiPool.query<{ code: string }>("SELECT code FROM clients WHERE code LIKE 'LEAD\\_%'");
+  const used = new Set(taken.map(r => r.code));
+  const code = uniqueLeadCode(legalName, c => used.has(c));
+
+  const text = (k: string) => { const v = fd.get(k); const t = typeof v === 'string' ? v.trim() : ''; return t === '' ? null : t; };
+  const repId = Number(text('primary_rep_id')) || meeting.met_by || user.id;
+
+  const { rows: cRows } = await risansiPool.query<{ id: number }>(
+    // `clients` carries no origin column, so where the lead came from lives on
+    // the opportunity's notes and in the audit trail below.
+    `INSERT INTO clients (code, legal_name, status, country, state, city, address, google_maps_url,
+                          market_type, industry, is_sugar, client_type, primary_rep_id, tour_id,
+                          created_by, created_at, updated_at)
+     VALUES ($1,$2,'PROSPECTIVE_LEAD',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW(),NOW())
+     RETURNING id`,
+    [code, legalName, text('country') ?? 'India', text('state'), text('city'), text('address'),
+     text('google_maps_url'), text('market_type'), text('industry'), fd.get('is_sugar') === 'true',
+     text('client_type'), repId, Number(text('tour_id')) || null, user.email]);
+  const clientId = cRows[0].id;
+
+  // The person met at the stand, as the client's first contact.
+  const contactName = text('contact_person') ?? meeting.contact_person;
+  if (contactName) {
+    await risansiPool.query(
+      `INSERT INTO contacts (client_id, name, designation, phone, email, is_primary, added_by, created_at)
+       VALUES ($1,$2,$3,$4,$5,TRUE,$6,NOW())`,
+      [clientId, contactName, text('designation') ?? meeting.designation,
+       text('phone') ?? meeting.phone, text('email') ?? meeting.email, user.email]).catch(() => {});
+  }
+
+  // The requirement discussed, as a Suspect: nothing has been quoted, and the
+  // potential value is the rep's estimate from the stand.
+  const potential = meeting.potential_value_inr == null ? null : Number(meeting.potential_value_inr);
+  const { rows: oRows } = await risansiPool.query<{ id: number }>(
+    // opportunity_source is a fixed list that has no Exhibition in it; the
+    // notes say where it came from instead.
+    `INSERT INTO opportunities (client_id, rep_id, stage, product, product_type, value_cr,
+                                notes, created_by, created_at, updated_at)
+     VALUES ($1,$2,'Suspect',$3,'PCP',$4,$5,$6,NOW(),NOW())
+     RETURNING id`,
+    [clientId, repId, meeting.requirement?.slice(0, 120) || 'Exhibition enquiry',
+     potential && potential > 0 ? potential / 10000000 : null,
+     `From ${meeting.exhibition_name}. ${meeting.requirement ?? ''}`.trim(), user.email]);
+
+  await risansiPool.query(
+    `UPDATE exhibition_meetings
+        SET lead_client_id = $1, lead_opportunity_id = $2, lead_created_at = NOW(), lead_created_by = $3,
+            lead_decided_at = NOW(), lead_decided_by = $3, lead_skipped_reason = NULL, updated_at = NOW()
+      WHERE id = $4 AND exhibition_id = $5`,
+    [clientId, oRows[0].id, user.id, meetingId, exhibitionId]);
+
+  await recordAudit({
+    action: 'exhibition_lead_created', entityType: 'client', entityId: String(clientId),
+    entityLabel: `${code} · ${legalName}`,
+    summary: `Lead created from ${meeting.exhibition_name}: ${legalName}${potential ? ` · potential ₹${potential.toLocaleString('en-IN')}` : ''}`,
+    actorEmail: user.email,
+  }).catch(() => {});
+  touch(exhibitionId);
+  revalidatePath('/risansi/clients');
+  revalidatePath('/risansi/pipeline');
+}
+
+/** Set a marked meeting aside, with the reason on the record. */
+export async function skipMeetingLead(exhibitionId: number, meetingId: number, reason: string): Promise<void> {
+  const user = await requireUser();
+  await assertOwner(exhibitionId, user);
+  const why = reason.trim();
+  if (!why) throw new Error('Say why this one is not being taken forward.');
+  const { rowCount } = await risansiPool.query(
+    `UPDATE exhibition_meetings
+        SET lead_skipped_reason = $1, lead_decided_at = NOW(), lead_decided_by = $2, updated_at = NOW()
+      WHERE id = $3 AND exhibition_id = $4 AND lead_client_id IS NULL`,
+    [why, user.id, meetingId, exhibitionId]);
+  if (!rowCount) throw new Error('That meeting already has a lead.');
+  touch(exhibitionId);
+}
+
+/** Undo a set-aside, so it is decided again. */
+export async function reopenMeetingLead(exhibitionId: number, meetingId: number): Promise<void> {
+  const user = await requireUser();
+  await assertOwner(exhibitionId, user);
+  await risansiPool.query(
+    `UPDATE exhibition_meetings SET lead_skipped_reason = NULL, lead_decided_at = NULL, lead_decided_by = NULL, updated_at = NOW()
+      WHERE id = $1 AND exhibition_id = $2 AND lead_client_id IS NULL`, [meetingId, exhibitionId]);
+  touch(exhibitionId);
+}
+
 export async function closeReadiness(exhibitionId: number): Promise<string[]> {
   const { rows } = await risansiPool.query<{
-    undecided: number; unpaid: number; no_invoice: number;
+    undecided: number; unpaid: number; no_invoice: number; undecided_leads: number;
     expenses_reviewed: boolean; has_review: boolean;
   }>(
     `SELECT
@@ -996,6 +1157,10 @@ export async function closeReadiness(exhibitionId: number): Promise<string[]> {
        (SELECT COUNT(*)::int FROM exhibition_expenses x
          LEFT JOIN exhibition_expense_files f ON f.expense_id = x.id
         WHERE x.exhibition_id = $1 AND f.expense_id IS NULL)                               AS no_invoice,
+       (SELECT COUNT(*)::int FROM exhibition_meetings m
+         WHERE m.exhibition_id = $1 AND m.high_potential
+           AND m.lead_client_id IS NULL AND m.lead_skipped_reason IS NULL
+           AND m.client_id IS NULL)                                                        AS undecided_leads,
        (SELECT expenses_reviewed_at IS NOT NULL FROM exhibitions WHERE id = $1)            AS expenses_reviewed,
        (SELECT EXISTS (SELECT 1 FROM exhibition_reviews r WHERE r.exhibition_id = $1))     AS has_review`,
     [exhibitionId],
@@ -1004,6 +1169,7 @@ export async function closeReadiness(exhibitionId: number): Promise<string[]> {
   if (!r) return ['Exhibition not found'];
   const missing: string[] = [];
   if (r.undecided > 0)      missing.push(`${r.undecided} meeting(s) still need a follow-up decision`);
+  if (r.undecided_leads > 0) missing.push(`${r.undecided_leads} high-potential meeting(s) are neither a lead nor set aside`);
   if (r.unpaid > 0)         missing.push(`${r.unpaid} expense line(s) are not fully paid`);
   if (r.no_invoice > 0)     missing.push(`${r.no_invoice} expense line(s) have no invoice attached`);
   if (!r.has_review)        missing.push('The post-event review has not been filled in');

@@ -49,6 +49,8 @@ export interface MeetingRow {
   email: string | null; city: string | null; discussion: string | null;
   requirement: string | null; outcome: string | null; next_action: string | null;
   follow_up_date: string | null; interest: string | null; potential_value_inr: number | null;
+  /** Marked by the rep as worth pursuing; decided at the post-event review. */
+  high_potential?: boolean;
   met_by: number | null; met_by_name: string | null; met_on: string | null;
   client_code: string | null; client_legal_name: string | null; client_status: string | null;
 }
@@ -668,6 +670,7 @@ function MeetingsTab({ exhibitionId, meetings, canManage }: {
                     ) : (
                       <span style={FLAG_NEW}>New company</span>
                     )}
+                    {m.high_potential && <Pill tone="warn">⭐ High potential</Pill>}
                     {m.interest && <Pill>{m.interest}</Pill>}
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 4 }}>
@@ -893,6 +896,21 @@ function MeetingForm({ exhibitionId, meeting, onDone }: {
               <input name="potential_value_inr" inputMode="decimal" defaultValue={meeting?.potential_value_inr ?? ''} style={INPUT} placeholder="e.g. 5,00,000" />
             </F>
           </Two>
+          {/* Marked by whoever took the meeting; nobody is notified. It is
+              read at the post-event review, which cannot close until each
+              marked company has been turned into a lead or set aside. */}
+          <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '10px 12px', marginBottom: 12,
+                          border: '1px solid var(--line-strong)', borderRadius: 8, background: 'var(--bg-elev)', cursor: 'pointer' }}>
+            <input type="checkbox" name="high_potential" value="1" defaultChecked={meeting?.high_potential ?? false}
+              style={{ width: 18, height: 18, marginTop: 1, flexShrink: 0 }} />
+            <span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>⭐ High potential — worth pursuing</span>
+              <span style={{ display: 'block', fontSize: 11.5, color: 'var(--fg-3)', marginTop: 2, lineHeight: 1.45 }}>
+                Flags this company for the post-event review, where it is turned into a lead or set aside with a reason. The exhibition cannot be closed while one is still undecided.
+              </span>
+            </span>
+          </label>
+
           <Two>
             <F label="Next action"><input name="next_action" defaultValue={meeting?.next_action ?? ''} style={INPUT} placeholder="e.g. Send quotation" /></F>
             <F label="Follow-up by"><input name="follow_up_date" type="date" defaultValue={meeting?.follow_up_date ?? ''} style={INPUT} /></F>
@@ -1414,8 +1432,10 @@ function Chip({ status }: { status: ExhibitionStatus }) {
   const t = STATUS_TONE[status] ?? { bg: 'var(--bg-elev)', fg: 'var(--fg-2)' };
   return <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, background: t.bg, color: t.fg }}>{status}</span>;
 }
-function Pill({ children }: { children: React.ReactNode }) {
-  return <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 11, background: 'var(--bg-elev)', color: 'var(--fg-2)' }}>{children}</span>;
+function Pill({ children, tone }: { children: React.ReactNode; tone?: 'warn' }) {
+  return <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: tone ? 600 : 400,
+    background: tone === 'warn' ? 'var(--warn-soft)' : 'var(--bg-elev)',
+    color: tone === 'warn' ? 'var(--warn-strong, var(--warn))' : 'var(--fg-2)' }}>{children}</span>;
 }
 function Kpi({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
