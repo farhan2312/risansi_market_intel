@@ -65,6 +65,18 @@ export function PumpBatchForm({
     setV(p => ({ ...p, pumps: p.pumps.map((r, j) => (j === i ? { ...r, [k]: val } : r)) }));
 
   /**
+   * What the Quantity box shows while it is being typed in.
+   *
+   * The box used to render the row count directly, and every keystroke went
+   * through setQuantity, which reads an empty string as 1. Backspacing over
+   * the "1" put a "1" straight back, so on a phone — where changing a number
+   * means clearing it first — the quantity could not be changed at all
+   * (bug #73). Holding the text while the field has focus lets it be emptied;
+   * the row count still governs, and the box returns to it on blur.
+   */
+  const [qtyText, setQtyText] = useState<string | null>(null);
+
+  /**
    * Quantity drives how many pump rows show. Growing just appends blanks.
    * Shrinking only ever drops rows the user hasn't touched — a filled row is
    * something they typed, and silently discarding it is exactly the kind of
@@ -72,7 +84,10 @@ export function PumpBatchForm({
    * warning saying so; the × on the row is the deliberate way to remove it.
    */
   const setQuantity = (raw: string) => {
-    const n = Math.max(1, Math.min(200, parseInt(raw.replace(/[^0-9]/g, ''), 10) || 1));
+    const digits = raw.replace(/[^0-9]/g, '');
+    setQtyText(digits);
+    if (digits === '') return;                       // mid-edit: leave the rows alone
+    const n = Math.max(1, Math.min(200, parseInt(digits, 10) || 1));
     setV(p => {
       if (n >= p.pumps.length) {
         return { ...p, pumps: [...p.pumps, ...Array.from({ length: n - p.pumps.length }, blankPumpRow)] };
@@ -144,8 +159,10 @@ export function PumpBatchForm({
         <label style={{ display: 'block', width: 110 }}>
           <span style={LBL}>Quantity</span>
           <input
-            type="text" inputMode="numeric" value={String(qty)}
+            type="text" inputMode="numeric" value={qtyText ?? String(qty)}
             onChange={e => setQuantity(e.target.value)}
+            onFocus={e => e.currentTarget.select()}
+            onBlur={() => setQtyText(null)}
             aria-label="Number of pumps" style={INP}
           />
         </label>
