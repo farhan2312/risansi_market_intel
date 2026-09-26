@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { Topbar } from '@/components/risansi';
 import { getCurrentUser } from '@/lib/risansi-auth';
 import { loadComplaintRows, loadHolderDwells, parseComplaintFilters, parseComplaintSort, FILTER_KEYS, type ComplaintSortKey } from '@/lib/risansi-complaint-rows';
-import { summariseComplaints } from '@/lib/risansi-complaint-stats';
+import { summariseComplaints, clientBars } from '@/lib/risansi-complaint-stats';
 import { ComplaintStats } from '@/components/risansi/complaints/ComplaintStats';
 import { ComplaintFilterBar, type FilterOptions } from '@/components/risansi/complaints/ComplaintFilterBar';
 import { ComplaintTable } from '@/components/risansi/complaints/ComplaintTable';
@@ -49,6 +49,11 @@ export default async function ComplaintsPage({ searchParams }: { searchParams: P
     partNames: uniq(base.map(r => r.part_name)),
     reps: people(base.map(r => [r.rep_user_id, r.rep_name])),
     holders: people(base.map(r => [r.holder_user_id, r.holder_name])),
+    // Same order as the by-client chart — most complaints first — so the
+    // dropdown and the bars read as one thing.
+    clients: clientBars(base).map(c => ({
+      id: c.key, name: c.code ? `${c.label} (${c.code})` : c.label,
+    })),
   };
 
   const sortParam = sort ? `${sort.key}_${sort.dir}` : undefined;

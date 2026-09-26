@@ -12,6 +12,8 @@ export interface FilterOptions {
   types: string[]; categories: string[]; responsibles: string[];
   rootCauses: string[]; partTypes: string[]; partNames: string[];
   reps: { id: number; name: string }[]; holders: { id: number; name: string }[];
+  /** Only the clients that actually have a complaint, most first. */
+  clients: { id: string; name: string }[];
 }
 
 export function ComplaintFilterBar({ value, options, basePath }: {
@@ -53,6 +55,9 @@ export function ComplaintFilterBar({ value, options, basePath }: {
       <Sel label="Root cause" v={value.rcc} onChange={v => set({ rcc: v })} opts={options.rootCauses.map(t => [t, t])} />
       <Sel label="Part type" v={value.ptype} onChange={v => set({ ptype: v })} opts={options.partTypes.map(t => [t, t])} />
       <Sel label="Part name" v={value.pname} onChange={v => set({ pname: v })} opts={options.partNames.map(t => [t, t])} />
+      {options.clients.length > 1 && (
+        <Sel label="Client" v={value.client} onChange={v => set({ client: v })} opts={options.clients.map(c => [c.id, c.name])} />
+      )}
       {options.reps.length > 1 && (
         <Sel label="Rep" v={value.rep} onChange={v => set({ rep: v })} opts={options.reps.map(r => [String(r.id), r.name])} />
       )}

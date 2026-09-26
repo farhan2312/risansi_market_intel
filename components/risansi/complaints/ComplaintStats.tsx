@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react';
 import Link from 'next/link';
 import { ChartPanel, StageKpi, NoData } from '@/components/risansi/StageCharts';
 import { SEVERITY_TONE, type Severity } from '@/lib/risansi-complaint-flow';
-import type { ComplaintSummary, Bar, HolderBar, StatusStep } from '@/lib/risansi-complaint-stats';
+import type { ComplaintSummary, Bar, HolderBar, StatusStep, ClientBar } from '@/lib/risansi-complaint-stats';
 
 // The dashboard above the complaints list.
 //
@@ -80,6 +80,20 @@ export function ComplaintStats({ s, href, sel }: {
         </ChartPanel>
       </div>
 
+      {s.byClient.length > 0 && (
+        <div className="stage-grid-4">
+          <div className="stage-span-3">
+            <ChartPanel title="Clients complaining most" sub={`${s.clientCount} client${s.clientCount === 1 ? '' : 's'}`}
+              note="Every complaint in view, counted by account. Red is overdue. Click a client to see only theirs.">
+              <Clients rows={s.byClient.slice(0, 10)} href={v => href('client', v)} selected={sel.client} />
+            </ChartPanel>
+          </div>
+          <ChartPanel title="How concentrated" note="A handful of accounts usually carry most of the complaints. This says how far that goes.">
+            <Concentration rows={s.byClient} total={s.total} />
+          </ChartPanel>
+        </div>
+      )}
+
       {s.longestSitting.length > 0 && (
         <div style={{ ...PANEL, padding: '10px 14px', display: 'flex', gap: 14, alignItems: 'baseline', flexWrap: 'wrap', fontSize: 11.5 }}>
           <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--fg-3)' }}>Sitting longest right now</span>
@@ -153,6 +167,66 @@ function Bars({ rows, href, selected, tone, empty, compact }: {
         return href ? <a key={r.key} href={href(r.key)} style={style} title={`${r.label}: ${r.count}${r.overdue ? ` · ${r.overdue} overdue` : ''}`}>{inner}</a>
           : <div key={r.key} style={style}>{inner}</div>;
       })}
+    </div>
+  );
+}
+
+// ── Clients: how many complaints each account has raised ───────
+
+function Clients({ rows, href, selected }: { rows: ClientBar[]; href: (v: string) => string; selected?: string }) {
+  if (!rows.length) return <NoData msg="No complaints against a client yet." />;
+  const max = Math.max(...rows.map(r => r.count), 1);
+  const any = !!selected;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {rows.map(r => {
+        const on = selected === r.key;
+        return (
+          <a key={r.key} href={href(r.key)} style={{ ...ROW, opacity: any && !on ? 0.4 : 1, outline: on ? '2px solid var(--accent)' : 'none' }}
+            title={`${r.label}${r.code ? ` (${r.code})` : ''}: ${r.count} complaint${r.count === 1 ? '' : 's'}${r.open ? ` · ${r.open} open` : ' · all closed'}${r.overdue ? ` · ${r.overdue} overdue` : ''}${r.repeats ? ` · ${r.repeats} flagged as a repeat` : ''} · last raised ${r.last || 'unknown'}`}>
+            <span style={{ ...LBL, flex: '0 1 230px' }}>{r.label}</span>
+            <div style={{ flex: 1, minWidth: 40, height: 14, background: 'var(--bg-sunk)', borderRadius: 4, overflow: 'hidden', display: 'flex' }}>
+              {r.overdue > 0 && <div style={{ width: `${(r.overdue / max) * 100}%`, background: 'var(--neg)' }} />}
+              {r.open - r.overdue > 0 && <div style={{ width: `${((r.open - r.overdue) / max) * 100}%`, background: 'color-mix(in oklab, var(--warn, #B45309) 60%, transparent)' }} />}
+              <div style={{ width: `${((r.count - r.open) / max) * 100}%`, background: 'color-mix(in oklab, var(--pos) 40%, transparent)' }} />
+            </div>
+            {r.repeats > 0 && <span style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--neg)' }} title={`${r.repeats} flagged as a repeat of an earlier complaint`}>↻{r.repeats}</span>}
+            <span style={NUM}>{r.count}</span>
+            <span style={{ ...NUM, width: 30, fontSize: 10.5, color: r.open ? 'var(--warn, #B45309)' : 'var(--fg-4)' }}>{r.open || '·'}</span>
+          </a>
+        );
+      })}
+      <div style={{ display: 'flex', gap: 12, fontSize: 9.5, color: 'var(--fg-3)', marginTop: 2 }}>
+        <span><Swatch c="var(--neg)" /> overdue</span>
+        <span><Swatch c="var(--warn, #B45309)" /> open</span>
+        <span><Swatch c="var(--pos)" /> closed</span>
+        <span style={{ marginLeft: 'auto' }}>total · open</span>
+      </div>
+    </div>
+  );
+}
+
+// How much of the total sits with the worst few accounts. One client with ten
+// complaints is a different problem from ten clients with one each.
+function Concentration({ rows, total }: { rows: ClientBar[]; total: number }) {
+  if (!total) return <NoData msg="Nothing to count." />;
+  const share = (n: number) => rows.slice(0, n).reduce((a, r) => a + r.count, 0);
+  const repeatClients = rows.filter(r => r.count > 1).length;
+  const lines: [string, string][] = [
+    ['Top client', `${rows[0].count} of ${total} · ${Math.round((rows[0].count / total) * 100)}%`],
+    ['Top 5', `${share(5)} of ${total} · ${Math.round((share(5) / total) * 100)}%`],
+    ['Top 10', `${share(10)} of ${total} · ${Math.round((share(10) / total) * 100)}%`],
+    ['More than one', `${repeatClients} client${repeatClients === 1 ? '' : 's'}`],
+    ['Exactly one', `${rows.length - repeatClients} client${rows.length - repeatClients === 1 ? '' : 's'}`],
+  ];
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+      {lines.map(([l, v]) => (
+        <div key={l} style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <span style={{ ...LBL, flex: 1 }}>{l}</span>
+          <span style={{ fontSize: 11, fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--fg)' }}>{v}</span>
+        </div>
+      ))}
     </div>
   );
 }

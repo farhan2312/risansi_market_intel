@@ -9,6 +9,19 @@ import type { ComplaintListRow, HolderDwell } from '@/lib/risansi-complaint-rows
 export interface Bar { key: string; label: string; count: number; overdue?: number; days?: number }
 export interface HolderBar { key: string; label: string; department: string; userId: number | null; open: number; days: number; avgDays: number; stretches: number; totalDays: number }
 export interface StatusStep { status: string; count: number; avgDays: number | null; stretches: number }
+/** One client's record: how many complaints, how many are still live, how bad. */
+export interface ClientBar {
+  key: string;           // client_id as text, or 'none' for complaints raised against no client
+  label: string;         // legal name
+  code: string | null;
+  count: number; open: number; overdue: number;
+  /** Flagged at closure as a repeat of something already complained about. */
+  repeats: number;
+  /** Worst severity seen, S1 first. Null when nothing has been rated. */
+  worst: Severity | null;
+  /** The most recent complaint date, 'YYYY-MM-DD'. */
+  last: string;
+}
 
 export interface ComplaintSummary {
   total: number; workflow: number; legacy: number;
@@ -24,6 +37,10 @@ export interface ComplaintSummary {
   longestSitting: ComplaintListRow[];// top open by days in status
   byResponsible: Bar[]; byCategory: Bar[]; byType: Bar[]; byChannel: Bar[];
   byRep: Bar[];
+  /** Every client with a complaint, worst record first. The page shows the top few. */
+  byClient: ClientBar[];
+  /** How many clients are behind the complaints in view. */
+  clientCount: number;
   months: { key: string; label: string; raised: number; closed: number }[];
   openByAge: { label: string; count: number }[];
 }
@@ -45,6 +62,33 @@ function count<T>(rows: T[], key: (r: T) => string | null | undefined, opts: { l
     m.set(k, b);
   }
   return [...m.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+}
+
+/**
+ * Complaints rolled up by account, worst record first: most complaints, then
+ * most still live, then most recent. 'none' collects the few raised against no
+ * client at all.
+ */
+export function clientBars(rows: ComplaintListRow[]): ClientBar[] {
+  const raised = (r: ComplaintListRow) => (r.complaint_date ?? r.created_at).slice(0, 10);
+  const clients = new Map<string, ClientBar>();
+  for (const r of rows) {
+    const key = r.client_id == null ? 'none' : String(r.client_id);
+    const b = clients.get(key) ?? {
+      key, label: r.client_name ?? (key === 'none' ? 'No client on the complaint' : `Client #${key}`),
+      code: r.client_code, count: 0, open: 0, overdue: 0, repeats: 0, worst: null, last: '',
+    };
+    b.count++;
+    if (isOpenStatus(r.status)) b.open++;
+    if (r.overdue) b.overdue++;
+    if (r.repeat_complaint === true) b.repeats++;
+    if (r.severity && (b.worst == null || SEV_ORDER.indexOf(r.severity) < SEV_ORDER.indexOf(b.worst))) b.worst = r.severity;
+    const on = raised(r);
+    if (on > b.last) b.last = on;
+    clients.set(key, b);
+  }
+  return [...clients.values()].sort((a, b) =>
+    b.count - a.count || b.open - a.open || b.last.localeCompare(a.last) || a.label.localeCompare(b.label));
 }
 
 export function summariseComplaints(rows: ComplaintListRow[], dwells: HolderDwell[], nowIso = new Date().toISOString()): ComplaintSummary {
@@ -117,6 +161,8 @@ export function summariseComplaints(rows: ComplaintListRow[], dwells: HolderDwel
   const ageBuckets = [[-1, 7, '≤7d'], [7, 30, '8–30d'], [30, 90, '31–90d'], [90, Infinity, '>90d']] as const;
   const openByAge = ageBuckets.map(([lo, hi, label]) => ({ label, count: openRows.filter(r => r.age_days > lo && r.age_days <= hi).length }));
 
+  const byClient = clientBars(rows);
+
   const repeatBase = wf.filter(r => r.repeat_complaint != null);
   const repeatCount = wf.filter(r => r.repeat_complaint === true).length;
 
@@ -140,6 +186,7 @@ export function summariseComplaints(rows: ComplaintListRow[], dwells: HolderDwel
     byType: count(wf, r => r.complaint_type, { overdue: r => r.overdue }),
     byChannel: count(rows, r => r.channel, { overdue: r => r.overdue }),
     byRep: count(openRows, r => r.rep_name ?? (r.rep_user_id ? `#${r.rep_user_id}` : 'No rep'), { overdue: r => r.overdue }),
+    byClient, clientCount: byClient.length,
     months, openByAge,
   };
 }

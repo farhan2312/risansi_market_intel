@@ -47,9 +47,10 @@ export interface ComplaintFilters {
   rcc?: string;         // root_cause_category (page 4)
   ptype?: string;       // part_type (page 2)
   pname?: string;       // part_name (page 2), matched loosely
+  client?: string;      // client_id — set by the by-client chart
 }
 
-export const FILTER_KEYS: (keyof ComplaintFilters)[] = ['status', 'sev', 'dept', 'holder', 'type', 'cat', 'resp', 'rep', 'era', 'q', 'overdue', 'from', 'to', 'rcc', 'ptype', 'pname'];
+export const FILTER_KEYS: (keyof ComplaintFilters)[] = ['status', 'sev', 'dept', 'holder', 'type', 'cat', 'resp', 'rep', 'era', 'q', 'overdue', 'from', 'to', 'rcc', 'ptype', 'pname', 'client'];
 
 /** Column sorts the list offers; anything else falls back to the default (open first, longest-sitting first). */
 export const SORT_KEYS = ['raised', 'since', 'age', 'target'] as const;
@@ -97,6 +98,9 @@ export async function loadComplaintRows(user: CurrentUser, opts: { clientId?: nu
   if (f.cat) add('c.defect_category = ?', f.cat);
   if (f.resp) add('c.responsible_department = ?', f.resp);
   if (f.rep) add('c.rep_user_id = ?', Number(f.rep) || 0);
+  // 'none' is the handful of complaints raised against no client at all.
+  if (f.client === 'none') conds.push('c.client_id IS NULL');
+  else if (f.client) add('c.client_id = ?', Number(f.client) || 0);
   if (f.rcc) add('c.root_cause_category = ?', f.rcc);
   if (f.ptype) add('c.part_type = ?', f.ptype);
   if (f.pname) add('c.part_name ILIKE ?', `%${f.pname.trim()}%`);
