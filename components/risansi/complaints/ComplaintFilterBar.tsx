@@ -83,9 +83,15 @@ export function ComplaintFilterBar({ value, options, basePath }: {
       <label style={CHK}>
         <input type="checkbox" checked={value.overdue === '1'} onChange={e => set({ overdue: e.target.checked ? '1' : undefined })} /> Overdue only
       </label>
-      <input type="date" value={value.from ?? ''} onChange={e => set({ from: e.target.value || undefined })} style={{ ...INPUT, width: 130 }} title="Raised from" />
-      <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>to</span>
-      <input type="date" value={value.to ?? ''} onChange={e => set({ to: e.target.value || undefined })} style={{ ...INPUT, width: 130 }} title="Raised to" />
+      <div className="cmp-daterange" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        {/* Named, because a bare pair of date boxes on a phone says nothing
+            about what date it is asking for, and a title attribute is not a
+            thing a thumb can hover over. */}
+        <span style={{ fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>Raised</span>
+        <input type="date" value={value.from ?? ''} onChange={e => set({ from: e.target.value || undefined })} style={{ ...INPUT, width: 130 }} title="Raised from" />
+        <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>to</span>
+        <input type="date" value={value.to ?? ''} onChange={e => set({ to: e.target.value || undefined })} style={{ ...INPUT, width: 130 }} title="Raised to" />
+      </div>
       {active > 0 && (
         <button type="button" onClick={() => router.push(value.sort ? `${basePath}?sort=${value.sort}` : basePath)} style={CLEAR}>Clear {active} filter{active === 1 ? '' : 's'}</button>
       )}

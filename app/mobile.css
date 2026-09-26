@@ -84,6 +84,12 @@
   .risansi-main .cmp-statusfilter { width: 100% !important; }
   .risansi-main .cmp-statusfilter select { flex: 1 1 auto !important; min-width: 0 !important; width: auto !important; }
 
+  /* Raised-between: the two date boxes and the "to" between them take a row of
+     their own and share it, rather than wrapping as three separate filters and
+     leaving the "to" stranded at the end of a line. */
+  .risansi-main .cmp-daterange { width: 100% !important; }
+  .risansi-main .cmp-daterange input[type="date"] { flex: 1 1 0 !important; width: auto !important; min-width: 0 !important; }
+
   /* "Where they are": the bar's note ("16 awaiting closure") is a column on a
      desktop and a sliver on a phone. It drops to its own line under the bar. */
   .risansi-main .sc-row { flex-wrap: wrap !important; row-gap: 2px !important; }
