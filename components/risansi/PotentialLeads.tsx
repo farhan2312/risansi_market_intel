@@ -79,7 +79,7 @@ export function PotentialLeads({ exhibitionId, meetings, editable }: {
           const made = m.lead_client_id != null;
           const setAside = !!m.lead_skipped_reason;
           return (
-            <div key={m.id} style={{ padding: '11px 14px', borderBottom: i < meetings.length - 1 ? '1px solid var(--line)' : 'none', display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <div key={m.id} className="pl-row" style={{ padding: '11px 14px', borderBottom: i < meetings.length - 1 ? '1px solid var(--line)' : 'none', display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
               <div style={{ flex: 1, minWidth: 220 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>{m.company_name}</div>
                 <div style={{ fontSize: 11.5, color: 'var(--fg-3)', marginTop: 2 }}>
@@ -91,7 +91,7 @@ export function PotentialLeads({ exhibitionId, meetings, editable }: {
                 </div>
               </div>
 
-              <div style={{ minWidth: 210, textAlign: 'right' }}>
+              <div className="pl-actions" style={{ minWidth: 210, textAlign: 'right' }}>
                 {already ? (
                   <div style={{ fontSize: 11.5, color: 'var(--fg-3)' }}>
                     Already a client — <a href={`/risansi/clients/${m.client_id}`} style={LINK}>{m.client_legal_name ?? m.client_code}</a>

@@ -346,6 +346,13 @@
   .risansi-main .c360-cmp-text { flex-basis: 100% !important; order: 9; }
   .risansi-main .c360-cmp-text > span:first-child { white-space: normal !important; }
   /* The Excel export links (header, Meetings tab, closed banner): a full-width, thumb-sized button. */
+  /* Potential leads: the company reads full width, its buttons sit under it
+     and are thumb-sized rather than a right-hand column squeezed to nothing. */
+  .risansi-main .pl-row { flex-direction: column !important; gap: 8px !important; }
+  .risansi-main .pl-actions { min-width: 0 !important; width: 100% !important; text-align: left !important; }
+  .risansi-main .pl-actions button { min-height: 40px; }
+  .risansi-main .pl-actions input { width: 100% !important; }
+
   .risansi-main .exh-export { display: flex !important; align-items: center; justify-content: center; width: 100% !important; min-height: 44px !important; margin-left: 0 !important; box-sizing: border-box; }
   .risansi-main .exh-meeting-meta { text-align: left !important; }
 

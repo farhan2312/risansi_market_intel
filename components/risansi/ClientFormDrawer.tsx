@@ -228,8 +228,9 @@ export function ClientFormDrawer({ mode, client, existingContacts, allowCodeEdit
         }}
       />
 
-      {/* Slide-in drawer — 560px */}
-      <div style={{
+      {/* Slide-in drawer — 560px. risansi-drawer makes it full-screen on a
+          phone, the same as every other drawer (see mobile.css). */}
+      <div className="risansi-drawer" style={{
         position: 'fixed', top: 0, right: 0, bottom: 0,
         width: 720, maxWidth: '100vw', zIndex: 50,
         background: 'var(--bg-paper)',
