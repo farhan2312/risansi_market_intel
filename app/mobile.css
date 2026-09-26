@@ -78,6 +78,26 @@
      seven slivers on a phone. Two per row, labels allowed to wrap. */
   .risansi-main .cmp-timeline { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; row-gap: 10px !important; }
   .risansi-main .cmp-timeline [data-label] { white-space: normal !important; overflow: visible !important; }
+  /* Complaints status filter: the Open/Closed toggle and the stage dropdown are
+     one control, so they take a row of their own rather than being wedged
+     between two other filters at 120px each. */
+  .risansi-main .cmp-statusfilter { width: 100% !important; }
+  .risansi-main .cmp-statusfilter select { flex: 1 1 auto !important; min-width: 0 !important; width: auto !important; }
+
+  /* "Where they are": the bar's note ("16 awaiting closure") is a column on a
+     desktop and a sliver on a phone. It drops to its own line under the bar. */
+  .risansi-main .sc-row { flex-wrap: wrap !important; row-gap: 2px !important; }
+  .risansi-main .sc-note {
+    flex-basis: 100% !important; width: auto !important;
+    text-align: left !important; order: 9; padding-left: 2px;
+  }
+  /* A stage with nothing to say keeps a spacer on a desktop for the columns;
+     on its own line here it would just be a stray dot. */
+  .risansi-main .sc-note--empty { display: none !important; }
+  /* "Customer Confirmation Pending" does not fit 150px. With the note already
+     on its own line there is room for the label to take two. */
+  .risansi-main .sc-row .sc-label { white-space: normal !important; overflow: visible !important; }
+
   /* Complaint page tabs: pills that scroll sideways. */
   .risansi-main .cmp-pages { gap: 6px !important; padding: 6px 8px !important; }
   .risansi-main .cmp-pages a { border-bottom: none !important; margin-bottom: 0 !important; border-radius: 999px !important; padding: 8px 12px !important; background: var(--bg-elev); }

@@ -71,16 +71,20 @@ function Bars({ rows, anySelected, wide }: { rows: StatusBar[]; anySelected: boo
         const overdue = r.overdue ?? 0;
         const hue = r.done ? 'var(--pos)' : 'var(--accent)';
         return (
-          <a key={r.key} href={r.href}
+          <a key={r.key} href={r.href} className="sc-row"
             title={`${r.label}: ${r.count}${overdue ? ` · ${overdue} overdue` : ''}${r.note ? ` · ${r.note}` : ''}`}
             style={{ ...ROW, opacity: anySelected && !r.on ? 0.4 : 1, outline: r.on ? '2px solid var(--accent)' : 'none' }}>
-            <span style={{ ...LBL, flex: wide ? '0 1 150px' : '0 1 110px', fontWeight: wide ? 400 : 600, color: wide ? 'var(--fg-2)' : 'var(--fg)' }}>{r.label}</span>
+            <span className="sc-label" style={{ ...LBL, flex: wide ? '0 1 150px' : '0 1 110px', fontWeight: wide ? 400 : 600, color: wide ? 'var(--fg-2)' : 'var(--fg)' }}>{r.label}</span>
             <div style={{ flex: 1, minWidth: 40, height: wide ? 14 : 20, background: 'var(--bg-sunk)', borderRadius: 4, overflow: 'hidden', display: 'flex' }}>
               {overdue > 0 && <div style={{ width: `${(overdue / max) * 100}%`, background: 'var(--neg)' }} />}
               <div style={{ width: `${((r.count - overdue) / max) * 100}%`, background: `color-mix(in oklab, ${hue} ${r.done ? 40 : 60}%, transparent)` }} />
             </div>
             <span style={{ ...NUM, fontSize: wide ? 11 : 13 }}>{r.count}</span>
-            <span style={{ ...NUM, width: wide ? 46 : 96, color: 'var(--fg-3)', fontWeight: 400, fontSize: 10.5 }}>{r.note ?? '·'}</span>
+            {/* The empty note keeps the columns lined up on a desktop. On a
+                phone it drops to its own line, where a lone "·" is just a
+                stray mark, so it is hidden there instead. */}
+            <span className={r.note ? 'sc-note' : 'sc-note sc-note--empty'}
+              style={{ ...NUM, width: wide ? 46 : 96, color: 'var(--fg-3)', fontWeight: 400, fontSize: 10.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.note ?? '·'}</span>
           </a>
         );
       })}

@@ -51,7 +51,7 @@ export function ComplaintFilterBar({ value, options, basePath }: {
           different things (37 rows against 33) with no sign of the difference.
           Picking a side also narrows the stages on offer, so a pair that can
           never match cannot be built. */}
-      <div style={{ display: 'flex', alignItems: 'center' }}>
+      <div className="cmp-statusfilter" style={{ display: 'flex', alignItems: 'center' }}>
         <Toggle
           value={value.state}
           onChange={v => set({ state: v, status: fits(value.status, v) ? value.status : undefined })}

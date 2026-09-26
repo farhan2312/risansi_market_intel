@@ -62,7 +62,9 @@ export function ChartPanel({ title, sub, children, note, action }: {
 }) {
   return (
     <div style={{ background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '11px 14px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'baseline', gap: 8 }}>
+      {/* wrap + rowGap: with an `action` in it, the header is title + count +
+          a control, which does not fit one line in a one-column phone panel. */}
+      <div style={{ padding: '11px 14px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', rowGap: 6 }}>
         <span style={{ fontSize: 12, fontWeight: 500 }}>{title}</span>
         {sub && <span style={{ fontSize: 10.5, color: 'var(--fg-3)', marginLeft: 'auto' }}>{sub}</span>}
         {action && <span style={{ marginLeft: sub ? 0 : 'auto' }}>{action}</span>}
