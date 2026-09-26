@@ -39,7 +39,24 @@ export interface PumpUploadResult {
   skippedCodes: string[];
 }
 
-const textOrNull = (s: string) => { const t = (s ?? '').trim(); return t === '' ? null : t; };
+/**
+ * A dash is not a serial number.
+ *
+ * Reps fill the boxes they cannot answer with "-", and the unique index on
+ * (client_id, pump_sl_no) covers every non-empty serial — so two pumps entered
+ * as "-" collided and the second overwrote the first, and the next batch
+ * overwrote that. West Valley Sugar Mill's order of two came out as one row
+ * (id 12122, 25 Sep), and adding a second model made it vanish.
+ *
+ * A placeholder means the same thing as an empty box: not recorded. Stored as
+ * NULL, which the partial index ignores, so as many unnumbered pumps as the
+ * client owns can sit side by side.
+ */
+const PLACEHOLDER = /^(?:[-–—._/\?*]+|n\.?\s*a\.?|n\/a|nil|none|null|nan|tbd|unknown|not\s*(?:available|known|applicable))$/i;
+const textOrNull = (s: string | null | undefined) => {
+  const v = (s ?? '').trim();
+  return v === '' || PLACEHOLDER.test(v) ? null : v;
+};
 
 export async function uploadPumps(rows: PumpPayloadRow[]): Promise<PumpUploadResult> {
   const session = await getServerSession(authOptions);
@@ -168,7 +185,7 @@ export interface ClientPumpInput {
   head:      string;
 }
 
-const t = (s: string) => { const v = (s ?? '').trim(); return v === '' ? null : v; };
+const t = textOrNull;
 
 export async function saveClientPump(input: ClientPumpInput): Promise<Result<{ id: number }>> {
   const user = await getCurrentUser();
@@ -266,14 +283,20 @@ export async function saveClientPumpBatch(
   const code = (await risansiPool.query<{ code: string }>(
     'SELECT code FROM clients WHERE id = $1', [input.clientId])).rows[0]?.code ?? null;
 
+  // Does the order describe itself? If it does, every row of the quantity is a
+  // pump — a rep who enters "model 4152, molasses, quantity 2" and does not know
+  // the serials means two pumps, and used to get none, because a row with no
+  // identity fields was skipped as a phantom.
+  const describedOrder = shared.some(Boolean);
+
   const client = await risansiPool.connect();
   let saved = 0;
   try {
     await client.query('BEGIN');
     for (const p of input.pumps) {
-      // A wholly blank pump row is a box the user never filled — skip it rather
-      // than writing a phantom pump with nothing but a model on it.
-      if (!t(p.sr_no) && !t(p.so_no) && !t(p.ec_no) && !p.id) continue;
+      // Only a row that says nothing, in an order that says nothing either, is
+      // a box the user never filled.
+      if (!t(p.sr_no) && !t(p.so_no) && !t(p.ec_no) && !p.id && !describedOrder) continue;
 
       if (p.id) {
         await client.query(
@@ -306,6 +329,10 @@ export async function saveClientPumpBatch(
     }
     await client.query('COMMIT');
   } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
+
+  // The form used to close on a save that wrote no rows at all, and the list
+  // came back empty with nothing said. If nothing was written, say so.
+  if (saved === 0) return fail('Nothing was saved — enter a pump model, or a serial, SO or EC number on at least one row.');
 
   revalidatePath(`/risansi/clients/${input.clientId}`);
   return ok({ batchId, saved });
