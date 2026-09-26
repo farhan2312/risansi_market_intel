@@ -146,6 +146,7 @@ export const OPP_EXPORT_COLUMNS: OppExportColumn[] = [
   { key: 'order_in_hand', label: 'Order in Hand (₹)',  width: 17, group: 'Outcome', money: true },
   { key: 'po_number',     label: 'PO Number',          width: 16, group: 'Outcome' },
   { key: 'po_date',       label: 'PO Date',            width: 13, group: 'Outcome' },
+  { key: 'po_received_date', label: 'PO Received Date', width: 15, group: 'Outcome' },
   { key: 'lost_to',       label: 'Lost To Competitor', width: 20, group: 'Outcome' },
   { key: 'lost_reason',   label: 'Lost Reason',        width: 26, group: 'Outcome' },
   { key: 'drop_reason',   label: 'Drop Reason',        width: 22, group: 'Outcome' },

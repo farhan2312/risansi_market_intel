@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { updateOpportunity } from '@/app/actions/risansi';
 import { addOpportunityRemark } from '@/app/actions/risansi-opportunity-remarks';
-import {
+import { applyFieldChange,
   OPP_FIELDS, isFieldVisible, requiredFieldNames, labelsFor, stageHasQuote,
   DROP_REASONS, LOST_COMPETITOR_TAIL, REMARK_STAGES, REMARK_LABEL, STAGE_HINT,
   type OppStage, type OppFieldDef,
@@ -83,7 +83,7 @@ export function OppStageMoveModal({ opp, target, usdRate = 86, onCancel, onDone 
   const [error, setError]   = useState('');
 
   const onChange = useCallback((name: string, value: string) => {
-    setValues(v => ({ ...v, [name]: value }));
+    setValues(v => applyFieldChange(v, name, value));
     setError('');
   }, []);
 

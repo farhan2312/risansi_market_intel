@@ -73,6 +73,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
   const opp = (await q(
     `SELECT o.*,
+            -- o.* hands back a date column as a JS Date, and in IST that is
+            -- the previous day in UTC — so every date on this sheet came out
+            -- blank. Re-selected as text after the star, which wins.
+            o.quote_date::text AS quote_date, o.enquiry_date::text AS enquiry_date,
+            o.revised_offer_date::text AS revised_offer_date,
+            o.po_date::text AS po_date, o.po_received_date::text AS po_received_date,
+            o.created_at::date::text AS created_at, o.updated_at::date::text AS updated_at,
             c.code AS client_code, c.legal_name, c.trade_name, c.group_name,
             c.client_type, c.industry, c.is_sugar, c.tcd, c.klpd, c.status AS client_status,
             c.tier, c.city AS client_city, c.state AS client_state, c.country AS client_country,
@@ -221,6 +228,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   pairs([
     ['Final Value (₹)', rupees(opp.final_value_cr)],
     ['PO Number', txt(opp.po_number)],
+    ['PO Date', day(opp.po_date)],
+    ['PO Received Date', day(opp.po_received_date)],
     ['Sales Orders', salesOrders.length],
     ['Orders (Order in Hand)', ordersRows.length],
     ['Lost To Competitor', txt(opp.lost_to_competitor)],

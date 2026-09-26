@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { createPipelineOpportunity } from '@/app/actions/risansi';
-import {
+import { applyFieldChange,
   OPP_FIELDS, isFieldVisible, requiredFieldNames, labelsFor, stageHasQuote,
 } from '@/lib/risansi-opportunity-fields';
 import { OppStageSections } from './OppStageSections';
@@ -184,7 +184,7 @@ function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess }: {
   const [error, setError]   = useState('');
 
   const onChange = useCallback((name: string, value: string) => {
-    setValues(v => ({ ...v, [name]: value }));
+    setValues(v => applyFieldChange(v, name, value));
     setError('');
   }, []);
 

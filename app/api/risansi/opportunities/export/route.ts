@@ -93,6 +93,7 @@ interface Row {
   ril_rep: string | null; pump_model: string | null; pump_qty: number | null;
   negotiation_notes: string | null; notes: string | null;
   final_value_cr: number | null; po_number: string | null;
+  po_date: string | null; po_received_date: string | null;
   lost_to_competitor: string | null; lost_reason: string | null; drop_reason: string | null;
   drop_reason_other: string | null; quotation_link: string | null;
   doc_count: number | null;
@@ -209,6 +210,7 @@ export async function GET(req: Request) {
               o.ril_rep, o.pump_model, o.pump_qty,
               o.negotiation_notes, o.notes,
               o.final_value_cr::float8 AS final_value_cr, o.po_number,
+              o.po_date::text AS po_date, o.po_received_date::text AS po_received_date,
               o.lost_to_competitor, o.lost_reason, o.drop_reason, o.drop_reason_other, o.quotation_link,
               (SELECT count(*) FROM opportunity_quotation_files qf
                 WHERE qf.opportunity_id = o.id)::int AS doc_count,
@@ -291,6 +293,10 @@ export async function GET(req: Request) {
     { h: 'Notes', w: 30, f: r => r.notes ?? '' },
     { h: 'Final Value (₹)', w: 15, f: r => rupees(r.final_value_cr), fmt: '#,##0', num: true },
     { h: 'PO Number', w: 16, f: r => r.po_number ?? '' },
+    // The date on the PO and the day it reached us. Usually the same, and
+    // worth telling apart when they are not.
+    { h: 'PO Date', w: 13, f: r => r.po_date ?? '' },
+    { h: 'PO Received Date', w: 15, f: r => r.po_received_date ?? '' },
     { h: 'Lost To Competitor', w: 18, f: r => r.lost_to_competitor ?? '' },
     { h: 'Lost Reason', w: 26, f: r => r.lost_reason ?? '', list: listRange(LOST_REASONS) },
     { h: 'Drop Reason', w: 28, f: r => r.drop_reason ?? '', list: listRange(DROP_REASONS) },

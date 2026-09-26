@@ -241,7 +241,7 @@ export async function GET(req: Request) {
       quote_ref: string | null; quote_date: string | null; market: string | null;
       offer_value: number; probability: number | null; eta_text: string | null; docs: number;
       final_value: number; so_value: number; order_in_hand: number;
-      po_number: string | null; po_date: string | null;
+      po_number: string | null; po_date: string | null; po_received_date: string | null;
       lost_to: string | null; lost_reason: string | null; drop_reason: string | null; drop_reason_other: string | null;
       created_on: string | null;
     }
@@ -267,7 +267,7 @@ export async function GET(req: Request) {
                 GREATEST(COALESCE(o.final_value_cr * 10000000, o.value_cr * 10000000, 0)
                   - COALESCE((SELECT sum(so.so_value_cr) * 10000000
                                 FROM opportunity_sales_orders so WHERE so.opportunity_id = o.id), 0), 0)::float8 AS order_in_hand,
-                o.po_number, o.po_date::text AS po_date,
+                o.po_number, o.po_date::text AS po_date, o.po_received_date::text AS po_received_date,
                 o.lost_to_competitor AS lost_to, o.lost_reason, o.drop_reason, o.drop_reason_other,
                 o.created_at::date::text AS created_on
            FROM opportunities o
@@ -308,6 +308,7 @@ export async function GET(req: Request) {
       order_in_hand: r => (r.stage === 'Won' ? Math.round(r.order_in_hand) : ''),
       po_number:     r => r.po_number ?? '',
       po_date:       r => r.po_date ?? '',
+      po_received_date: r => r.po_received_date ?? '',
       lost_to:       r => r.lost_to ?? '',
       lost_reason:   r => r.lost_reason ?? '',
       drop_reason:   r => r.drop_reason ?? '',

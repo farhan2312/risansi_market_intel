@@ -119,6 +119,12 @@ export interface OppFieldDef {
    * forecast kept a date nobody had revisited since the quote.
    */
   reaskedAt?: OppStage[];
+  /**
+   * A sibling this field fills in while the sibling is still empty, and which
+   * fills this one in return. For a pair that is usually, but not always, the
+   * same: the date printed on a PO, and the day it reached us.
+   */
+  mirrors?: string;
   /** Shown ONLY on these stages, rather than from `asked` onward. */
   onlyStages?: OppStage[];
   options?: readonly string[];
@@ -186,7 +192,14 @@ export const OPP_FIELDS: OppFieldDef[] = [
   // A PO that has not been raised yet cannot have a number, so a future PO date
   // is always either a typo or a placeholder. Only this date is bounded: a quote
   // date can legitimately be forward-dated, and an expected close is meant to be.
-  { name: 'po_date',         label: 'PO Date',              kind: 'date', asked: 'Won', onlyStages: ['Won'], requiredAt: ['Won'], noFuture: true },
+  { name: 'po_date',         label: 'PO Date',              kind: 'date', asked: 'Won', onlyStages: ['Won'], requiredAt: ['Won'], noFuture: true,
+    mirrors: 'po_received_date' },
+  // A customer dates a PO and sends it days later. The order is ours from the
+  // day it arrives, which is what a turnaround is measured from — so the two
+  // are separate dates that happen to agree most of the time. Enter either and
+  // the other follows, until somebody edits it.
+  { name: 'po_received_date', label: 'PO Received Date',     kind: 'date', asked: 'Won', onlyStages: ['Won'], noFuture: true,
+    mirrors: 'po_date', help: 'The day the PO reached us. Follows the PO date until you change it.' },
 
   // ── Lost ────────────────────────────────────────────────────
   { name: 'lost_to_competitor', label: 'Lost To Competitor', kind: 'select', asked: 'Lost', onlyStages: ['Lost'], requiredAt: ['Lost'], options: [] },
@@ -287,6 +300,27 @@ export function fieldsNewAt(stage: OppStage, values?: Record<string, string>): O
 /** Fields carried in from earlier stages — the "already recorded" section. */
 export function fieldsCarriedInto(stage: OppStage, values?: Record<string, string>): OppFieldDef[] {
   return OPP_FIELDS.filter(f => isFieldVisible(f, stage, values) && !asksNow(f, stage));
+}
+
+/**
+ * Apply one field's change to a form's values, including anything that follows
+ * from it.
+ *
+ * Today that is only `mirrors`: a pair of fields that are usually the same, so
+ * filling one fills the other while the other is still empty. Once somebody has
+ * typed into both, neither pushes the other around again.
+ *
+ * Shared because the create wizard, the stage-move modal and the edit drawer
+ * each keep their own values, and a rule implemented in one of them is a rule
+ * the other two quietly do not have.
+ */
+export function applyFieldChange(
+  values: Record<string, string>, name: string, value: string,
+): Record<string, string> {
+  const next = { ...values, [name]: value };
+  const twin = OPP_FIELDS.find(f => f.name === name)?.mirrors;
+  if (twin && value && !(values[twin] ?? '').trim()) next[twin] = value;
+  return next;
 }
 
 export function requiredFieldNames(stage: OppStage): string[] {

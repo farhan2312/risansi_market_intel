@@ -1256,6 +1256,10 @@ export async function createPipelineOpportunity(formData: FormData): Promise<Cre
     suspect_reason: s('suspect_reason'),
     hold_reason: s('hold_reason'),
     po_date: s('po_date'),
+    // The day it arrived defaults to the day it is dated. The form mirrors the
+    // two as they are typed; this is the same rule for anything that posts
+    // only one of them.
+    po_received_date: s('po_received_date') ?? s('po_date'),
     notes: s('notes'), auto_created: false, created_by: user.email,
   };
 
@@ -1644,6 +1648,8 @@ export async function updateOpportunity(oppId: number, formData: FormData): Prom
     suspect_reason:       (formData.get('suspect_reason') as string | null) || null,
     hold_reason:          (formData.get('hold_reason') as string | null) || null,
     po_date:              (formData.get('po_date') as string | null) || null,
+    po_received_date:     ((formData.get('po_received_date') as string | null) || null)
+                            ?? ((formData.get('po_date') as string | null) || null),
     // The quotation's own columns. These were only ever written by
     // saveQuotedDetails, which no form has called since the stage-move form
     // replaced the Quoted modal — so Market and Total Offer typed into a move
@@ -1679,7 +1685,7 @@ export async function updateOpportunity(oppId: number, formData: FormData): Prom
                    'unit_project','notes','po_number','lost_to_competitor',
                    'lost_to_competitor_other','lost_reason',
                    'opportunity_type','opportunity_source','opportunity_category',
-                   'client_reference','suspect_reason','hold_reason','po_date',
+                   'client_reference','suspect_reason','hold_reason','po_date','po_received_date',
                    'market','enquiry_no','enquiry_date']) {
     if (formData.get(k) === null) delete candidates[k];
   }

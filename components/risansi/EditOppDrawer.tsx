@@ -9,7 +9,7 @@ import type { OfferRevision } from '@/lib/risansi-offer-revisions';
 import { updateOpportunity, deleteOpportunity, saveQuotedItems } from '@/app/actions/risansi';
 import { QuoteLineItems, emptyItem, type QuoteItem as LineItem } from './QuoteLineItems';
 import { probabilityCodeDisplay } from '@/lib/risansi-probability-codes';
-import {
+import { applyFieldChange,
   DROP_REASONS, LOST_COMPETITOR_TAIL, OPP_FIELDS, isFieldVisible,
   type OppStage, type OppFieldDef,
 } from '@/lib/risansi-opportunity-fields';
@@ -122,7 +122,7 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
     return v;
   });
   const setValue = (name: string, value: string) =>
-    setValues(cur => ({ ...cur, [name]: value }));
+    setValues(v => applyFieldChange(v, name, value));
   const optionsFor = (f: OppFieldDef) =>
     f.name === 'drop_reason' ? DROP_REASONS
     : f.name === 'lost_to_competitor' ? [...competitors, ...LOST_COMPETITOR_TAIL]

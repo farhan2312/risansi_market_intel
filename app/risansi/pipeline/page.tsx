@@ -376,6 +376,7 @@ export default async function PipelinePage({
                o.enquiry_date::text        AS enquiry_date,
                o.revised_offer_date::text  AS revised_offer_date,
                o.po_date::text             AS po_date,
+               o.po_received_date::text    AS po_received_date,
                (SELECT COALESCE(SUM(so.so_value_cr), 0) FROM opportunity_sales_orders so WHERE so.opportunity_id = o.id)::float8 AS so_sum_cr,
                -- Owner first, then whoever covers the account. Still keyed
                -- tour_people because the drawer reads that name; the people in
