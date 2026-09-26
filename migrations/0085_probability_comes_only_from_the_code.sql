@@ -12,7 +12,8 @@
 -- from probability_code directly — so this migration is a tidy-up: it clears
 -- the numbers nobody entered and keeps the rest in step with their code.
 
-BEGIN;
+-- The runner wraps each migration in its own transaction, so this file does
+-- not open one of its own.
 
 -- 1. No code, no number.
 UPDATE opportunities
@@ -28,5 +29,3 @@ UPDATE opportunities o
   FROM (VALUES ('1', 90), ('2', 40), ('3', 20), ('4', 0)) AS v(code, pct)
  WHERE btrim(o.probability_code) = v.code
    AND o.probability IS DISTINCT FROM v.pct;
-
-COMMIT;
