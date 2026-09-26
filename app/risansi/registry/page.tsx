@@ -1,6 +1,7 @@
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, MultiSelectFilter, ActiveFilterBar } from '@/components/risansi';
+import { DateRangeFilter } from '@/components/risansi/DateRangeFilter';
 import { ActionQueueRow, type QueueTask } from '@/components/risansi/ActionQueueRow';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, hasRole } from '@/lib/risansi-auth';
@@ -44,13 +45,16 @@ export default async function ActionRegistryPage({
     }, null);
   }
 
+  const day = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '');
   const filters: TaskFilters = {
     status:      parseList(sp.status),
     priority:    parseList(sp.priority),
     responsible: parseList(sp.resp),
     due:         parseList(sp.due),
+    dueFrom:     day(sp.dfrom), dueTo: day(sp.dto),
+    raisedFrom:  day(sp.rfrom), raisedTo: day(sp.rto),
   };
-  const hasFilters = Object.values(filters).some(a => a && a.length > 0);
+  const hasFilters = Object.values(filters).some(v => (Array.isArray(v) ? v.length > 0 : !!v));
 
   // Default the board to the caller's own actions (assigned to or created by
   // them); "All actions" (mine=all) opens it up to everyone they can see.
@@ -143,11 +147,22 @@ export default async function ActionRegistryPage({
           <MultiSelectFilter param="due"      label="Due"           options={TASK_DUE_BUCKETS}    selected={filters.due ?? []} />
           <MultiSelectFilter param="priority" label="Priority"      options={priorityOpts}        selected={filters.priority ?? []} />
         </div>
+        {/* Two ranges, each with the named ones — this month, this quarter,
+            this FY — beside it. Due answers "what lands in October", raised
+            answers "what came in last month". */}
+        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
+          <DateRangeFilter fromParam="dfrom" toParam="dto" from={filters.dueFrom ?? ''} to={filters.dueTo ?? ''} label="Due date" presets />
+          <DateRangeFilter fromParam="rfrom" toParam="rto" from={filters.raisedFrom ?? ''} to={filters.raisedTo ?? ''} label="Raised" presets />
+        </div>
         <ActiveFilterBar filters={[
           { param: 'status',   label: 'Status',      values: filters.status ?? [] },
           { param: 'resp',     label: 'Responsible', values: filters.responsible ?? [] },
           { param: 'due',      label: 'Due',         values: filters.due ?? [] },
           { param: 'priority', label: 'Priority',    values: filters.priority ?? [] },
+          { param: 'dfrom',    label: 'Due from',    values: filters.dueFrom ? [filters.dueFrom] : [] },
+          { param: 'dto',      label: 'Due to',      values: filters.dueTo ? [filters.dueTo] : [] },
+          { param: 'rfrom',    label: 'Raised from', values: filters.raisedFrom ? [filters.raisedFrom] : [] },
+          { param: 'rto',      label: 'Raised to',   values: filters.raisedTo ? [filters.raisedTo] : [] },
         ]} />
 
         {stats && (

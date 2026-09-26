@@ -2,6 +2,7 @@
 
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import type { CSSProperties } from 'react';
+import { DATE_PRESETS, presetRange, matchPreset } from '@/lib/risansi-date-presets';
 
 // Server-side date-range filter: two native date inputs that write `fromParam` /
 // `toParam` into the URL (preserving every other param). Used by the Visit Feed and
@@ -14,8 +15,10 @@ const DATE_INP: CSSProperties = {
   outline: 'none', boxSizing: 'border-box',
 };
 
-export function DateRangeFilter({ fromParam, toParam, from, to, label = 'Date' }: {
+export function DateRangeFilter({ fromParam, toParam, from, to, label = 'Date', presets = false }: {
   fromParam: string; toParam: string; from: string; to: string; label?: string;
+  /** Offer the named ranges — this month, this quarter, this FY — beside the two dates. */
+  presets?: boolean;
 }) {
   const router       = useRouter();
   const pathname     = usePathname();
@@ -32,9 +35,29 @@ export function DateRangeFilter({ fromParam, toParam, from, to, label = 'Date' }
     router.push(`${pathname}?${p.toString()}`);
   };
 
+  // Both dates in one push, so a preset is one navigation rather than two.
+  const setRange = (f: string, t: string) => {
+    const p = new URLSearchParams(searchParams.toString());
+    if (f) p.set(fromParam, f); else p.delete(fromParam);
+    if (t) p.set(toParam, t); else p.delete(toParam);
+    router.push(`${pathname}?${p.toString()}`);
+  };
+  const current = matchPreset(from, to);
+
   return (
     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
       <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--fg-3)' }}>{label}</span>
+      {presets && (
+        <select
+          value={current ?? ''}
+          onChange={e => { const r = presetRange(e.target.value); if (r) setRange(r.from, r.to); else setRange('', ''); }}
+          aria-label={`${label} quick select`}
+          style={{ ...DATE_INP, cursor: 'pointer', color: current ? 'var(--fg)' : 'var(--fg-3)', borderColor: current ? 'var(--accent)' : 'var(--line-strong)' }}
+        >
+          <option value="">Quick select…</option>
+          {DATE_PRESETS.map(p => <option key={p} value={p}>{p}</option>)}
+        </select>
+      )}
       <input type="date" value={from} max={to || undefined} aria-label="From date"
         onChange={e => set(fromParam, e.target.value)} style={DATE_INP} />
       <span style={{ fontSize: 12, color: 'var(--fg-3)' }}>→</span>

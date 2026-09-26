@@ -54,6 +54,13 @@ export interface TaskFilters {
   priority?:    string[];   // task.priority values
   responsible?: string[];   // rep names, plus RESP_EXTERNAL
   due?:         string[];   // TASK_DUE_BUCKETS labels
+  /** Due on or after this day, 'YYYY-MM-DD'. Sits alongside the buckets: the
+   *  buckets answer "what is late", a range answers "what falls in October". */
+  dueFrom?:     string;
+  dueTo?:       string;
+  /** When the action was raised, same shape. */
+  raisedFrom?:  string;
+  raisedTo?:    string;
 }
 
 export interface TaskQueryOpts {
@@ -118,6 +125,18 @@ function buildWhere(opts: TaskQueryOpts): { where: string; params: (string | num
     if (names.length) { parts.push(`r.name = ANY($${params.length + 1}::text[])`); params.push(names); }
     if (f.responsible.includes(RESP_EXTERNAL))   parts.push(`t.assigned_to_external IS NOT NULL`);
     if (parts.length) conds.push(`(${parts.join(' OR ')})`);
+  }
+
+  // A range on either date. Given with the buckets, both hold: "Overdue, due
+  // in October" is a fair question and reads as one.
+  const day = (v: string | undefined) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
+  for (const [col, val, op] of [
+    ['t.due_date', day(f.dueFrom), '>='], ['t.due_date', day(f.dueTo), '<='],
+    ['t.created_at::date', day(f.raisedFrom), '>='], ['t.created_at::date', day(f.raisedTo), '<='],
+  ] as const) {
+    if (!val) continue;
+    conds.push(`${col} ${op} $${params.length + 1}::date`);
+    params.push(val);
   }
 
   if (f.due?.length) {
