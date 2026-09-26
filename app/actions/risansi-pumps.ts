@@ -14,6 +14,7 @@ export type Result<T = null> = { ok: true; data: T } | { ok: false; error: strin
 const fail = (error: string) => ({ ok: false as const, error });
 const ok = <T,>(data: T): Result<T> => ({ ok: true, data });
 import risansiPool from '@/lib/db-risansi';
+import { pumpTextOrNull } from '@/lib/risansi-pump-text';
 
 // Each uploaded row is one installed pump (unique serial), matching the EC/Serial
 // ERP export. client_code is the portal code (CUST already reversed by the client);
@@ -39,24 +40,9 @@ export interface PumpUploadResult {
   skippedCodes: string[];
 }
 
-/**
- * A dash is not a serial number.
- *
- * Reps fill the boxes they cannot answer with "-", and the unique index on
- * (client_id, pump_sl_no) covers every non-empty serial — so two pumps entered
- * as "-" collided and the second overwrote the first, and the next batch
- * overwrote that. West Valley Sugar Mill's order of two came out as one row
- * (id 12122, 25 Sep), and adding a second model made it vanish.
- *
- * A placeholder means the same thing as an empty box: not recorded. Stored as
- * NULL, which the partial index ignores, so as many unnumbered pumps as the
- * client owns can sit side by side.
- */
-const PLACEHOLDER = /^(?:[-–—._/\?*]+|n\.?\s*a\.?|n\/a|nil|none|null|nan|tbd|unknown|not\s*(?:available|known|applicable))$/i;
-const textOrNull = (s: string | null | undefined) => {
-  const v = (s ?? '').trim();
-  return v === '' || PLACEHOLDER.test(v) ? null : v;
-};
+// A dash is not a serial number: see lib/risansi-pump-text for why, and for
+// the one definition the form shares with this file.
+const textOrNull = pumpTextOrNull;
 
 export async function uploadPumps(rows: PumpPayloadRow[]): Promise<PumpUploadResult> {
   const session = await getServerSession(authOptions);

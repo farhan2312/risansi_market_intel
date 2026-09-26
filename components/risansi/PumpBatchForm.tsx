@@ -2,6 +2,7 @@
 
 import { useState, type CSSProperties } from 'react';
 import { saveClientPumpBatch } from '@/app/actions/risansi-pumps';
+import { isPlaceholderText } from '@/lib/risansi-pump-text';
 
 // Entering an order of pumps.
 //
@@ -41,6 +42,9 @@ export const blankPumpBatch = (): PumpBatchValue => ({
 });
 
 const rowFilled = (r: PumpRowValue) => !!(r.sr_no.trim() || r.so_no.trim() || r.ec_no.trim());
+/** Boxes holding "-" or "NA" rather than a number. Saved as not recorded. */
+const placeholders = (r: PumpRowValue) =>
+  [r.sr_no, r.so_no, r.ec_no].filter(isPlaceholderText).length;
 
 export function PumpBatchForm({
   clientId, initial, compact = false, onSaved, onCancel, onDeleteRow,
@@ -140,6 +144,9 @@ export function PumpBatchForm({
 
   const qty     = v.pumps.length;
   const filled  = v.pumps.filter(rowFilled).length;
+  // A dash is stored as "not recorded", which is the right thing and used to
+  // happen silently. Saying it beats a rep believing they typed something.
+  const dashes  = v.pumps.reduce((n, r) => n + placeholders(r), 0);
 
   return (
     <div style={EDIT_CARD}>
@@ -185,9 +192,9 @@ export function PumpBatchForm({
               fontFamily: 'var(--font-mono)', paddingBottom: 8, textAlign: 'right',
             }}>{i + 1}</span>
             <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 7 }}>
-              <Field label={i === 0 ? 'Serial (SR No)' : ''} value={r.sr_no} onChange={x => setRow(i, 'sr_no', x)} />
-              <Field label={i === 0 ? 'SO No' : ''}          value={r.so_no} onChange={x => setRow(i, 'so_no', x)} />
-              <Field label={i === 0 ? 'EC No' : ''}          value={r.ec_no} onChange={x => setRow(i, 'ec_no', x)} />
+              <Field label={i === 0 ? 'Serial (SR No)' : ''} value={r.sr_no} onChange={x => setRow(i, 'sr_no', x)} ph="leave blank if unknown" />
+              <Field label={i === 0 ? 'SO No' : ''}          value={r.so_no} onChange={x => setRow(i, 'so_no', x)} ph="leave blank if unknown" />
+              <Field label={i === 0 ? 'EC No' : ''}          value={r.ec_no} onChange={x => setRow(i, 'ec_no', x)} ph="leave blank if unknown" />
             </div>
             <button
               type="button" onClick={() => removeRow(i)} disabled={busy}
@@ -198,6 +205,13 @@ export function PumpBatchForm({
           </div>
         ))}
       </div>
+
+      {dashes > 0 && (
+        <div style={NOTE}>
+          {dashes} box{dashes === 1 ? '' : 'es'} hold{dashes === 1 ? 's' : ''} a dash or “NA”. {dashes === 1 ? 'It is' : 'They are'} saved as
+          {' '}<strong>not recorded</strong>, not as the text — the pump{qty === 1 ? '' : 's'} still save{qty === 1 ? 's' : ''}. You can leave the box empty instead.
+        </div>
+      )}
 
       {err && <div style={ERR}>{err}</div>}
 
@@ -211,11 +225,18 @@ export function PumpBatchForm({
   );
 }
 
-function Field({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+function Field({ label, value, onChange, ph }: { label: string; value: string; onChange: (v: string) => void; ph?: string }) {
+  // A box holding "-" is about to be stored as nothing, so it should not look
+  // like a filled-in box while it is being looked at.
+  const placeholder = isPlaceholderText(value);
   return (
     <label style={{ display: 'block', minWidth: 0 }}>
       {label && <span style={LBL}>{label}</span>}
-      <input value={value} onChange={e => onChange(e.target.value)} style={INP} />
+      <input
+        value={value} onChange={e => onChange(e.target.value)} placeholder={ph}
+        title={placeholder ? 'Saved as not recorded' : undefined}
+        style={placeholder ? { ...INP, color: 'var(--fg-3)', fontStyle: 'italic' } : INP}
+      />
     </label>
   );
 }
@@ -227,4 +248,5 @@ const XBTN: CSSProperties = { flexShrink: 0, width: 26, height: 32, marginBottom
 const BTN_PRIMARY: CSSProperties = { padding: '7px 14px', fontSize: 12, fontWeight: 600, background: '#0A3D8F', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' };
 const BTN_GHOST: CSSProperties = { padding: '7px 13px', fontSize: 12, fontWeight: 500, background: 'var(--bg-paper)', color: 'var(--fg-2)', border: '1px solid var(--line-strong)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' };
 const ERR: CSSProperties = { padding: '7px 11px', background: '#FEE2E2', border: '1px solid rgba(220,38,38,0.2)', borderRadius: 6, fontSize: 12, color: '#9B1C1C', marginTop: 10 };
+const NOTE: CSSProperties = { padding: '7px 11px', background: 'var(--bg-sunk)', border: '1px solid var(--line)', borderRadius: 6, fontSize: 11.5, color: 'var(--fg-2)', marginTop: 10, lineHeight: 1.5 };
 const WARN: CSSProperties = { padding: '7px 11px', background: 'var(--warn-soft, #FEF3C7)', border: '1px solid var(--warn, #F59E0B)', borderRadius: 6, fontSize: 11.5, color: 'var(--warn-strong, #92400E)', marginTop: 9 };
