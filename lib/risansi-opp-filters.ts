@@ -104,13 +104,20 @@ export interface BuiltFilter {
  * me theirs", and ANDing the two produced an unexplained empty board.
  */
 /**
- * The book a chosen rep answers for, as SQL over a `clients c` join.
+ * The book a chosen rep answers for, as SQL over a `clients c` join: the
+ * clients that rep owns or covers, and nobody else's.
  *
- * The clients they own or cover — and, when they are a manager, the clients
- * their team owns or covers, because that is the board they themselves see.
- * Without the team limb, "Rep: Anil Vankudre" from an admin login returned
- * less than Anil's own board did and the two totals disagreed on screen
- * (23 Sep: ten quoted opportunities on his team's accounts).
+ * A manager's team is deliberately NOT folded in. It was, between 23 Sep and
+ * 26 Sep, so that "Rep: Anil Vankudre" from an admin login returned the same
+ * total Anil's own board showed. The cost was worse than the problem: Aviral
+ * Shukla, who manages two reps, ticked his own name and the board did not move
+ * — every figure on it was still his team's, and there was no way to ask what
+ * was actually his. A filter has to mean the thing it names.
+ *
+ * The team is still one click away, because the dropdown lists a manager's
+ * reps individually: pick all three and you have the manager's board. And an
+ * unfiltered board already shows everything the viewer may see, team included
+ * — that, not the rep filter, is where "what does Anil see" is answered.
  *
  * Under tours this had to mean "clients on a route they are on", which caught
  * every other rep's clients on a shared route.
@@ -119,10 +126,7 @@ export function repBookSql(namesParam: string): string {
   return `EXISTS (SELECT 1 FROM users u2
             WHERE u2.name = ANY(${namesParam})
               AND (c.primary_rep_id = u2.id
-                   OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = u2.id)
-                   OR c.primary_rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = u2.id)
-                   OR c.id IN (SELECT client_id FROM client_secondary_reps
-                                WHERE rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = u2.id))))`;
+                   OR c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = u2.id)))`;
 }
 
 export function buildOppFilter(f: OppFilters, scopedRepId: number | null, startIdx = 1): BuiltFilter {
