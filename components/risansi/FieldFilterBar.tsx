@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, type CSSProperties } from 'react';
+import type { CSSProperties } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
+import { useSearchBox } from '@/lib/risansi-search-box';
 import { MultiSelectFilter } from './MultiSelectFilter';
 import { ActiveFilterBar } from './ActiveFilterBar';
 import { DateRangeFilter } from './DateRangeFilter';
@@ -66,13 +67,9 @@ export function FieldFilterBar({ tab, opts, sel, purposes, search, purpose }: {
   };
 
   // Debounced search → rsearch (replace, so typing doesn't spam history).
-  const [q, setQ] = useState(search);
-  useEffect(() => { setQ(search); }, [search]);
-  useEffect(() => {
-    const t = setTimeout(() => { if (q !== search) setParam('rsearch', q, true); }, 350);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q]);
+  // The plain sync this used to do overwrote the box with whatever the server
+  // last answered, so characters disappeared mid-word.
+  const { value: q, onChange: setQ } = useSearchBox(search, v => setParam('rsearch', v, true), 350);
 
   const dateFrom = searchParams.get(fromParam) ?? '';
   const dateTo   = searchParams.get(toParam) ?? '';

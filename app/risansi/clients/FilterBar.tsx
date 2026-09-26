@@ -1,8 +1,9 @@
 'use client';
 
 import { useRouter, usePathname } from 'next/navigation';
-import { useState, useEffect, useTransition, useRef } from 'react';
+import { useTransition } from 'react';
 import type { CSSProperties } from 'react';
+import { useSearchBox } from '@/lib/risansi-search-box';
 
 interface FilterBarProps {
   q:      string;
@@ -24,36 +25,16 @@ export function FilterBar({ q: initQ, sugar }: FilterBarProps) {
   const router   = useRouter();
   const pathname = usePathname();
   const [pending, startTransition] = useTransition();
-  const [search, setSearch] = useState(initQ);
-  const mounted = useRef(false);
-  // The last value we pushed to the URL. A lagging server round-trip echoes the
-  // OLD `q` back as `initQ`; without this guard, syncing it into `search` would
-  // overwrite characters typed during the round-trip (the "auto-backspace" bug).
-  const lastPushed = useRef(initQ);
-
-  // Adopt `initQ` only when it changes EXTERNALLY (e.g. clearing the search chip),
-  // never when it's our own debounced update coming back.
-  useEffect(() => {
-    if (initQ !== lastPushed.current) {
-      lastPushed.current = initQ;
-      setSearch(initQ);
-    }
-  }, [initQ]);
-
-  // Debounced search
-  useEffect(() => {
-    if (!mounted.current) { mounted.current = true; return; }
-    const id = setTimeout(() => {
-      const p = new URLSearchParams(window.location.search);
-      if (search) p.set('q', search);
-      else        p.delete('q');
-      p.delete('page');
-      lastPushed.current = search;
-      startTransition(() => router.replace(`${pathname}?${p.toString()}`));
-    }, 280);
-    return () => clearTimeout(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search]);
+  // The guard this used to carry compared `initQ` against the single most
+  // recent push, so a *stale* echo — the round trip for "bal" landing while
+  // "bala" was on screen — read as somebody else's change and overwrote the
+  // box. useSearchBox owns the box from the first keystroke instead.
+  const { value: search, onChange: setSearch } = useSearchBox(initQ, v => {
+    const p = new URLSearchParams(window.location.search);
+    if (v) p.set('q', v); else p.delete('q');
+    p.delete('page');
+    startTransition(() => router.replace(`${pathname}?${p.toString()}`));
+  }, 280);
 
   const updateParam = (key: string, value: string) => {
     const p = new URLSearchParams(window.location.search);
