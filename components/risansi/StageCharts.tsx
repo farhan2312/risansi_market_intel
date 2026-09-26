@@ -55,14 +55,17 @@ function Pick({ href, label, selected, style, children, title }: {
 
 // ── Panel wrapper ──────────────────────────────────────────────
 
-export function ChartPanel({ title, sub, children, note }: {
+export function ChartPanel({ title, sub, children, note, action }: {
   title: string; sub?: string; children: ReactNode; note?: string;
+  /** A control in the panel header — a zoom switch, say. Sits after `sub`. */
+  action?: ReactNode;
 }) {
   return (
     <div style={{ background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', display: 'flex', flexDirection: 'column' }}>
       <div style={{ padding: '11px 14px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'baseline', gap: 8 }}>
         <span style={{ fontSize: 12, fontWeight: 500 }}>{title}</span>
         {sub && <span style={{ fontSize: 10.5, color: 'var(--fg-3)', marginLeft: 'auto' }}>{sub}</span>}
+        {action && <span style={{ marginLeft: sub ? 0 : 'auto' }}>{action}</span>}
       </div>
       <div style={{ padding: 14, flex: 1 }}>{children}</div>
       {note && (

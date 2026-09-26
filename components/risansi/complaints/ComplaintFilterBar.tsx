@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
-import { STATUSES, DEPARTMENTS_LIST, SEVERITY_LABEL } from '@/lib/risansi-complaint-flow';
+import { DEPARTMENTS_LIST, SEVERITY_LABEL, statusesFor } from '@/lib/risansi-complaint-flow';
 
 // The filters over the complaints list. Every control writes the URL, so the
 // analytics, the table and the export all read the same state, and a clicked
@@ -34,6 +34,10 @@ export function ComplaintFilterBar({ value, options, basePath }: {
   };
   // `sort` rides along in value so a filter change keeps the column order, but it is not a filter.
   const active = Object.entries(value).filter(([k, v]) => v && k !== 'sort').length;
+  // Narrowing Overall drops a stage that no longer belongs to it, rather than
+  // leaving a pair that can never match and an empty table with no reason given.
+  const fits = (status: string | undefined, state: string | undefined) =>
+    !status || statusesFor(state).includes(status);
 
   return (
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
@@ -41,8 +45,22 @@ export function ComplaintFilterBar({ value, options, basePath }: {
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search no., client, serial, EC, text…"
           style={{ ...INPUT, width: 240 }} />
       </form>
-      <Sel label="Status" v={value.status} onChange={v => set({ status: v })}
-        opts={[['open', 'All open'], ['closed', 'Resolved & closed'], ...STATUSES.map(s => [s, s] as [string, string])]} />
+      {/* Two questions, one control. The toggle asks whether a complaint is
+          still live; the dropdown beside it asks which stage. They used to
+          share one list, where "All open" and "Open" sat a line apart meaning
+          different things (37 rows against 33) with no sign of the difference.
+          Picking a side also narrows the stages on offer, so a pair that can
+          never match cannot be built. */}
+      <div style={{ display: 'flex', alignItems: 'center' }}>
+        <Toggle
+          value={value.state}
+          onChange={v => set({ state: v, status: fits(value.status, v) ? value.status : undefined })}
+          opts={[[undefined, 'All'], ['open', 'Open'], ['closed', 'Closed']]}
+        />
+        <Sel label="Status" v={value.status} onChange={v => set({ status: v })}
+          opts={statusesFor(value.state).map(s => [s, s] as [string, string])}
+          joined />
+      </div>
       <Sel label="Severity" v={value.sev} onChange={v => set({ sev: v })}
         opts={[...(['S1', 'S2', 'S3', 'S4'] as const).map(s => [s, SEVERITY_LABEL[s]] as [string, string]), ['none', 'Not yet rated']]} />
       <Sel label="Sitting with" v={value.dept} onChange={v => set({ dept: v })} opts={DEPARTMENTS_LIST.map(d => [d, d])} />
@@ -75,11 +93,38 @@ export function ComplaintFilterBar({ value, options, basePath }: {
   );
 }
 
-function Sel({ label, v, onChange, opts }: { label: string; v?: string; onChange: (v: string | undefined) => void; opts: [string, string][] }) {
+/** Open / Closed / All, as one segmented control fused to the Status dropdown. */
+function Toggle({ value, onChange, opts }: {
+  value?: string; onChange: (v: string | undefined) => void; opts: [string | undefined, string][];
+}) {
+  return (
+    <div role="group" aria-label="Overall" style={{
+      display: 'inline-flex', height: 32, boxSizing: 'border-box', overflow: 'hidden',
+      border: '1px solid var(--line-strong)', borderRight: 'none',
+      borderRadius: '6px 0 0 6px', background: 'var(--bg-paper)',
+    }}>
+      {opts.map(([k, l]) => {
+        const on = (value ?? undefined) === k;
+        return (
+          <button key={l} type="button" onClick={() => onChange(k)} aria-pressed={on}
+            style={{
+              padding: '0 10px', fontSize: 11.5, fontWeight: on ? 700 : 500, fontFamily: 'inherit',
+              border: 'none', cursor: 'pointer',
+              background: on ? 'var(--accent)' : 'transparent',
+              color: on ? '#fff' : 'var(--fg-3)',
+            }}>{l}</button>
+        );
+      })}
+    </div>
+  );
+}
+
+function Sel({ label, v, onChange, opts, joined }: { label: string; v?: string; onChange: (v: string | undefined) => void; opts: [string, string][]; joined?: boolean }) {
   const known = !v || opts.some(([k]) => k === v);
   return (
     <select value={v ?? ''} onChange={e => onChange(e.target.value || undefined)}
-      style={{ ...INPUT, width: 'auto', minWidth: 120, color: v ? 'var(--fg)' : 'var(--fg-3)', borderColor: v ? 'var(--accent)' : 'var(--line-strong)' }}>
+      style={{ ...INPUT, width: 'auto', minWidth: 120, color: v ? 'var(--fg)' : 'var(--fg-3)', borderColor: v ? 'var(--accent)' : 'var(--line-strong)',
+               ...(joined ? { borderRadius: '0 6px 6px 0' } : null) }}>
       <option value="">{label}</option>
       {!known && <option value={v}>{v}</option>}
       {opts.map(([k, l]) => <option key={k} value={k}>{l}</option>)}

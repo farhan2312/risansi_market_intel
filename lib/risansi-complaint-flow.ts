@@ -30,6 +30,22 @@ export const LEGACY_STATUSES = ['Open', 'In Progress', 'Awaiting Client', 'Resol
 
 export const isOpenStatus = (s: string) => s !== 'Resolved' && s !== 'Closed';
 
+/**
+ * The stages that belong to one side of the open / closed split, legacy ones
+ * included; every stage when no side is chosen.
+ *
+ * The complaints filter bar asks two questions — is it still live, and which
+ * stage is it at — and this is what keeps the second list honest about the
+ * first. Lives here rather than beside the filters because a client component
+ * imports it, and the filter module pulls in the pool.
+ */
+export function statusesFor(state: string | undefined): string[] {
+  const all = [...new Set<string>([...STATUSES, ...LEGACY_STATUSES])];
+  if (state === 'open')   return all.filter(isOpenStatus);
+  if (state === 'closed') return all.filter(s => !isOpenStatus(s));
+  return all;
+}
+
 /** The colour each status wears, in pills and on the timeline. Legacy statuses included. */
 export const STATUS_TONE: Record<string, string> = {
   'Open': 'var(--neg)', 'Under Investigation': 'var(--accent)', 'Action Pending': 'var(--warn, #B45309)',

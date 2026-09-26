@@ -1,4 +1,4 @@
-import { STATUSES, isOpenStatus, type Severity } from '@/lib/risansi-complaint-flow';
+import { STATUSES, LEGACY_STATUSES, isOpenStatus, type Severity } from '@/lib/risansi-complaint-flow';
 import type { ComplaintListRow, HolderDwell } from '@/lib/risansi-complaint-rows';
 
 // The numbers above the complaints list: how many are open and late, how old
@@ -120,10 +120,18 @@ export function summariseComplaints(rows: ComplaintListRow[], dwells: HolderDwel
   // Funnel: where the open ones are now, and how long complaints spend in each status (historic, workflow only).
   const perStatus = new Map<string, number[]>();
   for (const d of dwells) (perStatus.get(d.status) ?? perStatus.set(d.status, []).get(d.status)!).push(d.days);
-  const funnel: StatusStep[] = STATUSES.map(s => ({
+  // The seven workflow stages, plus any legacy stage that actually holds rows —
+  // otherwise "every stage" quietly leaves out the In Progress and Awaiting
+  // Client complaints that make up most of the history.
+  const step = (s: string): StatusStep => ({
     status: s, count: rows.filter(r => r.status === s).length,
     avgDays: avg(perStatus.get(s) ?? []), stretches: (perStatus.get(s) ?? []).length,
-  }));
+  });
+  const funnel: StatusStep[] = [
+    ...STATUSES.map(step),
+    ...LEGACY_STATUSES.filter(s => !(STATUSES as readonly string[]).includes(s))
+      .map(step).filter(x => x.count > 0),
+  ];
 
   // Holders: current load (open now) and total historic time held.
   const holderKey = (dept: string, uid: number | null, name: string | null) => (uid != null ? `${dept}|${uid}` : dept);

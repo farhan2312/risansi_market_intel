@@ -1,8 +1,9 @@
 import type { CSSProperties } from 'react';
 import Link from 'next/link';
 import { ChartPanel, StageKpi, NoData } from '@/components/risansi/StageCharts';
+import { StatusChart } from './StatusChart';
 import { SEVERITY_TONE, type Severity } from '@/lib/risansi-complaint-flow';
-import type { ComplaintSummary, Bar, HolderBar, StatusStep, ClientBar } from '@/lib/risansi-complaint-stats';
+import type { ComplaintSummary, Bar, HolderBar, ClientBar } from '@/lib/risansi-complaint-stats';
 
 // The dashboard above the complaints list.
 //
@@ -45,9 +46,25 @@ export function ComplaintStats({ s, href, sel }: {
       </div>
 
       <div className="stage-grid-4">
-        <ChartPanel title="Where they are" sub={`${s.open} open`} note="Count in each status now; under it, the average days a complaint spends there. Click a status to filter.">
-          <Funnel steps={s.funnel} href={v => href('status', v)} selected={sel.status} />
-        </ChartPanel>
+        <StatusChart
+          anySelected={!!sel.state || !!sel.status}
+          noteSummary="Still live against done. The same split the Open / Closed toggle above the list uses. Click a bar to filter."
+          noteStages="Count in each stage now, and the average days a complaint spends there. Click a stage to filter."
+          summary={[
+            { key: 'open', label: 'Open', count: s.open, overdue: s.overdue,
+              href: href('state', 'open'), on: sel.state === 'open',
+              note: s.overdue ? `${s.overdue} overdue` : 'none overdue' },
+            { key: 'closed', label: 'Closed', count: s.closed, done: true,
+              href: href('state', 'closed'), on: sel.state === 'closed',
+              note: s.resolvedAwaitingClose ? `${s.resolvedAwaitingClose} awaiting closure` : 'all closed out' },
+          ]}
+          stages={s.funnel.map(x => ({
+            key: x.status, label: x.status, count: x.count,
+            done: x.status === 'Resolved' || x.status === 'Closed',
+            href: href('status', x.status), on: sel.status === x.status,
+            note: x.stretches ? fmtDays(x.avgDays) : undefined,
+          }))}
+        />
         <ChartPanel title="Open by severity" note="Computed from the risk page. Red part is overdue. Click to filter.">
           <Bars rows={s.bySeverity.filter(b => b.count || b.key !== 'none')} href={v => href('sev', v)} selected={sel.sev}
             tone={b => (b.key === 'none' ? 'var(--fg-3)' : SEVERITY_TONE[b.key as Severity])} empty="No open complaints on the workflow." />
@@ -107,34 +124,6 @@ export function ComplaintStats({ s, href, sel }: {
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-// ── Status funnel ──────────────────────────────────────────────
-
-function Funnel({ steps, href, selected }: { steps: StatusStep[]; href: (v: string) => string; selected?: string }) {
-  const max = Math.max(...steps.map(x => x.count), 1);
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-      {steps.map(x => {
-        const on = selected === x.status, any = !!selected;
-        const closed = x.status === 'Resolved' || x.status === 'Closed';
-        return (
-          <a key={x.status} href={href(x.status)} title={`${x.status}: ${x.count} now${x.stretches ? ` · averages ${fmtDays(x.avgDays)} here over ${x.stretches} stay${x.stretches === 1 ? '' : 's'}` : ''}`}
-            style={{ ...ROW, opacity: any && !on ? 0.4 : 1, outline: on ? '2px solid var(--accent)' : 'none' }}>
-            <span style={{ ...LBL, flex: '0 1 150px' }}>{x.status}</span>
-            <div style={{ flex: 1, minWidth: 40, height: 14, background: 'var(--bg-sunk)', borderRadius: 4, overflow: 'hidden' }}>
-              <div style={{ width: `${(x.count / max) * 100}%`, height: '100%', background: closed ? 'color-mix(in oklab, var(--pos) 40%, transparent)' : 'color-mix(in oklab, var(--accent) 60%, transparent)' }} />
-            </div>
-            <span style={NUM}>{x.count}</span>
-            <span style={{ ...NUM, width: 46, color: 'var(--fg-3)', fontWeight: 400 }}>{x.stretches ? fmtDays(x.avgDays) : '·'}</span>
-          </a>
-        );
-      })}
-      <div style={{ display: 'flex', fontSize: 9.5, color: 'var(--fg-3)', gap: 9 }}>
-        <span style={{ flex: 1 }} /><span style={{ width: 34, textAlign: 'right' }}>now</span><span style={{ width: 46, textAlign: 'right' }}>avg stay</span>
-      </div>
     </div>
   );
 }
