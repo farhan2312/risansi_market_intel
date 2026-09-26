@@ -4,6 +4,8 @@ import { useState, useEffect, useTransition, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { addClient, updateClient } from '@/app/actions/risansi';
 import { leadCodeBase } from '@/lib/risansi-lead-code';
+import { isLeadCode } from '@/lib/risansi-client-status';
+import { ConvertLeadButton } from './ConvertLeadButton';
 import { CLIENT_TYPES } from '@/lib/risansi-client-types';
 import { COUNTRIES, INDIAN_STATES } from '@/lib/risansi-geo';
 import { CLIENT_STATUS_LABELS, allowedStatusesForCode } from '@/lib/risansi-client-status';
@@ -351,6 +353,28 @@ export function ClientFormDrawer({ mode, client, existingContacts, allowCodeEdit
                     <div style={HINT}>Finalised on save — a number is appended if it collides.</div>
                   </>
                 )
+              ) : allowCodeEdit && isLeadCode(client?.code) ? (
+                // Turning a lead into a client is a conversion, not a rename:
+                // the LEAD_ code goes, an ERP code takes its place, the status
+                // moves to Prospective-Client and the URL changes with it.
+                // Typing over the code by hand did the first part and none of
+                // the rest, so the same button the client's own page offers is
+                // here instead.
+                <>
+                  <div style={{
+                    padding: '9px 12px', background: 'var(--bg-sunk)', border: '1px solid var(--line)',
+                    borderRadius: 6, fontSize: 13, color: 'var(--fg-2)', fontFamily: 'var(--font-mono)',
+                  }}>{client?.code}</div>
+                  <input type="hidden" name="code" value={String(client?.code ?? '')} />
+                  <div style={{ marginTop: 7 }}>
+                    <ConvertLeadButton
+                      clientId={Number(client?.id)}
+                      currentCode={String(client?.code ?? '')}
+                      legalName={String(client?.legal_name ?? '')}
+                    />
+                  </div>
+                  <div style={HINT}>A lead keeps its auto-generated code until it becomes a client.</div>
+                </>
               ) : allowCodeEdit ? (
                 <>
                   <input

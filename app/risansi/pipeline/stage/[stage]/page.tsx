@@ -423,26 +423,36 @@ function renderCell(r: Row, key: string, usdRate: number, inr: (v: number | null
     case 'client_name':
       return <a href={`/risansi/clients/${r.client_id}`} style={{ color: 'var(--fg)', textDecoration: 'none', fontWeight: 500 }}>{r.client_name}</a>;
     case 'quote_ref': {
-      // The quote reference is the label; the stored link decides whether it is
-      // one. A document name with no address used to be linked here too, and
-      // since it is not a url the browser resolved it against the stage page.
-      // An attached PDF wins over a legacy url, because syncQuotationLink will
-      // not overwrite one — so an opportunity that had a SharePoint link and has
-      // since had its quotation uploaded still stores the SharePoint url. Reading
-      // the link alone would send the rep to OneDrive past a PDF sitting right here.
+      // The quote number opens the quotation itself — the opportunity, where
+      // the offer, the line items and the documents all live. It used to open
+      // the attached PDF, which is one of the things on that page rather than
+      // the thing itself, and there was no way from here to the record.
+      //
+      // The PDF keeps a door of its own: the ↗ beside the number. An attached
+      // file wins over a legacy url, because syncQuotationLink will not
+      // overwrite one — an opportunity that had a SharePoint link and has
+      // since had its quotation uploaded still stores the SharePoint address,
+      // and reading the link alone would send a rep to OneDrive past a PDF
+      // sitting right here.
       const attached = r.doc_count > 0;
-      const href = attached ? `/api/risansi/opportunities/${r.id}/quotation` : quotationHref(r.quotation_link);
+      const pdf = attached ? `/api/risansi/opportunities/${r.id}/quotation` : quotationHref(r.quotation_link);
       const legacy = !attached && isLegacyQuotation(r.quotation_link);
-      const ref = <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{r.quote_ref ?? '—'}</span>;
-      if (!href) return legacy ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>{ref}<LegacyMark noFile /></span> : ref;
+      const form = `/risansi/pipeline?client=${encodeURIComponent(r.client_code ?? '')}&opp=${r.id}`;
       return (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-          <a href={href} target="_blank" rel="noreferrer"
-            title={legacy ? 'Legacy quotation link — opens SharePoint' : 'Open the attached quotation'}
+          <a href={form} title="Open this quotation — the offer, its line items and its documents"
             style={{ color: 'var(--brand-blue, #1A5CB8)', textDecoration: 'none', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-            {r.quote_ref ?? '—'} ↗
+            {r.quote_ref ?? '—'}
           </a>
-          {legacy && <LegacyMark count={quotationLinkCount(r.quotation_link)} />}
+          {pdf && (
+            <a href={pdf} target="_blank" rel="noreferrer"
+              title={legacy ? 'The quotation file — a legacy SharePoint link' : 'The attached quotation PDF'}
+              aria-label="Open the quotation file"
+              style={{ color: 'var(--fg-3)', textDecoration: 'none', fontSize: 11 }}>↗</a>
+          )}
+          {legacy && (pdf
+            ? <LegacyMark count={quotationLinkCount(r.quotation_link)} />
+            : <LegacyMark noFile />)}
         </span>
       );
     }
