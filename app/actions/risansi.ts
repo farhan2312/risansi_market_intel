@@ -19,7 +19,7 @@ import { poInrToCr, type PurchaseOrder } from '@/lib/risansi-purchase-orders';
 import { notifyVisitPlanned } from '@/lib/risansi-email';
 import { pushInApp } from '@/lib/risansi-inapp';
 import { notifyCheckIn, notifyOppClosed, notifySalesOrder, notifyNewLead, notifyQuotationIssued } from '@/lib/risansi-notify';
-import { requiredFieldNames, labelsFor, OPP_FIELDS, CREATE_STAGES, STAGE_PROB, isDropReason, type CreateStage, type OppStage } from '@/lib/risansi-opportunity-fields';
+import { requiredFieldNames, labelsFor, OPP_FIELDS, CREATE_STAGES, isDropReason, type CreateStage, type OppStage } from '@/lib/risansi-opportunity-fields';
 import { pctForProbabilityCode } from '@/lib/risansi-probability-codes';
 import { normaliseIndustry, istToday, normaliseDate } from '@/lib/risansi-utils';
 import { parseMoneyInput, parsePositiveMoney, moneyToCr } from '@/lib/risansi-money';
@@ -1182,7 +1182,10 @@ export async function createPipelineOpportunity(formData: FormData): Promise<Cre
   const value = crOf('value_inr') ?? (offerInr ? offerInr / 10_000_000 : null);
   // Probability is entered as the RIL code (1–4); the stored numeric % is
   // derived from the code so the weighted forecast + % displays keep working.
-  const prob  = pctForProbabilityCode(s('probability_code')) ?? STAGE_PROB[stage];
+  // No code, no probability. A stage default used to be written here, which is
+  // how 171 quoted opportunities ended up showing 60% on the card and a blank
+  // in the drawer: the number was the stage's guess, not anybody's judgement.
+  const prob  = pctForProbabilityCode(s('probability_code'));
   const first = items[0] ?? {};
 
   // Ownership is derived, not asked for. The client is already on a tour and

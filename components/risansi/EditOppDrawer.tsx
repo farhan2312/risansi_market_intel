@@ -8,7 +8,7 @@ import { useCompetitors } from './useCompetitors';
 import type { OfferRevision } from '@/lib/risansi-offer-revisions';
 import { updateOpportunity, deleteOpportunity, saveQuotedItems } from '@/app/actions/risansi';
 import { QuoteLineItems, emptyItem, type QuoteItem as LineItem } from './QuoteLineItems';
-import { PROBABILITY_CODES, probabilityCodeLabel } from '@/lib/risansi-probability-codes';
+import { probabilityCodeDisplay } from '@/lib/risansi-probability-codes';
 import {
   DROP_REASONS, LOST_COMPETITOR_TAIL, OPP_FIELDS, isFieldVisible,
   type OppStage, type OppFieldDef,
@@ -178,10 +178,7 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
   // View-only when locked (Won/Lost) OR the viewer lacks edit rights.
   const readOnly = isLocked || !canEdit;
 
-  const probLabel = (() => {
-    const c = PROBABILITY_CODES.find(x => x.code === opp.probability_code);
-    return c ? probabilityCodeLabel(c) : (opp.probability_code ?? '—');
-  })();
+  const probLabel = probabilityCodeDisplay(opp.probability_code);
   // Static deal facts for a Won opp — shown as a compact grid below the actionable
   // Sales/Purchase Order panels, so the read view leads with what you act on.
   const wonDetails: [string, string][] = [
@@ -554,7 +551,7 @@ function QuotedItemsSection({ items, meta, revisions, usdRate, editOppId, onItem
     add('Prepared By', meta.qtn_prepared_by); add('Client Status', meta.client_status_at_quote);
     add('Enquiry No', meta.enquiry_no); add('Enquiry Date', meta.enquiry_date);
     add('Location', meta.location);
-    add('Probability', meta.probability_code);
+    if (meta.probability_code) add('Probability', probabilityCodeDisplay(meta.probability_code));
     // The revised offer used to be two flat facts here. It's a history now —
     // rendered below as a list so every re-price is visible, not just the last.
   }

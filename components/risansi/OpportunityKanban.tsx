@@ -8,10 +8,12 @@ import { EditOppDrawer, type EditableOpp } from './EditOppDrawer';
 import { OppStageMoveModal } from './OppStageMoveModal';
 import { DIRECT_WIN_CATEGORIES, type OppStage } from '@/lib/risansi-opportunity-fields';
 import { stageHref } from '@/lib/risansi-stage-dashboard';
+import { probabilityCardLabel } from '@/lib/risansi-probability-codes';
 
 export interface KanbanOpp extends EditableOpp {
   value_cr:   number;
   probability: number | null;
+  probability_code: string | null;
   eta_text:   string | null;
   rep_name:   string | null;
   tour_name:  string | null;
@@ -422,8 +424,13 @@ export function OpportunityKanban({ initialOpps, stageTotals, usdRate = 86, filt
                       <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: 'var(--brand-blue)' }}>
                         {opp.value_cr ? `₹${(opp.value_cr * 100).toFixed(1)}L` : '—'}
                       </span>
-                      <span style={{ fontSize: 10, color: 'var(--fg-3)' }}>
-                        {opp.probability != null ? `${opp.probability}%` : ''}
+                      {/* The odds and what they are: "90% (code 1)". A card
+                          used to show a bare percentage the stage had guessed,
+                          which is why opening it showed nothing — there was no
+                          code behind the number. Unrated says so, because an
+                          unrated quote is weighted at zero. */}
+                      <span style={{ fontSize: 10, color: opp.probability_code ? 'var(--fg-3)' : 'var(--warn-strong, var(--warn))' }}>
+                        {probabilityCardLabel(opp.probability_code) || (!isWon && !isLost ? 'no probability' : '')}
                         {opp.eta_text ? ` · ${opp.eta_text}` : ''}
                       </span>
                     </div>

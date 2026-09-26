@@ -15,6 +15,7 @@
 // cycle would fill the table, and every figure in it would be invented.
 import type { Pool } from 'pg';
 import { LIVE_CLIENT } from '@/lib/risansi-opportunity-scope';
+import { probabilityPctSql, hasProbabilitySql } from '@/lib/risansi-probability-codes';
 
 /** Open = still live. Dropped is dead and has no place in a forecast. */
 // Open, and on a client that still exists: an archived client's quotes are not
@@ -24,6 +25,11 @@ const OPEN = `o.stage NOT IN ('Won','Lost','Dropped') AND ${LIVE_CLIENT('o')}`;
 /** The value of an opportunity, in rupees, by the same rule the rest of the app
  *  uses: the quoted offer where there is one, the estimate otherwise. */
 const VALUE = `COALESCE(o.offer_value_inr, o.value_cr * 10000000, 0)`;
+// The odds come from the probability code, never from the numeric column: that
+// column carried stage defaults nobody entered, so weighting on it inflated the
+// forecast with guesses. A quote with no code is unrated and weighs nothing.
+const PROB_PCT = probabilityPctSql('o');
+const HAS_PROB = hasProbabilitySql('o');
 
 // eta_text is free-form varchar. Mapping the month name explicitly rather than
 // with to_date, which raises on a month name it does not recognise and would
@@ -172,9 +178,9 @@ export async function loadProjection(
   }>(`
     SELECT COALESCE(o.rep_id, 0) AS rep_id, COALESCE(u.name, 'Unassigned') AS name, ${bucket} AS bucket,
            COALESCE(sum(${VALUE}), 0)::text AS gross,
-           COALESCE(sum(${VALUE} * o.probability / 100.0)
-                      FILTER (WHERE o.probability IS NOT NULL), 0)::text AS weighted,
-           COALESCE(sum(${VALUE}) FILTER (WHERE o.probability IS NOT NULL), 0)::text AS weighted_base,
+           COALESCE(sum(${VALUE} * ${PROB_PCT} / 100.0)
+                      FILTER (WHERE ${HAS_PROB}), 0)::text AS weighted,
+           COALESCE(sum(${VALUE}) FILTER (WHERE ${HAS_PROB}), 0)::text AS weighted_base,
            count(*)::text AS n
       FROM opportunities o
       LEFT JOIN users u ON u.id = o.rep_id
@@ -212,7 +218,7 @@ export async function loadProjection(
            COALESCE(sum(${VALUE}) FILTER (
              WHERE ${ETA_MONTH} IS NOT NULL AND ${ETA_YEAR} IS NOT NULL
                AND make_date(${ETA_YEAR}, ${ETA_MONTH}, 1) < date_trunc('month', CURRENT_DATE)), 0)::text AS overdue_gross,
-           COALESCE(sum(${VALUE}) FILTER (WHERE o.probability IS NOT NULL), 0)::text AS with_prob_gross
+           COALESCE(sum(${VALUE}) FILTER (WHERE ${HAS_PROB}), 0)::text AS with_prob_gross
       FROM opportunities o WHERE ${OPEN}${repFilter}`, params);
 
   const openGross = Number(c?.open_gross ?? 0);

@@ -1,4 +1,5 @@
 import { notFound, redirect } from 'next/navigation';
+import { probabilityPctSql } from '@/lib/risansi-probability-codes';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
@@ -98,7 +99,8 @@ export default async function ClientPrintPage({ params }: { params: Promise<{ id
     q(async () => (await risansiPool.query<Record<string, unknown>>(
       // Every stage — Won opportunities are the client's order in hand and must
       // appear in the report. Order-in-hand first, then live pipeline, then closed.
-      `SELECT product, stage, value_cr::text AS value_cr, probability,
+      `SELECT product, stage, value_cr::text AS value_cr,
+              ${probabilityPctSql('opportunities')} AS probability,
               final_value_cr::text AS final_value_cr,
               (SELECT COALESCE(SUM(so.so_value_cr), 0) FROM opportunity_sales_orders so WHERE so.opportunity_id = opportunities.id)::float8 AS so_sum_cr
          FROM opportunities WHERE client_id = $1

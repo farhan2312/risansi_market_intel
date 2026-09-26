@@ -6,7 +6,7 @@ import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, clientScopeSql, OWN_OPEN, orphanSql, hasRole } from '@/lib/risansi-auth';
 import { getCurrentFY, fmtCr, fmtUsdFromCr } from '@/lib/risansi-utils';
 import { getUsdRate } from '@/lib/risansi-settings';
-import { PROBABILITY_CODE_OPTIONS } from '@/lib/risansi-probability-codes';
+import { PROBABILITY_CODE_OPTIONS, probabilityWeight, probabilityPctSql } from '@/lib/risansi-probability-codes';
 import { NewOpportunityButton } from '@/components/risansi/NewOpportunityButton';
 import { OpportunityKanban } from '@/components/risansi/OpportunityKanban';
 import { ActiveOppsTable } from '@/components/risansi/ActiveOppsTable';
@@ -31,6 +31,7 @@ interface OppRow {
   stage:               string;
   value_cr:            number;
   probability:         number | null;
+  probability_code:    string | null;
   eta_text:            string | null;
   quote_ref:           string | null;
   notes:               string | null;
@@ -72,7 +73,7 @@ const SORT_MAP: Record<string, string> = {
   product:     'o.product',
   stage:       'o.stage',
   value:       'o.value_cr',
-  probability: 'o.probability',
+  probability: probabilityPctSql('o'),
   eta:         'o.eta_text',
   rep:         'r.name',
 };
@@ -644,11 +645,13 @@ export default async function PipelinePage({
     : openOpps;
   // Spares are recurring, near-certain business, so they're weighted at a fixed
   // 90% of quoted value regardless of an explicit probability. Everything else
-  // uses its own probability, defaulting to 50%. product_type is spelt both
-  // "SPARE" and "Spares" in the data, so match case-insensitively.
+  // uses its own probability, and a quote with no probability on it counts as
+  // zero — nobody has said it will land, so the forecast does not assume it
+  // will. product_type is spelt both "SPARE" and "Spares" in the data, so match
+  // case-insensitively.
   const SPARES_WIN_PROBABILITY = 90;
   const oppWeight = (o: OppRow) =>
-    /spare/i.test(o.product_type ?? '') ? SPARES_WIN_PROBABILITY : (o.probability ?? 50);
+    /spare/i.test(o.product_type ?? '') ? SPARES_WIN_PROBABILITY : probabilityWeight(o.probability_code);
   // The forecast set is the quoted pipe: Quoted and Negotiating only. A
   // Suspect or Prospect carries no offer, so it has no place in a best case,
   // and On Hold is parked by definition. Won is realised, not forecast, and
@@ -671,6 +674,11 @@ export default async function PipelinePage({
   const negotiatingCount = stageTotals.Negotiating?.count ?? 0;
   const bestCase     = forecastGross;
   const probabilityWeighted = weightedOpen;
+  // Spares are weighted without a code, so they count as rated for this.
+  const ratedOpps    = forecastOpps.filter(o => !!o.probability_code || /spare/i.test(o.product_type ?? ''));
+  const ratedGross   = ratedOpps.reduce((s, o) => s + o.value_cr, 0);
+  const unratedCount = forecastOpps.length - ratedOpps.length;
+  const ratedPct     = forecastGross > 0 ? Math.round((ratedGross / forecastGross) * 100) : 0;
   const target       = annualTarget > 0 ? annualTarget : 32;
   const toGo         = Math.max(0, target - wonTotal);
 
@@ -797,7 +805,7 @@ export default async function PipelinePage({
                 sub={`${forecastQuoted.length} quoted ${fmtCr(forecastQuoted.reduce((a, o) => a + o.value_cr, 0))} + ${forecastNegotiating.length} negotiating ${fmtCr(forecastNegotiating.reduce((a, o) => a + o.value_cr, 0))} · at 100% · no Suspect, Prospect, On Hold or Won`}
                 color="var(--fg)" rate={usdRate} />
               <ForecastBlock label="Probability-weighted · same set" value={probabilityWeighted}
-                sub={`each quote × its own probability (spares at ${SPARES_WIN_PROBABILITY}%, unrated at 50%) · ${bestCase > 0 ? Math.round((probabilityWeighted / bestCase) * 100) : 0}% of best case · Won not included`}
+                sub={`each quote × its own probability (spares at ${SPARES_WIN_PROBABILITY}%, no probability entered counts as 0%) · ${ratedPct}% of best-case value is rated${unratedCount ? `, ${unratedCount} quote${unratedCount === 1 ? '' : 's'} unrated` : ''} · ${bestCase > 0 ? Math.round((probabilityWeighted / bestCase) * 100) : 0}% of best case · Won not included`}
                 color="var(--accent)" highlight rate={usdRate} />
               <ForecastBlock label="Annual Target" value={target}
                 sub={`${fmtCr(toGo)} to go`} color="var(--fg-2)" />

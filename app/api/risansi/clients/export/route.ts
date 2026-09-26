@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { probabilityPctSql } from '@/lib/risansi-probability-codes';
 import { join } from 'node:path';
 import ExcelJS from 'exceljs';
 import risansiPool from '@/lib/db-risansi';
@@ -258,7 +259,7 @@ export async function GET(req: Request) {
                 o.enquiry_no, o.enquiry_date::text AS enquiry_date,
                 o.quote_ref, o.quote_date::text AS quote_date, o.market,
                 COALESCE(o.offer_value_inr, o.value_cr * 10000000, 0)::float8 AS offer_value,
-                o.probability, o.eta_text,
+                ${probabilityPctSql('o')} AS probability, o.eta_text,
                 (SELECT count(*) FROM opportunity_quotation_files f WHERE f.opportunity_id = o.id)::int AS docs,
                 COALESCE(o.final_value_cr * 10000000, 0)::float8 AS final_value,
                 COALESCE((SELECT sum(so.so_value_cr) * 10000000

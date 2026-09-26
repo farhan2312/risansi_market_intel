@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { probabilityPctSql } from '@/lib/risansi-probability-codes';
 import { join } from 'path';
 import ExcelJS from 'exceljs';
 import risansiPool from '@/lib/db-risansi';
@@ -188,7 +189,8 @@ export async function GET(req: Request) {
                        SELECT sr.rep_id, 1 FROM client_secondary_reps sr WHERE sr.client_id = c.id) r
                  JOIN users u ON u.id = r.user_id) AS tour_people,
               o.stage, o.product, o.unit_project, o.product_type,
-              o.value_cr::float8 AS value_cr, o.probability_code, o.probability, o.eta_text,
+              o.value_cr::float8 AS value_cr, o.probability_code,
+              ${probabilityPctSql('o')} AS probability, o.eta_text,
               o.quote_ref, o.quote_date::text AS quote_date, o.enquiry_no, o.enquiry_date::text AS enquiry_date,
               o.market, o.client_status_at_quote, o.qtn_prepared_by, o.qtr, o.location,
               o.offer_value_inr::float8 AS offer_value_inr,

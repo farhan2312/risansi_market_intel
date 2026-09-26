@@ -75,9 +75,9 @@ export const STAGE_RANK: Record<OppStage, number> = {
   Won: 4, Lost: 4, Dropped: 4,
 };
 
-export const STAGE_PROB: Record<CreateStage, number> = {
-  Suspect: 10, Prospect: 40, Quoted: 60, Negotiating: 75, Won: 100, Lost: 0,
-};
+// A stage's probability used to be written into new opportunities as a default.
+// It is gone: the odds come from the probability code a rep enters, and nothing
+// else. See lib/risansi-probability-codes.ts.
 
 export const STAGE_HINT: Record<OppStage, string> = {
   Prospect:    'An enquiry has arrived. Capture where it came from and what it is for.',

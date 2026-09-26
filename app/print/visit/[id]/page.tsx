@@ -1,4 +1,5 @@
 import { notFound, redirect } from 'next/navigation';
+import { probabilityPctSql } from '@/lib/risansi-probability-codes';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
@@ -78,7 +79,9 @@ export default async function VisitPrintPage({ params }: { params: Promise<{ id:
       `SELECT * FROM visit_nonsugar_report WHERE visit_id = $1 LIMIT 1`, [id],
     )).rows[0] ?? null, null as Record<string, unknown> | null),
     q(async () => (await risansiPool.query<Record<string, unknown>>(
-      `SELECT id, product, stage, value_cr::text AS value_cr, probability FROM opportunities WHERE visit_id = $1 ORDER BY created_at ASC`, [id],
+      `SELECT id, product, stage, value_cr::text AS value_cr,
+              ${probabilityPctSql('opportunities')} AS probability
+         FROM opportunities WHERE visit_id = $1 ORDER BY created_at ASC`, [id],
     )).rows, [] as Record<string, unknown>[]),
     q(async () => (await risansiPool.query<Record<string, unknown>>(
       `SELECT t.title, t.status, t.due_date, t.priority, r.name AS assigned_rep_name

@@ -148,8 +148,10 @@ export async function saveExpansionOpportunity(input: {
 
   const product = input.product.trim() || 'Expansion';
   const valueCr = input.valueInr && input.valueInr > 0 ? input.valueInr / 10_000_000 : null;
-  // The form captures the RIL probability code; derive the numeric % from it.
-  const probability = pctForProbabilityCode(input.probabilityCode) ?? 20;
+  // The form captures the RIL probability code; the numeric % is derived from
+  // it, and stays null when the rep left the code blank rather than defaulting
+  // to a figure nobody chose.
+  const probability = pctForProbabilityCode(input.probabilityCode);
 
   const tsmUserId       = input.tsmUserId ?? null;
   const tsmExternal     = input.tsmExternal?.trim() || null;

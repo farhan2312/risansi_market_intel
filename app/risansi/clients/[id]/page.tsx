@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import { probabilityPctSql } from '@/lib/risansi-probability-codes';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getServerSession } from 'next-auth/next';
@@ -348,7 +349,8 @@ export default async function ClientProfilePage({
         quotation_link: string | null; quote_ref: string | null; doc_count: number;
         offer_value_inr: number | null; revisions: OfferRevision[] | null;
       }>(
-        `SELECT id, product, stage, value_cr::text, probability,
+        `SELECT id, product, stage, value_cr::text,
+                ${probabilityPctSql('opportunities')} AS probability,
                 final_value_cr::text, quotation_link, quote_ref,
                 (SELECT count(*) FROM opportunity_quotation_files qf
                   WHERE qf.opportunity_id = opportunities.id)::int AS doc_count,
