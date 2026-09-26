@@ -26,6 +26,10 @@ export interface ClientBar {
 export interface ComplaintSummary {
   total: number; workflow: number; legacy: number;
   open: number; overdue: number; closed: number; resolvedAwaitingClose: number;
+  /** Nobody has started on these: the stage is still Open. */
+  purelyOpen: number; purelyOpenOverdue: number;
+  /** Started but not finished — investigation, action, replacement, the customer. */
+  partiallyOpen: number; partiallyOpenOverdue: number;
   avgOpenAge: number | null; oldestOpen: number | null;
   avgTimeToClose: number | null; medianTimeToClose: number | null; closedCount: number;
   raisedThisMonth: number; closedThisMonth: number; raised30: number; closed30: number;
@@ -177,6 +181,10 @@ export function summariseComplaints(rows: ComplaintListRow[], dwells: HolderDwel
   return {
     total: rows.length, workflow: wf.length, legacy: rows.length - wf.length,
     open: openRows.length, overdue: openRows.filter(r => r.overdue).length, closed: closedRows.length,
+    purelyOpen: openRows.filter(r => r.status === 'Open').length,
+    purelyOpenOverdue: openRows.filter(r => r.status === 'Open' && r.overdue).length,
+    partiallyOpen: openRows.filter(r => r.status !== 'Open').length,
+    partiallyOpenOverdue: openRows.filter(r => r.status !== 'Open' && r.overdue).length,
     resolvedAwaitingClose: rows.filter(r => r.status === 'Resolved').length,
     avgOpenAge: avg(openAges), oldestOpen: openAges.length ? Math.round(Math.max(...openAges)) : null,
     avgTimeToClose: avg(closeDays), medianTimeToClose: median(closeDays), closedCount: closeDays.length,

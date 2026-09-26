@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react';
 import Link from 'next/link';
 import { ChartPanel, StageKpi, NoData } from '@/components/risansi/StageCharts';
 import { StatusChart } from './StatusChart';
-import { SEVERITY_TONE, type Severity } from '@/lib/risansi-complaint-flow';
+import { SEVERITY_TONE, STATE_LABEL, type Severity } from '@/lib/risansi-complaint-flow';
 import type { ComplaintSummary, Bar, HolderBar, ClientBar } from '@/lib/risansi-complaint-stats';
 
 // The dashboard above the complaints list.
@@ -48,13 +48,16 @@ export function ComplaintStats({ s, href, sel }: {
       <div className="stage-grid-4">
         <StatusChart
           anySelected={!!sel.state || !!sel.status}
-          noteSummary="Still live against done. The same split the Open / Closed toggle above the list uses. Click a bar to filter."
+          noteSummary="Untouched, in hand, and done — the same three the toggle above the list uses. Click a bar to filter."
           noteStages="Count in each stage now, and the average days a complaint spends there. Click a stage to filter."
           summary={[
-            { key: 'open', label: 'Open', count: s.open, overdue: s.overdue,
+            { key: 'open', label: STATE_LABEL.open, count: s.purelyOpen, overdue: s.purelyOpenOverdue,
               href: href('state', 'open'), on: sel.state === 'open',
-              note: s.overdue ? `${s.overdue} overdue` : 'none overdue' },
-            { key: 'closed', label: 'Closed', count: s.closed, done: true,
+              note: 'nobody has started' },
+            { key: 'partial', label: STATE_LABEL.partial, count: s.partiallyOpen, overdue: s.partiallyOpenOverdue,
+              href: href('state', 'partial'), on: sel.state === 'partial',
+              note: s.partiallyOpenOverdue ? `${s.partiallyOpenOverdue} overdue` : 'in hand' },
+            { key: 'closed', label: STATE_LABEL.closed, count: s.closed, done: true,
               href: href('state', 'closed'), on: sel.state === 'closed',
               note: s.resolvedAwaitingClose ? `${s.resolvedAwaitingClose} awaiting closure` : 'all closed out' },
           ]}

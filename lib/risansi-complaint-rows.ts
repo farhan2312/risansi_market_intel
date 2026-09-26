@@ -1,6 +1,6 @@
 import risansiPool from '@/lib/db-risansi';
 import { complaintVisibilitySql, type CurrentUser } from '@/lib/risansi-auth';
-import { STATUSES, LEGACY_STATUSES, isOpenStatus, type Severity } from '@/lib/risansi-complaint-flow';
+import { STATUSES, LEGACY_STATUSES, isOpenStatus, statusesFor, type Severity } from '@/lib/risansi-complaint-flow';
 
 // The complaints list, as rows, and the numbers on top of it.
 //
@@ -49,15 +49,17 @@ export interface ComplaintFilters {
   pname?: string;       // part_name (page 2), matched loosely
   client?: string;      // client_id — set by the by-client chart
   /**
-   * 'open' | 'closed' — is it still live, or is it done?
+   * How far along: 'open' (untouched), 'partial' (started, not finished),
+   * 'closed' (resolved or closed), or the legacy 'live' (open + partial).
+   * See ComplaintState in risansi-complaint-flow.
    *
    * A different question from `status`, which names the stage. They used to
    * share one dropdown, so "All open" and "Open" sat one line apart meaning
    * different things (37 rows against 33), and picking one instead of the
    * other was an easy mistake with no sign that it had been made.
    *
-   * They compose: Overall open + Status Under Investigation is a fair
-   * question. The dropdown only offers stages that fit the chosen side, so a
+   * They compose: partially open + Under Investigation is a fair question.
+   * The dropdown only offers stages that fit the chosen state, so a
    * contradiction cannot be built.
    */
   state?: string;
@@ -77,13 +79,21 @@ export function parseComplaintSort(sp: Record<string, string | string[] | undefi
   return m ? { key: m[1] as ComplaintSortKey, dir: m[2] as 'asc' | 'desc' } : null;
 }
 
+/**
+ * What an old `?status=` roll-up meant. 'open' was everything unfinished,
+ * which is the union the three-way split calls 'live'; 'closed' is unchanged.
+ */
+const legacyState = (status: string | undefined) =>
+  status === 'open' ? 'live' : status === 'closed' ? 'closed' : undefined;
+
 export function parseComplaintFilters(sp: Record<string, string | string[] | undefined>): ComplaintFilters {
   const f: ComplaintFilters = {};
   for (const k of FILTER_KEYS) { const v = sp[k]; if (typeof v === 'string' && v !== '') f[k] = v; }
-  // Before Overall and Status were split, one `status` param carried both. A
-  // bookmark or a shared link holding the old roll-up still works, and lands in
-  // the dropdown it now belongs to.
-  if (f.status === 'open' || f.status === 'closed') { f.state = f.state ?? f.status; delete f.status; }
+  // Before the states and the stages were split, one `status` param carried
+  // both. A bookmark or a shared link holding the old roll-up still selects
+  // what it used to, and lands in the control it now belongs to.
+  const legacy = legacyState(f.status);
+  if (legacy) { f.state = f.state ?? legacy; delete f.status; }
   return f;
 }
 
@@ -107,13 +117,15 @@ export async function loadComplaintRows(user: CurrentUser, opts: { clientId?: nu
   if (vis) conds.push(`(${vis})`);
   if (opts.clientId != null) add('c.client_id = ?', opts.clientId);
 
-  // Overall: still live, or done. 'open'/'closed' are also still honoured in
-  // `status` so a bookmark or a shared link from before the split keeps working.
+  // How far along. Built from statusesFor, so the rows, the stage dropdown and
+  // the chart can never disagree about what "partially open" contains.
   // parseComplaintFilters folds a legacy roll-up into `state`; a caller that
   // builds filters by hand may still pass it the old way.
-  const state = f.state ?? (f.status === 'open' || f.status === 'closed' ? f.status : undefined);
-  if (state === 'open') conds.push(`c.status = ANY(ARRAY[${OPEN_LIST.map(s => `'${s}'`).join(',')}])`);
-  else if (state === 'closed') conds.push(`c.status IN ('Resolved', 'Closed')`);
+  const state = f.state ?? legacyState(f.status);
+  if (state) {
+    const list = statusesFor(state);
+    conds.push(`c.status = ANY(ARRAY[${list.map(x => `'${x.replace(/'/g, "''")}'`).join(',')}])`);
+  }
   // Stage: one named status.
   if (f.status && f.status !== 'open' && f.status !== 'closed') add('c.status = ?', f.status);
   if (f.sev === 'none') conds.push('c.severity IS NULL AND c.schema_version >= 2');

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
-import { DEPARTMENTS_LIST, SEVERITY_LABEL, statusesFor } from '@/lib/risansi-complaint-flow';
+import { DEPARTMENTS_LIST, SEVERITY_LABEL, statusesFor, STATE_LABEL } from '@/lib/risansi-complaint-flow';
 
 // The filters over the complaints list. Every control writes the URL, so the
 // analytics, the table and the export all read the same state, and a clicked
@@ -55,7 +55,15 @@ export function ComplaintFilterBar({ value, options, basePath }: {
         <Toggle
           value={value.state}
           onChange={v => set({ state: v, status: fits(value.status, v) ? value.status : undefined })}
-          opts={[[undefined, 'All'], ['open', 'Open'], ['closed', 'Closed']]}
+          opts={[
+            [undefined, 'All'],
+            ['open', STATE_LABEL.open],
+            ['partial', STATE_LABEL.partial],
+            ['closed', STATE_LABEL.closed],
+            // Not a choice — what an old ?status=open link meant. Shown only
+            // while one is in force, so the filter in play is never invisible.
+            ...(value.state === 'live' ? [['live', STATE_LABEL.live] as [string, string]] : []),
+          ]}
         />
         <Sel label="Status" v={value.status} onChange={v => set({ status: v })}
           opts={statusesFor(value.state).map(s => [s, s] as [string, string])}

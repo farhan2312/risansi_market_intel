@@ -31,18 +31,38 @@ export const LEGACY_STATUSES = ['Open', 'In Progress', 'Awaiting Client', 'Resol
 export const isOpenStatus = (s: string) => s !== 'Resolved' && s !== 'Closed';
 
 /**
- * The stages that belong to one side of the open / closed split, legacy ones
- * included; every stage when no side is chosen.
+ * How far along a complaint is, in three answers rather than two.
  *
- * The complaints filter bar asks two questions — is it still live, and which
- * stage is it at — and this is what keeps the second list honest about the
- * first. Lives here rather than beside the filters because a client component
+ * - `open`    — untouched. Nobody has started on it.
+ * - `partial` — started but not finished: under investigation, waiting on an
+ *               action, a replacement or the customer. Work is happening.
+ * - `closed`  — resolved or closed.
+ * - `live`    — open plus partial. Not offered as a choice; it is what the old
+ *               single `status=open` roll-up meant, so a link written before
+ *               the split still selects what it used to.
+ *
+ * "Open" used to mean anything unfinished, which put a complaint nobody had
+ * looked at in the same bucket as one sitting with QC — the two need chasing
+ * in completely different ways.
+ */
+export type ComplaintState = 'open' | 'partial' | 'closed' | 'live';
+
+export const STATE_LABEL: Record<ComplaintState, string> = {
+  open: 'Open', partial: 'Partially open', closed: 'Closed', live: 'Open + partially',
+};
+
+/**
+ * The stages that belong to one state, legacy ones included; every stage when
+ * no state is chosen. Keeps the Status dropdown honest about the toggle beside
+ * it. Lives here rather than beside the filters because a client component
  * imports it, and the filter module pulls in the pool.
  */
 export function statusesFor(state: string | undefined): string[] {
   const all = [...new Set<string>([...STATUSES, ...LEGACY_STATUSES])];
-  if (state === 'open')   return all.filter(isOpenStatus);
-  if (state === 'closed') return all.filter(s => !isOpenStatus(s));
+  if (state === 'open')    return all.filter(s => s === 'Open');
+  if (state === 'partial') return all.filter(s => isOpenStatus(s) && s !== 'Open');
+  if (state === 'closed')  return all.filter(s => !isOpenStatus(s));
+  if (state === 'live')    return all.filter(isOpenStatus);
   return all;
 }
 
