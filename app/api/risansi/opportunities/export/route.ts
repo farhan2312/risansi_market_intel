@@ -93,7 +93,8 @@ interface Row {
   ril_rep: string | null; pump_model: string | null; pump_qty: number | null;
   negotiation_notes: string | null; notes: string | null;
   final_value_cr: number | null; po_number: string | null;
-  lost_to_competitor: string | null; lost_reason: string | null; drop_reason: string | null; quotation_link: string | null;
+  lost_to_competitor: string | null; lost_reason: string | null; drop_reason: string | null;
+  drop_reason_other: string | null; quotation_link: string | null;
   doc_count: number | null;
   created_by: string | null; created_at: string | null; updated_at: string | null;
 }
@@ -208,7 +209,7 @@ export async function GET(req: Request) {
               o.ril_rep, o.pump_model, o.pump_qty,
               o.negotiation_notes, o.notes,
               o.final_value_cr::float8 AS final_value_cr, o.po_number,
-              o.lost_to_competitor, o.lost_reason, o.drop_reason, o.quotation_link,
+              o.lost_to_competitor, o.lost_reason, o.drop_reason, o.drop_reason_other, o.quotation_link,
               (SELECT count(*) FROM opportunity_quotation_files qf
                 WHERE qf.opportunity_id = o.id)::int AS doc_count,
               o.created_by, o.created_at::text AS created_at, o.updated_at::text AS updated_at
@@ -293,6 +294,9 @@ export async function GET(req: Request) {
     { h: 'Lost To Competitor', w: 18, f: r => r.lost_to_competitor ?? '' },
     { h: 'Lost Reason', w: 26, f: r => r.lost_reason ?? '', list: listRange(LOST_REASONS) },
     { h: 'Drop Reason', w: 28, f: r => r.drop_reason ?? '', list: listRange(DROP_REASONS) },
+    // Separate column rather than folded into the one above: that one carries
+    // the dropdown, and free text in it would fail the sheet's own validation.
+    { h: 'Drop Reason (Other)', w: 34, f: r => r.drop_reason_other ?? '' },
     // Derived, so no edit validation: it is a readout of what is attached, not
     // a field anyone fills in on the reconciliation pass.
     { h: 'Documents', w: 11, f: r => r.doc_count ?? 0 },

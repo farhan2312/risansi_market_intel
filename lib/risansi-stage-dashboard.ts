@@ -206,7 +206,11 @@ export interface StageRow {
   industry: string | null; client_type: string | null; rep_name: string | null;
   offer_inr: number | null; revised_inr: number | null; rev_count: number;
   so_sum_cr: number; lost_to_competitor: string | null; lost_reason: string | null;
-  drop_reason: string | null; age_days: number | null;
+  drop_reason: string | null;
+  /** What was typed when the reason was 'Other'. Shown beside it; the charts
+   *  still group on drop_reason itself, so Other stays one bar. */
+  drop_reason_other: string | null;
+  age_days: number | null;
   eta_text?: string | null;
 }
 

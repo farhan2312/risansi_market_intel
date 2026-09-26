@@ -446,6 +446,20 @@ function renderCell(r: Row, key: string, usdRate: number, inr: (v: number | null
         </span>
       );
     }
+    case 'drop_reason': {
+      // The reason, and under it what was typed when it was 'Other'. The bar
+      // chart above still counts Other as one thing; only the row says which
+      // Other this was.
+      if (!r.drop_reason) return <span style={{ color: 'var(--fg-3)' }}>—</span>;
+      const words = (r.drop_reason_other ?? '').trim();
+      if (!words) return r.drop_reason;
+      return (
+        <span title={`${r.drop_reason} — ${words}`}>
+          {r.drop_reason}
+          <span style={{ display: 'block', fontSize: 10.5, color: 'var(--fg-3)', lineHeight: 1.35, marginTop: 1 }}>{words}</span>
+        </span>
+      );
+    }
     case 'eta_text': {
       // The month the rep set, as typed. Red once that month has passed, grey
       // when there is none — the same reading the closure charts give it.

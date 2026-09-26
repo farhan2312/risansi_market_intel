@@ -86,7 +86,8 @@ export async function loadStageRows(stage: DashStage, sp: SearchParams): Promise
              (SELECT count(*) FROM opportunity_offer_revisions v WHERE v.opportunity_id = o.id)::int AS rev_count,
              (SELECT COALESCE(SUM(s.so_value_cr), 0) FROM opportunity_sales_orders s WHERE s.opportunity_id = o.id)::float8 AS so_sum_cr,
              (SELECT string_agg(s.so_number, ', ' ORDER BY s.so_date, s.id) FROM opportunity_sales_orders s WHERE s.opportunity_id = o.id) AS so_numbers,
-             o.po_number, o.lost_to_competitor, o.lost_reason, o.drop_reason, o.quotation_link,
+             o.po_number, o.lost_to_competitor, o.lost_reason, o.drop_reason,
+             o.drop_reason_other, o.quotation_link,
              o.eta_text, o.enquiry_date::text AS enquiry_date,
              (SELECT count(*) FROM opportunity_quotation_files qf WHERE qf.opportunity_id = o.id)::int AS doc_count,
              -- Age from the stage's own reference date. opportunity_stage_log is

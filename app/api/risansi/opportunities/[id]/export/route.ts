@@ -226,6 +226,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     ['Lost To Competitor', txt(opp.lost_to_competitor)],
     ['Lost Reason', txt(opp.lost_reason)],
     ['Drop Reason', txt(opp.drop_reason)],
+    ['Drop Reason (Other)', txt(opp.drop_reason_other)],
     ['Negotiation Notes', txt(opp.negotiation_notes)],
     ['Notes', txt(opp.notes)],
   ]);

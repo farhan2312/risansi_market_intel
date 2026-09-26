@@ -149,6 +149,7 @@ export const OPP_EXPORT_COLUMNS: OppExportColumn[] = [
   { key: 'lost_to',       label: 'Lost To Competitor', width: 20, group: 'Outcome' },
   { key: 'lost_reason',   label: 'Lost Reason',        width: 26, group: 'Outcome' },
   { key: 'drop_reason',   label: 'Drop Reason',        width: 22, group: 'Outcome' },
+  { key: 'drop_reason_other', label: 'Drop Reason (Other)', width: 30, group: 'Outcome' },
   { key: 'created_on',    label: 'Raised On',          width: 12, group: 'Outcome' },
 ];
 
