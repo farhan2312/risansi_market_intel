@@ -58,7 +58,8 @@ function coerce(f: ComplaintField, raw: unknown): unknown {
     case 'bool': return raw === true || raw === 'true' || raw === 'yes' ? true : raw === false || raw === 'false' || raw === 'no' ? false : null;
     case 'number': { const n = Number(raw); return Number.isFinite(n) ? Math.round(n) : null; }
     case 'money': { const n = Number(String(raw).replace(/[₹,\s]/g, '')); return Number.isFinite(n) ? n : null; }
-    case 'user': { const n = Number(raw); return Number.isInteger(n) && n > 0 ? n : null; }
+    case 'user':
+    case 'oem': { const n = Number(raw); return Number.isInteger(n) && n > 0 ? n : null; }
     case 'date': { const s = String(raw).slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null; }
     default: return String(raw).trim().slice(0, f.type === 'long' ? 8000 : 500) || null;
   }
@@ -173,8 +174,14 @@ export async function saveComplaintPage(id: number, pageId: number, input: Recor
     if (!(f.name in input)) continue;
     const v = coerce(f, input[f.name]);
     if (v === undefined) continue;
-    if (f.type === 'select' && f.lookup && v != null && !(await lookupValues(f.lookup)).has(String(v))) {
-      return fail(`${f.label}: "${v}" is not on the list.`);
+    if (f.type === 'select' && v != null) {
+      const allowed = f.options ? new Set(f.options) : f.lookup ? await lookupValues(f.lookup) : null;
+      if (allowed && !allowed.has(String(v))) return fail(`${f.label}: "${v}" is not on the list.`);
+    }
+    if (f.type === 'oem' && v != null) {
+      const { rows } = await risansiPool.query(
+        `SELECT 1 FROM clients WHERE id = $1 AND client_type = 'OEM' AND deleted_at IS NULL`, [v]);
+      if (!rows.length) return fail(`${f.label}: that is not an OEM on the client master.`);
     }
     if (f.type === 'user' && v != null) {
       const { rows } = await risansiPool.query('SELECT 1 FROM users WHERE id = $1 AND is_active', [v]);

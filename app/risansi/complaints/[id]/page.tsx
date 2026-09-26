@@ -9,7 +9,7 @@ import {
   SEVERITY_LABEL, SEVERITY_TONE, SEVERITY_REQUIRES, STATUS_TONE, missingOnPage,
   type ComplaintStatus, type ComplaintValues, type Severity,
 } from '@/lib/risansi-complaint-flow';
-import { ComplaintPageForm, type UserOpt } from '@/components/risansi/complaints/ComplaintPageForm';
+import { ComplaintPageForm, type UserOpt, type OemOpt } from '@/components/risansi/complaints/ComplaintPageForm';
 import { ComplaintTimeline, ComplaintLifecycle } from '@/components/risansi/complaints/ComplaintTimeline';
 import { ComplaintMoveBar } from '@/components/risansi/complaints/ComplaintMoveBar';
 import { ComplaintAttachments, type AttachmentMeta } from '@/components/risansi/complaints/ComplaintAttachments';
@@ -49,7 +49,7 @@ export default async function ComplaintPage({ params, searchParams }: {
   const user = await getCurrentUser();
   if (!user.email || !(await canAccessComplaint(user, id))) notFound();
 
-  const [{ rows: [c] }, { rows: userRows }, { rows: lookupRows }, { rows: logRows }, { rows: files }, { rows: notes }] = await Promise.all([
+  const [{ rows: [c] }, { rows: userRows }, { rows: lookupRows }, { rows: oems }, { rows: logRows }, { rows: files }, { rows: notes }] = await Promise.all([
     risansiPool.query<ComplaintValues & {
       id: number; complaint_no: string; status: string; schema_version: number; client_id: number | null;
       client_name: string | null; client_code: string | null; rep_name: string | null; reporter_name: string | null;
@@ -74,6 +74,9 @@ export default async function ComplaintPage({ params, searchParams }: {
              ARRAY(SELECT d.department FROM user_departments d WHERE d.user_id = u.id ORDER BY 1) AS departments
         FROM users u WHERE u.is_active ORDER BY u.name`),
     risansiPool.query<{ kind: string; value: string }>('SELECT kind, value FROM complaint_lookups WHERE is_active ORDER BY kind, sort_order, value'),
+    risansiPool.query<OemOpt>(`
+      SELECT id, legal_name AS name, code
+        FROM clients WHERE client_type = 'OEM' AND deleted_at IS NULL ORDER BY legal_name`),
     risansiPool.query<{ to_status: string; holder_department: string | null; holder_user_id: number | null; holder_name: string | null; created_at: string; note: string | null; actor: string | null; from_status: string | null }>(`
       SELECT l.to_status, l.from_status, l.holder_department, l.holder_user_id, u.name AS holder_name, l.created_at::text AS created_at, l.note,
              COALESCE(a.name, l.actor_email) AS actor
@@ -203,7 +206,7 @@ export default async function ComplaintPage({ params, searchParams }: {
                 <ComplaintAttachments complaintId={id} files={files} canEdit={canEditFiles} canEditCapa={canEditCapa} only={['complaint', 'photo']} />
               </div>
             )}
-            <ComplaintPageForm key={page.id} complaintId={id} clientId={c.client_id} page={page} initial={c}
+            <ComplaintPageForm key={page.id} complaintId={id} clientId={c.client_id} page={page} initial={c} oems={oems}
               lookups={lookups} users={userRows} canEdit={canEditThis} whyNot={whyNot} />
             {page.id === 6 && (
               <div style={{ marginTop: 16 }}>

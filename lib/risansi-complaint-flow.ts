@@ -136,14 +136,21 @@ export const SEVERITY_TONE: Record<Severity, string> = {
 
 // ── Pages and fields ───────────────────────────────────────────────────────
 
-export type FieldType = 'text' | 'long' | 'date' | 'number' | 'money' | 'bool' | 'select' | 'user' | 'yesno4' | 'paid';
+export type FieldType =
+  | 'text' | 'long' | 'date' | 'number' | 'money' | 'bool' | 'select' | 'user' | 'yesno4' | 'paid'
+  /** A dropdown you may also type into — the list suggests, it does not confine. */
+  | 'select_free'
+  /** A client with client_type = 'OEM', stored as the client's id. */
+  | 'oem';
 
 export interface ComplaintField {
   name: string;
   label: string;
   type: FieldType;
-  /** For type 'select': the complaint_lookups kind. */
+  /** For type 'select' / 'select_free': the complaint_lookups kind. */
   lookup?: string;
+  /** For type 'select': a fixed list, where the answers are not a lookup table. */
+  options?: string[];
   required?: boolean;
   hint?: string;
   /** Shown only when another field holds one of these values. */
@@ -172,11 +179,23 @@ export const PAGES: ComplaintPage[] = [
       { name: 'channel', label: 'Complaint source', type: 'select', lookup: 'source', required: true },
       { name: 'complaint_type', label: 'Complaint type', type: 'select', lookup: 'complaint_type', required: true, hint: 'Technical goes to QC for investigation; Non-technical stays with the Complaint Team.' },
       { name: 'defect_category', label: 'Defect category', type: 'select', lookup: 'defect_category', required: true },
-      { name: 'defect_reason', label: 'Defect reason', type: 'select', lookup: 'defect_reason', required: true },
+      // Suggest, do not confine: the list covers what has come up before, and a
+      // complaint that does not fit one of them should not be filed under the
+      // nearest wrong answer. A typed reason is stored as typed; it is not added
+      // to the master list, so the list stays a list rather than a pile of
+      // spellings.
+      { name: 'defect_reason', label: 'Defect reason', type: 'select_free', lookup: 'defect_reason', required: true, hint: 'Pick one, or type the reason if none of them fits.' },
       { name: 'responsible_department', label: 'Responsible department', type: 'select', lookup: 'responsible_department', required: true, hint: 'Who caused it — correctable at investigation.' },
+      // The TSM's own read, kept beside the Complaint Team's rather than
+      // overwriting it: the two disagreeing is itself worth seeing.
+      { name: 'tsm_responsible_department', label: 'Responsible department (TSM)', type: 'select', lookup: 'responsible_department', hint: 'What the TSM believes from the field. Left alongside the answer above, not merged into it.' },
       { name: 'details', label: 'Complaint description', type: 'long', required: true },
       { name: 'contact_person', label: 'Customer contact person', type: 'text', required: true },
       { name: 'contact_detail', label: 'Contact no. / email', type: 'text' },
+      // A complaint that arrives through the OEM who supplied the pump is a
+      // different conversation from one the client raises directly.
+      { name: 'supply_through', label: 'Supply through', type: 'select', options: ['Direct', 'OEM'], hint: 'Did the pump reach this client directly, or through an OEM?' },
+      { name: 'oem_client_id', label: 'OEM name', type: 'oem', showWhen: { field: 'supply_through', equals: ['OEM'] }, hint: 'From the client master — the OEM account itself, so its complaints can be counted.' },
     ],
   },
   {

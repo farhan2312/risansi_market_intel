@@ -19,7 +19,7 @@ export function ComplaintTable({ rows, sort, sortHref }: {
   sortHref?: (key: ComplaintSortKey) => string;
 }) {
   if (!rows.length) return <div style={{ ...PANEL, padding: 32, textAlign: 'center', fontSize: 12.5, color: 'var(--fg-3)' }}>No complaints match. Clear a filter, or raise one.</div>;
-  const HEADS = ['No.', 'Client', 'Status', 'Sev', 'Type · category', 'Pump model', 'Qty', 'Sitting with', 'Since', 'Age', 'Target', 'Rep', 'Raised', 'Customer docs', ''];
+  const HEADS = ['No.', 'Client', 'Status', 'Sev', 'Type · category', 'Pump model', 'Qty', 'Free repl.', 'FR EC no.', 'FR dispatch', 'Sitting with', 'Since', 'Age', 'Target', 'Rep', 'Raised', 'Customer docs', ''];
   return (
     <div style={{ ...PANEL, overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -65,6 +65,20 @@ export function ComplaintTable({ rows, sort, sortHref }: {
                   {r.part_name ? <div style={{ fontSize: 10.5, color: 'var(--fg-3)', fontFamily: 'inherit' }}>{r.part_name}</div> : null}
                 </td>
                 <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{r.quantity ?? <span style={{ color: 'var(--fg-4)' }}>—</span>}</td>
+                {/* Is the customer getting a replacement free of charge, and
+                    where has that got to. Blank rather than "No" where no
+                    action has been decided yet — nobody has said no. */}
+                <td style={{ ...TD, fontSize: 11 }}>
+                  {r.free_replacement
+                    ? <span style={{ ...PILL, background: 'var(--warn, #B45309)' }}>Free</span>
+                    : r.action_category
+                      ? <span style={{ color: 'var(--fg-3)' }}>{r.action_category === 'Paid Replacement' ? 'Paid' : 'No'}</span>
+                      : <span style={{ color: 'var(--fg-4)' }}>—</span>}
+                </td>
+                <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11 }}>{r.fr_ec_no ?? <span style={{ color: 'var(--fg-4)' }}>—</span>}</td>
+                <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-2)' }}>
+                  {r.target_dispatch_date ? day(r.target_dispatch_date) : <span style={{ color: 'var(--fg-4)' }}>—</span>}
+                </td>
                 <td style={{ ...TD, fontSize: 11.5 }}>
                   {open && !legacy ? <>
                     <div>{r.holder_name ?? r.holder_department ?? 'Complaint Team'}</div>

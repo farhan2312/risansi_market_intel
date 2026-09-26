@@ -27,6 +27,8 @@ export interface ComplaintListRow {
   repeat_complaint: boolean | null; reopen_count: number;
   investigation_assigned_to: number | null; action_assigned_to: number | null;
   action_category: string | null; pump_model: string | null; pump_serial_no: string | null; quantity: number | null;
+  /** A free replacement was promised, and the paperwork behind it. */
+  free_replacement: boolean; fr_ec_no: string | null; target_dispatch_date: string | null;
   /** Customer communication files (letters, emails, confirmations), for a link straight from the list. */
   customer_files: { id: number; file_name: string }[];
 }
@@ -158,6 +160,10 @@ export async function loadComplaintRows(user: CurrentUser, opts: { clientId?: nu
       SELECT c.id, c.complaint_no, c.legacy_ref, c.client_id, cl.legal_name AS client_name, cl.code AS client_code,
              c.status, c.schema_version, c.severity, c.complaint_type, c.defect_category, c.defect_reason,
              c.root_cause_category, c.part_type, c.part_name,
+             -- COALESCE, because a complaint with no action decided yet gives
+             -- NULL here, not false, and the row's type says boolean.
+             COALESCE(c.action_category = 'Free Replacement', FALSE) AS free_replacement,
+             c.fr_ec_no, c.target_dispatch_date::text AS target_dispatch_date,
              c.responsible_department, c.channel,
              c.complaint_date::text AS complaint_date, c.created_at::text AS created_at,
              c.resolved_at::text AS resolved_at, c.closed_at::text AS closed_at,

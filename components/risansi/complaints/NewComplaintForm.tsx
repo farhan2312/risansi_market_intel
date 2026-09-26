@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { createComplaintV2, lookupPump } from '@/app/actions/risansi-complaints-v2';
 import { pageById, isFieldShown, type ComplaintValues } from '@/lib/risansi-complaint-flow';
-import { Field, LBL, HINT, INPUT, NOTE, PRIMARY, GHOST, type UserOpt } from './ComplaintPageForm';
+import { Field, LBL, HINT, INPUT, NOTE, PRIMARY, GHOST, type UserOpt, type OemOpt } from './ComplaintPageForm';
 
 // Raising a complaint: pick the client, fill page 1, and — if the details are
 // to hand — page 2. Everything else happens on the complaint itself, where
@@ -13,8 +13,9 @@ import { Field, LBL, HINT, INPUT, NOTE, PRIMARY, GHOST, type UserOpt } from './C
 
 export interface ClientOpt { id: number; code: string; name: string }
 
-export function NewComplaintForm({ clients, preselect, lookups, users }: {
+export function NewComplaintForm({ clients, preselect, lookups, users, oems = [] }: {
   clients: ClientOpt[]; preselect?: number | null; lookups: Record<string, string[]>; users: UserOpt[];
+  oems?: OemOpt[];
 }) {
   const router = useRouter();
   const page1 = pageById(1)!, page2 = pageById(2)!;
@@ -119,7 +120,7 @@ export function NewComplaintForm({ clients, preselect, lookups, users }: {
             {page1.fields.map(f => isFieldShown(f, values) && (
               <div key={f.name} style={f.type === 'long' ? { gridColumn: '1 / -1' } : undefined}>
                 <label style={LBL}>{f.label}{f.required && <span style={{ color: 'var(--neg)', marginLeft: 3 }}>*</span>}</label>
-                <Field f={f} value={values[f.name]} onChange={v => set(f.name, v)} disabled={pending} lookups={lookups} users={users} />
+                <Field f={f} value={values[f.name]} onChange={v => set(f.name, v)} disabled={pending} lookups={lookups} users={users} oems={oems} />
                 {f.hint && <div style={HINT}>{f.hint}</div>}
               </div>
             ))}
@@ -139,7 +140,7 @@ export function NewComplaintForm({ clients, preselect, lookups, users }: {
               {page2.fields.map(f => isFieldShown(f, values) && (
                 <div key={f.name} style={f.type === 'long' ? { gridColumn: '1 / -1' } : undefined}>
                   <label style={LBL}>{f.label}</label>
-                  <Field f={f} value={values[f.name]} onChange={v => set(f.name, v)} disabled={pending} lookups={lookups} users={users}
+                  <Field f={f} value={values[f.name]} onChange={v => set(f.name, v)} disabled={pending} lookups={lookups} users={users} oems={oems}
                     onLookup={f.fromPump && (f.name === 'ec_no' || f.name === 'pump_serial_no') ? () => lookup(String(values[f.name] ?? '')) : undefined} looking={looking} />
                   {f.hint && <div style={HINT}>{f.hint}</div>}
                 </div>

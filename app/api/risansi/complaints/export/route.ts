@@ -48,6 +48,9 @@ const HEAD_COLS: Col[] = [
 ];
 
 /** One column per form field, valued the way the form shows it. */
+/** OEM id → legal name, filled per request before the columns are built. */
+const oemNames = new Map<number, string>();
+
 function fieldCol(pageTitle: string, f: ComplaintField): Col {
   const width = f.type === 'long' ? 50 : f.type === 'date' ? 12 : f.type === 'bool' || f.type === 'yesno4' || f.type === 'paid' ? 10 : f.type === 'money' || f.type === 'number' ? 14 : f.type === 'user' ? 18 : 20;
   return {
@@ -60,6 +63,7 @@ function fieldCol(pageTitle: string, f: ComplaintField): Col {
         case 'money': case 'number': return Number(v);
         case 'bool': return v === true || v === 't' ? 'Yes' : v === false || v === 'f' ? 'No' : String(v);
         case 'user': return names.get(Number(v)) ?? String(v);
+        case 'oem': return oemNames.get(Number(v)) ?? `OEM #${v}`;
         default: return String(v);
       }
     },
@@ -88,6 +92,11 @@ export async function GET(request: Request) {
   const names = new Map(userRows.map(u => [u.id, u.name]));
 
   const cols: Col[] = [...HEAD_COLS];
+  oemNames.clear();
+  for (const o of (await risansiPool.query<{ id: number; legal_name: string }>(
+    `SELECT id, legal_name FROM clients WHERE client_type = 'OEM' AND deleted_at IS NULL`)).rows) {
+    oemNames.set(o.id, o.legal_name);
+  }
   for (const p of PAGES) for (const f of p.fields) cols.push(fieldCol(`${p.id}. ${p.title}`, f));
 
   const stamp = new Date().toISOString().slice(0, 10);

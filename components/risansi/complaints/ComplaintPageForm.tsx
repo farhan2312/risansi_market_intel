@@ -17,14 +17,17 @@ import {
 // severityOf the server uses, so what the form shows is what will be stored.
 
 export interface UserOpt { id: number; name: string; role?: string | null; departments?: string[] }
+/** A client with client_type = 'OEM', for the "supply through an OEM" picker. */
+export interface OemOpt { id: number; name: string; code: string | null }
 
-export function ComplaintPageForm({ complaintId, clientId, page, initial, lookups, users, canEdit, whyNot }: {
+export function ComplaintPageForm({ complaintId, clientId, page, initial, lookups, users, oems = [], canEdit, whyNot }: {
   complaintId: number;
   clientId: number | null;
   page: ComplaintPage;
   initial: ComplaintValues;
   lookups: Record<string, string[]>;
   users: UserOpt[];
+  oems?: OemOpt[];
   canEdit: boolean;
   /** One sentence on why the page is read-only, when it is. */
   whyNot?: string | null;
@@ -111,7 +114,7 @@ export function ComplaintPageForm({ complaintId, clientId, page, initial, lookup
                 {page.id === 3 && (() => { const r = RISK_FIELDS.find(x => x.key === f.name); return r ? <span style={{ ...SEV, color: SEVERITY_TONE[r.level] }}>{r.level}</span> : null; })()}
               </label>
               <Field f={f} value={values[f.name]} onChange={v => set(f.name, v)} disabled={!canEdit || pending}
-                lookups={lookups} users={users}
+                lookups={lookups} users={users} oems={oems}
                 onLookup={page.id === 2 && f.fromPump && (f.name === 'ec_no' || f.name === 'pump_serial_no') ? () => lookup(String(values[f.name] ?? '')) : undefined}
                 looking={looking} />
               {f.hint && <div style={HINT}>{f.hint}</div>}
@@ -140,9 +143,9 @@ export function ComplaintPageForm({ complaintId, clientId, page, initial, lookup
   );
 }
 
-export function Field({ f, value, onChange, disabled, lookups, users, onLookup, looking }: {
+export function Field({ f, value, onChange, disabled, lookups, users, oems = [], onLookup, looking }: {
   f: ComplaintField; value: unknown; onChange: (v: unknown) => void; disabled: boolean;
-  lookups: Record<string, string[]>; users: UserOpt[]; onLookup?: () => void; looking?: boolean;
+  lookups: Record<string, string[]>; users: UserOpt[]; oems?: OemOpt[]; onLookup?: () => void; looking?: boolean;
 }) {
   const s = value == null ? '' : String(value);
   switch (f.type) {
@@ -167,8 +170,34 @@ export function Field({ f, value, onChange, disabled, lookups, users, onLookup, 
       return <Choices value={s} onChange={onChange} disabled={disabled} options={['Yes', 'No', 'Issued', 'NA']} />;
     case 'paid':
       return <Choices value={s} onChange={onChange} disabled={disabled} options={['Paid', 'To Pay']} />;
-    case 'select': {
+    // Suggest, do not confine. A native combobox: pick from the list, or type
+    // something it does not have. What is typed is stored as typed and does not
+    // join the master list, so the list stays a list rather than a pile of
+    // near-identical spellings.
+    case 'select_free': {
       const opts = lookups[f.lookup ?? ''] ?? [];
+      const listId = `dl-${f.name}`;
+      return (
+        <>
+          <input value={s} list={listId} onChange={e => onChange(e.target.value)} disabled={disabled}
+            placeholder="Pick one, or type your own" style={INPUT} />
+          <datalist id={listId}>{opts.map(o => <option key={o} value={o} />)}</datalist>
+        </>
+      );
+    }
+    case 'oem': {
+      const id = value == null || value === '' ? '' : String(value);
+      const known = !id || oems.some(o => String(o.id) === id);
+      return (
+        <select value={id} onChange={e => onChange(e.target.value ? Number(e.target.value) : null)} disabled={disabled} style={INPUT}>
+          <option value="">—</option>
+          {!known && <option value={id}>OEM #{id} (no longer on the list)</option>}
+          {oems.map(o => <option key={o.id} value={o.id}>{o.name}{o.code ? ` · ${o.code}` : ''}</option>)}
+        </select>
+      );
+    }
+    case 'select': {
+      const opts = f.options ?? lookups[f.lookup ?? ''] ?? [];
       const has = !s || opts.includes(s);
       return (
         <select value={s} onChange={e => onChange(e.target.value)} disabled={disabled} style={INPUT}>
