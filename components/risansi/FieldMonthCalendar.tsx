@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import Link from 'next/link';
 
 // Month / Quarter calendar for Field Activity. Each day box holds *every* rep's
 // visits for that day, colour-coded by rep (the week grid stays as a separate
@@ -209,7 +210,8 @@ export function FieldMonthCalendar({
                 {compact ? (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, alignContent: 'flex-start' }}>
                     {dv.slice(0, cellCap).map(v => (
-                      <span key={v.id} title={`${v.client_name} · ${v.rep_name}`} style={{
+                      <Link key={v.id} href={`/risansi/visits/${v.id}`} aria-label={`${v.client_name} — ${v.rep_name}`}
+                        title={`${v.client_name} · ${v.rep_name}`} style={{
                         width: 8, height: 8, borderRadius: 999, background: repColor(v.rep_id), flexShrink: 0,
                       }} />
                     ))}
@@ -220,11 +222,12 @@ export function FieldMonthCalendar({
                 ) : (
                   <>
                     {dv.slice(0, cellCap).map(v => (
-                      <div key={v.id}
+                      <Link key={v.id} href={`/risansi/visits/${v.id}`}
                         title={`${v.client_name} · ${v.rep_name} · ${v.purpose || 'Routine'}`}
                         style={{
                           borderLeft: `3px solid ${repColor(v.rep_id)}`, background: 'var(--bg-elev)',
                           padding: '2px 5px', overflow: 'hidden',
+                          display: 'block', textDecoration: 'none', color: 'inherit',
                         }}>
                         <div style={{
                           fontSize: 12, color: 'var(--fg)', display: 'flex', alignItems: 'center', gap: 4,
@@ -239,7 +242,7 @@ export function FieldMonthCalendar({
                         <div style={{ fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {v.rep_name}
                         </div>
-                      </div>
+                      </Link>
                     ))}
                     {dv.length > cellCap && (
                       <div style={{ fontSize: 11, fontWeight: 500, color: '#1A5CB8', paddingLeft: 2 }}>+{dv.length - cellCap} more</div>

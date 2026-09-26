@@ -119,6 +119,14 @@ export default async function VisitPrintPage({ params }: { params: Promise<{ id:
   const isSugar = visit.industry_format === 'sugar' || (!visit.industry_format && !!visit.is_sugar);
   const rilEq  = equipment.filter(e => e.is_ril);
   const compEq = equipment.filter(e => !e.is_ril);
+  // A line reading "Roto · PCP · qty 4" is four pumps, not one. The header used
+  // to count rows, so a visit that saw four of one model reported "1". A row
+  // with no quantity on it is one pump.
+  const pumps = (rows: Record<string, unknown>[], qtyKey = 'qty') =>
+    rows.reduce((n, r) => n + (Number(r[qtyKey]) || 1), 0);
+  const rilPumps       = pumps(rilEq);
+  const compPumps      = pumps(compEq);
+  const installedPumps = pumps(rilInstalled as unknown as Record<string, unknown>[]);
   const s = visit as Record<string, unknown>;
   const str = (k: string) => (s[k] == null ? null : String(s[k]));
   // Show crushing capacity (TCD) on the visit report for sugar mills only.
@@ -180,7 +188,7 @@ export default async function VisitPrintPage({ params }: { params: Promise<{ id:
           {(equipment.length > 0 || rilInstalled.length > 0) && (
             <Section
               title="Equipment Assessment"
-              right={`${rilEq.length + rilInstalled.length} Risansi · ${compEq.length} competitor`}
+              right={`${rilPumps + installedPumps + compPumps} pump${rilPumps + installedPumps + compPumps === 1 ? '' : 's'} · ${rilPumps + installedPumps} Risansi · ${compPumps} competitor`}
             >
               {/* ── RISANSI — clearly segregated. Both what was assessed on this
                    visit AND the client's Risansi installed base, so the Risansi

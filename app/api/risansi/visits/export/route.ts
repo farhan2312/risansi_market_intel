@@ -455,6 +455,9 @@ export async function GET(req: Request) {
     ['Sugar reports', String(sugar.length)],
     ['Non-sugar reports', String(nonSugar.length)],
     ['Equipment rows', String(equipment.length)],
+    // Rows are lines on a form; pumps are what was actually seen. A line with
+    // no quantity counts as one.
+    ['Pumps seen', String(equipment.reduce((n, e) => n + (Number((e as Record<string, unknown>).qty) || 1), 0))],
     ['Action points', String(actions.length)],
     ['Opportunities raised', String(oppsRaised.length)],
     ['Photos', String(photos.length)],
