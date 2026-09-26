@@ -123,6 +123,12 @@ interface CompBreakdown {
   rilMmp: number;   totalMmp: number;   mmpMakers: CompMaker[];     // MMP
 }
 
+/** What the most recent visit that logged equipment counted on site. */
+interface LastSeen {
+  visit_id: string; visit_date: string | null; rep_name: string;
+  competitor_pumps: number | null; ril_pumps: number | null; makers: string | null;
+}
+
 // competitor_installed_base PCP columns → display label (RIL handled separately, as "us").
 const COMPETITOR_PCP: Record<string, string> = {
   roto_pcp: 'Roto', rotomac_pcp: 'Rotomac', gita_pcp: 'Gita', psp_pcp: 'PSP',
@@ -226,7 +232,7 @@ export default async function ClientProfilePage({
 
   // ── Fetch supporting data in parallel ─────────────────────
 
-  const [contacts, revRows, clientRevByFY, comp, visits, allOpps, activityLog, reps, complaints, , clientPumps, clientComments, clientActions] = await Promise.all([
+  const [contacts, revRows, clientRevByFY, comp, visits, allOpps, activityLog, reps, complaints, , clientPumps, clientComments, clientActions, lastSeen] = await Promise.all([
 
     // 2. Contacts — single source of truth
     q<Contact[]>(async () => {
@@ -445,6 +451,31 @@ export default async function ClientProfilePage({
       WHERE t.client_id = $1
       ORDER BY (t.status = 'completed'), COALESCE(t.due_date, t.created_at::date) DESC, t.id DESC`,
       [client.id])).rows, []),
+
+    // 14. What the last visit to log any equipment actually saw on site.
+    //
+    // competitor_installed_base above is a survey — a snapshot taken once and
+    // left. A TSM standing in the plant is the more recent answer, so the panel
+    // says both and dates the second, rather than quietly overwriting a figure
+    // somebody entered deliberately. A line "Roto · PCP · qty 4" is four pumps.
+    q<LastSeen | null>(async () => {
+      const { rows } = await risansiPool.query<LastSeen>(
+        `SELECT v.id::text AS visit_id, v.visit_date::text AS visit_date,
+                COALESCE(r.name, '—') AS rep_name,
+                SUM(COALESCE(e.qty, 1)) FILTER (WHERE NOT e.is_ril)::int AS competitor_pumps,
+                SUM(COALESCE(e.qty, 1)) FILTER (WHERE e.is_ril)::int      AS ril_pumps,
+                string_agg(DISTINCT NULLIF(btrim(e.supplier), ''), ', ')
+                  FILTER (WHERE NOT e.is_ril)                             AS makers
+           FROM equipment e
+           JOIN visits v ON v.id = e.visit_id
+           LEFT JOIN users r ON r.id = v.rep_id
+          WHERE v.client_id = $1
+          GROUP BY v.id, v.visit_date, r.name
+          ORDER BY v.visit_date DESC NULLS LAST, v.id DESC
+          LIMIT 1`,
+        [client.id]);
+      return rows[0] ?? null;
+    }, null),
   ]);
 
   // ── Derived values ────────────────────────────────────────
@@ -825,6 +856,41 @@ export default async function ClientProfilePage({
                   </div>
                 )}
               </div>
+
+              {/* What the last visit actually counted.
+                  The figures above are a survey — taken once, and as old as the
+                  day it was taken. A TSM standing in the plant is the more
+                  recent answer, so it is shown beside them and dated, rather
+                  than overwriting a number somebody entered deliberately. Where
+                  the two disagree, that gap is the point. */}
+              {lastSeen && (lastSeen.competitor_pumps ?? 0) + (lastSeen.ril_pumps ?? 0) > 0 && (() => {
+                const seen = lastSeen.competitor_pumps ?? 0;
+                const gap  = seen - competitorAll;
+                return (
+                  <div style={{
+                    padding: '9px 14px', borderBottom: '1px solid var(--line)', background: 'var(--bg-elev)',
+                    display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap', fontSize: 11.5,
+                  }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--fg-3)' }}>
+                      Last seen on site
+                    </span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--fg)' }}>{seen}</span>
+                    <span style={{ color: 'var(--fg-2)' }}>
+                      competitor pump{seen === 1 ? '' : 's'}
+                      {lastSeen.makers ? ` · ${lastSeen.makers}` : ''}
+                    </span>
+                    {competitorAll > 0 && gap !== 0 && (
+                      <span style={{ color: 'var(--warn-strong, var(--warn))' }}>
+                        {gap > 0 ? `${gap} more than` : `${-gap} fewer than`} the survey above
+                      </span>
+                    )}
+                    <a href={`/risansi/visits/${lastSeen.visit_id}`}
+                      style={{ marginLeft: 'auto', color: 'var(--brand-blue, #1A5CB8)', textDecoration: 'none' }}>
+                      {lastSeen.visit_date ? new Date(lastSeen.visit_date + 'T00:00:00Z').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }) : 'the visit'} · {lastSeen.rep_name} →
+                    </a>
+                  </div>
+                );
+              })()}
               {installedSections.length > 0 ? (
                 <div style={{ padding: 14 }}>
                   {/* Headline: how many pumps here are ours, split by type */}
