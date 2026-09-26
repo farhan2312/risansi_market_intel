@@ -203,6 +203,14 @@ export const OPP_FIELDS: OppFieldDef[] = [
 
   // ── Dropped ─────────────────────────────────────────────────
   { name: 'drop_reason', label: 'Drop Reason', kind: 'select', asked: 'Dropped', onlyStages: ['Dropped'], requiredAt: ['Dropped'], options: [] },
+  // Not requiredAt: requiredFieldNames() has no form to read, so a conditional
+  // field marked required would be demanded even when it is hidden. The move
+  // into Dropped enforces it instead — see updateOpportunity.
+  { name: 'drop_reason_other', label: 'Say why', kind: 'text',
+    asked: 'Dropped', onlyStages: ['Dropped'],
+    showWhen: { field: 'drop_reason', equals: ['Other'] },
+    placeholder: 'In a line — what happened to this enquiry?',
+    help: 'Required when the reason is Other. A review can act on a sentence; it cannot act on "Other".' },
 ];
 
 // Answers that are not a competitor, appended after the master list.
@@ -230,6 +238,11 @@ export const DROP_REASONS = [
   // Housekeeping rather than a commercial outcome: the record should never have
   // existed (mis-keyed) or duplicates one that already does.
   'Incorrect entry / Duplicate',
+  // The enquiry was only ever a price check — no project behind it to lose.
+  'Budgetary Enquiry',
+  // Last resort, and it asks for the reason in words (drop_reason_other). A
+  // bare 'Other' on a dropped deal tells a review nothing.
+  'Other',
 ] as const;
 export type DropReason = typeof DROP_REASONS[number];
 export const isDropReason = (v: unknown): v is DropReason =>

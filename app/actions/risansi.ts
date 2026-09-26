@@ -1564,6 +1564,11 @@ export async function updateOpportunity(oppId: number, formData: FormData): Prom
   if (isDropTransition && !isDropReason(formData.get('drop_reason'))) {
     return fail('Select a reason for dropping this opportunity.');
   }
+  // 'Other' is only an answer once it says something.
+  if (isDropTransition && formData.get('drop_reason') === 'Other'
+      && !((formData.get('drop_reason_other') as string | null) ?? '').trim()) {
+    return fail('Say why this opportunity was dropped.');
+  }
 
   const valueInr = parseMoneyInput(formData.get('value_inr'))       ?? NaN;
   const finalInr = parseMoneyInput(formData.get('final_value_inr')) ?? NaN;
@@ -1629,6 +1634,7 @@ export async function updateOpportunity(oppId: number, formData: FormData): Prom
     lost_to_competitor_other: (formData.get('lost_to_competitor_other') as string | null) || null,
     lost_reason:        (formData.get('lost_reason') as string | null) || null,
     drop_reason:        (formData.get('drop_reason') as string | null) || null,
+    drop_reason_other:  (formData.get('drop_reason_other') as string | null)?.trim() || null,
     // The intake block and the per-stage reasons. Each guarded below, so a form
     // that does not ask for one leaves the stored value alone.
     opportunity_type:     (formData.get('opportunity_type') as string | null) || null,
@@ -1660,6 +1666,7 @@ export async function updateOpportunity(oppId: number, formData: FormData): Prom
   // Same idea for the drop reason: a form that never asks for it (the Won/Lost
   // modal, the Quoted modal) must not blank an already-recorded reason.
   if (formData.get('drop_reason') === null)      delete candidates.drop_reason;
+  if (formData.get('drop_reason_other') === null) delete candidates.drop_reason_other;
   // negotiation_notes was retired from the forms — no form submits it any more,
   // so this preserves whatever legacy records already hold.
   if (formData.get('negotiation_notes') === null) delete candidates.negotiation_notes;
