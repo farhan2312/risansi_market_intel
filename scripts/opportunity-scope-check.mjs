@@ -34,6 +34,7 @@ const FILES = [
   'app/risansi/mobile/page.tsx',
   'app/risansi/compete/page.tsx',
   'app/actions/risansi-exec-drilldown.ts',
+  'app/actions/risansi-dashboard-drilldown.ts',
   'app/actions/risansi-audit-drilldown.ts',
   'app/api/risansi/opportunities/export/route.ts',
   'lib/risansi-stage-rows.ts',
@@ -43,6 +44,22 @@ const FILES = [
 
 const GUARD = /deleted_at IS NULL|LIVE_CLIENT\(|AND_LIVE_CLIENT\(/;
 const EXEMPT = /WHERE\s+(o\.)?id\s*=\s*\$1|client_id\s*=\s*c\.id|client_id\s*=\s*\$1\b|o\.created_by|opportunity_id\s*=\s*o\.id/;
+
+// Modules that hand a guarded fragment to the surfaces above.
+//
+// A page and the drill-down behind it have to build their scope from one
+// predicate or they drift apart, and that predicate then lives in a library
+// rather than in either file — so the guard is no longer visible where the
+// query is written. These modules are READ with the same machinery rather than
+// trusted by name: deleting AND_LIVE_CLIENT from one of them un-guards every
+// helper built on it and fails this check, instead of slipping past it.
+const SHARED = ['lib/risansi-exec-review.ts', 'lib/risansi-dashboard.ts'];
+const sharedGuarded = new Set();
+for (const rel of SHARED) {
+  const file = path.join(ROOT, rel);
+  if (!fs.existsSync(file)) continue;
+  for (const name of guardedNames(fs.readFileSync(file, 'utf8'))) sharedGuarded.add(name);
+}
 
 let problems = 0, checked = 0;
 for (const rel of FILES) {
@@ -57,18 +74,13 @@ for (const rel of FILES) {
   // Guard carries through: a fragment built from a guarded fragment is guarded
   // (wonWhere is built from ownerVisAnd, which carries AND_LIVE_CLIENT), so the
   // set is grown to a fixed point.
-  const defs = definitions(src);
-  const guarded = new Set();
+  // Seeded with the shared modules' guarded helpers, then grown over this
+  // file's own definitions — so a local fragment built from an imported one is
+  // guarded too.
+  const guarded = new Set(sharedGuarded);
   // execScopeSql carries the guard inside lib/risansi-exec-review.ts.
   if (/execScopeSql\(/.test(src)) guarded.add('scope');
-  for (let grew = true; grew;) {
-    grew = false;
-    for (const [name, body] of defs) {
-      if (guarded.has(name)) continue;
-      const refs = [...body.matchAll(/\b(\w+)\b/g)].map(m => m[1]);
-      if (GUARD.test(body) || refs.some(r => guarded.has(r))) { guarded.add(name); grew = true; }
-    }
-  }
+  for (const name of guardedNames(src, guarded)) guarded.add(name);
 
   for (const t of templates(src)) {
     if (!/FROM\s+opportunities\b/.test(t.text)) continue;
@@ -92,6 +104,28 @@ for (const rel of FILES) {
 console.log(`\n${checked} opportunity read(s) checked across ${FILES.length} files`);
 console.log(problems ? `${problems} would still show an archived client's opportunities` : "every one excludes archived clients' opportunities");
 process.exit(problems ? 1 : 0);
+
+/**
+ * The identifiers in one file whose value carries the archived-client guard.
+ *
+ * Guard carries through: a fragment built from a guarded fragment is guarded
+ * (wonWhere is built from ownerVisAnd, which carries AND_LIVE_CLIENT), so the
+ * set is grown to a fixed point. `seed` lets a file start from the helpers an
+ * imported module already proved guarded.
+ */
+function guardedNames(src, seed = new Set()) {
+  const defs = definitions(src);
+  const guarded = new Set(seed);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const [name, body] of defs) {
+      if (guarded.has(name)) continue;
+      const refs = [...body.matchAll(/\b(\w+)\b/g)].map(m => m[1]);
+      if (GUARD.test(body) || refs.some(r => guarded.has(r))) { guarded.add(name); grew = true; }
+    }
+  }
+  return guarded;
+}
 
 /** Template literals in the source, with their start offsets. */
 function templates(src) {

@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth/next';
@@ -8,14 +8,26 @@ import { ExportPdfButton } from '@/components/risansi/ExportPdfButton';
 import { RefreshButton } from '@/components/risansi/RefreshButton';
 import Link from 'next/link';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, clientVisibilitySql, clientScopeSql, hasRole , OWN_OPEN } from '@/lib/risansi-auth';
+import { getCurrentUser, hasRole } from '@/lib/risansi-auth';
 import { clientStatusLabel } from '@/lib/risansi-client-status';
 import {
   getCurrentFY, fyShortLabel,
   fyYtdPct, fyDaysLeft, formatIndianDate, formatTime, fmtCr, fmtL,
   getGreeting, formatRev, PLAN_VISIT_LABEL,
 } from '@/lib/risansi-utils';
-import { AND_LIVE_CLIENT } from '@/lib/risansi-opportunity-scope';
+import { DashDrilldownProvider, DashCell } from '@/components/risansi/DashDrilldown';
+import type { DashDrillParams } from '@/app/actions/risansi-dashboard-drilldown';
+// Every WHERE below comes from here, and so does every WHERE in
+// app/actions/risansi-dashboard-drilldown.ts. A figure and the list behind it
+// that build their scope separately agree today and disagree after the next
+// edit — see the header comment on the module.
+import {
+  INR_TO_L, OPEN_STAGES, OTHERS_PCP, PIPELINE_STAGES,
+  SO_SUM_JOIN, IN_HAND_CR, BOOKED_CR,
+  activeClientWhere, atRiskExposureOn, atRiskWhere, dashScope, dashWindows,
+  overdueClientWhere, repPipelineWhere, revClientWhere, revMonthsSql,
+  stageWhere, visitsThisWeekWhere, wonClientWhere,
+} from '@/lib/risansi-dashboard';
 
 // ── Safe query wrapper ─────────────────────────────────────────
 
@@ -51,9 +63,8 @@ const FUNNEL_COLORS: Record<string, string> = {
   'On Hold':   '#7C3AED',
 };
 
-// Open pipeline stages, in flow order. Won is tracked separately (it's the
-// landed outcome, shown alongside Order in Hand rather than as a funnel bar).
-const OPEN_STAGES = ['Suspect', 'Prospect', 'Quoted', 'Negotiating', 'On Hold'] as const;
+// OPEN_STAGES and PIPELINE_STAGES live in lib/risansi-dashboard.ts so the
+// drill-down behind each funnel bar is reading the same list of stages.
 
 // ── Data shapes ────────────────────────────────────────────────
 
@@ -62,7 +73,7 @@ interface HistoricalFY { code: string; label: string; total: number; }
 interface SegmentRow   { segment: string; ytd_inr: number; }
 interface FunnelRow    { stage: string; count: number; value: number; }
 interface MarketEntry  { supplier: string; units: number; pct: number; color: string; }
-interface CIBTotals    { ril: number; roto: number; rotomac: number; netzsch: number; gita: number; psp: number; tushaco: number; total: number; }
+interface CIBTotals    { ril: number; roto: number; rotomac: number; netzsch: number; gita: number; psp: number; tushaco: number; others: number; total: number; }
 interface TopAccount {
   client_code: string; legal_name: string; industry: string; zone: string; status: string;
   ytd: number; py: number;
@@ -98,14 +109,8 @@ export default async function ExecDashboardPage() {
 
   // Per-user visibility predicates (inline integer ids, no params).
   const currentUser = await getCurrentUser();
-  const cVis = clientVisibilitySql(currentUser, 'c');               // clients aliased c
-  const cVisAnd = cVis ? ` AND (${cVis})` : '';
-  const oppOwnerVis = clientScopeSql(currentUser, 'o.client_id', OWN_OPEN.opportunity('o'));  // opportunities aliased o
-  // Plus the archived-client guard: an archived client's opportunities leave
-  // every tile and list with it (lib/risansi-opportunity-scope).
-  const oppOwnerAnd = (oppOwnerVis ? ` AND (${oppOwnerVis})` : '') + AND_LIVE_CLIENT('o');
-  const visitOwnerVis = clientScopeSql(currentUser, 'v.client_id', OWN_OPEN.visit('v')); // visits aliased v
-  const visitOwnerAnd = visitOwnerVis ? ` AND (${visitOwnerVis})` : '';
+  const scope = dashScope(currentUser);
+  const { cVisAnd, oppOwnerAnd, visitOwnerAnd } = scope;
 
   // Only admin / sysadmin see the full company dashboard (incl. the target).
   // Reps AND managers always get the tour-scoped personal view — their tours'
@@ -115,10 +120,8 @@ export default async function ExecDashboardPage() {
   // Fiscal year (dynamic, April→March) — shared by both dashboard views and
   // every revenue query, so nothing goes stale when the year rolls over.
   const fy      = getCurrentFY();
-  const cyStart = fy.startDate;                                 // e.g. 2026-04-01
-  const cyEnd   = `${Number(cyStart.slice(0, 4)) + 1}-04-01`;   // 2027-04-01 (exclusive)
-  const pyStart = `${Number(cyStart.slice(0, 4)) - 1}-04-01`;   // 2025-04-01 (prev FY start)
-  const histStart = `${Number(cyStart.slice(0, 4)) - 6}-04-01`; // YoY chart: last 7 FYs
+  const w       = dashWindows();
+  const { cyStart, cyEnd, pyStart, histStart } = w;
 
   // ── Rep-specific dashboard (personal view) ─────────────────────
   if (!showFull) {
@@ -143,8 +146,7 @@ export default async function ExecDashboardPage() {
         if (!repId) return 0;
         const { rows } = await risansiPool.query<{ cnt: string }>(
           `SELECT COUNT(*)::text AS cnt FROM visits v
-           WHERE v.visit_date >= CURRENT_DATE - INTERVAL '7 days'
-             AND v.status IN ('completed','checked-in')${visitOwnerAnd}`,
+           WHERE ${visitsThisWeekWhere(scope)}`,
         );
         return Number(rows[0]?.cnt ?? 0);
       }, 0),
@@ -154,8 +156,7 @@ export default async function ExecDashboardPage() {
         if (!repId) return 0;
         const { rows } = await risansiPool.query<{ cnt: string }>(
           `SELECT COUNT(*)::text AS cnt FROM clients c
-           WHERE c.status = 'ACTIVE' AND c.deleted_at IS NULL
-             AND (c.last_visit_date IS NULL OR c.last_visit_date < CURRENT_DATE - INTERVAL '90 days')${cVisAnd}`,
+           WHERE ${overdueClientWhere(scope)}`,
         );
         return Number(rows[0]?.cnt ?? 0);
       }, 0),
@@ -166,7 +167,7 @@ export default async function ExecDashboardPage() {
         const { rows } = await risansiPool.query<{ total: string }>(
           `SELECT COALESCE(SUM(o.value_cr),0)::text AS total
            FROM opportunities o
-           WHERE o.stage NOT IN ('Won','Lost')${oppOwnerAnd}`,
+           WHERE ${repPipelineWhere(scope)}`,
         );
         return Number(rows[0]?.total ?? 0);
       }, 0),
@@ -176,7 +177,7 @@ export default async function ExecDashboardPage() {
         if (!repId) return 0;
         const { rows } = await risansiPool.query<{ cnt: string }>(
           `SELECT COUNT(*)::text AS cnt FROM clients c
-           WHERE c.status = 'ACTIVE' AND c.deleted_at IS NULL${cVisAnd}`,
+           WHERE ${activeClientWhere(scope)}`,
         );
         return Number(rows[0]?.cnt ?? 0);
       }, 0),
@@ -215,8 +216,7 @@ export default async function ExecDashboardPage() {
           `SELECT c.id::text AS id, c.code, c.legal_name,
                   COALESCE(EXTRACT(DAY FROM NOW() - c.last_visit_date)::int, 999) AS days_overdue
            FROM clients c
-           WHERE c.status = 'ACTIVE' AND c.deleted_at IS NULL
-             AND (c.last_visit_date IS NULL OR c.last_visit_date < CURRENT_DATE - INTERVAL '90 days')${cVisAnd}
+           WHERE ${overdueClientWhere(scope)}
            ORDER BY 4 DESC
            LIMIT 20`,
         );
@@ -230,14 +230,14 @@ export default async function ExecDashboardPage() {
           `SELECT COALESCE(SUM(crm.total_value),0)::text AS total
            FROM client_revenue_monthly crm
            JOIN clients c ON c.id = crm.client_id
-           WHERE crm.month >= '${cyStart}' AND crm.month < '${cyEnd}'
-             AND c.deleted_at IS NULL${cVisAnd}`,
+           WHERE ${revClientWhere(w, scope)}`,
         );
         return Number(rows[0]?.total ?? 0) / 10_000_000;
       }, 0),
     ]);
 
     return (
+      <DashDrilldownProvider>
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
           <Topbar crumbs={['Risansi', 'My Dashboard']} primaryAction={PLAN_VISIT_LABEL} primaryActionHref="/risansi/field" />
@@ -261,11 +261,11 @@ export default async function ExecDashboardPage() {
 
           {/* 5 KPI cards — scoped to the clients you own or cover */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
-            <RepKpi label={`Revenue (${fy.label})`} value={fmtCr(myRevenue)}       sub="Booked · your clients" />
-            <RepKpi label="Visits This Week"   value={String(myVisitsCount)}  sub="Last 7 days" />
-            <RepKpi label="Overdue Clients"    value={String(myOverdueCount)} sub="No visit 90+ days" neg={myOverdueCount > 0} />
-            <RepKpi label="Pipeline"           value={fmtCr(myPipelineValue)} sub="Open opportunities" />
-            <RepKpi label="Active Clients"     value={String(myClientsCount)} sub="You own or cover" />
+            <RepKpi label={`Revenue (${fy.label})`} value={fmtCr(myRevenue)}       sub="Booked · your clients" drill={{ kind: 'my_revenue' }} />
+            <RepKpi label="Visits This Week"   value={String(myVisitsCount)}  sub="Last 7 days" drill={{ kind: 'my_visits_week' }} />
+            <RepKpi label="Overdue Clients"    value={String(myOverdueCount)} sub="No visit 90+ days" neg={myOverdueCount > 0} drill={{ kind: 'my_overdue' }} />
+            <RepKpi label="Pipeline"           value={fmtCr(myPipelineValue)} sub="Open opportunities" drill={{ kind: 'my_pipeline' }} />
+            <RepKpi label="Active Clients"     value={String(myClientsCount)} sub="You own or cover" drill={{ kind: 'my_clients' }} />
           </div>
 
           {/* Two panels */}
@@ -310,7 +310,9 @@ export default async function ExecDashboardPage() {
                 <span style={PANEL_TITLE}>Overdue Clients</span>
                 {myOverdueCount > 0 && (
                   <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--neg)', fontFamily: 'var(--font-mono)' }}>
-                    {myOverdueCount} need{myOverdueCount === 1 ? 's' : ''} a visit
+                    <DashCell params={{ kind: 'my_overdue' }}>
+                      {myOverdueCount} need{myOverdueCount === 1 ? 's' : ''} a visit
+                    </DashCell>
                   </span>
                 )}
               </div>
@@ -344,6 +346,7 @@ export default async function ExecDashboardPage() {
 
         </div>
       </div>
+      </DashDrilldownProvider>
     );
   }
 
@@ -351,7 +354,6 @@ export default async function ExecDashboardPage() {
   const daysLeft = fyDaysLeft(fy);
   const today    = new Date();
 
-  const INR_TO_L = 100_000;
   const fyLabel  = fy.label;
 
   // ── All queries in parallel — replaces 10 sequential awaits ──
@@ -379,8 +381,8 @@ export default async function ExecDashboardPage() {
            COALESCE(SUM(total_value),0)::text AS total_inr,
            COALESCE(SUM(pump_value), 0)::text AS pump_inr,
            COALESCE(SUM(spare_value),0)::text AS spare_inr
-         FROM client_revenue_monthly
-         WHERE month >= '${cyStart}' AND month < '${cyEnd}'`,
+         FROM client_revenue_monthly crm
+         WHERE ${revMonthsSql(w, 'cy')}`,
       );
       return {
         pump:  Number(rows[0]?.pump_inr  ?? 0) / INR_TO_L,
@@ -392,8 +394,8 @@ export default async function ExecDashboardPage() {
     q<number>(async () => {
       const { rows } = await risansiPool.query<{ total: string }>(
         `SELECT COALESCE(SUM(total_value),0)::text AS total
-         FROM client_revenue_monthly
-         WHERE month >= '${pyStart}' AND month < '${cyStart}'`,
+         FROM client_revenue_monthly crm
+         WHERE ${revMonthsSql(w, 'py')}`,
       );
       return Number(rows[0]?.total ?? 0) / INR_TO_L;
     }, 0),
@@ -435,8 +437,7 @@ export default async function ExecDashboardPage() {
            COALESCE(SUM(crm.total_value), 0)::text AS ytd_inr
          FROM client_revenue_monthly crm
          JOIN clients c ON crm.client_id = c.id
-         WHERE crm.month >= '${cyStart}' AND crm.month < '${cyEnd}'
-           AND c.deleted_at IS NULL${cVisAnd}
+         WHERE ${revClientWhere(w, scope)}
          GROUP BY COALESCE(c.industry, 'Other')
          ORDER BY 2::numeric DESC
          LIMIT 8`,
@@ -452,8 +453,7 @@ export default async function ExecDashboardPage() {
            COALESCE(SUM(CASE WHEN c.market_type = 'Export'   THEN crm.total_value ELSE 0 END),0)::text AS export_inr
          FROM client_revenue_monthly crm
          JOIN clients c ON crm.client_id = c.id
-         WHERE crm.month >= '${cyStart}' AND crm.month < '${cyEnd}'
-           AND c.deleted_at IS NULL${cVisAnd}`,
+         WHERE ${revClientWhere(w, scope)}`,
       );
       const r = rows[0];
       return {
@@ -469,9 +469,8 @@ export default async function ExecDashboardPage() {
       const { rows } = await risansiPool.query<{ stage: string; cnt: string; val: string }>(
         `SELECT o.stage AS stage, COUNT(*)::text AS cnt, COALESCE(SUM(o.value_cr),0)::text AS val
          FROM opportunities o
-         WHERE o.stage = ANY($1::text[])${oppOwnerAnd}
+         WHERE ${stageWhere(scope, stages)}
          GROUP BY o.stage`,
-        [stages],
       );
       return stages.map(stage => {
         const row = rows.find(r => r.stage === stage);
@@ -485,13 +484,13 @@ export default async function ExecDashboardPage() {
     q<{ inHand: number; booked: number; openCount: number }>(async () => {
       const { rows } = await risansiPool.query<{ in_hand: string; booked: string; open_count: string }>(
         `SELECT
-           COALESCE(SUM(GREATEST(COALESCE(o.final_value_cr, o.value_cr, 0) - COALESCE(so.sosum, 0), 0)), 0)::text AS in_hand,
-           COALESCE(SUM(COALESCE(so.sosum, 0)), 0)::text AS booked,
-           COUNT(*) FILTER (WHERE GREATEST(COALESCE(o.final_value_cr, o.value_cr, 0) - COALESCE(so.sosum, 0), 0) > 0)::text AS open_count
+           COALESCE(SUM(${IN_HAND_CR}), 0)::text AS in_hand,
+           COALESCE(SUM(${BOOKED_CR}), 0)::text AS booked,
+           COUNT(*) FILTER (WHERE ${IN_HAND_CR} > 0)::text AS open_count
          FROM opportunities o
          JOIN clients c ON c.id = o.client_id
-         LEFT JOIN LATERAL (SELECT SUM(so_value_cr) AS sosum FROM opportunity_sales_orders WHERE opportunity_id = o.id) so ON TRUE
-         WHERE o.stage = 'Won' AND c.deleted_at IS NULL${cVisAnd}`,
+         ${SO_SUM_JOIN}
+         WHERE ${wonClientWhere(scope)}`,
       );
       return {
         inHand: Number(rows[0]?.in_hand ?? 0),
@@ -504,7 +503,7 @@ export default async function ExecDashboardPage() {
     q<CIBTotals>(async () => {
       const { rows } = await risansiPool.query<{
         ril: string; roto: string; rotomac: string; netzsch: string;
-        gita: string; psp: string; tushaco: string; total: string;
+        gita: string; psp: string; tushaco: string; others: string; total: string;
       }>(
         `SELECT
            COALESCE(SUM(ril_pcp),0)::text     AS ril,
@@ -514,6 +513,7 @@ export default async function ExecDashboardPage() {
            COALESCE(SUM(gita_pcp),0)::text    AS gita,
            COALESCE(SUM(psp_pcp),0)::text     AS psp,
            COALESCE(SUM(tushaco_pcp),0)::text AS tushaco,
+           COALESCE(SUM(${OTHERS_PCP}),0)::text AS others,
            COALESCE(SUM(total_pcp),0)::text   AS total
          FROM competitor_installed_base`,
       );
@@ -522,9 +522,10 @@ export default async function ExecDashboardPage() {
         ril:     Number(r?.ril     ?? 0), roto:    Number(r?.roto    ?? 0),
         rotomac: Number(r?.rotomac ?? 0), netzsch: Number(r?.netzsch ?? 0),
         gita:    Number(r?.gita    ?? 0), psp:     Number(r?.psp     ?? 0),
-        tushaco: Number(r?.tushaco ?? 0), total:   Number(r?.total   ?? 0),
+        tushaco: Number(r?.tushaco ?? 0), others:  Number(r?.others  ?? 0),
+        total:   Number(r?.total   ?? 0),
       };
-    }, { ril: 0, roto: 0, rotomac: 0, netzsch: 0, gita: 0, psp: 0, tushaco: 0, total: 0 }),
+    }, { ril: 0, roto: 0, rotomac: 0, netzsch: 0, gita: 0, psp: 0, tushaco: 0, others: 0, total: 0 }),
 
     // 9. At-risk: had revenue, no visit 18+ months
     q<AtRisk>(async () => {
@@ -534,12 +535,8 @@ export default async function ExecDashboardPage() {
            COALESCE(SUM(crm.total_value), 0)::text AS exposure
          FROM clients c
          LEFT JOIN client_revenue_monthly crm
-           ON crm.client_id = c.id
-           AND crm.month >= '${pyStart}' AND crm.month < '${cyEnd}'
-         WHERE c.status = 'ACTIVE'
-           AND c.deleted_at IS NULL
-           AND (c.last_visit_date IS NULL OR c.last_visit_date < CURRENT_DATE - INTERVAL '18 months')
-           AND EXISTS (SELECT 1 FROM client_revenue_monthly r2 WHERE r2.client_id = c.id)${cVisAnd}`,
+           ON crm.client_id = c.id AND ${atRiskExposureOn(w)}
+         WHERE ${atRiskWhere(scope)}`,
       );
       return {
         count:    Number(rows[0]?.cnt      ?? 0),
@@ -683,7 +680,7 @@ export default async function ExecDashboardPage() {
   // Open Pipeline is the quoted pipe: Quoted and Negotiating only (19 Sep).
   // A Suspect or Prospect carries no offer and On Hold is parked, so none of
   // them is money in play; the funnel below still shows every stage.
-  const quotedPipe       = funnelOpen.filter(r => r.stage === 'Quoted' || r.stage === 'Negotiating');
+  const quotedPipe       = funnelOpen.filter(r => (PIPELINE_STAGES as readonly string[]).includes(r.stage));
   const pipelineTotal    = quotedPipe.reduce((s, r) => s + r.value, 0);
   const openCount        = quotedPipe.reduce((s, r) => s + r.count, 0);
   const quotedCount      = funnelOpen.find(r => r.stage === 'Quoted')?.count ?? 0;
@@ -693,9 +690,11 @@ export default async function ExecDashboardPage() {
   const rilUnits   = cibTotals.ril;
   const rilShare   = (rilUnits / shareTotal) * 100;
 
-  const rotoTotal  = cibTotals.roto + cibTotals.rotomac;
-  const namedTotal = rilUnits + rotoTotal + cibTotals.netzsch + cibTotals.gita + cibTotals.psp + cibTotals.tushaco;
-  const othersU    = Math.max(0, cibTotals.total - namedTotal);
+  // Others is a remainder, not a column, and it is summed per site in SQL
+  // (OTHERS_PCP) rather than subtracted here: the drill-down behind the slice
+  // lists those same per-site remainders, and a site whose named suppliers
+  // overshoot its own total must not be allowed to eat into another site's.
+  const othersU    = cibTotals.others;
 
   const shareData: MarketEntry[] = [
     { supplier: 'RIL',           units: rilUnits,          pct: (rilUnits / shareTotal) * 100,          color: compColor('RIL') },
@@ -724,6 +723,7 @@ export default async function ExecDashboardPage() {
 
   // ── Render ───────────────────────────────────────────────────
   return (
+    <DashDrilldownProvider>
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Sticky topbar */}
       <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
@@ -770,10 +770,16 @@ export default async function ExecDashboardPage() {
                   {/* Total booked metric */}
                   <div style={{ flexShrink: 0 }}>
                     <div style={METRIC_LABEL}>Total Booked</div>
-                    <div style={METRIC_VAL}>{fmtFromL(totalBooked)}</div>
+                    <div style={METRIC_VAL}>
+                      <DashCell params={{ kind: 'rev_fy' }}>{fmtFromL(totalBooked)}</DashCell>
+                    </div>
                     {pyTotal > 0 && (
                       <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: bookedDelta >= 0 ? 'var(--pos)' : 'var(--neg)', marginTop: 4 }}>
-                        {bookedDelta >= 0 ? '▲' : '▼'} {fmtFromL(Math.abs(totalBooked - pyTotal))} vs PY · {bookedDelta >= 0 ? '+' : ''}{bookedDelta.toFixed(1)}%
+                        {bookedDelta >= 0 ? '▲' : '▼'}{' '}
+                        <DashCell params={{ kind: 'rev_delta' }}>
+                          {fmtFromL(Math.abs(totalBooked - pyTotal))} vs PY
+                        </DashCell>
+                        {' · '}{bookedDelta >= 0 ? '+' : ''}{bookedDelta.toFixed(1)}%
                       </div>
                     )}
                   </div>
@@ -793,14 +799,17 @@ export default async function ExecDashboardPage() {
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
                   <span>₹0</span>
-                  <span style={{ color: 'var(--accent)' }}>↑ {fmtFromL(totalBooked)}</span>
+                  <span style={{ color: 'var(--accent)' }}>
+                    ↑ <DashCell params={{ kind: 'rev_fy' }}>{fmtFromL(totalBooked)}</DashCell>
+                  </span>
                   <span>{fmtFromL(annTargetL)}</span>
                 </div>
 
                 {/* Dom / Exp / Pump:Spare stats */}
                 <div style={{ display: 'flex', gap: 28, marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
-                  <StatBlock label="Domestic" value={fmtL(domExp.domestic)} />
-                  <StatBlock label="Export"   value={fmtL(domExp.export)} />
+                  <StatBlock label="Domestic" value={fmtL(domExp.domestic)} drill={{ kind: 'rev_market', key: 'Domestic' }} />
+                  <StatBlock label="Export"   value={fmtL(domExp.export)}   drill={{ kind: 'rev_market', key: 'Export' }} />
+                  {/* A ratio, not a sum: no set of clients adds up to "62 : 38". */}
                   <StatBlock label="Pump : Spare" value={`${pumpPct} : ${sparePct}`} />
                 </div>
               </div>
@@ -817,6 +826,20 @@ export default async function ExecDashboardPage() {
                   dimColor="#93C5FD"
                   width={280} height={90}
                 />
+                {/* The bars are an SVG shared with other pages, so the year a
+                    reader wants to open is offered as a row of chips beneath
+                    them rather than by making the rectangles clickable. */}
+                {historical.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                    {historical.map(h => (
+                      <DashCell key={h.code} params={{ kind: 'rev_fy_bar', key: h.code }}
+                        style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}
+                        title={`See the accounts behind ${h.label}`}>
+                        {h.label}
+                      </DashCell>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -834,6 +857,8 @@ export default async function ExecDashboardPage() {
             sub={pipelineTotal > 0 ? 'Quoted value at 100% · no Suspect, Prospect or On Hold' : 'Add via Opportunities →'}
             subHref={pipelineTotal === 0 ? '/risansi/pipeline' : undefined}
             spark={[]}
+            drill={pipelineTotal > 0 ? { kind: 'pipeline' } : undefined}
+            deltaDrill={pipelineTotal > 0 ? { kind: 'pipeline' } : undefined}
           />
 
           {/* Order in Hand — won value not yet turned into a Sales Order. */}
@@ -844,6 +869,8 @@ export default async function ExecDashboardPage() {
             deltaPos={orderInHand.inHand > 0}
             sub="Won, not yet in a Sales Order"
             spark={[]}
+            drill={orderInHand.inHand > 0 ? { kind: 'order_in_hand' } : undefined}
+            deltaDrill={orderInHand.openCount > 0 ? { kind: 'order_in_hand' } : undefined}
           />
 
           {/* Market share small metric */}
@@ -855,6 +882,7 @@ export default async function ExecDashboardPage() {
             deltaPos
             sub={shareTotal > 1 ? `${shareTotal.toLocaleString()} units tracked` : 'Awaiting assessment data'}
             spark={[]}
+            subDrill={shareTotal > 1 ? { kind: 'market_supplier', key: 'Total' } : undefined}
           />
 
           {/* At-risk small metric */}
@@ -865,6 +893,8 @@ export default async function ExecDashboardPage() {
             deltaPos={atRisk.count === 0}
             sub="Had revenue · no visit 18 mo+"
             spark={[]}
+            drill={atRisk.count > 0 ? { kind: 'at_risk' } : undefined}
+            deltaDrill={atRisk.exposure > 0 ? { kind: 'at_risk' } : undefined}
           />
         </div>
 
@@ -966,12 +996,13 @@ export default async function ExecDashboardPage() {
                   value={seg.ytd_inr}
                   total={totalBooked || 1}
                   color={SEGMENT_COLORS[i] ?? 'var(--fg-3)'}
+                  drill={{ kind: 'segment', key: seg.segment }}
                 />
               ))}
               {segments.length > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
-                  <StatBlock label="Domestic" value={fmtL(domExp.domestic)} />
-                  <StatBlock label="Export"   value={fmtL(domExp.export)} />
+                  <StatBlock label="Domestic" value={fmtL(domExp.domestic)} drill={{ kind: 'rev_market', key: 'Domestic' }} />
+                  <StatBlock label="Export"   value={fmtL(domExp.export)}   drill={{ kind: 'rev_market', key: 'Export' }} />
                   <StatBlock label="Pump : Spare" value={`${pumpPct} : ${sparePct}`} />
                 </div>
               )}
@@ -1010,8 +1041,13 @@ export default async function ExecDashboardPage() {
                       <div key={d.supplier} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: 11 }}>
                         <span style={{ width: 8, height: 8, background: d.color, borderRadius: 2, flexShrink: 0 }} />
                         <span style={{ flex: 1, fontWeight: i === 0 ? 500 : 400 }}>{d.supplier}</span>
+                        {/* The slice is a share, so what opens is the pump
+                            count the share was worked out from. */}
                         <span style={{ width: 44, textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-                          {d.pct.toFixed(1)}%
+                          <DashCell params={{ kind: 'market_supplier', key: d.supplier }}
+                            title={`See the sites behind ${d.supplier}'s ${d.units.toLocaleString()} pumps`}>
+                            {d.pct.toFixed(1)}%
+                          </DashCell>
                         </span>
                       </div>
                     ))}
@@ -1037,13 +1073,17 @@ export default async function ExecDashboardPage() {
             {/* Summary strip: open pipeline · order in hand · order booked · won */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', borderBottom: '1px solid var(--line)' }}>
               <OppStat label="Open Pipeline" value={pipelineTotal > 0 ? fmtCr(pipelineTotal) : '—'}
-                sub={`${openCount} quoted + negotiating`} color="var(--fg)" />
+                sub={`${openCount} quoted + negotiating`} color="var(--fg)"
+                drill={openCount > 0 ? { kind: 'pipeline' } : undefined} />
               <OppStat label="Order in Hand" value={orderInHand.inHand > 0 ? fmtCr(orderInHand.inHand) : '—'}
-                sub="won · not yet in SO" color="var(--accent)" divider />
+                sub="won · not yet in SO" color="var(--accent)" divider
+                drill={orderInHand.inHand > 0 ? { kind: 'order_in_hand' } : undefined} />
               <OppStat label="Order Booked" value={orderInHand.booked > 0 ? fmtCr(orderInHand.booked) : '—'}
-                sub="value in sales orders" color="var(--fg-2)" divider />
+                sub="value in sales orders" color="var(--fg-2)" divider
+                drill={orderInHand.booked > 0 ? { kind: 'order_booked' } : undefined} />
               <OppStat label="Won" value={wonRow.value > 0 ? fmtCr(wonRow.value) : '—'}
-                sub={`${wonRow.count} won`} color="var(--pos)" divider />
+                sub={`${wonRow.count} won`} color="var(--pos)" divider
+                drill={wonRow.count > 0 ? { kind: 'stage', key: 'Won' } : undefined} />
             </div>
 
             {/* Open-stage funnel — bars sized by opportunity count, ₹ shown alongside */}
@@ -1067,6 +1107,7 @@ export default async function ExecDashboardPage() {
                     value={row.value}
                     max={funnelMax}
                     color={FUNNEL_COLORS[row.stage] ?? 'var(--fg-3)'}
+                    drill={{ kind: 'stage', key: row.stage }}
                   />
                 ))
               )}
@@ -1101,9 +1142,15 @@ export default async function ExecDashboardPage() {
                     {topAccounts.map(acc => {
                       const deltaPct = acc.py > 0 ? ((acc.ytd - acc.py) / acc.py) * 100 : 0;
                       return (
-                        <tr key={acc.client_code} style={{ borderBottom: '1px solid var(--line)', cursor: 'pointer' }}>
+                        <tr key={acc.client_code} style={{ borderBottom: '1px solid var(--line)' }}>
                           <td style={{ padding: '10px 12px', verticalAlign: 'middle' }}>
-                            <div style={{ fontWeight: 500, fontSize: 12 }}>{acc.legal_name}</div>
+                            {/* One row is already one client, so there is no
+                                list to pop up — it goes straight to the
+                                account. The cursor used to say otherwise. */}
+                            <a href={`/risansi/clients/${acc.client_code}`}
+                              style={{ fontWeight: 500, fontSize: 12, color: 'var(--accent)', textDecoration: 'none' }}>
+                              {acc.legal_name}
+                            </a>
                             <div style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', marginTop: 1 }}>
                               {acc.client_code}
                             </div>
@@ -1187,6 +1234,7 @@ export default async function ExecDashboardPage() {
         </Link>
       </div>
     </div>
+    </DashDrilldownProvider>
   );
 }
 
@@ -1276,28 +1324,29 @@ const TD: CSSProperties = {
 
 // ── Small server-side sub-components ──────────────────────────
 
-function SmallMetric({ label, value, unit, delta, deltaPos, sub, subHref, spark }: {
+function SmallMetric({ label, value, unit, delta, deltaPos, sub, subHref, spark, drill, deltaDrill, subDrill }: {
   label: string; value: string; unit?: string;
   delta?: string; deltaPos?: boolean; sub?: string; subHref?: string; spark: number[];
+  drill?: DashDrillParams; deltaDrill?: DashDrillParams; subDrill?: DashDrillParams;
 }) {
   return (
     <div style={{ ...KPI_PANEL, minHeight: 140 }}>
       <div style={{ padding: 14 }}>
         <div style={METRIC_LABEL}>{label}</div>
         <div style={METRIC_VAL}>
-          {value}
+          <Drillable drill={drill}>{value}</Drillable>
           {unit && <span style={{ fontSize: 14, color: 'var(--fg-3)', marginLeft: 4, fontWeight: 400 }}>{unit}</span>}
         </div>
         {delta && (
           <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: deltaPos ? 'var(--pos)' : 'var(--neg)', marginTop: 4 }}>
-            {deltaPos ? '▲' : '▼'} {delta}
+            {deltaPos ? '▲' : '▼'} <Drillable drill={deltaDrill}>{delta}</Drillable>
           </div>
         )}
         <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           {subHref ? (
             <a href={subHref} style={{ fontSize: 11, color: '#1A5CB8', textDecoration: 'none', fontWeight: 500 }}>{sub}</a>
           ) : (
-            <div style={{ fontSize: 11, color: 'var(--fg-3)' }}>{sub}</div>
+            <div style={{ fontSize: 11, color: 'var(--fg-3)' }}><Drillable drill={subDrill}>{sub}</Drillable></div>
           )}
           {spark.length > 0 && (
             <Sparkline values={spark} width={70} height={22} color={deltaPos ? 'var(--pos)' : 'var(--neg)'} />
@@ -1308,14 +1357,17 @@ function SmallMetric({ label, value, unit, delta, deltaPos, sub, subHref, spark 
   );
 }
 
-function SegmentBar({ label, value, total, color }: { label: string; value: number; total: number; color: string }) {
+function SegmentBar({ label, value, total, color, drill }: {
+  label: string; value: number; total: number; color: string; drill?: DashDrillParams;
+}) {
   const pct = Math.min((value / total) * 100, 100);
   return (
     <div style={{ marginBottom: 10 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 11 }}>
         <span style={{ color: 'var(--fg-2)' }}>{label}</span>
         <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg)' }}>
-          {formatRev(Math.round(value * 100_000))} <span style={{ color: 'var(--fg-3)' }}>({pct.toFixed(0)}%)</span>
+          <Drillable drill={drill}>{formatRev(Math.round(value * 100_000))}</Drillable>
+          {' '}<span style={{ color: 'var(--fg-3)' }}>({pct.toFixed(0)}%)</span>
         </span>
       </div>
       <div style={{ height: 4, background: '#DDE6F5', borderRadius: 2, overflow: 'hidden' }}>
@@ -1325,21 +1377,37 @@ function SegmentBar({ label, value, total, color }: { label: string; value: numb
   );
 }
 
-function StatBlock({ label, value }: { label: string; value: string }) {
+function StatBlock({ label, value, drill }: { label: string; value: string; drill?: DashDrillParams }) {
   return (
     <div>
       <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</div>
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 15, marginTop: 2 }}>{value}</div>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 15, marginTop: 2 }}>
+        <Drillable drill={drill}>{value}</Drillable>
+      </div>
     </div>
   );
+}
+
+/**
+ * A figure that opens its own breakdown — or, where there is no honest list
+ * behind it, the plain text it already was.
+ *
+ * The second half matters as much as the first. A percentage, a ratio and the
+ * annual target have no set of clients that adds up to them, so they are passed
+ * no drill and come out of here undecorated: nothing on the page invites a
+ * click it cannot answer.
+ */
+function Drillable({ drill, children }: { drill?: DashDrillParams; children: ReactNode }) {
+  if (!drill) return <>{children}</>;
+  return <DashCell params={drill}>{children}</DashCell>;
 }
 
 // One open-stage row. The bar is sized by opportunity COUNT (so a stage full of
 // no-value leads still shows), with a minimum width so any non-zero stage is
 // visible. Count and ₹ are rendered as legible dark text beside the bar — not as
 // low-contrast white text painted on top of it.
-function FunnelBarRow({ stage, count, value, max, color }: {
-  stage: string; count: number; value: number; max: number; color: string;
+function FunnelBarRow({ stage, count, value, max, color, drill }: {
+  stage: string; count: number; value: number; max: number; color: string; drill?: DashDrillParams;
 }) {
   const pct = count > 0 && max > 0 ? Math.max((count / max) * 100, 5) : 0;
   return (
@@ -1351,34 +1419,44 @@ function FunnelBarRow({ stage, count, value, max, color }: {
         <div style={{ width: `${pct}%`, height: '100%', background: color, opacity: 0.9, borderRadius: 2 }} />
       </div>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, minWidth: 62, textAlign: 'right', color: 'var(--fg)', flexShrink: 0 }}>
-        {count}<span style={{ fontWeight: 400, color: 'var(--fg-3)' }}> opp{count === 1 ? '' : 's'}</span>
+        <Drillable drill={count > 0 ? drill : undefined}>
+          {count}<span style={{ fontWeight: 400, color: 'var(--fg-3)' }}> opp{count === 1 ? '' : 's'}</span>
+        </Drillable>
       </div>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, minWidth: 74, textAlign: 'right', color: value > 0 ? 'var(--fg)' : 'var(--fg-3)', flexShrink: 0 }}>
-        {value > 0 ? fmtCr(value) : '—'}
+        {value > 0 ? <Drillable drill={drill}>{fmtCr(value)}</Drillable> : '—'}
       </div>
     </div>
   );
 }
 
 // One figure in the Opportunity summary strip (open pipeline / order in hand / won).
-function OppStat({ label, value, sub, color, divider = false }: {
-  label: string; value: string; sub: string; color: string; divider?: boolean;
+function OppStat({ label, value, sub, color, divider = false, drill }: {
+  label: string; value: string; sub: string; color: string; divider?: boolean; drill?: DashDrillParams;
 }) {
   return (
     <div style={{ padding: '10px 14px', borderLeft: divider ? '1px solid var(--line)' : 'none' }}>
       <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 19, marginTop: 3, color, lineHeight: 1.1 }}>{value}</div>
-      <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 2 }}>{sub}</div>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 19, marginTop: 3, color, lineHeight: 1.1 }}>
+        <Drillable drill={drill}>{value}</Drillable>
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 2 }}>
+        <Drillable drill={drill}>{sub}</Drillable>
+      </div>
     </div>
   );
 }
 
-function RepKpi({ label, value, sub, neg = false }: { label: string; value: string; sub: string; neg?: boolean }) {
+function RepKpi({ label, value, sub, neg = false, drill }: {
+  label: string; value: string; sub: string; neg?: boolean; drill?: DashDrillParams;
+}) {
   return (
     <div style={{ ...KPI_PANEL, minHeight: 110 }}>
       <div style={{ padding: 14 }}>
         <div style={METRIC_LABEL}>{label}</div>
-        <div style={{ ...METRIC_VAL, fontSize: 32 }}>{value}</div>
+        <div style={{ ...METRIC_VAL, fontSize: 32 }}>
+          <Drillable drill={drill}>{value}</Drillable>
+        </div>
         <div style={{ fontSize: 11, color: neg ? 'var(--neg)' : 'var(--fg-3)', marginTop: 4 }}>{sub}</div>
       </div>
     </div>
