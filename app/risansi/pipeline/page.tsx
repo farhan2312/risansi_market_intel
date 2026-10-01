@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, MultiSelectFilter, ActiveFilterBar } from '@/components/risansi';
@@ -7,6 +7,7 @@ import { getCurrentUser, clientScopeSql, OWN_OPEN, orphanSql, hasRole } from '@/
 import { getCurrentFY, fmtCr, fmtUsdFromCr } from '@/lib/risansi-utils';
 import { getUsdRate } from '@/lib/risansi-settings';
 import { PROBABILITY_CODE_OPTIONS, probabilityWeight, probabilityPctSql } from '@/lib/risansi-probability-codes';
+import { CLIENT_STATUSES, CLIENT_STATUS_LABELS, clientStatusLabel } from '@/lib/risansi-client-status';
 import { NewOpportunityButton } from '@/components/risansi/NewOpportunityButton';
 import { OpportunityKanban } from '@/components/risansi/OpportunityKanban';
 import { ActiveOppsTable } from '@/components/risansi/ActiveOppsTable';
@@ -113,6 +114,12 @@ export default async function PipelinePage({
   const repFilts      = typeof sp.rep          === 'string' && sp.rep && sp.rep !== 'all' ? sp.rep.split(',').filter(Boolean)          : [];
   const indFilts      = typeof sp.industry     === 'string' && sp.industry     ? sp.industry.split(',').filter(Boolean)     : [];
   const ctypeFilts    = typeof sp.ctype        === 'string' && sp.ctype        ? sp.ctype.split(',').filter(Boolean)        : [];
+  // Client STATUS — where the account sits in its own life (Prospective-Lead →
+  // Prospective-Client → Active), which is a different question from
+  // client_type (End User / OEM / Trader …). The two ride in the same dropdown
+  // because that is where people look for both, but they are separate columns
+  // and separate params, so they AND rather than fight.
+  const cstatFilts    = typeof sp.cstat        === 'string' && sp.cstat        ? sp.cstat.split(',').filter(Boolean)        : [];
   const probFilts     = typeof sp.prob         === 'string' && sp.prob         ? sp.prob.split(',').filter(Boolean)         : [];
   const valFilts      = typeof sp.val          === 'string' && sp.val          ? sp.val.split(',').filter(Boolean)          : [];
   // Sales-Order coverage on a Won opportunity — the slice behind the two Won
@@ -212,6 +219,10 @@ export default async function PipelinePage({
     conds.push(`c.client_type = ANY($${idx}::text[])`);
     vals.push(ctypeFilts); idx++;
   }
+  if (cstatFilts.length > 0) {
+    conds.push(`c.status = ANY($${idx}::text[])`);
+    vals.push(cstatFilts); idx++;
+  }
   if (probFilts.length > 0) {
     conds.push(`o.probability_code = ANY($${idx}::text[])`);
     vals.push(probFilts); idx++;
@@ -277,6 +288,10 @@ export default async function PipelinePage({
     revConds.push(`c.client_type = ANY($${rIdx}::text[])`);
     revVals.push(ctypeFilts); rIdx++;
   }
+  if (cstatFilts.length > 0) {
+    revConds.push(`c.status = ANY($${rIdx}::text[])`);
+    revVals.push(cstatFilts); rIdx++;
+  }
   const revFilterClause = (revConds.length ? ` AND ${revConds.join(' AND ')}` : '') + ownerVisCIdAnd;
 
   // Win Rate and Lost-To used to interpolate only the visibility scope, never
@@ -297,6 +312,7 @@ export default async function PipelinePage({
     if (repFilts.length)        { c.push(`${a}.client_id IN (SELECT c.id FROM clients c WHERE ${repBookSql(`$${v.length + 1}::text[]`)})`);  v.push(repFilts); }
     if (indFilts.length)        { c.push(`${a}.client_id IN (SELECT id FROM clients WHERE industry = ANY($${v.length + 1}::text[]))`); v.push(indFilts); }
     if (ctypeFilts.length)      { c.push(`${a}.client_id IN (SELECT id FROM clients WHERE client_type = ANY($${v.length + 1}::text[]))`); v.push(ctypeFilts); }
+    if (cstatFilts.length)      { c.push(`${a}.client_id IN (SELECT id FROM clients WHERE status = ANY($${v.length + 1}::text[]))`); v.push(cstatFilts); }
     if (probFilts.length)       { c.push(`${a}.probability_code = ANY($${v.length + 1}::text[])`);                             v.push(probFilts); }
     return { clause: c.length ? ` AND ${c.join(' AND ')}` : '', vals: v as (string | number)[] };
   };
@@ -359,7 +375,7 @@ export default async function PipelinePage({
         END AS can_edit,
         ${orphanSql('o.rep_id', 'c')} AS orphan`;
 
-  const [openOpps, closedOpps, bookedYTD, annualTarget, winLossRows, lostToRows, stageOptions, productTypeOptions, repOptions, industryOptions, clientTypeOptions, wonTotal, orderInHand, orderBooked, stageTotals, usdRate] = await Promise.all([
+  const [openOpps, closedOpps, bookedYTD, annualTarget, winLossRows, lostToRows, stageOptions, productTypeOptions, repOptions, industryOptions, clientTypeOptions, clientStatusOptions, wonTotal, orderInHand, orderBooked, wonQuotedPo, stageTotals, usdRate] = await Promise.all([
 
     // 1. Open opportunities with filters + sort. Feeds the KPIs, the kanban (every
     //    open card must show), and the Active Opportunities table — so NO row cap
@@ -561,6 +577,21 @@ export default async function PipelinePage({
       return rows.map(r => r.client_type);
     }, []),
 
+    // Client-status options, derived the same way and in the vocabulary's own
+    // order rather than alphabetically — the statuses describe a life cycle
+    // (lead → prospective client → active → gone), and sorting them A-Z puts
+    // Active above Prospective-Lead and loses that.
+    q<string[]>(async () => {
+      const { rows } = await risansiPool.query<{ status: string }>(
+        `SELECT DISTINCT c.status FROM clients c
+          WHERE c.status IS NOT NULL AND btrim(c.status) <> ''${ownerVisCIdAnd}`,
+      );
+      const seen = new Set(rows.map(r => r.status));
+      const known = CLIENT_STATUSES.filter(st => seen.has(st)) as string[];
+      const rest  = [...seen].filter(st => !known.includes(st)).sort();
+      return [...known, ...rest];
+    }, []),
+
     // 7. Won total (Cr) — the real sum of Won opportunities in scope. value_cr is
     //    already in Crores, so SUM needs no conversion. Replaces sales-Booked as
     //    the realised base for every forecast figure below.
@@ -600,6 +631,46 @@ export default async function PipelinePage({
       );
       return Number(rows[0]?.booked_cr ?? 0);
     }, 0),
+
+    // 7d. What the Won set was QUOTED at, and what the customer actually ORDERED.
+    //     The two Won brackets above answer "how far along is the paperwork"; this
+    //     pair answers the different question the sales floor asks — how much of
+    //     the quote survived into an order.
+    //
+    //     Quoted side: value_cr, because on this table that column IS the live
+    //     quoted price — syncOfferRevisions re-points it at the newest revision,
+    //     so a quote cut from 10L to 8.5L reads 8.5L here. offer_value_inr is the
+    //     ORIGINAL offer and only stands in where value_cr was never written
+    //     (14 Won rows carry neither and contribute nothing).
+    //
+    //     PO side: the recorded customer PO where we hold one, and the Sales Order
+    //     value where we do not. opportunity_purchase_orders is hand-entered and
+    //     covers 578 of 1033 Won opportunities, so summing it alone reads Rs 15.3 Cr
+    //     against Rs 28.1 Cr of real orders — it is the truer source per row, not
+    //     across the set. Where both exist they agree to within Rs 0.10 Cr in total
+    //     (71 rows differ, biggest by Rs 0.22 Cr), which is why falling back to the
+    //     SO value is safe rather than a second guess.
+    q<{ quotedCr: number; poCr: number; poRecordedCr: number; poOppCount: number }>(async () => {
+      const { rows } = await risansiPool.query<{ quoted_cr: string; po_cr: string; po_recorded_cr: string; po_opps: string }>(
+        `SELECT COALESCE(SUM(COALESCE(o.value_cr, o.offer_value_inr / 10000000.0, 0)), 0)::text AS quoted_cr,
+                COALESCE(SUM(CASE WHEN pov.cr > 0 THEN pov.cr ELSE sov.cr END), 0)::text       AS po_cr,
+                COALESCE(SUM(pov.cr), 0)::text                                                 AS po_recorded_cr,
+                COUNT(*) FILTER (WHERE pov.cr > 0)::text                                       AS po_opps
+           ${WON_FROM}
+           CROSS JOIN LATERAL (SELECT COALESCE(SUM(x.po_value_cr), 0) AS cr
+                                 FROM opportunity_purchase_orders x WHERE x.opportunity_id = o.id) pov
+           CROSS JOIN LATERAL (SELECT COALESCE(SUM(x.so_value_cr), 0) AS cr
+                                 FROM opportunity_sales_orders x WHERE x.opportunity_id = o.id) sov
+           ${wonWhere}`,
+        wonV as (string | number)[],
+      );
+      return {
+        quotedCr:      Number(rows[0]?.quoted_cr ?? 0),
+        poCr:          Number(rows[0]?.po_cr ?? 0),
+        poRecordedCr:  Number(rows[0]?.po_recorded_cr ?? 0),
+        poOppCount:    Number(rows[0]?.po_opps ?? 0),
+      };
+    }, { quotedCr: 0, poCr: 0, poRecordedCr: 0, poOppCount: 0 }),
 
     // 8. True per-stage totals + counts for the kanban headers, uncapped. The
     //    board caps closed cards at 200, so its columns undercount; these give
@@ -673,6 +744,13 @@ export default async function PipelinePage({
   const quotedCount     = stageTotals.Quoted?.count ?? 0;
   const negotiatingCr    = stageTotals.Negotiating?.valueCr ?? 0;
   const negotiatingCount = stageTotals.Negotiating?.count ?? 0;
+  // The Won set, read as quote → order. The gap is the discount given away in
+  // negotiation plus whatever was won but never ordered; a negative gap means
+  // the customer ordered more than was quoted, which happens on repeat spares.
+  const wonQuotedCr = wonQuotedPo.quotedCr;
+  const wonPoCr     = wonQuotedPo.poCr;
+  const wonGapCr    = wonQuotedCr - wonPoCr;
+  const wonGapPct   = wonQuotedCr > 0 ? Math.round((wonPoCr / wonQuotedCr) * 100) : 0;
   const bestCase     = forecastGross;
   const probabilityWeighted = weightedOpen;
   // Spares are weighted without a code, so they count as rated for this.
@@ -689,7 +767,12 @@ export default async function PipelinePage({
     ? Math.round((totalWon / (totalWon + totalLost)) * 100)
     : 0;
 
-  const anyFilter = stageFilts.length > 0 || prodTypeFilts.length > 0 || repFilts.length > 0 || indFilts.length > 0 || ctypeFilts.length > 0 || probFilts.length > 0 || valFilts.length > 0 || !!soFilt || !!qname || !!qfrom || !!qto || !!efrom || !!eto;
+  const anyFilter = stageFilts.length > 0 || prodTypeFilts.length > 0 || repFilts.length > 0 || indFilts.length > 0 || ctypeFilts.length > 0 || cstatFilts.length > 0 || probFilts.length > 0 || valFilts.length > 0 || !!soFilt || !!qname || !!qfrom || !!qto || !!efrom || !!eto;
+  // Revenue (Invoiced) is client_revenue_monthly, which has no opportunity on it,
+  // so only the client-level filters can reach it. When one of the others is in
+  // force every tile around it moves and that one does not — say so on the tile
+  // rather than letting it read as a figure that refused to respond.
+  const oppOnlyFilter = stageFilts.length > 0 || prodTypeFilts.length > 0 || probFilts.length > 0 || valFilts.length > 0 || !!soFilt || !!qname || !!qfrom || !!qto || !!efrom || !!eto;
 
   // ── Clickable flow brackets ────────────────────────────────
   // See lib/risansi-pipeline-brackets.ts for what each one selects and why the
@@ -698,7 +781,7 @@ export default async function PipelinePage({
 
   // Carry the active filters onto the Excel export so it matches what's on screen.
   const exportParams = new URLSearchParams();
-  for (const k of ['stage', 'product_type', 'rep', 'industry', 'ctype', 'so', 'prob', 'val', 'qname', 'qfrom', 'qto', 'efrom', 'eto']) {
+  for (const k of ['stage', 'product_type', 'rep', 'industry', 'ctype', 'cstat', 'so', 'prob', 'val', 'qname', 'qfrom', 'qto', 'efrom', 'eto']) {
     const v = sp[k];
     if (typeof v === 'string' && v) exportParams.set(k, v);
   }
@@ -765,6 +848,51 @@ export default async function PipelinePage({
           </div>
         )}
 
+        {/* Pipeline filters — above the numbers, because every tile in the
+            strip below is computed from the filtered set. Reading them in the
+            other order invited the question the user actually asked: why did
+            the cards not move? They did; the controls were just underneath
+            them. Scopes the kanban and the table too (all server-side). */}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: anyFilter ? 8 : 14 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginRight: 2 }}>Filter</span>
+          <MultiSelectFilter param="stage"        label="Stage"        options={stageOptions}       selected={stageFilts}    />
+          <MultiSelectFilter param="product_type" label="Product Type" options={productTypeOptions}  selected={prodTypeFilts} />
+          <MultiSelectFilter param="rep"          label="Rep"          options={repOptions}          selected={repFilts}      />
+          <MultiSelectFilter param="industry"     label="Industry"     options={industryOptions}     selected={indFilts}      />
+          {/* One dropdown, two questions. Status (where the account is in its
+              life) and Type (what kind of buyer it is) live in different columns
+              and in different URL params, so ticking Active and OEM asks for OEM
+              accounts that are active. They share a menu because that is the one
+              place people look for either. */}
+          <MultiSelectFilter param="ctype"        label="Client Type / Status"
+            options={[
+              ...clientStatusOptions.map(st => ({ value: st, label: clientStatusLabel(st), group: 'Status', param: 'cstat' })),
+              ...clientTypeOptions.map(ct => ({ value: ct, label: ct, group: 'Type' })),
+            ]}
+            selected={[...cstatFilts, ...ctypeFilts]} />
+          <MultiSelectFilter param="prob"         label="Probability"  options={PROBABILITY_CODE_OPTIONS} selected={probFilts} />
+          <MultiSelectFilter param="val"          label="Value"        options={VALUE_BUCKETS.map(b => b.label)} selected={valFilts} />
+          <TextSearchFilter param="qname" placeholder="Quote no. / name…" />
+          <DateRangeFilter fromParam="qfrom" toParam="qto" from={qfrom} to={qto} label="Quote Date" />
+          <DateRangeFilter fromParam="efrom" toParam="eto" from={efrom} to={eto} label="Enquiry Date" />
+        </div>
+        {anyFilter && (
+          <div style={{ marginBottom: 12 }}>
+            <ActiveFilterBar filters={[
+              { param: 'stage',        label: 'Stage',    values: stageFilts    },
+              { param: 'product_type', label: 'Type',     values: prodTypeFilts },
+              { param: 'rep',          label: 'Rep',      values: repFilts      },
+              { param: 'industry',     label: 'Industry', values: indFilts      },
+              { param: 'ctype',        label: 'Client Type', values: ctypeFilts },
+              { param: 'cstat',        label: 'Client Status', values: cstatFilts,
+                valueLabels: CLIENT_STATUS_LABELS },
+              { param: 'prob',         label: 'Prob',     values: probFilts     },
+              { param: 'so',           label: 'Sales Order', values: soFilt ? [soFilt] : [],
+                valueLabels: SO_COVERAGE_LABELS },
+            ]} />
+          </div>
+        )}
+
         {/* Forecast strip */}
         <div style={{ ...PANEL, marginBottom: 14 }}>
           <div style={{ padding: 16 }}>
@@ -792,12 +920,14 @@ export default async function PipelinePage({
               <FlowArrow />
               <ForecastBlock label="Won (SO created)" value={orderBooked}
                 sub="SO value" color="var(--pos)" rate={usdRate}
+                meta={<QuoteToOrder quoted={wonQuotedCr} po={wonPoCr} gap={wonGapCr} pct={wonGapPct} />}
                 {...bracket('createdSo')} />
               <FlowArrow />
               {/* Not clickable: this is client_revenue_monthly, which carries no
                   opportunity link — there is no set of cards to filter to. */}
               <ForecastBlock label="Revenue (Invoiced)" value={bookedYTD}
-                sub={`sales · ${fy.label}`} color="var(--fg-2)" rate={usdRate} />
+                sub={`sales · ${fy.label}${oppOnlyFilter ? ' · moves with rep / industry / client type only' : ''}`}
+                color="var(--fg-2)" rate={usdRate} />
             </div>
 
             {/* Row 2 — forecast, unchanged. */}
@@ -808,8 +938,14 @@ export default async function PipelinePage({
               <ForecastBlock label="Probability-weighted · same set" value={probabilityWeighted}
                 sub={`each quote × its own probability (spares at ${SPARES_WIN_PROBABILITY}%, no probability entered counts as 0%) · ${ratedPct}% of best-case value is rated${unratedCount ? `, ${unratedCount} quote${unratedCount === 1 ? '' : 's'} unrated` : ''} · ${bestCase > 0 ? Math.round((probabilityWeighted / bestCase) * 100) : 0}% of best case · Won not included`}
                 color="var(--accent)" highlight rate={usdRate} />
+              {/* The one tile on this page that deliberately ignores the filters.
+                  It is one company-wide number from app_settings, so narrowing the
+                  board to a rep or a product type cannot divide it honestly — and
+                  a target that shrank with the filter would make every "to go"
+                  beside it meaningless. Labelled so nobody reads it as a tile that
+                  failed to respond. */}
               <ForecastBlock label="Annual Target" value={target}
-                sub={`${fmtCr(toGo)} to go`} color="var(--fg-2)" />
+                sub={`${fmtCr(toGo)} to go · whole company, not filtered`} color="var(--fg-2)" />
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--fg-3)', marginBottom: 6 }}>
                   <span>Target {fmtCr(target)}</span>
@@ -829,35 +965,6 @@ export default async function PipelinePage({
             </div>
           </div>
         </div>
-
-        {/* Pipeline filters — scope the kanban AND the table below (server-side). */}
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: anyFilter ? 8 : 14 }}>
-          <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginRight: 2 }}>Filter</span>
-          <MultiSelectFilter param="stage"        label="Stage"        options={stageOptions}       selected={stageFilts}    />
-          <MultiSelectFilter param="product_type" label="Product Type" options={productTypeOptions}  selected={prodTypeFilts} />
-          <MultiSelectFilter param="rep"          label="Rep"          options={repOptions}          selected={repFilts}      />
-          <MultiSelectFilter param="industry"     label="Industry"     options={industryOptions}     selected={indFilts}      />
-          <MultiSelectFilter param="ctype"        label="Client Type"  options={clientTypeOptions}   selected={ctypeFilts}    />
-          <MultiSelectFilter param="prob"         label="Probability"  options={PROBABILITY_CODE_OPTIONS} selected={probFilts} />
-          <MultiSelectFilter param="val"          label="Value"        options={VALUE_BUCKETS.map(b => b.label)} selected={valFilts} />
-          <TextSearchFilter param="qname" placeholder="Quote no. / name…" />
-          <DateRangeFilter fromParam="qfrom" toParam="qto" from={qfrom} to={qto} label="Quote Date" />
-          <DateRangeFilter fromParam="efrom" toParam="eto" from={efrom} to={eto} label="Enquiry Date" />
-        </div>
-        {anyFilter && (
-          <div style={{ marginBottom: 12 }}>
-            <ActiveFilterBar filters={[
-              { param: 'stage',        label: 'Stage',    values: stageFilts    },
-              { param: 'product_type', label: 'Type',     values: prodTypeFilts },
-              { param: 'rep',          label: 'Rep',      values: repFilts      },
-              { param: 'industry',     label: 'Industry', values: indFilts      },
-              { param: 'ctype',        label: 'Client Type', values: ctypeFilts },
-              { param: 'prob',         label: 'Prob',     values: probFilts     },
-              { param: 'so',           label: 'Sales Order', values: soFilt ? [soFilt] : [],
-                valueLabels: SO_COVERAGE_LABELS },
-            ]} />
-          </div>
-        )}
 
         {/* Table + Kanban as tabs. The filters above scope both views (server-side);
             the Win Rate + Lost To panels ride under the Kanban tab, side by side.
@@ -969,14 +1076,44 @@ function FlowArrow() {
   );
 }
 
+// The Won set read as quote → order, sitting under the Won (SO created) bracket.
+// The brackets themselves answer how far along the paperwork is; this answers the
+// question the floor actually asks — how much of what we quoted turned into an
+// order. Rendered under a hairline so it reads as a second fact about the same
+// set rather than a breakdown of the figure above it.
+function QuoteToOrder({ quoted, po, gap, pct }: { quoted: number; po: number; gap: number; pct: number }) {
+  if (quoted <= 0 && po <= 0) return null;
+  return (
+    <div
+      title={`The whole Won set in scope: quoted ${fmtCr(quoted)}, ordered ${fmtCr(po)}. PO value is the customer's purchase order where one is recorded against the opportunity, and the Sales Order value where it is not — the two match on the deals that carry both.`}
+      style={{
+        marginTop: 6, paddingTop: 5, borderTop: '1px solid var(--line)',
+        fontSize: 10.5, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)',
+        display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'baseline',
+      }}
+    >
+      <span>quoted {fmtCr(quoted)}</span>
+      <span aria-hidden>→</span>
+      <span style={{ color: 'var(--fg-2)' }}>PO {fmtCr(po)}</span>
+      {quoted > 0 && (
+        <span style={{ color: gap > 0 ? 'var(--warn)' : 'var(--pos)' }}>
+          {gap > 0 ? `−${fmtCr(gap)}` : `+${fmtCr(-gap)}`} · {pct}%
+        </span>
+      )}
+    </div>
+  );
+}
+
 function ForecastBlock({
-  label, value, sub, color, highlight = false, rate, href, active = false,
+  label, value, sub, color, highlight = false, rate, href, active = false, meta,
 }: {
   label: string; value: number; sub: string; color: string; highlight?: boolean; rate?: number;
   /** Set when this bracket maps to a real set of opportunities — clicking it filters the board. */
   href?: string;
   /** True when the board is already showing exactly this bracket; the link then clears it. */
   active?: boolean;
+  /** A second fact about the same set, drawn under a hairline below the sub-line. */
+  meta?: ReactNode;
 }) {
   const body = (
     <>
@@ -993,6 +1130,7 @@ function ForecastBlock({
         </div>
       )}
       <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 2 }}>{sub}</div>
+      {meta}
     </>
   );
 

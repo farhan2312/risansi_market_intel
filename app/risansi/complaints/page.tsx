@@ -89,9 +89,13 @@ export default async function ComplaintsPage({ searchParams }: { searchParams: P
           </div>
         </div>
 
-        <ComplaintStats s={s} href={href} sel={value} />
-
+        {/* Filters first, then the numbers they produced. Every tile and bar below
+            is summarised from `rows`, which is already the filtered set — but with
+            the controls sitting underneath them the dashboard read as a fixed
+            header that ignored the filters. Order is the whole fix here. */}
         <ComplaintFilterBar value={{ ...value, sort: sortParam }} options={options} basePath="/risansi/complaints" />
+
+        <ComplaintStats s={s} href={href} sel={value} />
 
         <ComplaintTable rows={rows} sort={sort} sortHref={sortHref} />
       </div>

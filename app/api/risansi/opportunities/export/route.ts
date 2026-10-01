@@ -9,6 +9,7 @@ import { APP_URL } from '@/lib/risansi-app-url';
 import { quotationExportLink, quotationRecordLabel } from '@/lib/risansi-quotation-link';
 import { repBookSql } from '@/lib/risansi-opp-filters';
 import { LIVE_CLIENT } from '@/lib/risansi-opportunity-scope';
+import { clientStatusLabel } from '@/lib/risansi-client-status';
 
 export const runtime = 'nodejs';
 
@@ -117,6 +118,9 @@ export async function GET(req: Request) {
   const repFilts      = params.get('rep') && params.get('rep') !== 'all' ? parseList(params.get('rep')) : [];
   const indFilts      = parseList(params.get('industry'));
   const ctypeFilts    = parseList(params.get('ctype'));
+  // clients.status, a separate column from client_type — the two share one
+  // dropdown on the board and AND here the same way they do there.
+  const cstatFilts    = parseList(params.get('cstat'));
   const probFilts     = parseList(params.get('prob'));
   const valFilts      = parseList(params.get('val'));
   // Sales-Order coverage on a Won opportunity — set by clicking a Won bracket on
@@ -140,6 +144,7 @@ export async function GET(req: Request) {
   if (repFilts.length)      { conds.push(repBookSql(`$${idx}::text[]`)); vals.push(repFilts); idx++; }
   if (indFilts.length)      { conds.push(`c.industry = ANY($${idx}::text[])`);          vals.push(indFilts);      idx++; }
   if (ctypeFilts.length)    { conds.push(`c.client_type = ANY($${idx}::text[])`);       vals.push(ctypeFilts);    idx++; }
+  if (cstatFilts.length)    { conds.push(`c.status = ANY($${idx}::text[])`);             vals.push(cstatFilts);    idx++; }
   if (probFilts.length)     { conds.push(`o.probability_code = ANY($${idx}::text[])`);  vals.push(probFilts);     idx++; }
   if (valFilts.length)      { const v = valueRangeSql('o.value_cr', valFilts); if (v) conds.push(v); }
   if (soFilt) {
@@ -164,6 +169,7 @@ export async function GET(req: Request) {
   if (repFilts.length)      appliedFilters.push(['Rep / Tour', repFilts.join(', ')]);
   if (indFilts.length)      appliedFilters.push(['Industry', indFilts.join(', ')]);
   if (ctypeFilts.length)    appliedFilters.push(['Client Type', ctypeFilts.join(', ')]);
+  if (cstatFilts.length)    appliedFilters.push(['Client Status', cstatFilts.map(clientStatusLabel).join(', ')]);
   if (probFilts.length)     appliedFilters.push(['Probability code', probFilts.join(', ')]);
   if (valFilts.length)      appliedFilters.push(['Value bucket', valFilts.join(', ')]);
   if (soFilt)               appliedFilters.push(['Sales Order', soFilt === 'awaiting' ? 'Awaiting SO' : 'SO created']);

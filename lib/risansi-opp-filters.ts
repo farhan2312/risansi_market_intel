@@ -46,6 +46,10 @@ export interface OppFilters {
   rep:       string[];
   industry:  string[];
   ctype:     string[];
+  /** clients.status — Prospective-Lead / Prospective-Client / Active / … .
+   *  A different column from ctype, and ANDed with it: picking OEM and Active
+   *  asks for OEM accounts that are active, not for either. */
+  cstat:     string[];
   prob:      string[];
   val:       string[];
   so:        string;
@@ -73,6 +77,7 @@ export function parseOppFilters(sp: SearchParams): OppFilters {
     rep:      typeof sp.rep === 'string' && sp.rep !== 'all' ? list(sp.rep) : [],
     industry: list(sp.industry),
     ctype:    list(sp.ctype),
+    cstat:    list(sp.cstat),
     prob:     list(sp.prob),
     val:      list(sp.val),
     so:       isSoCoverage(sp.so) ? sp.so : '',
@@ -151,6 +156,7 @@ export function buildOppFilter(f: OppFilters, scopedRepId: number | null, startI
   }
   if (f.industry.length) { conds.push(`c.industry = ANY($${idx}::text[])`);        vals.push(f.industry); idx++; }
   if (f.ctype.length)    { conds.push(`c.client_type = ANY($${idx}::text[])`);     vals.push(f.ctype);    idx++; }
+  if (f.cstat.length)    { conds.push(`c.status = ANY($${idx}::text[])`);          vals.push(f.cstat);    idx++; }
   if (f.prob.length)     { conds.push(`o.probability_code = ANY($${idx}::text[])`); vals.push(f.prob);    idx++; }
   if (f.val.length)      { const v = valueRangeSql('o.value_cr', f.val); if (v) conds.push(v); }
   // SO coverage and value buckets inline (validated enum / constant thresholds),
@@ -171,13 +177,13 @@ export function buildOppFilter(f: OppFilters, scopedRepId: number | null, startI
 /** Is anything at all selected? Drives whether the active-filter bar shows. */
 export function anyOppFilter(f: OppFilters): boolean {
   return f.stage.length > 0 || f.prodType.length > 0 || f.rep.length > 0
-    || f.industry.length > 0 || f.ctype.length > 0 || f.prob.length > 0
+    || f.industry.length > 0 || f.ctype.length > 0 || f.cstat.length > 0 || f.prob.length > 0
     || f.val.length > 0 || !!f.so || !!f.qname || !!f.qfrom || !!f.qto || !!f.efrom || !!f.eto;
 }
 
 /** The filter params, for carrying onto an export link or a stage page. */
 export const OPP_FILTER_PARAMS = [
-  'stage', 'product_type', 'rep', 'industry', 'ctype', 'so', 'prob', 'val',
+  'stage', 'product_type', 'rep', 'industry', 'ctype', 'cstat', 'so', 'prob', 'val',
   'qname', 'qfrom', 'qto', 'efrom', 'eto',
 ] as const;
 
