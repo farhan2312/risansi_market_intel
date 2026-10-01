@@ -5,7 +5,8 @@ import {
   getCurrentUser, getReviewableRepIds, clientVisibilitySql, clientScopeSql, OWN_OPEN,
 } from '@/lib/risansi-auth';
 import {
-  CANON, execScopeSql, fyWindows, TURNOVER_BAND_CASE, TURNOVER_REV_CTE, STAGE_TO_OFFER,
+  CANON, CAT_OTHER, CAT_OTHER_SQL, execScopeSql, fyWindows, TURNOVER_BAND_CASE, TURNOVER_REV_CTE, STAGE_TO_OFFER,
+  CONVERSION_STAGES, conversionWhereSql,
 } from '@/lib/risansi-exec-review';
 
 // What is behind a number on the Executive Review.
@@ -43,7 +44,7 @@ export type DrillKind =
   | 'active_clients' | 'active_visited' | 'active_overdue' | 'active_never'
   | 'prospective' | 'prospective_visited' | 'prospective_lead' | 'prospective_client'
   | 'clients_by_type' | 'quotation' | 'turnover' | 'offer_status'
-  | 'attendance_visits' | 'attendance_clients';
+  | 'attendance_visits' | 'attendance_clients' | 'conversion';
 
 export interface DrillParams {
   kind: DrillKind;
@@ -161,13 +162,20 @@ export async function execDrilldown(p: DrillParams): Promise<DrillResult | null>
       // ── Clients Summary: one client type ──────────────────────
       case 'clients_by_type': {
         const COL: Record<string, [string, string]> = {
-          active:      [`c.status='ACTIVE'`, 'active clients'],
-          prospective: [`c.status IN ('PROSPECTIVE_LEAD','PROSPECTIVE_CLIENT')`, 'prospective clients'],
-          inactive:    [`c.status IN ('INACTIVE','CLOSED')`, 'inactive & closed clients'],
-          total:       [`c.status <> 'DUPLICATE'`, 'all clients'],
+          active:             [`c.status='ACTIVE'`, 'active clients'],
+          prospective_client: [`c.status='PROSPECTIVE_CLIENT'`, 'prospective clients'],
+          prospective_lead:   [`c.status='PROSPECTIVE_LEAD'`, 'prospective leads'],
+          // Kept for links saved before the column was split in two.
+          prospective:        [`c.status IN ('PROSPECTIVE_LEAD','PROSPECTIVE_CLIENT')`, 'prospective clients'],
+          inactive:           [`c.status IN ('INACTIVE','CLOSED')`, 'inactive & closed clients'],
+          total:              [`c.status <> 'DUPLICATE'`, 'all clients'],
         };
         const [cond, label] = COL[p.col ?? 'active'] ?? COL.active;
-        const rows = await run(CLIENT_LIST(`${cond} AND ${CANON} = '${key}'`));
+        // The catch-all row is "everything CATS did not claim", so its drill-down
+        // has to be the same negation rather than an equality on 'Other' — else
+        // a bucket added to CANON later would be in the figure and not the list.
+        const bucket = p.key === CAT_OTHER ? CAT_OTHER_SQL : `${CANON} = '${key}'`;
+        const rows = await run(CLIENT_LIST(`${cond} AND ${bucket}`));
         return { title: `${p.key} · ${label}`, subtitle: sub, unit: 'count', rows, total: rows.length };
       }
 
@@ -184,11 +192,32 @@ export async function execDrilldown(p: DrillParams): Promise<DrillResult | null>
             FROM opportunities o JOIN clients c ON c.id = o.client_id
            WHERE ${scope} AND ${stageCond}
              AND ${w.inMonths('COALESCE(o.quote_date, o.created_at::date)')}
-             AND ${CANON} = '${key}'
+             AND ${p.key === CAT_OTHER ? CAT_OTHER_SQL : `${CANON} = '${key}'`}
            GROUP BY c.id, c.code, c.legal_name
           HAVING sum(o.offer_value_inr) IS NOT NULL
            ORDER BY value DESC`);
         return { title: `${p.key} · ${label}`, subtitle: sub, unit: 'money', rows, total: rows.reduce((s, r) => s + money(r.value), 0) };
+      }
+
+      // ── Target & Conversion: one stage of the quoted pipeline, or all of it ──
+      case 'conversion': {
+        const all = p.key === 'total' || !p.key;
+        if (!all && !(CONVERSION_STAGES as readonly string[]).includes(p.key!)) return null;
+        const stages = all ? CONVERSION_STAGES : [p.key!];
+        const rows = await run(`
+          SELECT c.id, c.code, c.legal_name AS name, round(sum(COALESCE(o.offer_value_inr,0))) AS value,
+                 count(*)::text || ' · ' || string_agg(DISTINCT o.stage, ', ') AS detail
+            FROM opportunities o JOIN clients c ON c.id = o.client_id
+           WHERE ${scope} AND ${conversionWhereSql(stages)}
+             AND ${w.inMonths('COALESCE(o.quote_date, o.created_at::date)')}
+           GROUP BY c.id, c.code, c.legal_name
+          HAVING sum(COALESCE(o.offer_value_inr,0)) <> 0
+           ORDER BY value DESC`);
+        return {
+          title: all ? 'Total quoted · the conversion denominator' : `${p.key} · offer value`,
+          subtitle: `${sub} · budgetary enquiries excluded`,
+          unit: 'money', rows, total: rows.reduce((s, r) => s + money(r.value), 0),
+        };
       }
 
       // ── Turnover Summary: band x fiscal year ──────────────────

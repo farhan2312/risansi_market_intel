@@ -32,18 +32,42 @@ export interface ExecKpi {
   drill?: DrillParams;    // breakdown for the main number
   lines?: ExecKpiLine[];
 }
+/**
+ * Target against what was quoted and what came back as an order.
+ *
+ * Kept apart from the ExecTables because the three figures are not three rows
+ * of one column: two are rupees, one is a ratio, and the ratio is the point.
+ * `table` is the stage-by-stage breakdown the denominator is built from, so a
+ * reader can see which stages were counted rather than take the word for it.
+ */
+export interface ExecConversion {
+  targetInr: number;
+  quotedInr: number;
+  orderReceivedInr: number;
+  /** Order received ÷ total quoted, as a percentage. Null when nothing was quoted. */
+  pct: number | null;
+  /** Order received ÷ annual target, as a percentage. Null when no target is set. */
+  achievedPct: number | null;
+  table: ExecTable;
+  includes: string;
+  excludes: string;
+  /** Where the target comes from, so nobody hunts for a per-rep one. */
+  targetNote: string;
+}
+
 export interface ExecData {
   clientsSummary:  ExecTable;
   turnoverSummary: ExecTable;
   quotationSummary: ExecTable;
   offerStatus:     ExecTable;
   attendance:      ExecTable;
+  conversion:      ExecConversion;
   kpis:            ExecKpi[];
 }
 
 const inr = (n: number) => n.toLocaleString('en-IN');
 
-export function MiniTable({ title, note, table, full, chart }: { title: string; note?: string; table: ExecTable; full?: boolean; chart?: ReactNode }) {
+export function MiniTable({ title, note, table, full, chart, footer }: { title: string; note?: string; table: ExecTable; full?: boolean; chart?: ReactNode; footer?: ReactNode }) {
   const { headers, rows, moneyFrom, colors = [], notes = [] } = table;
   return (
     <div style={{ ...PANEL, ...(full ? { gridColumn: '1 / -1' } : {}) }}>
@@ -89,6 +113,57 @@ export function MiniTable({ title, note, table, full, chart }: { title: string; 
           </tbody>
         </table>
       </div>
+      {footer && <div style={{ padding: '10px 14px', borderTop: '1px solid var(--line)' }}>{footer}</div>}
+    </div>
+  );
+}
+
+// ── Target & Conversion ────────────────────────────────────────
+// Four figures that only mean anything together: what we set out to sell, what
+// we priced, what came back as an order, and the ratio of the last two.
+function Figure({ label, value, sub, color, big }: { label: string; value: string; sub?: string; color?: string; big?: boolean }) {
+  return (
+    <div>
+      <div style={METRIC_LABEL}>{label}</div>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: big ? 28 : 22, fontWeight: 700, letterSpacing: '-0.01em',
+                    color: color ?? 'var(--fg)', lineHeight: 1.15, marginTop: 4 }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 3 }}>{sub}</div>}
+    </div>
+  );
+}
+
+export function ConversionFigures({ c }: { c: ExecConversion }) {
+  const pct = (v: number | null) => (v == null ? '—' : `${v.toFixed(1)}%`);
+  // Both bars are drawn against the larger of target and quoted, so the two
+  // lengths stay comparable when the pipeline has already outrun the target.
+  const span = Math.max(c.targetInr, c.quotedInr, 1);
+  const bar = (v: number, color: string) => (
+    <div style={{ height: 8, borderRadius: 4, background: 'var(--bg-elev)', overflow: 'hidden' }}>
+      <div style={{ width: `${Math.min(100, (v / span) * 100)}%`, height: '100%', background: color }} />
+    </div>
+  );
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 16, alignItems: 'start' }}>
+        <Figure label="Annual Target" value={fmtCr(c.targetInr)} sub={c.targetNote} />
+        <Figure label="Total Quoted" value={fmtCr(c.quotedInr)} sub="real quoted pipeline" color="var(--accent)" />
+        <Figure label="Order Received" value={fmtCr(c.orderReceivedInr)} sub="won, of that pipeline" color="var(--pos)" />
+        <Figure label="Conversion" value={pct(c.pct)} sub="order received ÷ total quoted" big
+          color={c.pct == null ? 'var(--fg-3)' : c.pct >= 50 ? 'var(--pos)' : c.pct >= 25 ? 'var(--warn)' : 'var(--neg)'} />
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 14 }}>
+        <div>
+          <div style={BAR_LABEL}><span>Quoted</span><span>{fmtCr(c.quotedInr)}</span></div>
+          {bar(c.quotedInr, 'var(--accent)')}
+        </div>
+        <div>
+          <div style={BAR_LABEL}>
+            <span>Order received</span>
+            <span>{fmtCr(c.orderReceivedInr)}{c.achievedPct == null ? '' : ` · ${c.achievedPct.toFixed(1)}% of the company target`}</span>
+          </div>
+          {bar(c.orderReceivedInr, 'var(--pos)')}
+        </div>
+      </div>
     </div>
   );
 }
@@ -124,7 +199,11 @@ export function ExecutiveViews({ data, selector, periodLabel, note, tabs }: {
   // The pictures over the tables. Each is built from the same rows the table
   // shows, so the two cannot disagree; Grand Total rows are left out.
   const body = (t: ExecTable) => t.rows.filter(r => !r.strong);
-  const clientRows = body(data.clientsSummary).map(r => ({ label: r.label, parts: [r.vals[0] ?? 0, r.vals[1] ?? 0, r.vals[2] ?? 0] }));
+  // Four parts now, not three: the prospective column is split into the two
+  // statuses it always was, and the bar has to agree with the table under it.
+  const clientRows = body(data.clientsSummary).map(r => ({ label: r.label, parts: [r.vals[0] ?? 0, r.vals[1] ?? 0, r.vals[2] ?? 0, r.vals[3] ?? 0] }));
+  const clientSeries = data.clientsSummary.headers.slice(1, 5);
+  const clientColors = (data.clientsSummary.colors ?? []).slice(0, 4).map(c => c ?? 'var(--fg-3)');
   const quoteCats = body(data.quotationSummary).map(r => ({ label: r.label, values: [r.vals[0] ?? 0, r.vals[1] ?? 0] }));
   const turnCats = body(data.turnoverSummary).map(r => ({ label: r.label, values: [r.vals[1] ?? 0, r.vals[2] ?? 0] }));
   const turnClients = body(data.turnoverSummary).map(r => ({ label: r.label, value: r.vals[0] ?? 0 }));
@@ -179,8 +258,19 @@ export function ExecutiveViews({ data, selector, periodLabel, note, tabs }: {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
+        {/* First of the tables, because it is the question the review is held to
+            answer: against the target, how much did we price and how much of it
+            came back. */}
+        <MiniTable title="Target & Conversion" note="₹ against the annual target" table={data.conversion.table} full
+          chart={<ConversionFigures c={data.conversion} />}
+          footer={
+            <p style={{ fontSize: 11, color: 'var(--fg-3)', margin: 0, lineHeight: 1.55, maxWidth: 900 }}>
+              <strong style={{ color: 'var(--fg-2)' }}>Counts:</strong> {data.conversion.includes}{' '}
+              <strong style={{ color: 'var(--fg-2)' }}>Leaves out:</strong> {data.conversion.excludes}
+            </p>
+          } />
         <MiniTable title="Clients Summary" note="clients by type and status" table={data.clientsSummary}
-          chart={<StackedHBars rows={clientRows} series={['Active', 'Prospective', 'Inactive']} colors={['var(--pos)', 'var(--warn)', 'var(--neg)']} />} />
+          chart={<StackedHBars rows={clientRows} series={clientSeries} colors={clientColors} />} />
         <MiniTable title="Quotation Summary" note="₹ by channel" table={data.quotationSummary}
           chart={<GroupedBars cats={quoteCats} series={['Active quotes', 'Order received']} colors={['var(--accent)', 'var(--pos)']} fmt={fmtCr} />} />
         <MiniTable title="Turnover Summary" note="rows: 5-yr band · cols: whole fiscal years" table={data.turnoverSummary} full
@@ -205,5 +295,6 @@ const PANEL_TITLE: CSSProperties = { fontSize: 11, fontWeight: 700, letterSpacin
 const META: CSSProperties = { fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', marginLeft: 'auto' };
 const CHART_T: CSSProperties = { fontSize: 10.5, fontWeight: 600, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 };
 const METRIC_LABEL: CSSProperties = { fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fg-3)', fontWeight: 600 };
+const BAR_LABEL: CSSProperties = { display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--fg-3)', marginBottom: 4, fontFamily: 'var(--font-mono)' };
 const TH: CSSProperties = { padding: '8px 12px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600, color: 'var(--fg-3)', background: 'var(--bg-elev)', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
 const TD: CSSProperties = { padding: '8px 12px', verticalAlign: 'middle', whiteSpace: 'nowrap' };

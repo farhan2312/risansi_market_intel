@@ -6,16 +6,44 @@
 // drill-down that does not add up to the figure above it is worse than none,
 // because it looks authoritative while being wrong. So both import from here.
 
-/** Client type, collapsed to the five the review reports on. */
+/**
+ * Client type, collapsed to the buckets the review reports on.
+ *
+ * EPC has its own bucket. An engineering contractor specifies and procures for
+ * somebody else's plant, which is a different sale from a mill buying for its
+ * own, and the ten of them were falling into 'Other' and off the bottom of the
+ * table — typed clients dropped for want of a row.
+ *
+ * Head Office goes to Direct Mill. The one client carrying it is the National
+ * Sugar Institute, which runs its own plant and buys for it; End User already
+ * maps here, and that is what it is.
+ */
 export const CANON = `CASE
-  WHEN upper(c.client_type) IN ('DIRECT MILL','END USER') THEN 'Direct Mill'
+  WHEN upper(c.client_type) IN ('DIRECT MILL','END USER','HEAD OFFICE') THEN 'Direct Mill'
   WHEN upper(c.client_type) IN ('GROUP (MILLS)','GROUP')  THEN 'Group Mills'
   WHEN upper(c.client_type) IN ('TRADER','MERCHANT EXPORTER') THEN 'Trader'
   WHEN upper(c.client_type) = 'OEM' THEN 'OEM'
+  WHEN upper(c.client_type) = 'EPC' THEN 'EPC'
   WHEN upper(c.client_type) = 'CHANNEL PARTNER' THEN 'Channel Partner'
   ELSE 'Other' END`;
 
-export const CATS = ['Direct Mill', 'Group Mills', 'Trader', 'OEM', 'Channel Partner'];
+export const CATS = ['Direct Mill', 'Group Mills', 'Trader', 'OEM', 'EPC', 'Channel Partner'];
+
+/**
+ * CANON's catch-all, and what to call it on screen.
+ *
+ * It is almost entirely clients whose type was never filled in, so the label
+ * says that rather than naming it as a category: the row exists to be chased
+ * down to zero, not to be lived with. It also has to be rendered, because a
+ * Grand Total built over every bucket while the rows show only CATS counts
+ * clients that no row accounts for — 559 of 2,423 portal-wide when this was
+ * found, and 174 of one rep's 271.
+ */
+export const CAT_OTHER = 'Other';
+export const CAT_OTHER_LABEL = 'Unclassified / other';
+
+/** The catch-all as a predicate, so a drill-down on it lists exactly its row. */
+export const CAT_OTHER_SQL = `${CANON} NOT IN (${CATS.map(c => `'${c}'`).join(',')})`;
 
 export const TURN_ORDER = [
   '15 Lac & above (Super Critical)', '5-15 Lacs p.a.', '3-5 Lacs p.a.', '1-3 Lacs p.a.',
@@ -124,3 +152,59 @@ export const TURNOVER_REV_CTE = (scope: string, w: FyWindows) => `
   FROM clients c LEFT JOIN client_revenue_monthly r ON r.client_id = c.id
   WHERE ${scope} AND c.status='ACTIVE' AND c.deleted_at IS NULL
   GROUP BY c.id, c.code, c.legal_name, c.is_end_client`;
+
+// ── Conversion ────────────────────────────────────────────────
+
+/**
+ * The stages that make up the quoted pipeline the conversion rate is measured
+ * over, in the order the review lists them.
+ *
+ * Conversion answers "of the work we actually priced, how much came back as an
+ * order", so the denominator has to be the enquiries a quotation really went
+ * out on. Prospect and Suspect never reached one — a Suspect is parked, usually
+ * because somebody wanted a number rather than a pump. Dropped is not a loss
+ * either: the requirement went away, or the enquiry was regretted, and counting
+ * it would punish the rate for work that was never competed for. On Hold does
+ * carry a quotation, but a deal paused for a reason outside itself is neither
+ * converting nor failing to, and leaving it in drags the rate down for as long
+ * as the pause lasts.
+ */
+export const CONVERSION_STAGES = ['Quoted', 'Negotiating', 'Lost', 'Won'] as const;
+
+/** The stages the conversion rate counts as converted. */
+export const CONVERSION_WON_STAGES = ['Won'] as const;
+
+/**
+ * Reasons that mark an enquiry as a price check rather than a live requirement.
+ *
+ * Both survive a stage change — a Suspect parked as Budgetary that later gets a
+ * real quotation keeps its suspect_reason — so the stage list above does not
+ * catch them on its own, and three Quoted opportunities in the current FY are
+ * budgetary for exactly that reason. See SUSPECT_REASONS and DROP_REASONS in
+ * lib/risansi-opportunity-fields.ts.
+ */
+export const BUDGETARY_SUSPECT_REASONS = ['Budgetary'];
+export const BUDGETARY_DROP_REASONS = ['Budgetary Enquiry'];
+
+const quoted = (vs: readonly string[]) => vs.map(v => `'${v.replace(/'/g, "''")}'`).join(',');
+
+/** An opportunity that is a real priced enquiry rather than a budgetary one. */
+export const notBudgetarySql = (o = 'o') =>
+  `COALESCE(${o}.suspect_reason,'') NOT IN (${quoted(BUDGETARY_SUSPECT_REASONS)})`
+  + ` AND COALESCE(${o}.drop_reason,'') NOT IN (${quoted(BUDGETARY_DROP_REASONS)})`;
+
+/**
+ * The conversion predicate, for one bucket of stages or for the whole
+ * denominator. The page's figure and the drill-down behind it both build their
+ * WHERE from here, so a row that appears in one cannot be missing from the other.
+ */
+export const conversionWhereSql = (
+  stages: readonly string[] = CONVERSION_STAGES, o = 'o',
+) => `${o}.stage IN (${quoted(stages)}) AND ${notBudgetarySql(o)}`;
+
+/** What the conversion figure counts, said the same way wherever it is shown. */
+export const CONVERSION_INCLUDES =
+  'Quoted, Negotiating, Lost and Won — every enquiry a quotation actually went out on.';
+export const CONVERSION_EXCLUDES =
+  'Suspect and Prospect (no quotation yet), Dropped (the requirement went away), On Hold (paused, moving neither way), '
+  + 'and any opportunity marked budgetary by its suspect or drop reason, whatever stage it now sits at.';

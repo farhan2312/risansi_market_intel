@@ -12,7 +12,10 @@ import { SalesProjection } from '@/components/risansi/SalesProjection';
 import { loadProjection, loadProjectionOptions, parseProjectionFilters } from '@/lib/risansi-sales-projection';
 // CANON / CATS / TURN_ORDER live in the lib the drill-down also reads, so the
 // page and its breakdowns cannot classify a client two different ways.
-import { CANON, CATS, TURN_ORDER } from '@/lib/risansi-exec-review';
+import {
+  CANON, CATS, CAT_OTHER, CAT_OTHER_LABEL, TURN_ORDER,
+  CONVERSION_STAGES, CONVERSION_WON_STAGES, CONVERSION_INCLUDES, CONVERSION_EXCLUDES, conversionWhereSql,
+} from '@/lib/risansi-exec-review';
 import { AccountSelector, type NameOpt } from '@/components/risansi/AccountSelector';
 import type { CurrentFyView } from '@/components/risansi/AccountReview';
 import { GroupReview, OemReview, type GroupReviewData, type GroupUnit, type OemReviewData } from '@/components/risansi/AccountReview';
@@ -397,14 +400,18 @@ export default async function ExecutiveReviewPage({ searchParams }: {
     tab === 'projection' ? q(() => loadProjectionOptions(risansiPool, allowedRepIds), null) : Promise.resolve(null),
   ]);
 
-  const [clients, turnover, quotation, offers, attendance, kpiRow] = await Promise.all([
+  const [clients, turnover, quotation, offers, attendance, kpiRow, convStages, targetCr] = await Promise.all([
     // 1. Clients Summary
-    // Every live client by type, split by where it stands: Active, Prospective
-    // (lead or client), Inactive (inactive or closed). Duplicates are not clients.
-    q(async () => (await risansiPool.query<{ cat: string; active: string; prospective: string; inactive: string }>(
+    // Every live client by type, split by where it stands. The two prospective
+    // statuses are counted apart rather than together: a Prospective-Client has
+    // an ERP code and an enquiry behind it, a Prospective-Lead is a name somebody
+    // wrote down, and a single column of 240 said nothing about which.
+    // Duplicates are not clients.
+    q(async () => (await risansiPool.query<{ cat: string; active: string; prospective_client: string; prospective_lead: string; inactive: string }>(
       `SELECT ${CANON} cat,
               count(*) FILTER (WHERE c.status = 'ACTIVE')::text AS active,
-              count(*) FILTER (WHERE c.status IN ('PROSPECTIVE_LEAD','PROSPECTIVE_CLIENT'))::text AS prospective,
+              count(*) FILTER (WHERE c.status = 'PROSPECTIVE_CLIENT')::text AS prospective_client,
+              count(*) FILTER (WHERE c.status = 'PROSPECTIVE_LEAD')::text AS prospective_lead,
               count(*) FILTER (WHERE c.status IN ('INACTIVE','CLOSED'))::text AS inactive
          FROM clients c
         WHERE ${tourF} AND c.deleted_at IS NULL AND c.status <> 'DUPLICATE' GROUP BY 1`)).rows, []),
@@ -490,20 +497,53 @@ export default async function ExecutiveReviewPage({ searchParams }: {
             AND c.last_visit_date >= CURRENT_DATE - INTERVAL '90 days')::text AS prospective_visited,
          (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status='PROSPECTIVE_LEAD' AND c.deleted_at IS NULL)::text AS prospective_lead,
          (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status='PROSPECTIVE_CLIENT' AND c.deleted_at IS NULL)::text AS prospective_client`)).rows[0], null),
+
+    // 7. Target & Conversion — the quoted pipeline, stage by stage.
+    //    Same scope and same FY window as everything else on the tab. The stage
+    //    list and the budgetary exclusion come from the lib so the drill-down
+    //    behind each figure selects the identical set; see conversionWhereSql.
+    q(async () => (await risansiPool.query<{ stage: string; opps: string; val: string }>(
+      `SELECT o.stage, count(*)::text AS opps, round(sum(COALESCE(o.offer_value_inr,0)))::text AS val
+         FROM opportunities o JOIN clients c ON c.id=o.client_id
+        WHERE ${tourF} AND ${conversionWhereSql()}
+          AND ${inMonths('COALESCE(o.quote_date, o.created_at::date)')}
+        GROUP BY 1`)).rows, []),
+
+    // 8. Annual target, in Crores. One source for the whole portal:
+    //    app_settings.annual_target_cr, the same row the Opportunities dashboard
+    //    and the Settings page read, with the same 32 Cr fallback. There is a
+    //    users.target_cr column but it is null for all 49 users, so there is no
+    //    per-rep target to prefer and inventing one here would be a second
+    //    number nobody maintains.
+    q<number>(async () => {
+      const { rows } = await risansiPool.query<{ value: string }>(
+        `SELECT value FROM app_settings WHERE key = 'annual_target_cr' LIMIT 1`);
+      const v = parseFloat(rows[0]?.value ?? '');
+      return Number.isFinite(v) && v > 0 ? v : 32;
+    }, 32),
   ]);
 
   // ── shape into ExecData ──
   const cmMap = Object.fromEntries(clients.map(r => [r.cat, r]));
-  const CLIENT_COLS = ['active', 'prospective', 'inactive'] as const;
-  const clientRows: Row[] = CATS.map(cat => {
-    const r = cmMap[cat];
-    const v = CLIENT_COLS.map(k => (r ? Number(r[k]) : 0));
+  const CLIENT_COLS = ['active', 'prospective_client', 'prospective_lead', 'inactive'] as const;
+  // Every bucket CANON can produce gets a row, including the catch-all, and the
+  // catch-all is defined as "whatever CATS did not claim" rather than as the
+  // literal string 'Other'. Both halves matter: the Grand Total sums the query,
+  // so a bucket with no row was counted in the total and shown nowhere — which
+  // is what put 174 invisible clients into one rep's total of 271.
+  const sumCol = (rows: typeof clients, k: typeof CLIENT_COLS[number]) =>
+    rows.reduce((s, r) => s + Number(r[k] ?? 0), 0);
+  const rowFor = (label: string, key: string, src: typeof clients): Row => {
+    const v = CLIENT_COLS.map(k => sumCol(src, k));
     return {
-      label: cat, vals: [...v, v.reduce((a, b) => a + b, 0)],
-      drill: [...CLIENT_COLS, 'total' as const].map(col => ({ kind: 'clients_by_type' as const, tsm, key: cat, col })),
+      label, vals: [...v, v.reduce((a, b) => a + b, 0)],
+      drill: [...CLIENT_COLS, 'total' as const].map(col => ({ kind: 'clients_by_type' as const, tsm, key, col })),
     };
-  });
-  const cmTot = CLIENT_COLS.map(k => clients.reduce((s, r) => s + Number(r[k]), 0));
+  };
+  const clientRows: Row[] = CATS.map(cat => rowFor(cat, cat, cmMap[cat] ? [cmMap[cat]] : []));
+  const otherSrc = clients.filter(r => !CATS.includes(r.cat));
+  clientRows.push(rowFor(CAT_OTHER_LABEL, CAT_OTHER, otherSrc));
+  const cmTot = CLIENT_COLS.map(k => sumCol(clients, k));
   clientRows.push({ label: 'Grand Total', vals: [...cmTot, cmTot.reduce((a, b) => a + b, 0)], strong: true });
 
   const tMap = Object.fromEntries(turnover.map(r => [r.bucket, r]));
@@ -521,13 +561,20 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   turnRows.push({ label: 'Grand Total', vals: [tt.c, tt.fyc, tt.f1, tt.f2, tt.f3], strong: true });
 
   const qMap = Object.fromEntries(quotation.map(r => [r.channel, r]));
-  const quoteRows: Row[] = CATS.filter(cat => qMap[cat]).map(cat => ({
-    label: cat,
-    vals: [n(qMap[cat].active), n(qMap[cat].won), n(qMap[cat].active) + n(qMap[cat].won)],
-    drill: (['active', 'won', 'total'] as const).map(col => ({
-      kind: 'quotation' as const, tsm, key: cat, col,
-    })),
-  }));
+  // Same reconciliation as the Clients Summary above: the Grand Total reduces
+  // over every channel the query returned, so a channel with no row (the CANON
+  // catch-all) was money in the total and in none of the rows.
+  const quoteRow = (label: string, key: string, src: typeof quotation): Row => {
+    const a = src.reduce((s, r) => s + n(r.active), 0);
+    const w = src.reduce((s, r) => s + n(r.won), 0);
+    return {
+      label, vals: [a, w, a + w],
+      drill: (['active', 'won', 'total'] as const).map(col => ({ kind: 'quotation' as const, tsm, key, col })),
+    };
+  };
+  const quoteRows: Row[] = CATS.filter(cat => qMap[cat]).map(cat => quoteRow(cat, cat, [qMap[cat]]));
+  const qOther = quotation.filter(r => !CATS.includes(r.channel));
+  if (qOther.some(r => n(r.active) || n(r.won))) quoteRows.push(quoteRow(CAT_OTHER_LABEL, CAT_OTHER, qOther));
   const qt = quotation.reduce((a, r) => { a.a += n(r.active); a.w += n(r.won); return a; }, { a: 0, w: 0 });
   quoteRows.push({ label: 'Grand Total', vals: [qt.a, qt.w, qt.a + qt.w], strong: true });
 
@@ -554,17 +601,53 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   const at = attendance.reduce((a, r) => { a.d += +r.days; return a; }, { d: 0 });
   attRows.push({ label: 'Total', vals: [at.d, null], strong: true });
 
+  // ── Target & Conversion ──
+  // Order received over total quoted, on the quoted pipeline only. The stage
+  // rows are listed in CONVERSION_STAGES order (open first, then the two
+  // outcomes) so the eye reaches Won last, next to the total it divides into.
+  const convMap = Object.fromEntries(convStages.map(r => [r.stage, r]));
+  const CONV_LABEL: Record<string, string> = {
+    Quoted: 'Quoted · awaiting', Negotiating: 'Negotiating', Lost: 'Lost', Won: 'Won · order received',
+  };
+  const convRows: Row[] = CONVERSION_STAGES.map(s => ({
+    label: CONV_LABEL[s] ?? s,
+    vals: [Number(convMap[s]?.opps ?? 0), n(convMap[s]?.val)],
+    drill: [null, { kind: 'conversion' as const, tsm, key: s }],
+  }));
+  const quotedInr = convStages.reduce((s, r) => s + n(r.val), 0);
+  const quotedOpps = convStages.reduce((s, r) => s + Number(r.opps), 0);
+  const orderReceivedInr = CONVERSION_WON_STAGES.reduce((s, st) => s + n(convMap[st]?.val), 0);
+  convRows.push({
+    label: 'Total quoted', vals: [quotedOpps, quotedInr], strong: true,
+    drill: [null, { kind: 'conversion' as const, tsm, key: 'total' }],
+  });
+  const targetInr = targetCr * 10_000_000;
+
   const data: ExecData = {
     clientsSummary:  {
-      headers: ['Client type', 'Active', 'Prospective', 'Inactive', 'Total'], rows: clientRows, moneyFrom: 99,
-      // Green / amber / red, so the shape of a book reads before the numbers do.
-      colors: ['var(--pos)', 'var(--warn)', 'var(--neg)', undefined],
-      notes: ['status Active', 'Prospective-Lead + Prospective-Client', 'Inactive + Closed', 'every live client of this type'],
+      headers: ['Client type', 'Active', 'Prosp. client', 'Prosp. lead', 'Inactive', 'Total'], rows: clientRows, moneyFrom: 99,
+      // Green / amber / violet / red. The two prospective columns borrow the
+      // portal's own status colours rather than two shades of amber, so the
+      // table reads the same way as the Prospective card above it and as every
+      // status dot elsewhere.
+      colors: ['var(--pos)', CLIENT_STATUS_COLORS.PROSPECTIVE_CLIENT[0], CLIENT_STATUS_COLORS.PROSPECTIVE_LEAD[0], 'var(--neg)', undefined],
+      notes: ['status Active', 'has an ERP code and an enquiry behind it', 'a name written down, no code yet', 'Inactive + Closed', 'every live client of this type'],
     },
     turnoverSummary: { headers: ['Turnover band', 'Clients', `TO ${yy(fy)}`, `TO ${yy(fy - 1)}`, `TO ${yy(fy - 2)}`, `TO ${yy(fy - 3)}`], rows: turnRows, moneyFrom: 1 },
     quotationSummary:{ headers: ['Channel', 'Active', 'Order Received', 'Total'], rows: quoteRows, moneyFrom: 0 },
     offerStatus:     { headers: ['Offer status', 'Total Offer Value (INR)'], rows: offerRows, moneyFrom: 0 },
     attendance:      { headers: ['Month', 'Visit days', 'Clients'], rows: attRows, moneyFrom: 99 },
+    conversion: {
+      targetInr, quotedInr, orderReceivedInr,
+      pct: quotedInr > 0 ? (orderReceivedInr / quotedInr) * 100 : null,
+      achievedPct: targetInr > 0 ? (orderReceivedInr / targetInr) * 100 : null,
+      includes: CONVERSION_INCLUDES, excludes: CONVERSION_EXCLUDES,
+      targetNote: `company-wide · ₹${targetCr} Cr, set in Settings`,
+      table: {
+        headers: ['Stage', 'Opportunities', 'Offer value (INR)'], rows: convRows, moneyFrom: 1,
+        notes: ['on the quoted pipeline, this FY to date', 'sum of offer_value_inr'],
+      },
+    },
     kpis: [
       { label: 'Order in Hand', value: fmtMoney(n(kpiRow?.total_business)), sub: 'won · not yet in a sales order', accent: true,
         drill: { kind: 'order_in_hand', tsm } },
@@ -620,7 +703,7 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   const periodText  = `FY ${yy(fy)} to date`;
   const periodLabel = `${tsmName} · ${periodText}`;
 
-  const note = `Live data for ${tsmName}'s current fiscal year (Apr–Mar) to date. "Order in Hand" is the value of Won opportunities not yet turned into a Sales Order; "Order Received" is the value of Won opportunities dated in the FY. "Revenue" is invoiced revenue for the FY to date. Turnover columns show each whole fiscal year to date, so the current FY reflects its turnover so far. Clients, Prospective and Active Clients are current-portfolio counts; "Visited" on those two cards means a visit logged within the last 90 days, and every number is clickable through to a filtered client list.`;
+  const note = `Live data for ${tsmName}'s current fiscal year (Apr–Mar) to date. "Order in Hand" is the value of Won opportunities not yet turned into a Sales Order; "Order Received" is the value of Won opportunities dated in the FY. "Revenue" is invoiced revenue for the FY to date. "Conversion" divides order received by the quoted pipeline, and that panel says in full what it counts and what it leaves out. Turnover columns show each whole fiscal year to date, so the current FY reflects its turnover so far. Clients, Prospective and Active Clients are current-portfolio counts; "Prosp. client" has an ERP code and an enquiry behind it while "Prosp. lead" is only a name so far, and "Unclassified / other" is every client whose type was never set — it is there so the Grand Total is a real total; "Visited" on those two cards means a visit logged within the last 90 days, and every number is clickable through to a filtered client list.`;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
