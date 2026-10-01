@@ -7,7 +7,8 @@ import { leadCodeBase } from '@/lib/risansi-lead-code';
 import { isLeadCode } from '@/lib/risansi-client-status';
 import { ConvertLeadButton } from './ConvertLeadButton';
 import { CLIENT_TYPES } from '@/lib/risansi-client-types';
-import { COUNTRIES, INDIAN_STATES } from '@/lib/risansi-geo';
+import { INDIAN_STATES } from '@/lib/risansi-geo';
+import { countryGroupsWith } from '@/lib/risansi-geo-regions';
 import { CLIENT_STATUS_LABELS, allowedStatusesForCode } from '@/lib/risansi-client-status';
 
 // ── Types ──────────────────────────────────────────────────────
@@ -487,8 +488,11 @@ export function ClientFormDrawer({ mode, client, existingContacts, allowCodeEdit
               <Field label="Country">
                 <select name="country" value={country}
                   onChange={e => setCountry(e.target.value)} style={INP}>
-                  {withCurrent(COUNTRIES, client?.country).map(c =>
-                    <option key={c} value={c}>{c}</option>)}
+                  {countryGroupsWith(client?.country).map(g => (
+                    <optgroup key={g.region} label={g.region}>
+                      {g.countries.map(c => <option key={c} value={c}>{c}</option>)}
+                    </optgroup>
+                  ))}
                 </select>
               </Field>
               <Field label="State">
