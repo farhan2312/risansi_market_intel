@@ -392,10 +392,13 @@ function BugDetailModal({ bug, onClose, onMove, onSeverity, onType, onSaveNotes,
             <TimeRow label="Picked up" who={bug.recorded_by} when={fmt(bug.recorded_at)} />
             <TimeRow label="Handed over" who={null} when={fmt(bug.testing_at)} />
             <TimeRow label="Resolved" who={bug.resolved_by} when={fmt(bug.resolved_at)} />
-            {/* To handover, not to resolution: once it is with the reporter the
-                clock is theirs, and a bug waiting a week to be verified did not
-                take a week to fix. */}
-            <TimeRow label="Turnaround" who={null} when={turnaround(bug.created_at, bug.testing_at)} accent />
+            {/* To the handover, not to the verification: once it is with the
+                reporter the clock is theirs, and a bug waiting a week to be
+                checked did not take a week to fix. Testing where there is one,
+                else the day it was fixed — a bug closed without a testing round
+                was still handed over then. */}
+            <TimeRow label="Turnaround" who={null}
+              when={turnaround(bug.created_at, bug.testing_at ?? bug.resolved_at)} accent />
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 2 }}>

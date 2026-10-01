@@ -63,12 +63,16 @@ export default async function BugsPage({ searchParams }: {
           COUNT(*) FILTER (WHERE status <> 'fixed')::int AS open,
           COUNT(*) FILTER (WHERE status IN ('in_progress','testing'))::int AS active,
           COUNT(*) FILTER (WHERE status = 'fixed')::int AS fixed,
-          -- Measured to testing, not to fixed. Fixed means the reporter has
-          -- verified it, so measuring to there counts however long a bug waited
-          -- on somebody else and leaves out everything delivered but not yet
-          -- checked. testing_at is when the work was handed over.
-          AVG(EXTRACT(EPOCH FROM (testing_at - created_at))) FILTER (WHERE testing_at IS NOT NULL) AS avg_secs,
-          COUNT(*) FILTER (WHERE testing_at IS NOT NULL)::int AS avg_n
+          -- To the handover: testing where there is one, else the day it was
+          -- fixed. Measuring everything to 'fixed' counted however long a bug
+          -- waited on somebody else to verify it, and left out the ones sitting
+          -- in testing right now. Falling back to resolved_at keeps the bugs
+          -- that went straight to fixed in the figure, and carries the 71
+          -- closed before testing_at existed, which have no testing date to
+          -- find.
+          AVG(EXTRACT(EPOCH FROM (COALESCE(testing_at, resolved_at) - created_at)))
+            FILTER (WHERE COALESCE(testing_at, resolved_at) IS NOT NULL) AS avg_secs,
+          COUNT(*) FILTER (WHERE COALESCE(testing_at, resolved_at) IS NOT NULL)::int AS avg_n
         FROM bugs b
         ${where}`, vals);
       return rows[0] ?? { total: 0, open: 0, active: 0, fixed: 0, avg_secs: null, avg_n: 0 };
@@ -101,7 +105,7 @@ export default async function BugsPage({ searchParams }: {
           <Kpi label="On Hold + Testing" value={String(kpi.active)} color="#D97706" sub="parked or under verification" />
           <Kpi label="Fixed"         value={String(kpi.fixed)}  color="var(--pos)" sub="Resolved & closed" />
           <Kpi label="Avg Turnaround" value={avgLabel}          color="var(--fg)"
-            sub={avgSecs != null ? `Reported → testing · ${kpi.avg_n} bug${kpi.avg_n === 1 ? '' : 's'}` : 'Reported → testing'} />
+            sub={avgSecs != null ? `Reported → handed over · ${kpi.avg_n} bug${kpi.avg_n === 1 ? '' : 's'}` : 'Reported → handed over'} />
         </div>
 
         {/* Filters */}
