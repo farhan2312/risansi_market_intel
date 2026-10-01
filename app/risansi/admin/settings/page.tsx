@@ -4,7 +4,9 @@ import { getCurrentUser } from '@/lib/risansi-auth';
 import { AccessDenied } from '../_components/AccessDenied';
 import { SettingsForm } from './SettingsForm';
 import { UsdRateForm } from './UsdRateForm';
+import { RepTargetsForm } from './RepTargetsForm';
 import { DEFAULT_USD_INR_RATE } from '@/lib/risansi-settings';
+import { getRepTargets, equalShareCr, DEFAULT_ANNUAL_TARGET_CR } from '@/lib/risansi-targets';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,6 +37,14 @@ export default async function SettingsPage() {
     );
     if (rows[0]) { usdRate = rows[0].value; usdUpdatedBy = rows[0].updated_by; usdUpdatedAt = rows[0].updated_at; }
   } catch { /* table may not exist yet */ }
+
+  // The per-rep split. The company figure above stays the one that is edited
+  // and the one the dashboards show; this list is held against it so a split
+  // that does not add up is visible rather than quietly reconciled.
+  const reps = await getRepTargets();
+  const companyTargetCr = Number.isFinite(parseFloat(annualTarget)) && parseFloat(annualTarget) > 0
+    ? parseFloat(annualTarget) : DEFAULT_ANNUAL_TARGET_CR;
+  const share = equalShareCr(companyTargetCr, reps.length);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -71,6 +81,19 @@ export default async function SettingsPage() {
               Last updated {usdUpdatedAt}{usdUpdatedBy ? ` by ${usdUpdatedBy}` : ''}
             </div>
           )}
+        </div>
+
+        <div style={{ maxWidth: 680, background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', padding: 20, marginTop: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)', marginBottom: 4 }}>Targets by Rep</div>
+          <div style={{ fontSize: 12, color: 'var(--fg-3)', marginBottom: 6 }}>
+            Each rep&rsquo;s own share of the year, in Crores. Reps and managers only; admin and
+            back-office accounts carry no quota.
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--fg-3)', marginBottom: 14, lineHeight: 1.5 }}>
+            Provisional: every rep currently holds an equal share of the company target. Replace
+            them when the split from management arrives.
+          </div>
+          <RepTargetsForm reps={reps} companyTargetCr={companyTargetCr} equalShareCr={share} />
         </div>
       </div>
     </div>

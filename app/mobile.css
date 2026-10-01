@@ -110,13 +110,24 @@
 
   /* Tables that aren't card-converted scroll horizontally instead of squishing.
      display:block makes the table a scroll container while its rows keep the
-     table layout (columns stay aligned). r-cards tables are excluded. */
-  .risansi-main table:not(.r-cards) {
+     table layout (columns stay aligned). r-cards tables are excluded, and so
+     are r-own-scroll ones: those already sit in a scroll box of their own, and
+     two scrollers nested inside each other fight over the same swipe. The
+     nowrap rule below still applies to them — that is what gives the outer box
+     something to scroll. */
+  .risansi-main table:not(.r-cards):not(.r-own-scroll) {
     display: block; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch;
     white-space: nowrap;
   }
   .risansi-main table:not(.r-cards) td,
   .risansi-main table:not(.r-cards) th { white-space: nowrap; }
+
+  /* The complaints table freezes the complaint number and the client. On a
+     phone the client column as well would leave barely a third of the screen
+     for the other sixteen columns, so only the number stays pinned and the
+     seam that marks the frozen edge moves onto it. */
+  .risansi-main .cmp-fz-client { position: static !important; box-shadow: none !important; }
+  .risansi-main .cmp-fz-no { box-shadow: 1px 0 0 var(--line) !important; }
 
   /* ── Drawers & modals → fit the phone ──
      Side drawers become full-screen above the bottom nav; centered modals
@@ -386,5 +397,15 @@
      blanket one-column rule above would stack them into a tall tower and push
      the Submit button out of the dialog. */
   .risansi-main .risansi-bug-shots { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+
+  /* Settings → Targets by Rep. The blanket one-column rule above would put each
+     rep's name and their input on separate lines, turning eighteen rows into a
+     page of scrolling; name left, input right is the whole point of the list.
+     The 210px input column shrinks to what the field and its caption need. */
+  .risansi-main .rt-row { grid-template-columns: minmax(0, 1fr) 128px !important; gap: 8px !important; }
+  .risansi-main .rt-row input { width: 72px !important; min-height: 40px; }
+  .risansi-main .rt-head { font-size: 10px !important; }
+  /* The role / code / zone meta drops under the name rather than pushing it out. */
+  .risansi-main .rt-row > span:first-child > span { display: block; margin-left: 0 !important; }
 
 }
