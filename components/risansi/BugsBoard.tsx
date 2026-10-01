@@ -23,6 +23,8 @@ export interface BugCard {
   recorded_by: string | null;
   recorded_at: string | null;
   resolved_by: string | null;
+  /** When the fix was handed over for testing. Turnaround is measured to here. */
+  testing_at: string | null;
   resolved_at: string | null;
   resolution_notes: string | null;
   created_at: string;
@@ -388,8 +390,12 @@ function BugDetailModal({ bug, onClose, onMove, onSeverity, onType, onSaveNotes,
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, padding: '12px 14px', background: 'var(--bg-sunk)', borderRadius: 6 }}>
             <TimeRow label="Reported" who={bug.reporter_name} when={fmt(bug.created_at)} />
             <TimeRow label="Picked up" who={bug.recorded_by} when={fmt(bug.recorded_at)} />
+            <TimeRow label="Handed over" who={null} when={fmt(bug.testing_at)} />
             <TimeRow label="Resolved" who={bug.resolved_by} when={fmt(bug.resolved_at)} />
-            <TimeRow label="Turnaround" who={null} when={turnaround(bug.created_at, bug.resolved_at)} accent />
+            {/* To handover, not to resolution: once it is with the reporter the
+                clock is theirs, and a bug waiting a week to be verified did not
+                take a week to fix. */}
+            <TimeRow label="Turnaround" who={null} when={turnaround(bug.created_at, bug.testing_at)} accent />
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 2 }}>

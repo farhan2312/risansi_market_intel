@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 
 const iso = (v: unknown): string | null => (v ? new Date(v as string).toISOString() : null);
 
-interface KpiRow { total: number; open: number; active: number; fixed: number; avg_secs: string | null }
+interface KpiRow { total: number; open: number; active: number; fixed: number; avg_secs: string | null; avg_n: number }
 
 export default async function BugsPage({ searchParams }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -35,7 +35,7 @@ export default async function BugsPage({ searchParams }: {
       const { rows } = await risansiPool.query(`
         SELECT b.id, b.title, b.description, b.page_url, b.type, b.severity, b.status,
                b.reporter_name, b.reporter_email, b.recorded_by, b.recorded_at,
-               b.resolved_by, b.resolved_at, b.resolution_notes, b.created_at,
+               b.resolved_by, b.testing_at, b.resolved_at, b.resolution_notes, b.created_at,
                -- Every screenshot on the bug, oldest first, so the board can show
                -- the whole set rather than just the one the old join could carry.
                COALESCE((
@@ -50,7 +50,7 @@ export default async function BugsPage({ searchParams }: {
         type: r.type, severity: r.severity, status: r.status,
         reporter_name: r.reporter_name, reporter_email: r.reporter_email,
         recorded_by: r.recorded_by, recorded_at: iso(r.recorded_at),
-        resolved_by: r.resolved_by, resolved_at: iso(r.resolved_at),
+        resolved_by: r.resolved_by, testing_at: iso(r.testing_at), resolved_at: iso(r.resolved_at),
         resolution_notes: r.resolution_notes,
         created_at: iso(r.created_at) as string,
         screenshot_ids: (r.screenshot_ids ?? []).map(Number),
@@ -63,10 +63,15 @@ export default async function BugsPage({ searchParams }: {
           COUNT(*) FILTER (WHERE status <> 'fixed')::int AS open,
           COUNT(*) FILTER (WHERE status IN ('in_progress','testing'))::int AS active,
           COUNT(*) FILTER (WHERE status = 'fixed')::int AS fixed,
-          AVG(EXTRACT(EPOCH FROM (resolved_at - created_at))) FILTER (WHERE resolved_at IS NOT NULL) AS avg_secs
+          -- Measured to testing, not to fixed. Fixed means the reporter has
+          -- verified it, so measuring to there counts however long a bug waited
+          -- on somebody else and leaves out everything delivered but not yet
+          -- checked. testing_at is when the work was handed over.
+          AVG(EXTRACT(EPOCH FROM (testing_at - created_at))) FILTER (WHERE testing_at IS NOT NULL) AS avg_secs,
+          COUNT(*) FILTER (WHERE testing_at IS NOT NULL)::int AS avg_n
         FROM bugs b
         ${where}`, vals);
-      return rows[0] ?? { total: 0, open: 0, active: 0, fixed: 0, avg_secs: null };
+      return rows[0] ?? { total: 0, open: 0, active: 0, fixed: 0, avg_secs: null, avg_n: 0 };
     })(),
   ]);
 
@@ -95,7 +100,8 @@ export default async function BugsPage({ searchParams }: {
           <Kpi label="Open"          value={String(kpi.open)}   color="var(--accent)" sub="Not yet fixed" />
           <Kpi label="On Hold + Testing" value={String(kpi.active)} color="#D97706" sub="parked or under verification" />
           <Kpi label="Fixed"         value={String(kpi.fixed)}  color="var(--pos)" sub="Resolved & closed" />
-          <Kpi label="Avg Turnaround" value={avgLabel}          color="var(--fg)" sub="Reported → fixed" />
+          <Kpi label="Avg Turnaround" value={avgLabel}          color="var(--fg)"
+            sub={avgSecs != null ? `Reported → testing · ${kpi.avg_n} bug${kpi.avg_n === 1 ? '' : 's'}` : 'Reported → testing'} />
         </div>
 
         {/* Filters */}

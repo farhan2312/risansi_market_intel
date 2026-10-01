@@ -17,15 +17,16 @@ async function requireSysadminName(): Promise<string> {
 }
 
 // Move a bug along the pipeline. Stamps recorded_* the first time it leaves
-// "reported", and resolved_* when it reaches "fixed" (cleared if it moves back
-// out, so turnaround never reflects a fix that was reopened).
+// "reported", testing_at when the fix is first handed over, and resolved_* when
+// it reaches "fixed". Both of the later two are cleared if the bug moves back
+// behind them, so neither a turnaround nor a fix date can survive a reopen.
 export async function updateBugStatus(bugId: number, status: string) {
   if (!Number.isInteger(bugId)) throw new Error('Invalid bug.');
   if (!isBugStatus(status)) throw new Error('Invalid status.');
   const name = await requireSysadminName();
 
-  const cur = (await risansiPool.query<{ status: string; recorded_at: string | null; resolved_at: string | null }>(
-    'SELECT status, recorded_at, resolved_at FROM bugs WHERE id = $1', [bugId],
+  const cur = (await risansiPool.query<{ status: string; recorded_at: string | null; testing_at: string | null; resolved_at: string | null }>(
+    'SELECT status, recorded_at, testing_at, resolved_at FROM bugs WHERE id = $1', [bugId],
   )).rows[0];
   if (!cur) throw new Error('Bug not found.');
 
@@ -36,6 +37,15 @@ export async function updateBugStatus(bugId: number, status: string) {
   if (status !== 'reported' && !cur.recorded_at) {
     sets.push(`recorded_by = $${idx++}`, 'recorded_at = now()');
     vals.push(name);
+  }
+  // Turnaround is measured to here: the work is done and it is the reporter's
+  // to verify. 'fixed' stamps it too, so a bug closed without a testing round
+  // still has a delivery time rather than falling out of the average.
+  const DELIVERED: string[] = ['testing', 'fixed'];
+  if (DELIVERED.includes(status) && !cur.testing_at) {
+    sets.push('testing_at = now()');
+  } else if (!DELIVERED.includes(status) && cur.testing_at) {
+    sets.push('testing_at = NULL');
   }
   if (status === 'fixed' && !cur.resolved_at) {
     sets.push(`resolved_by = $${idx++}`, 'resolved_at = now()');
