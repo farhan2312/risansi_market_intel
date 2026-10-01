@@ -14,8 +14,12 @@ export interface SelRep { id: string; name: string }
 // visits belonging to a colleague's client, and on a rep who covers a lot it
 // moves every number on the page at once. Covering work is real work, so it can
 // be added back; it is a deliberate choice rather than the default.
-export function ExecutiveSelector({ reps, tsm, scope }: {
+export interface FyOpt { value: string; label: string }
+
+export function ExecutiveSelector({ reps, tsm, scope, fys, fy }: {
   reps: SelRep[]; tsm: string; scope: 'own' | 'all';
+  /** Fiscal years to offer, newest first, built on the server. */
+  fys: FyOpt[]; fy: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -26,6 +30,23 @@ export function ExecutiveSelector({ reps, tsm, scope }: {
     if (value) p.set(key, value); else p.delete(key);
     router.push(`${pathname}?${p.toString()}`);
   };
+
+  // The review used to be nailed to the current fiscal year, which meant a
+  // quotation dated in February and entered in September was on the board and
+  // on no view of this page. The year is a choice now; the current one carries
+  // no param, so a shared link to "this year" keeps meaning this year.
+  const year = (
+    <label>
+      <span style={LBL}>Fiscal year</span>
+      <select
+        value={fy}
+        onChange={e => update('fy', e.target.value === fys[0]?.value ? '' : e.target.value)}
+        style={{ ...SEL, minWidth: 130 }}
+      >
+        {fys.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+      </select>
+    </label>
+  );
 
   // A rep may only review themselves, so there is nothing to pick — show the
   // name as static text rather than a one-option dropdown. (The server scopes
@@ -57,6 +78,7 @@ export function ExecutiveSelector({ reps, tsm, scope }: {
             {only?.name ?? '—'}
           </div>
         </div>
+        {year}
         {accounts}
       </div>
     );
@@ -70,6 +92,7 @@ export function ExecutiveSelector({ reps, tsm, scope }: {
           {reps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
       </label>
+      {year}
       {accounts}
     </div>
   );

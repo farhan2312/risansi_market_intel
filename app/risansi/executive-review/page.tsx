@@ -2,7 +2,7 @@ import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
 import { Topbar } from '@/components/risansi';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { getCurrentUser, getReviewableRepIds, clientVisibilitySql, clientScopeSql , OWN_OPEN } from '@/lib/risansi-auth';
+import { getCurrentUser, getReviewableRepIds, getManagerAssignableReps, clientVisibilitySql, clientScopeSql , OWN_OPEN } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 import { ExecutiveViews, ExecTabs, type ExecData, type Row, type ExecTab } from '@/components/risansi/ExecutiveViews';
 import { ProjectionFilters } from '@/components/risansi/ProjectionFilters';
@@ -13,8 +13,9 @@ import { loadProjection, loadProjectionOptions, parseProjectionFilters } from '@
 // CANON / CATS / TURN_ORDER live in the lib the drill-down also reads, so the
 // page and its breakdowns cannot classify a client two different ways.
 import {
-  CANON, CATS, CAT_OTHER, CAT_OTHER_LABEL, TURN_ORDER,
+  CANON, CATS, CAT_OTHER, CAT_OTHER_LABEL, TURN_ORDER, STAGE_TO_OFFER, OFFER_STATUS_ORDER,
   CONVERSION_STAGES, CONVERSION_WON_STAGES, CONVERSION_INCLUDES, CONVERSION_EXCLUDES, conversionWhereSql,
+  execScopeSql, fyWindows, parseFy, fyChoices, OPP_WINDOW_DATE, OPEN_STAGES, type AccountScope,
 } from '@/lib/risansi-exec-review';
 import { AccountSelector, type NameOpt } from '@/components/risansi/AccountSelector';
 import type { CurrentFyView } from '@/components/risansi/AccountReview';
@@ -64,9 +65,12 @@ export default async function ExecutiveReviewPage({ searchParams }: {
     : sp.tab === 'projection' ? 'projection' : 'tsm';
   // A tab link keeps the params that mean something on the target tab and
   // drops the rest, so switching never carries a stale picker across.
+  // `fy` rides along to the projection tab too: that tab forecasts closures for
+  // the same fiscal year the review is showing, so dropping it would switch the
+  // year under the reader as they change tab.
   const KEEP: Record<ExecTab, string[]> = {
-    tsm: ['tsm', 'scope'], account: ['ctype', 'name', 'tview'],
-    projection: ['proj', 'prep', 'pptype', 'pind', 'pctype', 'pstage', 'pprob', 'pmarket', 'pmin'],
+    tsm: ['tsm', 'scope', 'fy'], account: ['ctype', 'name', 'tview'],
+    projection: ['fy', 'proj', 'prep', 'pptype', 'pind', 'pctype', 'pstage', 'pprob', 'pmarket', 'pmin'],
   };
   const tabHref = (t: ExecTab) => {
     const q = new URLSearchParams();
@@ -319,33 +323,18 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   const tsm = (sp.tsm && reps.some(r => r.id === sp.tsm)) ? sp.tsm : (reps[0]?.id ?? '');
   const tsmName = reps.find(r => r.id === tsm)?.name ?? '—';
 
-  // The review is scoped to the current fiscal year to date (Apr→Mar) — there is
-  // no month picker any more. selMonths is every month of the current FY up to
-  // now, so the month-scoped sections (revenue, quotation, offers, attendance,
-  // leads) show the FY so far, while turnover spans full FYs below. Every value
-  // is YYYY-MM so it is safe to inline in SQL.
+  // The review is scoped to one fiscal year (Apr→Mar). It defaults to the
+  // current one, to date; the FY selector picks an earlier one, which is shown
+  // whole. There is no month picker. Every value in selMonths is YYYY-MM so it
+  // is safe to inline in SQL.
+  //
+  // Built by fyWindows, the same function the drill-downs call, and handed the
+  // same `now` and the same selected year. The page used to re-implement this
+  // inline, which is how a figure and the list behind it come to disagree.
   const now = new Date();
-  const fyStartYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
-  const selMonths: string[] = [];
-  for (
-    let dcur = new Date(fyStartYear, 3, 1);
-    dcur <= new Date(now.getFullYear(), now.getMonth(), 1);
-    dcur = new Date(dcur.getFullYear(), dcur.getMonth() + 1, 1)
-  ) {
-    selMonths.push(`${dcur.getFullYear()}-${String(dcur.getMonth() + 1).padStart(2, '0')}`);
-  }
-
-  // FY-comparison tables anchor on the latest selected month's fiscal year.
-  const latest = selMonths[selMonths.length - 1];
-  const selY = Number(latest.slice(0, 4));
-  const selM = Number(latest.slice(5, 7));
-  const fy = selM >= 4 ? selY : selY - 1;            // FY start year (anchor)
-  const d = (y: number, m = 4) => `${y}-${String(m).padStart(2, '0')}-01`;
-  const w5from = d(fy - 5), w5to = d(fy);            // 5 completed FYs before the anchor FY
-
-  // Safe SQL fragments built only from the validated month list.
-  const qMonths     = selMonths.map(m => `'${m}'`).join(',');                              // '2026-07','2026-06'
-  const inMonths    = (col: string) => `to_char(${col},'YYYY-MM') IN (${qMonths})`;
+  const selFy = parseFy(sp.fy, now);
+  const w = fyWindows(now, selFy);
+  const { fy, selMonths, d, w5from, w5to, inMonths } = w;
 
   // Turnover always compares each whole fiscal year (Apr–Mar, to-date), so the
   // current FY shows its turnover so far — no month scoping, no toggle.
@@ -371,22 +360,30 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   // Either way the result is still intersected with the VIEWER's own visibility
   // (visAnd): widening which of the subject's accounts to count must never
   // widen what the person looking is allowed to see.
-  const accountScope: 'own' | 'all' = sp.scope === 'all' ? 'all' : 'own';
+  const accountScope: AccountScope = sp.scope === 'all' ? 'all' : 'own';
   const projMode: 'monthly' | 'quarterly' = sp.proj === 'monthly' ? 'monthly' : 'quarterly';
   const tsmId = Number(tsm);
-  const ownsF = `c.primary_rep_id = ${tsmId}`;
-  const coversF = `c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = ${tsmId})`;
-  // c.deleted_at IS NULL: an archived client's opportunities and revenue leave
-  // the review with it. Same guard as execScopeSql, which the drill-downs use.
-  const tourF = tsm
-    ? `((${accountScope === 'all' ? `${ownsF} OR ${coversF}` : ownsF}) AND c.deleted_at IS NULL${visAnd})`
-    : 'FALSE';
+  // execScopeSql rather than a hand-rolled predicate, so the page and every
+  // drill-down under it are scoped by one piece of SQL.
+  const tourF = tsm ? execScopeSql(tsmId, accountScope, visAnd) : 'FALSE';
+  // The same book split in two, for the Book & Coverage panel: what they own,
+  // and what they cover for somebody else.
+  const ownF = tsm ? execScopeSql(tsmId, 'own', visAnd) : 'FALSE';
+  const coveredF = tsm ? execScopeSql(tsmId, 'covered', visAnd) : 'FALSE';
+  const bothF = tsm ? execScopeSql(tsmId, 'all', visAnd) : 'FALSE';
 
   // Attendance counts visits by rep and never touches `clients`, so tourF can't
   // scope it — restrict it by the viewer's client scope on the visit's client.
   // Exempt viewing yourself: your own attendance is your own activity record, and
   // scoping it would silently drop past visits to clients that have since moved
   // off your tour.
+  // Is the person being reviewed a manager? Asked through getManagerAssignableReps
+  // so the manager_reps hierarchy stays the single answer to that question — it
+  // returns the reps beneath them plus themselves, so a team is anything longer
+  // than one. Managers get the Book & Coverage split whether or not they happen
+  // to cover an account today, because covering for their team is the job.
+  const isManagerTsm = tsmId > 0 && (await getManagerAssignableReps(tsmId)).length > 1;
+
   const isSelfReview  = me.id != null && String(me.id) === String(tsm);
   const visitScope    = isSelfReview ? null : clientScopeSql(me, 'v.client_id', OWN_OPEN.visit('v'));
   const visitScopeAnd = visitScope ? ` AND (${visitScope})` : '';
@@ -400,7 +397,7 @@ export default async function ExecutiveReviewPage({ searchParams }: {
     tab === 'projection' ? q(() => loadProjectionOptions(risansiPool, allowedRepIds), null) : Promise.resolve(null),
   ]);
 
-  const [clients, turnover, quotation, offers, attendance, kpiRow, convStages, targetCr] = await Promise.all([
+  const [clients, turnover, quotation, offers, attendance, kpiRow, convStages, targetCr, outside, bookSplit] = await Promise.all([
     // 1. Clients Summary
     // Every live client by type, split by where it stands. The two prospective
     // statuses are counted apart rather than together: a Prospective-Client has
@@ -446,16 +443,18 @@ export default async function ExecutiveReviewPage({ searchParams }: {
     // 3. Quotation Summary — channel x Active/Won
     q(async () => (await risansiPool.query<{ channel: string; active: string; won: string }>(
       `SELECT ${CANON} channel,
-              round(sum(o.offer_value_inr) FILTER (WHERE o.stage IN ('Quoted','Negotiating')))::text active,
-              round(sum(o.offer_value_inr) FILTER (WHERE o.stage='Won'))::text won
+              round(sum(COALESCE(o.offer_value_inr,0)) FILTER (WHERE o.stage IN ('Quoted','Negotiating')))::text active,
+              round(sum(COALESCE(o.offer_value_inr,0)) FILTER (WHERE o.stage='Won'))::text won
          FROM opportunities o JOIN clients c ON c.id=o.client_id
-        WHERE ${tourF} AND ${inMonths('COALESCE(o.quote_date, o.created_at::date)')} GROUP BY 1`)).rows, []),
+        WHERE ${tourF} AND ${inMonths(OPP_WINDOW_DATE)} GROUP BY 1`)).rows, []),
 
-    // 4. Offer Status — mapped from stage
+    // 4. Offer Status — mapped from stage. Every stage, including Prospect and
+    //    Suspect: STAGE_TO_OFFER has wording for them now, so their value lands
+    //    in a row instead of nowhere.
     q(async () => (await risansiPool.query<{ stage: string; val: string }>(
-      `SELECT o.stage, round(sum(o.offer_value_inr))::text val
+      `SELECT o.stage, round(sum(COALESCE(o.offer_value_inr,0)))::text val
          FROM opportunities o JOIN clients c ON c.id=o.client_id
-        WHERE ${tourF} AND ${inMonths('COALESCE(o.quote_date, o.created_at::date)')} GROUP BY 1`)).rows, []),
+        WHERE ${tourF} AND ${inMonths(OPP_WINDOW_DATE)} GROUP BY 1`)).rows, []),
 
     // 5. Attendance — the rep's field visits, per selected month
     q(async () => (await risansiPool.query<{ mon: string; days: string; clients: string }>(
@@ -482,9 +481,13 @@ export default async function ExecutiveReviewPage({ searchParams }: {
                    COALESCE(o.final_value_cr*10000000, o.value_cr*10000000, 0)
                    - COALESCE((SELECT sum(so.so_value_cr)*10000000 FROM opportunity_sales_orders so WHERE so.opportunity_id=o.id), 0)
                  , 0))),0) FROM opportunities o JOIN clients c ON c.id=o.client_id
-           WHERE ${tourF} AND o.stage='Won' AND ${inMonths('COALESCE(o.quote_date, o.created_at::date)')})::text AS total_business,
+           WHERE ${tourF} AND o.stage='Won' AND ${inMonths(OPP_WINDOW_DATE)})::text AS total_business,
+         -- c.status='ACTIVE' to match the Turnover Summary below, which has
+         -- always filtered that way. Without it the two revenue figures on this
+         -- one screen disagreed: ₹6,08,595 apart on one book, all of it two
+         -- Prospective-Client accounts that invoiced before their status caught up.
          (SELECT COALESCE(round(sum(r.total_value)),0) FROM client_revenue_monthly r JOIN clients c ON c.id = r.client_id
-           WHERE ${tourF} AND ${inMonths('r.month')})::text AS revenue,
+           WHERE ${tourF} AND c.status='ACTIVE' AND ${inMonths('r.month')})::text AS revenue,
          (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status='ACTIVE' AND c.deleted_at IS NULL)::text AS active_clients,
          (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status='ACTIVE' AND c.deleted_at IS NULL
             AND c.last_visit_date >= CURRENT_DATE - INTERVAL '90 days')::text AS active_visited,
@@ -506,7 +509,7 @@ export default async function ExecutiveReviewPage({ searchParams }: {
       `SELECT o.stage, count(*)::text AS opps, round(sum(COALESCE(o.offer_value_inr,0)))::text AS val
          FROM opportunities o JOIN clients c ON c.id=o.client_id
         WHERE ${tourF} AND ${conversionWhereSql()}
-          AND ${inMonths('COALESCE(o.quote_date, o.created_at::date)')}
+          AND ${inMonths(OPP_WINDOW_DATE)}
         GROUP BY 1`)).rows, []),
 
     // 8. Annual target, in Crores. One source for the whole portal:
@@ -521,6 +524,61 @@ export default async function ExecutiveReviewPage({ searchParams }: {
       const v = parseFloat(rows[0]?.value ?? '');
       return Number.isFinite(v) && v > 0 ? v : 32;
     }, 32),
+
+    // 9. Everything on this book that the FY window leaves out.
+    //    Every stage, not just the quoted ones, because the window governs the
+    //    Quotation Summary and Offer Status too. A quotation dated in February
+    //    and entered in September sits outside the current FY on a date nobody
+    //    typed, and was on the Opportunities board and on no view of this page.
+    //    Now it has a row of its own, counted apart and never in a total.
+    q(async () => (await risansiPool.query<{
+      opps: string; val: string; open_opps: string; open_val: string; oldest: string | null; newest: string | null;
+    }>(
+      `SELECT count(*)::text AS opps,
+              COALESCE(round(sum(COALESCE(o.offer_value_inr,0))),0)::text AS val,
+              count(*) FILTER (WHERE o.stage IN (${OPEN_STAGES.map(s => `'${s}'`).join(',')}))::text AS open_opps,
+              COALESCE(round(sum(COALESCE(o.offer_value_inr,0))
+                FILTER (WHERE o.stage IN (${OPEN_STAGES.map(s => `'${s}'`).join(',')}))),0)::text AS open_val,
+              min(${OPP_WINDOW_DATE})::text AS oldest,
+              max(${OPP_WINDOW_DATE})::text AS newest
+         FROM opportunities o JOIN clients c ON c.id=o.client_id
+        WHERE ${tourF} AND ${w.outsideMonths(OPP_WINDOW_DATE)}`)).rows[0], null),
+
+    // 10. Book & Coverage — the same figures over the accounts this TSM OWNS and
+    //     over the ones they merely COVER for a colleague, side by side.
+    //     Computed in one pass over the combined book and split on ownership, so
+    //     the two columns cannot be built from different windows. The review
+    //     counts owned accounts by default and the Opportunities board counts
+    //     both, which is why the same person reads several times apart on the
+    //     two pages; this panel is where that gap is stated rather than hidden.
+    q(async () => (await risansiPool.query<{
+      own_clients: string; cov_clients: string; own_quoted: string; cov_quoted: string;
+      own_won: string; cov_won: string; own_rev: string; cov_rev: string;
+    }>(
+      // IS NOT DISTINCT FROM, not =: an account somebody covers that nobody
+      // owns has a null primary_rep_id, so plain equality makes the owns flag
+      // null and FILTER drops the row from BOTH columns. One such client exists
+      // today, and it was enough to stop a manager's two columns adding up.
+      `WITH opp AS (
+         SELECT (c.primary_rep_id IS NOT DISTINCT FROM ${tsmId}) AS owns, o.stage, COALESCE(o.offer_value_inr,0) AS v
+           FROM opportunities o JOIN clients c ON c.id=o.client_id
+          WHERE ${bothF} AND ${conversionWhereSql()} AND ${inMonths(OPP_WINDOW_DATE)}),
+       cl AS (
+         SELECT (c.primary_rep_id IS NOT DISTINCT FROM ${tsmId}) AS owns
+           FROM clients c WHERE ${bothF} AND c.status <> 'DUPLICATE'),
+       rev AS (
+         SELECT (c.primary_rep_id IS NOT DISTINCT FROM ${tsmId}) AS owns, r.total_value AS v
+           FROM client_revenue_monthly r JOIN clients c ON c.id=r.client_id
+          WHERE ${bothF} AND c.status='ACTIVE' AND ${inMonths('r.month')})
+       SELECT
+         (SELECT count(*) FILTER (WHERE owns) FROM cl)::text        AS own_clients,
+         (SELECT count(*) FILTER (WHERE NOT owns) FROM cl)::text    AS cov_clients,
+         (SELECT COALESCE(round(sum(v) FILTER (WHERE owns)),0) FROM opp)::text     AS own_quoted,
+         (SELECT COALESCE(round(sum(v) FILTER (WHERE NOT owns)),0) FROM opp)::text AS cov_quoted,
+         (SELECT COALESCE(round(sum(v) FILTER (WHERE owns AND stage='Won')),0) FROM opp)::text     AS own_won,
+         (SELECT COALESCE(round(sum(v) FILTER (WHERE NOT owns AND stage='Won')),0) FROM opp)::text AS cov_won,
+         (SELECT COALESCE(round(sum(v) FILTER (WHERE owns)),0) FROM rev)::text     AS own_rev,
+         (SELECT COALESCE(round(sum(v) FILTER (WHERE NOT owns)),0) FROM rev)::text AS cov_rev`)).rows[0], null),
   ]);
 
   // ── shape into ExecData ──
@@ -578,13 +636,20 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   const qt = quotation.reduce((a, r) => { a.a += n(r.active); a.w += n(r.won); return a; }, { a: 0, w: 0 });
   quoteRows.push({ label: 'Grand Total', vals: [qt.a, qt.w, qt.a + qt.w], strong: true });
 
-  // Offer Status (stage → Mona's labels). Hold-Active has no stage yet.
-  const STAGE_TO_OFFER: Record<string, string> = { Quoted: 'Active', Negotiating: 'Active', 'On Hold': 'Hold-Active', Won: 'Order Received', Lost: 'Order Lost by RIL', Dropped: 'Requirement Closed' };
-  const offerAgg: Record<string, number> = { Active: 0, 'Hold-Active': 0, 'Order Lost by RIL': 0, 'Order Received': 0, 'Requirement Closed': 0 };
-  for (const r of offers) { const lbl = STAGE_TO_OFFER[r.stage]; if (lbl) offerAgg[lbl] += n(r.val); }
-  const offerRows: Row[] = ['Active', 'Hold-Active', 'Order Lost by RIL', 'Order Received', 'Requirement Closed']
+  // Offer Status (stage → Mona's labels). The map and the row order are imported
+  // rather than written out here: the page used to keep its own copy, and a
+  // stage missing from it was value in no row and in no total.
+  const offerAgg: Record<string, number> = Object.fromEntries(OFFER_STATUS_ORDER.map(l => [l, 0]));
+  // A stage with no wording would be dropped, so count it rather than lose it.
+  let offerUnmapped = 0;
+  for (const r of offers) {
+    const lbl = STAGE_TO_OFFER[r.stage];
+    if (lbl) offerAgg[lbl] += n(r.val); else offerUnmapped += n(r.val);
+  }
+  const offerRows: Row[] = OFFER_STATUS_ORDER
     .map(l => ({ label: l, vals: [offerAgg[l]], drill: [{ kind: 'offer_status' as const, tsm, key: l }] }));
-  offerRows.push({ label: 'Grand Total', vals: [Object.values(offerAgg).reduce((a, b) => a + b, 0)], strong: true });
+  if (offerUnmapped) offerRows.push({ label: 'Other stage', vals: [offerUnmapped] });
+  offerRows.push({ label: 'Grand Total', vals: [Object.values(offerAgg).reduce((a, b) => a + b, 0) + offerUnmapped], strong: true });
 
   const MON = (m: string) => new Date(m + '-01').toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
   // Visit days and Clients are different sets: one lists the visits, the other
@@ -621,7 +686,41 @@ export default async function ExecutiveReviewPage({ searchParams }: {
     label: 'Total quoted', vals: [quotedOpps, quotedInr], strong: true,
     drill: [null, { kind: 'conversion' as const, tsm, key: 'total' }],
   });
+  // The escape row, under the total and deliberately not in it. Whatever the FY
+  // window leaves out is on this line, at every stage, with the still-open share
+  // called out — so an opportunity can no longer be absent from the whole page
+  // without saying so. Change the FY above to go and look at it.
+  const outsideOpps = Number(outside?.opps ?? 0);
+  const outsideVal = n(outside?.val);
+  const outsideOpen = Number(outside?.open_opps ?? 0);
+  const outsideOpenVal = n(outside?.open_val);
+  if (outsideOpps > 0) {
+    convRows.push({
+      label: `Outside FY ${yy(fy)} — not counted above`,
+      vals: [outsideOpps, outsideVal],
+      drill: [null, { kind: 'outside_window' as const, tsm, key: String(fy) }],
+    });
+  }
   const targetInr = targetCr * 10_000_000;
+
+  // ── Book & Coverage ──
+  // Shown when covering is part of this person's job: a manager (they carry a
+  // team under manager_reps) or anybody who covers at least one account. For a
+  // rep who covers nothing the second column is all zeroes, so they are spared it.
+  const coveredClients = Number(bookSplit?.cov_clients ?? 0);
+  const showBookSplit = coveredClients > 0 || isManagerTsm;
+  const bookCr = (own: string | undefined, cov: string | undefined) => {
+    const o = n(own), c = n(cov);
+    return [o, c, o + c];
+  };
+  // Money only, so the ₹ prefix on every cell is honest; the client counts go in
+  // the panel's note rather than into a rupee column.
+  const bookRows: Row[] = showBookSplit ? [
+    { label: 'Total quoted',     vals: bookCr(bookSplit?.own_quoted, bookSplit?.cov_quoted) },
+    { label: 'Order received',   vals: bookCr(bookSplit?.own_won, bookSplit?.cov_won) },
+    { label: 'Revenue invoiced', vals: bookCr(bookSplit?.own_rev, bookSplit?.cov_rev) },
+  ] : [];
+  const ownClients = Number(bookSplit?.own_clients ?? 0);
 
   const data: ExecData = {
     clientsSummary:  {
@@ -644,14 +743,35 @@ export default async function ExecutiveReviewPage({ searchParams }: {
       includes: CONVERSION_INCLUDES, excludes: CONVERSION_EXCLUDES,
       targetNote: `company-wide · ₹${targetCr} Cr, set in Settings`,
       table: {
-        headers: ['Stage', 'Opportunities', 'Offer value (INR)'], rows: convRows, moneyFrom: 1,
-        notes: ['on the quoted pipeline, this FY to date', 'sum of offer_value_inr'],
+        headers: ['Stage', 'Opportunities', `Offer value (INR)`], rows: convRows, moneyFrom: 1,
+        notes: [`on the quoted pipeline, FY ${yy(fy)}${w.toDate ? ' to date' : ''}`, 'sum of offer_value_inr'],
       },
+      outside: outsideOpps > 0
+        ? { opps: outsideOpps, value: outsideVal, openOpps: outsideOpen, openValue: outsideOpenVal,
+            oldest: outside?.oldest ?? null, newest: outside?.newest ?? null,
+            drill: { kind: 'outside_window' as const, tsm, key: String(fy) } }
+        : null,
     },
+    bookSplit: showBookSplit ? {
+      ownLabel: `${tsmName}'s own book`,
+      coveredLabel: 'Covers for others',
+      note: `${ownClients.toLocaleString('en-IN')} owned · ${coveredClients.toLocaleString('en-IN')} covered`,
+      isManager: isManagerTsm,
+      scope: accountScope,
+      table: {
+        headers: ['Measure', 'Own book', 'Covers for others', 'Combined'], rows: bookRows, moneyFrom: 0,
+        colors: ['var(--accent)', 'var(--warn)', undefined],
+        notes: [
+          'accounts where they are the primary rep',
+          'accounts they are a secondary rep on and do not own',
+          'what the Opportunities board counts',
+        ],
+      },
+    } : null,
     kpis: [
       { label: 'Order in Hand', value: fmtMoney(n(kpiRow?.total_business)), sub: 'won · not yet in a sales order', accent: true,
         drill: { kind: 'order_in_hand', tsm } },
-      { label: 'Revenue', value: fmtMoney(n(kpiRow?.revenue)), sub: 'invoiced · FY to date',
+      { label: 'Revenue', value: fmtMoney(n(kpiRow?.revenue)), sub: `invoiced · active clients · FY ${yy(fy)}${w.toDate ? ' to date' : ''}`,
         drill: { kind: 'revenue', tsm } },
       {
         label: 'Active Clients',
@@ -700,10 +820,14 @@ export default async function ExecutiveReviewPage({ searchParams }: {
     );
   }
 
-  const periodText  = `FY ${yy(fy)} to date`;
-  const periodLabel = `${tsmName} · ${periodText}`;
+  const periodText  = `FY ${yy(fy)}${w.toDate ? ' to date' : ''}`;
+  const periodLabel = `${tsmName} · ${periodText} · ${accountScope === 'all' ? 'primary + secondary' : 'primary'} accounts`;
 
-  const note = `Live data for ${tsmName}'s current fiscal year (Apr–Mar) to date. "Order in Hand" is the value of Won opportunities not yet turned into a Sales Order; "Order Received" is the value of Won opportunities dated in the FY. "Revenue" is invoiced revenue for the FY to date. "Conversion" divides order received by the quoted pipeline, and that panel says in full what it counts and what it leaves out. Turnover columns show each whole fiscal year to date, so the current FY reflects its turnover so far. Clients, Prospective and Active Clients are current-portfolio counts; "Prosp. client" has an ERP code and an enquiry behind it while "Prosp. lead" is only a name so far, and "Unclassified / other" is every client whose type was never set — it is there so the Grand Total is a real total; "Visited" on those two cards means a visit logged within the last 90 days, and every number is clickable through to a filtered client list.`;
+  // The fiscal years the selector offers, newest first and built on the server
+  // so the client component cannot offer a year parseFy would then reject.
+  const fyOpts = fyChoices(now).map(y => ({ value: String(y), label: `FY ${yy(y)}` }));
+
+  const note = `Live data for ${tsmName}, fiscal year ${yy(fy)} (Apr–Mar)${w.toDate ? ' to date' : ', complete'}. An opportunity belongs to the year its quotation is dated in, or failing that the day its record was made; anything the year does not reach is counted on its own line in Target & Conversion rather than quietly left out. "Order in Hand" is the value of Won opportunities not yet turned into a Sales Order; "Order Received" is the value of Won opportunities dated in the FY. "Revenue" is invoiced revenue from active clients, the same basis as the Turnover table. "Conversion" divides order received by the quoted pipeline, and that panel says in full what it counts and what it leaves out. Every figure counts the ${accountScope === 'all' ? 'accounts this person owns and the ones they cover' : 'accounts this person owns'}, which the Accounts control changes${data.bookSplit ? ' — Book & Coverage shows both sides' : ''}. Turnover columns show each whole fiscal year to date. Clients, Prospective and Active Clients are current-portfolio counts; "Prosp. client" has an ERP code and an enquiry behind it while "Prosp. lead" is only a name so far, and "Unclassified / other" is every client whose type was never set — it is there so the Grand Total is a real total; "Visited" on those two cards means a visit logged within the last 90 days, and every number is clickable through to a filtered client list.`;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -744,13 +868,13 @@ export default async function ExecutiveReviewPage({ searchParams }: {
             )}
           </>
         ) : (
-          <ExecDrilldownProvider tsm={tsm} scope={accountScope}>
+          <ExecDrilldownProvider tsm={tsm} scope={accountScope === 'all' ? 'all' : 'own'} fy={String(fy)}>
           <ExecutiveViews
             data={data}
             periodLabel={periodLabel}
             note={note}
             tabs={tabs}
-            selector={<ExecutiveSelector reps={reps} tsm={tsm} scope={accountScope} />}
+            selector={<ExecutiveSelector reps={reps} tsm={tsm} scope={accountScope === 'all' ? 'all' : 'own'} fys={fyOpts} fy={String(fy)} />}
           />
           </ExecDrilldownProvider>
         )}

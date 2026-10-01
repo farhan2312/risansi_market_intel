@@ -17,8 +17,11 @@ const DrillCtx = createContext<Ctx | null>(null);
 const fmtINR = (n: number) =>
   '₹' + Math.round(n).toLocaleString('en-IN');
 
-export function ExecDrilldownProvider({ tsm, scope, children }: {
-  tsm: string; scope: 'own' | 'all'; children: ReactNode;
+export function ExecDrilldownProvider({ tsm, scope, fy, children }: {
+  tsm: string; scope: 'own' | 'all';
+  /** The FY the page is showing, injected into every drill so the list matches the figure. */
+  fy: string;
+  children: ReactNode;
 }) {
   const [pending, start] = useTransition();
   const [result, setResult] = useState<DrillResult | null>(null);
@@ -29,7 +32,7 @@ export function ExecDrilldownProvider({ tsm, scope, children }: {
   const open = (p: DrillParams) => {
     setShowing(true); setResult(null); setFailed(false); setQ('');
     start(async () => {
-      const r = await execDrilldown({ ...p, tsm, scope });
+      const r = await execDrilldown({ ...p, tsm, scope, fy });
       if (!r) { setFailed(true); return; }
       setResult(r);
     });

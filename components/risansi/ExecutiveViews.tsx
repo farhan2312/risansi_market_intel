@@ -53,6 +53,44 @@ export interface ExecConversion {
   excludes: string;
   /** Where the target comes from, so nobody hunts for a per-rep one. */
   targetNote: string;
+  /** What the fiscal-year window leaves out. Null when it leaves out nothing. */
+  outside: ExecOutside | null;
+}
+
+/**
+ * Everything on the book that the selected fiscal year does not reach.
+ *
+ * It has a type of its own because it is the opposite of a figure: its job is to
+ * be the thing no total contains, stated out loud. A quotation dated in one FY
+ * and entered in the next used to be on the Opportunities board and on no view
+ * of this page at all.
+ */
+export interface ExecOutside {
+  opps: number;
+  value: number;
+  /** How much of it is still live rather than closed history. */
+  openOpps: number;
+  openValue: number;
+  oldest: string | null;
+  newest: string | null;
+  drill: DrillParams;
+}
+
+/**
+ * A TSM's own accounts beside the ones they cover for somebody else.
+ *
+ * The review counts owned accounts and the Opportunities board counts both, so
+ * the same manager reads several times apart on the two pages. Rather than pick
+ * one and hope, this panel prints both columns and says which is which.
+ */
+export interface ExecBookSplit {
+  ownLabel: string;
+  coveredLabel: string;
+  note: string;
+  isManager: boolean;
+  /** Which column the rest of the page is currently built from. */
+  scope: 'own' | 'all' | 'covered';
+  table: ExecTable;
 }
 
 export interface ExecData {
@@ -62,6 +100,8 @@ export interface ExecData {
   offerStatus:     ExecTable;
   attendance:      ExecTable;
   conversion:      ExecConversion;
+  /** Null for a rep who neither manages nor covers — the split would be all zeroes. */
+  bookSplit:       ExecBookSplit | null;
   kpis:            ExecKpi[];
 }
 
@@ -164,9 +204,37 @@ export function ConversionFigures({ c }: { c: ExecConversion }) {
           {bar(c.orderReceivedInr, 'var(--pos)')}
         </div>
       </div>
+      {c.outside && <OutsideWindow o={c.outside} />}
     </div>
   );
 }
+
+// What the fiscal year does not reach, said in the panel rather than nowhere.
+// Amber rather than red: it is not an error, it is work sitting in a year you
+// are not looking at, and the FY selector above is how you go and look.
+function OutsideWindow({ o }: { o: ExecOutside }) {
+  const span = o.oldest && o.newest
+    ? (o.oldest === o.newest ? day(o.oldest) : `${day(o.oldest)} to ${day(o.newest)}`)
+    : 'no date recorded';
+  return (
+    <div style={{ marginTop: 14, padding: '10px 12px', borderRadius: 6, border: '1px solid var(--warn)',
+                  background: 'color-mix(in oklab, var(--warn) 8%, transparent)', fontSize: 11.5, lineHeight: 1.55 }}>
+      <DrillCell params={o.drill} style={{ textDecoration: 'none', display: 'block' }}>
+        <strong style={{ color: 'var(--warn)' }}>
+          {o.opps} {o.opps === 1 ? 'opportunity' : 'opportunities'} worth {fmtCr(o.value)} fall outside this fiscal year
+        </strong>
+        <span style={{ color: 'var(--fg-3)' }}>
+          {' '}and are in no figure on this page{o.openOpps > 0
+            ? ` — ${o.openOpps} of them still open, worth ${fmtCr(o.openValue)}`
+            : ''}. Dated {span}; change the fiscal year above to see them.
+        </span>
+      </DrillCell>
+    </div>
+  );
+}
+
+const day = (iso: string) => new Date(`${iso.slice(0, 10)}T00:00:00`)
+  .toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 
 // ── Tabs ───────────────────────────────────────────────────────
 // Three views of the same review: the person, the account, the forecast.
@@ -269,6 +337,26 @@ export function ExecutiveViews({ data, selector, periodLabel, note, tabs }: {
               <strong style={{ color: 'var(--fg-2)' }}>Leaves out:</strong> {data.conversion.excludes}
             </p>
           } />
+        {/* Own book beside covered book, for anyone who manages or covers.
+            Shown before the rest because it explains why the rest reads the way
+            it does: every other panel on this tab counts the column named in
+            the footer, and the Opportunities board counts Combined. */}
+        {data.bookSplit && (
+          <MiniTable title="Book & Coverage" note={data.bookSplit.note} table={data.bookSplit.table} full
+            footer={
+              <p style={{ fontSize: 11, color: 'var(--fg-3)', margin: 0, lineHeight: 1.55, maxWidth: 900 }}>
+                {data.bookSplit.isManager
+                  ? 'A manager carries their own accounts and covers for their team, so both are shown rather than merged. '
+                  : 'This person covers accounts they do not own, so both are shown rather than merged. '}
+                Every other panel on this tab counts{' '}
+                <strong style={{ color: 'var(--fg-2)' }}>
+                  {data.bookSplit.scope === 'all' ? 'Combined' : data.bookSplit.scope === 'covered' ? data.bookSplit.coveredLabel : 'Own book'}
+                </strong>
+                , which the Accounts control above changes. The Opportunities board always counts <strong style={{ color: 'var(--fg-2)' }}>Combined</strong>,
+                so that is the column to compare against it.
+              </p>
+            } />
+        )}
         <MiniTable title="Clients Summary" note="clients by type and status" table={data.clientsSummary}
           chart={<StackedHBars rows={clientRows} series={clientSeries} colors={clientColors} />} />
         <MiniTable title="Quotation Summary" note="₹ by channel" table={data.quotationSummary}
@@ -280,8 +368,11 @@ export function ExecutiveViews({ data, selector, periodLabel, note, tabs }: {
               <div><div style={CHART_T}>Clients in each band</div><HBars rows={turnClients} color="var(--pos)" highlightMax /></div>
             </div>
           } />
+        {/* Seven slices, not five: Prospect and Suspect have wording now, so the
+            donut and the table below it cover every offer rather than the six
+            stages that happened to be mapped. */}
         <MiniTable title="Offer Status" note="₹ by opportunity status" table={data.offerStatus}
-          chart={<Donut slices={offerSlices} colors={['var(--accent)', 'var(--warn)', 'var(--neg)', 'var(--pos)', 'var(--fg-3)']} fmt={fmtCr} />} />
+          chart={<Donut slices={offerSlices} colors={OFFER_COLORS} fmt={fmtCr} />} />
         <MiniTable title="Attendance" note="field visits" table={data.attendance}
           chart={<GroupedBars cats={attCats} series={['Visit days', 'Clients']} colors={['var(--accent)', 'var(--pos)']} height={100} />} />
       </div>
@@ -295,6 +386,9 @@ const PANEL_TITLE: CSSProperties = { fontSize: 11, fontWeight: 700, letterSpacin
 const META: CSSProperties = { fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', marginLeft: 'auto' };
 const CHART_T: CSSProperties = { fontSize: 10.5, fontWeight: 600, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 };
 const METRIC_LABEL: CSSProperties = { fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fg-3)', fontWeight: 600 };
+// One colour per row of OFFER_STATUS_ORDER: not-yet-quoted and parked in the
+// cool/neutral end, live work in the accent, the three endings in won/lost/grey.
+const OFFER_COLORS = ['#0891B2', '#7C3AED', 'var(--accent)', 'var(--warn)', 'var(--pos)', 'var(--neg)', 'var(--fg-3)'];
 const BAR_LABEL: CSSProperties = { display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--fg-3)', marginBottom: 4, fontFamily: 'var(--font-mono)' };
 const TH: CSSProperties = { padding: '8px 12px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600, color: 'var(--fg-3)', background: 'var(--bg-elev)', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
 const TD: CSSProperties = { padding: '8px 12px', verticalAlign: 'middle', whiteSpace: 'nowrap' };

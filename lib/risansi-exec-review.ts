@@ -50,37 +50,97 @@ export const TURN_ORDER = [
   'Less than 1 Lac p.a.', 'New Business', 'Business Regained', 'End Client', 'No Business',
 ];
 
-/** Stage → the offer-status wording the review uses. */
+/**
+ * Stage → the offer-status wording the review uses.
+ *
+ * Prospect and Suspect are in here. They used to be left out, and because the
+ * panel aggregates by label and then totals the labels, their value appeared in
+ * neither a row nor the Grand Total — ₹26.22 Cr of parked Suspect enquiries
+ * missing from a table whose heading promises every offer. A status with no
+ * wording is still a status.
+ */
 export const STAGE_TO_OFFER: Record<string, string> = {
+  Prospect: 'Enquiry — not yet quoted', Suspect: 'Parked — budgetary or future',
   Quoted: 'Active', Negotiating: 'Active', 'On Hold': 'Hold-Active',
   Won: 'Order Received', Lost: 'Order Lost by RIL', Dropped: 'Requirement Closed',
 };
 
 /**
+ * The offer-status rows in reading order: what has not been priced yet, what is
+ * live, then the three ways it ends. Derived here rather than written out at the
+ * call site so a stage added above cannot go unrendered.
+ */
+export const OFFER_STATUS_ORDER = (() => {
+  const preferred = [
+    'Enquiry — not yet quoted', 'Parked — budgetary or future', 'Active', 'Hold-Active',
+    'Order Received', 'Order Lost by RIL', 'Requirement Closed',
+  ];
+  const all = [...new Set(Object.values(STAGE_TO_OFFER))];
+  // A label the preferred order does not know about still gets a row, at the
+  // end. Dropping it is how the panel lost Prospect and Suspect in the first place.
+  return [...preferred.filter(l => all.includes(l)), ...all.filter(l => !preferred.includes(l))];
+})();
+
+/**
+ * The date an opportunity is windowed on: the quotation's own date when there is
+ * one, else the day the record was made. Written once because the page, the
+ * drill-down and the out-of-window check must all window on the same column —
+ * when they did not, a quote dated in February and entered in September was
+ * inside one and outside another.
+ */
+export const OPP_WINDOW_DATE = 'COALESCE(o.quote_date, o.created_at::date)';
+
+/**
+ * Stages where the deal has not finished yet. Used to say how much of what the
+ * FY window excludes is still live, because an old Won is history and an old
+ * Quoted is work somebody is still waiting on.
+ */
+export const OPEN_STAGES = ['Prospect', 'Suspect', 'Quoted', 'Negotiating', 'On Hold'] as const;
+
+/** Which of a TSM's accounts a figure is counted over. */
+export type AccountScope = 'own' | 'all' | 'covered';
+
+/**
  * Which of a TSM's clients the review counts.
  *
  * `own` is the book they are answerable for and the honest denominator for every
- * ratio on the page. `all` adds the accounts they cover. Either way the result is
- * intersected with the VIEWER's own visibility (`visAnd`): widening which of the
- * subject's accounts to count must never widen what the person looking may see.
+ * ratio on the page. `all` adds the accounts they cover, which is what the
+ * Opportunities board counts — the two pages read nearly 4x apart on a manager
+ * for exactly this reason. `covered` is the difference between them: accounts
+ * they cover for somebody else and do not own, which is what the Book &
+ * Coverage panel puts in its own labelled column rather than merging in silence.
+ *
+ * Either way the result is intersected with the VIEWER's own visibility
+ * (`visAnd`): widening which of the subject's accounts to count must never
+ * widen what the person looking may see.
  */
 export function execScopeSql(
-  tsmId: number, accountScope: 'own' | 'all', visAnd: string,
+  tsmId: number, accountScope: AccountScope, visAnd: string,
 ): string {
   if (!tsmId) return 'FALSE';
   const owns = `c.primary_rep_id = ${tsmId}`;
   const covers = `c.id IN (SELECT client_id FROM client_secondary_reps WHERE rep_id = ${tsmId})`;
+  // IS DISTINCT FROM, not NOT (=): an unassigned client has a null
+  // primary_rep_id, and NOT (null = 5) is null, which would quietly drop a
+  // covered account that nobody owns.
+  const who = accountScope === 'all' ? `${owns} OR ${covers}`
+    : accountScope === 'covered' ? `c.primary_rep_id IS DISTINCT FROM ${tsmId} AND ${covers}`
+    : owns;
   // c.deleted_at IS NULL: an archived client's figures leave the review with it.
-  return `((${accountScope === 'all' ? `${owns} OR ${covers}` : owns}) AND c.deleted_at IS NULL${visAnd})`;
+  return `((${who}) AND c.deleted_at IS NULL${visAnd})`;
 }
 
 export interface FyWindows {
   /** FY start year the review anchors on, e.g. 2026 for FY 26-27. */
   fy: number;
-  /** Every month of the current FY up to now, as 'YYYY-MM'. */
+  /** Every month of the selected FY the review covers, as 'YYYY-MM'. */
   selMonths: string[];
   /** `col` bucketed into the selected months. */
   inMonths: (col: string) => string;
+  /** `col` falling outside those months, or carrying no date at all. */
+  outsideMonths: (col: string) => string;
+  /** True when the selected FY is still running, so the window stops at this month. */
+  toDate: boolean;
   /** 'YYYY-MM-01' for an FY start year. */
   d: (y: number, m?: number) => string;
   /** The five completed FYs before the anchor. */
@@ -88,33 +148,63 @@ export interface FyWindows {
   w5to: string;
 }
 
+/** The FY (April–March) a moment falls in, as its start year. */
+export const fyOf = (now: Date) => (now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1);
+
+/** FY start year → the app's label format: 2026 → '26-27'. */
+export const fyLabel = (y: number) => `${String(y % 100).padStart(2, '0')}-${String((y + 1) % 100).padStart(2, '0')}`;
+
+/** How many fiscal years back the selector offers. */
+export const FY_CHOICES = 6;
+
+/** The FY start years the selector offers, newest first. */
+export const fyChoices = (now: Date, earliest?: number | null): number[] => {
+  const cur = fyOf(now);
+  const floor = Math.max(earliest ?? cur - (FY_CHOICES - 1), cur - (FY_CHOICES - 1));
+  return Array.from({ length: cur - floor + 1 }, (_, i) => cur - i);
+};
+
+/** A `fy` search param, accepted only if it is one the selector offers. */
+export const parseFy = (raw: unknown, now: Date, earliest?: number | null): number => {
+  const v = Number(raw);
+  const allowed = fyChoices(now, earliest);
+  return Number.isInteger(v) && allowed.includes(v) ? v : fyOf(now);
+};
+
 /**
- * The review's fiscal windows. April–March, current FY to date.
+ * The review's fiscal windows. April–March.
  *
  * `now` is a parameter so the page and the drill-down can be handed the same
  * instant; two calls a second apart either side of midnight on 1 April would
- * otherwise anchor on different years.
+ * otherwise anchor on different years. `selFy` picks a past year; the current
+ * one still stops at this month, because a review of the year so far should not
+ * promise months that have not happened, while a finished year is shown whole.
  */
-export function fyWindows(now: Date): FyWindows {
-  const fyStartYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+export function fyWindows(now: Date, selFy?: number | null): FyWindows {
+  const currentFy = fyOf(now);
+  const fy = selFy == null ? currentFy : selFy;
+  const last = fy < currentFy
+    ? new Date(fy + 1, 2, 1)                                  // March of a completed FY
+    : new Date(now.getFullYear(), now.getMonth(), 1);         // this month
   const selMonths: string[] = [];
   for (
-    let cur = new Date(fyStartYear, 3, 1);
-    cur <= new Date(now.getFullYear(), now.getMonth(), 1);
+    let cur = new Date(fy, 3, 1);
+    cur <= last;
     cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1)
   ) {
     selMonths.push(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}`);
   }
-  const latest = selMonths[selMonths.length - 1];
-  const selY = Number(latest.slice(0, 4));
-  const selM = Number(latest.slice(5, 7));
-  const fy = selM >= 4 ? selY : selY - 1;
   const d = (y: number, m = 4) => `${y}-${String(m).padStart(2, '0')}-01`;
   // Values are all YYYY-MM built above, so inlining them is safe.
   const qMonths = selMonths.map(m => `'${m}'`).join(',');
+  const inMonths = (col: string) => `to_char(${col},'YYYY-MM') IN (${qMonths})`;
   return {
-    fy, selMonths, d,
-    inMonths: (col: string) => `to_char(${col},'YYYY-MM') IN (${qMonths})`,
+    fy, selMonths, d, inMonths, toDate: fy >= currentFy,
+    // The IS NULL arm is not decoration: to_char(NULL) is NULL, so NOT(NULL IN
+    // (...)) is NULL and a dateless row would be excluded from BOTH the window
+    // and the out-of-window check — invisible on every view, which is the exact
+    // failure this row exists to make impossible.
+    outsideMonths: (col: string) => `(${col} IS NULL OR NOT (${inMonths(col)}))`,
     w5from: d(fy - 5), w5to: d(fy),
   };
 }

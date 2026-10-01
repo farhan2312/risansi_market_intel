@@ -5,8 +5,9 @@ import {
   getCurrentUser, getReviewableRepIds, clientVisibilitySql, clientScopeSql, OWN_OPEN,
 } from '@/lib/risansi-auth';
 import {
-  CANON, CAT_OTHER, CAT_OTHER_SQL, execScopeSql, fyWindows, TURNOVER_BAND_CASE, TURNOVER_REV_CTE, STAGE_TO_OFFER,
-  CONVERSION_STAGES, conversionWhereSql,
+  CANON, CAT_OTHER, CAT_OTHER_SQL, execScopeSql, fyWindows, parseFy, TURNOVER_BAND_CASE, TURNOVER_REV_CTE,
+  STAGE_TO_OFFER, CONVERSION_STAGES, conversionWhereSql, OPP_WINDOW_DATE, OPEN_STAGES,
+  type AccountScope,
 } from '@/lib/risansi-exec-review';
 
 // What is behind a number on the Executive Review.
@@ -44,12 +45,17 @@ export type DrillKind =
   | 'active_clients' | 'active_visited' | 'active_overdue' | 'active_never'
   | 'prospective' | 'prospective_visited' | 'prospective_lead' | 'prospective_client'
   | 'clients_by_type' | 'quotation' | 'turnover' | 'offer_status'
-  | 'attendance_visits' | 'attendance_clients' | 'conversion';
+  | 'attendance_visits' | 'attendance_clients' | 'conversion' | 'outside_window';
 
 export interface DrillParams {
   kind: DrillKind;
   tsm: string;
-  scope?: string;      // 'own' | 'all'
+  /**
+   * The FY start year the page is showing. Without it the drill-down anchors on
+   * the current year and a review of FY 25-26 opens lists from FY 26-27.
+   */
+  fy?: string;
+  scope?: string;      // 'own' | 'all' | 'covered'
   /** Row key: client type, channel, turnover band, offer status, or 'YYYY-MM'. */
   key?: string;
   /** Column key for the quotation and turnover tables. */
@@ -71,9 +77,13 @@ export async function execDrilldown(p: DrillParams): Promise<DrillResult | null>
 
   const vis = clientVisibilitySql(me, 'c');
   const visAnd = vis ? ` AND (${vis})` : '';
-  const accountScope: 'own' | 'all' = p.scope === 'all' ? 'all' : 'own';
+  const accountScope: AccountScope =
+    p.scope === 'all' ? 'all' : p.scope === 'covered' ? 'covered' : 'own';
   const scope = execScopeSql(tsmId, accountScope, visAnd);
-  const w = fyWindows(new Date());
+  // parseFy rejects anything the selector would not offer, so a hand-typed year
+  // cannot widen the window; the page and this list then share one definition.
+  const now = new Date();
+  const w = fyWindows(now, parseFy(p.fy, now));
 
   const who = (await risansiPool.query<{ name: string }>(
     'SELECT name FROM users WHERE id = $1', [tsmId])).rows[0]?.name ?? 'this TSM';
@@ -113,7 +123,7 @@ export async function execDrilldown(p: DrillParams): Promise<DrillResult | null>
                  count(*)::text || ' won opportunit' || CASE WHEN count(*) = 1 THEN 'y' ELSE 'ies' END AS detail
             FROM opportunities o JOIN clients c ON c.id = o.client_id
            WHERE ${scope} AND o.stage = 'Won'
-             AND ${w.inMonths('COALESCE(o.quote_date, o.created_at::date)')}
+             AND ${w.inMonths(OPP_WINDOW_DATE)}
            GROUP BY c.id, c.code, c.legal_name
           HAVING round(sum(GREATEST(
                    COALESCE(o.final_value_cr*10000000, o.value_cr*10000000, 0)
@@ -128,11 +138,15 @@ export async function execDrilldown(p: DrillParams): Promise<DrillResult | null>
           SELECT c.id, c.code, c.legal_name AS name, round(sum(r.total_value)) AS value,
                  count(DISTINCT r.month)::text || ' month(s) invoiced' AS detail
             FROM client_revenue_monthly r JOIN clients c ON c.id = r.client_id
-           WHERE ${scope} AND ${w.inMonths('r.month')}
+           WHERE ${scope} AND c.status='ACTIVE' AND ${w.inMonths('r.month')}
            GROUP BY c.id, c.code, c.legal_name
           HAVING sum(r.total_value) <> 0
            ORDER BY value DESC`);
-        return { title: 'Revenue · FY to date', subtitle: sub, unit: 'money', rows, total: rows.reduce((s, r) => s + money(r.value), 0) };
+        return {
+          title: `Revenue · FY ${w.fy}${w.toDate ? ' to date' : ''}`,
+          subtitle: `${sub} · active clients only`,
+          unit: 'money', rows, total: rows.reduce((s, r) => s + money(r.value), 0),
+        };
       }
 
       // ── the client-count KPIs ─────────────────────────────────
@@ -191,7 +205,7 @@ export async function execDrilldown(p: DrillParams): Promise<DrillResult | null>
                  string_agg(DISTINCT o.stage, ', ') AS detail
             FROM opportunities o JOIN clients c ON c.id = o.client_id
            WHERE ${scope} AND ${stageCond}
-             AND ${w.inMonths('COALESCE(o.quote_date, o.created_at::date)')}
+             AND ${w.inMonths(OPP_WINDOW_DATE)}
              AND ${p.key === CAT_OTHER ? CAT_OTHER_SQL : `${CANON} = '${key}'`}
            GROUP BY c.id, c.code, c.legal_name
           HAVING sum(o.offer_value_inr) IS NOT NULL
@@ -209,13 +223,36 @@ export async function execDrilldown(p: DrillParams): Promise<DrillResult | null>
                  count(*)::text || ' · ' || string_agg(DISTINCT o.stage, ', ') AS detail
             FROM opportunities o JOIN clients c ON c.id = o.client_id
            WHERE ${scope} AND ${conversionWhereSql(stages)}
-             AND ${w.inMonths('COALESCE(o.quote_date, o.created_at::date)')}
+             AND ${w.inMonths(OPP_WINDOW_DATE)}
            GROUP BY c.id, c.code, c.legal_name
           HAVING sum(COALESCE(o.offer_value_inr,0)) <> 0
            ORDER BY value DESC`);
         return {
           title: all ? 'Total quoted · the conversion denominator' : `${p.key} · offer value`,
           subtitle: `${sub} · budgetary enquiries excluded`,
+          unit: 'money', rows, total: rows.reduce((s, r) => s + money(r.value), 0),
+        };
+      }
+
+      // ── What the fiscal-year window leaves out ───────────────
+      // Every stage, because the window governs every opportunity panel on the
+      // page. The detail line carries the stage and the date it is windowed on,
+      // which is the thing that surprises people: a quotation dated in one year
+      // and entered in the next.
+      case 'outside_window': {
+        const open = OPEN_STAGES.map(s => `'${s}'`).join(',');
+        const rows = await run(`
+          SELECT c.id, c.code, c.legal_name AS name, round(sum(COALESCE(o.offer_value_inr,0))) AS value,
+                 string_agg(DISTINCT o.stage || ' · ' ||
+                   COALESCE(to_char(${OPP_WINDOW_DATE}, 'DD Mon YYYY'), 'no date')
+                   || CASE WHEN o.stage IN (${open}) THEN ' · still open' ELSE '' END, '; ') AS detail
+            FROM opportunities o JOIN clients c ON c.id = o.client_id
+           WHERE ${scope} AND ${w.outsideMonths(OPP_WINDOW_DATE)}
+           GROUP BY c.id, c.code, c.legal_name
+           ORDER BY value DESC NULLS LAST`);
+        return {
+          title: `Outside FY ${w.fy} · in no figure on the page`,
+          subtitle: `${sub} · windowed on the quote date, else the day the record was made`,
           unit: 'money', rows, total: rows.reduce((s, r) => s + money(r.value), 0),
         };
       }
@@ -248,7 +285,7 @@ export async function execDrilldown(p: DrillParams): Promise<DrillResult | null>
                  count(*)::text || ' opportunit' || CASE WHEN count(*) = 1 THEN 'y' ELSE 'ies' END AS detail
             FROM opportunities o JOIN clients c ON c.id = o.client_id
            WHERE ${scope} AND o.stage IN (${stages.map(s => `'${esc(s)}'`).join(',')})
-             AND ${w.inMonths('COALESCE(o.quote_date, o.created_at::date)')}
+             AND ${w.inMonths(OPP_WINDOW_DATE)}
            GROUP BY c.id, c.code, c.legal_name
           HAVING sum(o.offer_value_inr) IS NOT NULL
            ORDER BY value DESC`);
