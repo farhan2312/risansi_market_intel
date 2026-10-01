@@ -8,6 +8,7 @@ import {
   BUG_TYPES, BUG_TYPE_LABELS, BUG_TYPE_COLORS, turnaround, type BugStatus,
 } from '@/lib/risansi-bugs';
 import { updateBugStatus, updateBugSeverity, updateBugType, updateBugResolutionNotes, deleteBug } from '@/app/actions/risansi-bugs';
+import { ScreenshotLightbox } from './ScreenshotLightbox';
 
 export interface BugCard {
   id: number;
@@ -208,6 +209,8 @@ function BugDetailModal({ bug, onClose, onMove, onSeverity, onType, onSaveNotes,
   const [confirmDel, setConfirmDel] = useState(false);
   const [notes, setNotes]           = useState(bug.resolution_notes ?? '');
   const [notesState, setNotesState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  // Which screenshot the lightbox is showing; null while it is closed.
+  const [shotIdx, setShotIdx]       = useState<number | null>(null);
   const dirty = notes.trim() !== (bug.resolution_notes ?? '').trim();
   const fmt = (iso: string | null) => iso ? new Date(iso).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
 
@@ -322,15 +325,27 @@ function BugDetailModal({ bug, onClose, onMove, onSeverity, onType, onSaveNotes,
               {/* Stacked rather than tiled: a screenshot is unreadable at thumbnail
                   size, and the admin is reading them to understand the report. */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {bug.screenshot_ids.map(sid => (
-                  <a key={sid} href={`/api/risansi/bug-screenshot/${sid}`} target="_blank" rel="noreferrer">
+                {bug.screenshot_ids.map((sid, i) => (
+                  <button key={sid} type="button" onClick={() => setShotIdx(i)}
+                    aria-label={bug.screenshot_ids.length > 1 ? `Enlarge screenshot ${i + 1} of ${bug.screenshot_ids.length}` : 'Enlarge screenshot'}
+                    style={{ background: 'none', border: 'none', padding: 0, cursor: 'zoom-in', display: 'block', textAlign: 'left' }}>
                     {/* eslint-disable-next-line @next/next/no-img-element -- dynamic API-route image, next/image can't optimise it */}
                     <img src={`/api/risansi/bug-screenshot/${sid}`} alt="Bug screenshot"
                       style={{ maxWidth: '100%', maxHeight: 320, borderRadius: 6, border: '1px solid var(--line)', display: 'block' }} />
-                  </a>
+                  </button>
                 ))}
               </div>
             </div>
+          )}
+
+          {shotIdx !== null && (
+            <ScreenshotLightbox
+              srcs={bug.screenshot_ids.map(sid => `/api/risansi/bug-screenshot/${sid}`)}
+              index={shotIdx}
+              onIndexChange={setShotIdx}
+              onClose={() => setShotIdx(null)}
+              subject={`bug #${bug.id}`}
+            />
           )}
 
           {/* Resolution notes */}

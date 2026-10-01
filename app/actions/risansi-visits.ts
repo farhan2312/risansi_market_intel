@@ -21,6 +21,10 @@ function callerRole(session: { user?: { role?: string | null } }): string | null
 
 // Resolve the signed-in user's rep id: prefer the session's linked rep_id,
 // fall back to a reps-by-email lookup for accounts linked after token issue.
+/** A refusal the person can read. Thrown server-action errors are redacted in
+ *  production, so a rule that throws reaches the user as nothing at all. */
+export type SaveResult = { ok: true } | { ok: false; error: string };
+
 async function callerRepId(session: {
   user?: { repId?: number | null; email?: string | null };
 }): Promise<number | null> {
@@ -775,9 +779,19 @@ function oppProductType(pumpType: string | null | undefined): string {
   return t === 'PCP' || t === 'MMP' ? t : 'OTHER';
 }
 
-export async function submitVisit(visitId: string) {
+/**
+ * Close a visit.
+ *
+ * Every refusal here is returned, not thrown. A thrown server-action error is
+ * redacted in production, so the caller got an opaque failure and the Confirm
+ * Submit button — which had no catch — simply did nothing: the page never
+ * refreshed, the spinner reset, and the rep was left pressing a button that
+ * gave no reason. Visit 1810 sat like that because the visit belongs to one of
+ * Ankur Srivastava's two accounts and he was signed into the other.
+ */
+export async function submitVisit(visitId: string): Promise<SaveResult> {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.email) throw new Error('Unauthorized');
+  if (!session?.user?.email) return { ok: false, error: 'Your session has expired. Sign in again.' };
 
   const [visitRes, sugarRes, dispRes] = await Promise.all([
     risansiPool.query(
@@ -791,18 +805,28 @@ export async function submitVisit(visitId: string) {
   ]);
 
   const visit = visitRes.rows[0];
-  if (!visit) throw new Error('Visit not found or already closed');
+  if (!visit) return { ok: false, error: 'This visit no longer exists, or it has already been submitted.' };
 
-  // Ownership: only the assigned rep may submit (close) the visit.
+  // Ownership: only the assigned rep may submit (close) the visit. The message
+  // names the rep it belongs to, because the usual cause is one person holding
+  // two accounts and being signed into the wrong one — "only the assigned rep"
+  // on its own does not tell them what to do about it.
   const submitterRepId = await callerRepId(session);
   if (visit.rep_id == null || submitterRepId == null || Number(visit.rep_id) !== Number(submitterRepId)) {
-    throw new Error('Only the assigned rep can submit this visit.');
+    const { rows: [owner] } = await risansiPool.query<{ name: string; email: string }>(
+      'SELECT name, email FROM users WHERE id = $1', [visit.rep_id]);
+    return {
+      ok: false,
+      error: visit.rep_id == null
+        ? 'This visit has no rep assigned, so there is nobody to submit it. Ask an administrator to assign it.'
+        : `This visit is assigned to ${owner?.name ?? 'another rep'}${owner?.email ? ` (${owner.email})` : ''}, and only they can submit it. If that is also you, sign in with that account.`,
+    };
   }
   // And the client must be theirs — the same Blocked rule the page applies
   // when it hides the button. Without this, an orphaned visit could still be
   // closed by hand, and a closed visit moves the client's last-visit date.
   const blocked = await whyCannotVisitClient(Number(visit.rep_id), Number(visit.client_id));
-  if (blocked) throw new Error(blocked);
+  if (blocked) return { ok: false, error: blocked };
 
   const sugar     = sugarRes.rows[0];
   const dispOpps  = dispRes.rows;
@@ -960,4 +984,5 @@ export async function submitVisit(visitId: string) {
   revalidatePath(`/risansi/visits/${visitId}`);
   revalidatePath(`/risansi/clients/${visit.cid}`);
   revalidatePath('/risansi/field');
+  return { ok: true };
 }

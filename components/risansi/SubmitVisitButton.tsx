@@ -7,6 +7,10 @@ import { submitVisit } from '@/app/actions/risansi-visits';
 export function SubmitVisitButton({ visitId }: { visitId: string }) {
   const [confirming, setConfirming] = useState(false);
   const [loading, setLoading]       = useState(false);
+  // Why it would not submit. The action used to throw, and this button had no
+  // catch, so a refusal arrived as nothing happening at all — the page did not
+  // refresh, the spinner reset, and the rep pressed the button again.
+  const [error, setError]           = useState('');
   const router = useRouter();
 
   if (confirming) {
@@ -16,6 +20,13 @@ export function SubmitVisitButton({ visitId }: { visitId: string }) {
           This will <strong>close the visit</strong> and create any auto-generated items.
           You cannot edit after submitting.
         </div>
+        {error && (
+          <div role="alert" style={{
+            maxWidth: 320, textAlign: 'left', padding: '8px 11px', fontSize: 12, lineHeight: 1.45,
+            background: 'var(--neg-soft, #FEE2E2)', border: '1px solid var(--neg)',
+            borderRadius: 6, color: 'var(--neg-strong, #9B1C1C)',
+          }}>{error}</div>
+        )}
         <div style={{ display: 'flex', gap: 8 }}>
           <button
             onClick={() => setConfirming(false)}
@@ -30,10 +41,15 @@ export function SubmitVisitButton({ visitId }: { visitId: string }) {
           </button>
           <button
             onClick={async () => {
-              setLoading(true);
+              setLoading(true); setError('');
               try {
-                await submitVisit(visitId);
+                const res = await submitVisit(visitId);
+                if (!res.ok) { setError(res.error); return; }
                 router.refresh();
+              } catch (e) {
+                // Anything the action did not anticipate. Still better than
+                // silence, even though the message will be a redacted one.
+                setError(e instanceof Error ? e.message : 'The visit could not be submitted. Try again.');
               } finally {
                 setLoading(false);
               }
