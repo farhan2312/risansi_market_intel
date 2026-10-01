@@ -470,13 +470,20 @@ export default async function PipelinePage({
       }) as unknown as OppRow[];
     }, []),
 
-    // 2. Booked YTD — current FY, returned in Cr
+    // 2. Booked YTD — current FY, returned in Cr.
+    //
+    //    Active clients only, which is what the Executive Review's turnover
+    //    table has always counted and what its Revenue KPI was changed to
+    //    count on 1 Oct. Without the clause the same fiscal year read
+    //    ₹16.53 Cr here and ₹16.27 Cr there, and the ₹26,31,395 between them
+    //    was revenue invoiced to accounts still marked prospective.
     q<number>(async () => {
       const { rows } = await risansiPool.query<{ booked_inr: string }>(
         `SELECT COALESCE(SUM(m.total_value), 0)::text AS booked_inr
          FROM client_revenue_monthly m
          JOIN clients c ON c.id = m.client_id
-         WHERE m.month >= '${cyStart}' AND m.month < '${cyEnd}'${revFilterClause}`,
+         WHERE c.status = 'ACTIVE'
+           AND m.month >= '${cyStart}' AND m.month < '${cyEnd}'${revFilterClause}`,
         revVals as (string | number)[],
       );
       return Number(rows[0]?.booked_inr ?? 0) / 10_000_000;
