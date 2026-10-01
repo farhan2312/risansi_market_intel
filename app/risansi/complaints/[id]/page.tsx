@@ -62,7 +62,10 @@ export default async function ComplaintPage({ params, searchParams }: {
              ol.name AS assigned_name, c.created_at::text AS created_at
         FROM complaints c
         LEFT JOIN clients cl ON cl.id = c.client_id
-        LEFT JOIN users ur ON ur.id = c.rep_user_id
+        -- The rep shown is the client's owner — one owner per client, and the
+        -- complaint is attributed to them (lib/risansi-attribution.ts).
+        -- c.rep_user_id stands in only where the complaint has no client.
+        LEFT JOIN users ur ON ur.id = COALESCE(cl.primary_rep_id, c.rep_user_id)
         LEFT JOIN users rp ON rp.id = c.reported_by_user
         LEFT JOIN users iu ON iu.id = c.investigation_assigned_to
         LEFT JOIN users au ON au.id = c.action_assigned_to

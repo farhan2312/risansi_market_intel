@@ -77,8 +77,11 @@ export async function execDrilldown(p: DrillParams): Promise<DrillResult | null>
 
   const vis = clientVisibilitySql(me, 'c');
   const visAnd = vis ? ` AND (${vis})` : '';
+  // Owned + covered is the default here because it is the default on the page:
+  // a drill-down that scoped narrower than the tile it came from would list
+  // fewer rows than the number it claims to explain.
   const accountScope: AccountScope =
-    p.scope === 'all' ? 'all' : p.scope === 'covered' ? 'covered' : 'own';
+    p.scope === 'own' ? 'own' : p.scope === 'covered' ? 'covered' : 'all';
   const scope = execScopeSql(tsmId, accountScope, visAnd);
   // parseFy rejects anything the selector would not offer, so a hand-typed year
   // cannot widen the window; the page and this list then share one definition.
@@ -87,7 +90,8 @@ export async function execDrilldown(p: DrillParams): Promise<DrillResult | null>
 
   const who = (await risansiPool.query<{ name: string }>(
     'SELECT name FROM users WHERE id = $1', [tsmId])).rows[0]?.name ?? 'this TSM';
-  const sub = `${who} · ${accountScope === 'all' ? 'primary + secondary' : 'primary only'} accounts`;
+  const sub = `${who} · ${accountScope === 'all' ? 'owned + covered accounts'
+    : accountScope === 'covered' ? 'accounts they cover for others' : 'accounts they own'}`;
 
   const esc = (s: string) => s.replace(/'/g, "''");
   const key = p.key ? esc(p.key) : '';

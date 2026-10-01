@@ -350,17 +350,29 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   // themselves (their tours are already a subset of their own visibility).
   // Which of this TSM's clients the review counts.
   //
-  // Default is the accounts they OWN. That is the book they are answerable for,
-  // and it is the honest denominator for every ratio on the page — counting an
-  // account they merely cover would credit them with a colleague's revenue and
-  // visits, and for a rep who covers a lot it shifts every figure at once.
-  // "Primary + secondary" adds the covered accounts back, because covering an
-  // account is real work and sometimes the thing being reviewed.
+  // Default is owned AND covered, the same set the Opportunities board counts.
+  // It used to be owned-only, and the two pages then opened on different
+  // numbers with nothing wrong in the data: Akshay Awasthi's quoted pipe read
+  // 2.74 Cr over 71 opportunities here and 4.72 Cr over 75 on the board, the
+  // four extra being three TKIL Industries quotes and one Racon — accounts he
+  // covers for Sudhir Vichare and Aviral Shukla. Every other reading of the
+  // same figure agreed exactly, so the gap was the default and nothing else.
+  //
+  // Counting a covered account here is not the same as crediting the TSM with
+  // it. Attribution is the client's owner and does not move (see
+  // lib/risansi-attribution.ts); this control is about scope — whose screen
+  // the work appears on — and a covering rep works that account. Book &
+  // Coverage is where the page shows the two sides apart, which is why it is
+  // the panel to read beside any figure on a combined view.
+  //
+  // "Accounts they own" is still offered, because "what is actually mine" is
+  // a fair question for a manager to ask. It is just not the question the
+  // page should open on.
   //
   // Either way the result is still intersected with the VIEWER's own visibility
   // (visAnd): widening which of the subject's accounts to count must never
   // widen what the person looking is allowed to see.
-  const accountScope: AccountScope = sp.scope === 'all' ? 'all' : 'own';
+  const accountScope: AccountScope = sp.scope === 'own' ? 'own' : 'all';
   const projMode: 'monthly' | 'quarterly' = sp.proj === 'monthly' ? 'monthly' : 'quarterly';
   const tsmId = Number(tsm);
   // execScopeSql rather than a hand-rolled predicate, so the page and every
@@ -770,7 +782,7 @@ export default async function ExecutiveReviewPage({ searchParams }: {
         notes: [
           'accounts where they are the primary rep',
           'accounts they are a secondary rep on and do not own',
-          'what the Opportunities board counts',
+          'what this page and the Opportunities board both count by default',
         ],
       },
     } : null,
@@ -827,13 +839,17 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   }
 
   const periodText  = `FY ${yy(fy)}${w.toDate ? ' to date' : ''}`;
-  const periodLabel = `${tsmName} · ${periodText} · ${accountScope === 'all' ? 'primary + secondary' : 'primary'} accounts`;
+  // Says which accounts the figures below cover, in the same words the
+  // Accounts control uses, so the reader never has to open a dropdown to find
+  // out what they are looking at.
+  const scopeLabel  = accountScope === 'all' ? 'owned + covered accounts' : 'accounts they own';
+  const periodLabel = `${tsmName} · ${periodText} · ${scopeLabel}`;
 
   // The fiscal years the selector offers, newest first and built on the server
   // so the client component cannot offer a year parseFy would then reject.
   const fyOpts = fyChoices(now).map(y => ({ value: String(y), label: `FY ${yy(y)}` }));
 
-  const note = `Live data for ${tsmName}, fiscal year ${yy(fy)} (Apr–Mar)${w.toDate ? ' to date' : ', complete'}. An opportunity belongs to the year its quotation is dated in, or failing that the day its record was made; anything the year does not reach is counted on its own line in Target & Conversion rather than quietly left out. "Order in Hand" is the value of Won opportunities not yet turned into a Sales Order; "Order Received" is the value of Won opportunities dated in the FY. "Revenue" is invoiced revenue from active clients, the same basis as the Turnover table. "Conversion" divides order received by the quoted pipeline, and that panel says in full what it counts and what it leaves out. Every figure counts the ${accountScope === 'all' ? 'accounts this person owns and the ones they cover' : 'accounts this person owns'}, which the Accounts control changes${data.bookSplit ? ' — Book & Coverage shows both sides' : ''}. Turnover columns show each whole fiscal year to date. Clients, Prospective and Active Clients are current-portfolio counts; "Prosp. client" has an ERP code and an enquiry behind it while "Prosp. lead" is only a name so far, and "Unclassified / other" is every client whose type was never set — it is there so the Grand Total is a real total; "Visited" on those two cards means a visit logged within the last 90 days, and every number is clickable through to a filtered client list.`;
+  const note = `Live data for ${tsmName}, fiscal year ${yy(fy)} (Apr–Mar)${w.toDate ? ' to date' : ', complete'}. An opportunity belongs to the year its quotation is dated in, or failing that the day its record was made; anything the year does not reach is counted on its own line in Target & Conversion rather than quietly left out. "Order in Hand" is the value of Won opportunities not yet turned into a Sales Order; "Order Received" is the value of Won opportunities dated in the FY. "Revenue" is invoiced revenue from active clients, the same basis as the Turnover table. "Conversion" divides order received by the quoted pipeline, and that panel says in full what it counts and what it leaves out. Every figure counts the ${accountScope === 'all' ? 'accounts this person owns AND the ones they cover for a colleague, which is what the Opportunities board counts too' : 'accounts this person owns, and leaves out the ones they cover for a colleague'}, which the Accounts control changes${data.bookSplit ? ' — Book & Coverage splits the two, and the value on a covered account still belongs to its owner' : ''}. Turnover columns show each whole fiscal year to date. Clients, Prospective and Active Clients are current-portfolio counts; "Prosp. client" has an ERP code and an enquiry behind it while "Prosp. lead" is only a name so far, and "Unclassified / other" is every client whose type was never set — it is there so the Grand Total is a real total; "Visited" on those two cards means a visit logged within the last 90 days, and every number is clickable through to a filtered client list.`;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>

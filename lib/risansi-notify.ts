@@ -390,8 +390,16 @@ export async function notifyComplaintUpdate(complaintId: number, actorEmail: str
 // Opportunity marked Won or Lost → tour manager(s) + the opp's rep (skip actor).
 export async function notifyOppClosed(oppId: number, actorEmail: string, stage: 'Won' | 'Lost') {
   try {
+    // The rep told about a close is the one the deal counts for — the client's
+    // owner — not whoever happened to raise the enquiry. Under the attribution
+    // rule the owner is the person whose figures just moved, and the raiser,
+    // if different, is almost always the admin who typed the quote in.
     const o = (await risansiPool.query<{ client_id: number | null; rep_id: number | null; product: string | null; value_cr: string | null }>(
-      `SELECT client_id, rep_id, product, COALESCE(final_value_cr, value_cr)::text AS value_cr FROM opportunities WHERE id = $1`, [oppId])).rows[0];
+      `SELECT o.client_id,
+              COALESCE(o.credited_rep_id, c.primary_rep_id) AS rep_id,
+              o.product, COALESCE(o.final_value_cr, o.value_cr)::text AS value_cr
+         FROM opportunities o JOIN clients c ON c.id = o.client_id
+        WHERE o.id = $1`, [oppId])).rows[0];
     if (!o || o.client_id == null) return;
     const [cn, rep, mgrs] = await Promise.all([clientName(o.client_id), o.rep_id ? userById(o.rep_id) : Promise.resolve(null), clientManagers(o.client_id)]);
     const recips = dedupeRecips([

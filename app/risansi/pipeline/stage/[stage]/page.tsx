@@ -485,18 +485,10 @@ function renderCell(r: Row, key: string, usdRate: number, inr: (v: number | null
       );
     }
     case 'rep_name':
-      // The client's owner; and, when the opportunity names somebody else, who.
-      return (
-        <span>
-          {r.rep_name}
-          {r.opp_rep_name && (
-            <span title="The opportunity itself names this person as its rep; the client is owned by the name above. They cannot work it until an admin makes them a covering rep."
-              style={{ display: 'block', fontSize: 10, color: 'var(--fg-3)' }}>
-              raised for {r.opp_rep_name}
-            </span>
-          )}
-        </span>
-      );
+      // The client's owner, and the only rep the opportunity has. A second
+      // line used to sit under this one saying who the opportunity itself
+      // named; under one owner per client there is no second name to show.
+      return <span>{r.rep_name}</span>;
     case 'value_cr':
       return fmtCr(r.value_cr);
     case 'final_cr':

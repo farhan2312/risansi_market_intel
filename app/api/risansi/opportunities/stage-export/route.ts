@@ -55,11 +55,11 @@ export async function GET(request: Request) {
   if (f.efrom || f.eto)  applied.push(['Enquiry date', `${f.efrom || '…'} to ${f.eto || '…'}`]);
   for (const [d, v] of Object.entries(sel) as [SelDim, string][]) applied.push([`Bar · ${DIM_LABEL[d]}`, v]);
 
+  // Rep is the client's owner throughout. The "Raised for" column that used to
+  // close this sheet is gone with the second rep it reported.
   const cols = [
     { key: 'client_code', label: 'Client code', num: false, width: 110 },
     ...STAGE_COLUMNS[stage],
-    // Rep is the client's owner; this is the opportunity's own rep when different.
-    { key: 'opp_rep_name', label: 'Raised for', num: false, width: 130 },
   ];
 
   const stamp = new Date().toISOString().slice(0, 10);

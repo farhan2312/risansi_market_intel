@@ -355,7 +355,9 @@ export function ExecutiveViews({ data, selector, periodLabel, note, tabs }: {
                   {data.bookSplit.scope === 'all' ? 'Combined' : data.bookSplit.scope === 'covered' ? data.bookSplit.coveredLabel : 'Own book'}
                 </strong>
                 , which the Accounts control above changes. The Opportunities board always counts <strong style={{ color: 'var(--fg-2)' }}>Combined</strong>,
-                so that is the column to compare against it.
+                and so does this tab unless the control is narrowed, so the two agree by default.
+                Covering an account is not owning it: the value in &ldquo;Covers for others&rdquo; is counted
+                here because this person works those accounts, and credited to the rep who owns them.
               </p>
             } />
         )}

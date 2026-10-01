@@ -68,6 +68,10 @@ export interface DashScope {
   cVisAnd: string;
   /** ` AND (…)` for an opportunities query aliased `o`, plus the archived-client guard. */
   oppOwnerAnd: string;
+  /** ` AND (…)` for an opportunities query aliased `o`, counting by ATTRIBUTION
+   *  rather than by reach: the clients the viewer owns or covers, with no
+   *  in-flight limb. What the figures use. */
+  oppCreditAnd: string;
   /** ` AND (…)` for a visits query aliased `v`. */
   visitOwnerAnd: string;
 }
@@ -89,8 +93,20 @@ export function dashScope(user: CurrentUser): DashScope {
   // opportunity predicate below is built on this binding, which is how
   // scripts/opportunity-scope-check.mjs can see that the guard is there.
   const oppOwnerAnd = (oppVis ? ` AND (${oppVis})` : '') + AND_LIVE_CLIENT('o');
+  // The same rule WITHOUT the in-flight limb, for anything that totals money.
+  //
+  // clientScopeSql's second limb is "an open record of my own, whoever owns the
+  // client", and it is right for a list: a rep has to be able to finish what
+  // they started on an account that has moved. It is wrong for a figure. Under
+  // the attribution rule of 1 Oct 2026 that opportunity counts for the client's
+  // owner, so leaving the limb in put the same money on two reps' dashboards at
+  // once — up to 0.54 Cr on one of them, 0.88 Cr across all of them. The record
+  // stays visible on the Opportunities board, which still scopes by reach; it
+  // simply stops being added to a total that is not the viewer's.
+  const oppCredit = clientScopeSql(user, 'o.client_id');
+  const oppCreditAnd = (oppCredit ? ` AND (${oppCredit})` : '') + AND_LIVE_CLIENT('o');
   const visitOwnerAnd = visitVis ? ` AND (${visitVis})` : '';
-  return { cVisAnd, oppOwnerAnd, visitOwnerAnd };
+  return { cVisAnd, oppOwnerAnd, oppCreditAnd, visitOwnerAnd };
 }
 
 // ── Revenue ───────────────────────────────────────────────────
@@ -148,7 +164,7 @@ const quoted = (vs: readonly string[]) => vs.map(v => `'${v.replace(/'/g, "''")}
 
 /** One or more opportunity stages, scoped to what the viewer may see. */
 export const stageWhere = (s: DashScope, stages: readonly string[]) =>
-  `o.stage IN (${quoted(stages)})${s.oppOwnerAnd}`;
+  `o.stage IN (${quoted(stages)})${s.oppCreditAnd}`;
 
 /** Open opportunities on the rep dashboard — everything still in play. */
 export const repPipelineWhere = (s: DashScope) =>
@@ -158,7 +174,7 @@ export const repPipelineWhere = (s: DashScope) =>
   // neither Won nor Lost, counted dead deals as pipeline too. On one rep's
   // board that read ₹13.74 Cr against a real quoted pipe of ₹4.72 Cr, ₹0.88 Cr
   // of it dropped.
-  `o.stage IN (${PIPELINE_STAGES.map(x => `'${x}'`).join(', ')})${s.oppOwnerAnd}`;
+  `o.stage IN (${PIPELINE_STAGES.map(x => `'${x}'`).join(', ')})${s.oppCreditAnd}`;
 
 /**
  * Order in Hand and Order Booked, as the two halves of a Won opportunity.

@@ -6,6 +6,9 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 import { recordAudit } from '@/lib/audit';
 import { orphanSql } from '@/lib/risansi-auth';
+import {
+  freezeCreditForClient, freezeCreditForRepBook, thawOpenCredit,
+} from '@/lib/risansi-attribution';
 
 // Rep ownership: who owns a client, who covers it, and who manages whom.
 //
@@ -50,18 +53,46 @@ export async function setPrimaryRep(clientId: number, repId: number | null): Pro
       await risansiPool.query(
         'DELETE FROM client_secondary_reps WHERE client_id = $1 AND rep_id = $2', [clientId, repId]);
     }
+    // Before the owner changes, not after: the freeze needs the owner the
+    // client is about to lose, and once the row is written there is nowhere
+    // left to read it from.
+    const frozen = await freezeCreditForClient(risansiPool, clientId, repId);
+
     const r = await risansiPool.query(
       'UPDATE clients SET primary_rep_id = $2, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL',
       [clientId, repId]);
     if (!r.rowCount) return { ok: false, error: 'That client no longer exists, or has been archived.' };
 
-    // Open work on the client follows its owner. Decided 13 Sep, after the
-    // Blocked rule: an open opportunity or visit whose rep has no relation to
-    // the client — no rep at all (migration 0073), or a stranger to it
-    // (orphanSql) — moves to the new owner, who is the person the board's Rep
-    // filter and Client 360 already credit with it. A covering rep, or a
-    // manager of the owner, is not a stranger and keeps their record. Closed
-    // work is history and is not touched.
+    // Open items move to the new owner, closed ones stay with whoever held
+    // them. That is the second half of the attribution rule of 1 Oct 2026, and
+    // the two halves are deliberately not symmetric: the first half was a
+    // one-time reset of ALL history, open and closed, to today's owner, and
+    // from here on only open work follows a handover. A line under the past,
+    // not an inconsistency.
+    //
+    // Open items need no UPDATE at all. Attribution is derived — every figure
+    // reads COALESCE(o.credited_rep_id, c.primary_rep_id), and an open row's
+    // credited_rep_id is NULL — so the line above has already moved them. The
+    // only write is the freeze: closed opportunities are stamped with the
+    // OUTGOING owner so their value does not walk across to the new one.
+    // See lib/risansi-attribution.ts and migration 0102.
+    if (frozen) {
+      await recordAudit({
+        action: 'reassign', entityType: 'client', entityId: clientId,
+        entityLabel: `client #${clientId}`,
+        summary: `Credit for ${frozen} closed opportunit${frozen === 1 ? 'y' : 'ies'} frozen on the outgoing owner`,
+        metadata: { to_rep_id: repId, frozen },
+        actorEmail: me.email,
+      });
+    }
+    await thawOpenCredit(risansiPool, clientId);
+
+    // The rep_id tidy-up below predates the attribution rule and no longer
+    // moves any money: rep_id records who raised the enquiry or was assigned
+    // the visit, and nothing reads it as an owner any more. It is kept because
+    // leaving an open record pointed at somebody with no relation to the client
+    // is still untidy, and because a visit's rep is the person expected to
+    // travel. Closed work is history and is not touched.
     let opps = 0, visits = 0;
     if (repId != null) {
       const stray = (repCol: string) => `(${repCol} IS NULL OR ${orphanSql(repCol, 'c')})`;
@@ -101,13 +132,22 @@ export async function setPrimaryRep(clientId: number, repId: number | null): Pro
       }
     }
     touch();
+    // Said in two sentences because they are two different things. The first
+    // is what the new owner now answers for, the second is what the old one
+    // keeps — and an admin who is not told the second will assume the handover
+    // took the whole account's history with it.
     const moved = [
       opps ? `${opps} open opportunit${opps === 1 ? 'y' : 'ies'}` : '',
       visits ? `${visits} open visit${visits === 1 ? '' : 's'}` : '',
     ].filter(Boolean).join(' and ');
+    const kept = frozen
+      ? ` ${frozen} closed opportunit${frozen === 1 ? 'y stays' : 'ies stay'} credited to the previous owner.`
+      : '';
     return {
       ok: true,
-      message: repId == null ? 'Owner cleared.' : moved ? `Owner set. ${moved} moved to them.` : 'Owner set.',
+      message: repId == null
+        ? 'Owner cleared.'
+        : `Owner set. Open work follows them.${moved ? ` (${moved} reassigned.)` : ''}${kept}`,
     };
   } catch (e) { return fail(e); }
 }
@@ -223,6 +263,10 @@ export async function moveClients(
     let owned = 0, covered = 0;
 
     if (what === 'owned' || what === 'both') {
+      // Closed work stays with the person handing the book over, and the only
+      // moment to say so is before the owner column moves. Open work follows
+      // the new owner by itself, because attribution is derived from it.
+      await freezeCreditForRepBook(c, fromRepId);
       // The receiver may already cover some of what they are about to own.
       // Clear that first, or the client ends up listing them as both.
       await c.query(
@@ -251,6 +295,11 @@ export async function moveClients(
       // Anything left is a duplicate of what the receiver already had.
       await c.query('DELETE FROM client_secondary_reps WHERE rep_id = $1', [fromRepId]);
     }
+
+    // A reopened opportunity that an earlier handover had frozen is live work
+    // again and belongs to whoever owns the account now. The bulk move does not
+    // enumerate the accounts it touched, so this sweeps all of them.
+    await thawOpenCredit(c, null);
 
     await c.query('COMMIT');
     touch();
@@ -414,6 +463,10 @@ export async function setClientOwnership(
   const c = await risansiPool.connect();
   try {
     await c.query('BEGIN');
+    // Closed work stays with the owner this form is replacing. Before the
+    // UPDATE, and a no-op when the owner is not actually changing — this form
+    // posts the field on every save.
+    await freezeCreditForClient(c, clientId, primaryRepId);
     const r = await c.query(
       'UPDATE clients SET primary_rep_id = $2, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL',
       [clientId, primaryRepId]);
@@ -432,6 +485,7 @@ export async function setClientOwnership(
          ON CONFLICT DO NOTHING`,
         [clientId, repId, me.email]);
     }
+    await thawOpenCredit(c, clientId);
     await c.query('COMMIT');
     touch();
     revalidatePath(`/risansi/clients/${clientId}`);

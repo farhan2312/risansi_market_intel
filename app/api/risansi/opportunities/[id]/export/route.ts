@@ -91,7 +91,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
        FROM opportunities o
        JOIN clients c        ON c.id = o.client_id
        LEFT JOIN tour_routes tr ON tr.id = c.tour_id
-       LEFT JOIN users rep   ON rep.id = o.rep_id
+       -- The rep on the sheet is the client's owner, the same name the board
+       -- and every figure now carry (lib/risansi-attribution.ts). It was
+       -- o.rep_id, so an exported quotation could name a different person
+       -- from the pipeline row it was exported from.
+       LEFT JOIN users rep   ON rep.id = COALESCE(o.credited_rep_id, c.primary_rep_id)
        LEFT JOIN users tsm   ON tsm.id = o.tsm_user_id
       WHERE o.id = $1`, [oppId]))[0];
 

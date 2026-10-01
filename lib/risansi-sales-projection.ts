@@ -15,6 +15,7 @@
 // cycle would fill the table, and every figure in it would be invented.
 import type { Pool } from 'pg';
 import { LIVE_CLIENT } from '@/lib/risansi-opportunity-scope';
+import { creditedRepSql } from '@/lib/risansi-attribution';
 import { probabilityPctSql, hasProbabilitySql } from '@/lib/risansi-probability-codes';
 
 /** Open = still live. Dropped is dead and has no place in a forecast. */
@@ -106,13 +107,21 @@ export async function loadProjectionOptions(pool: Pool, repIds: number[] | null)
   reps: { id: number; name: string }[]; prodTypes: string[]; industries: string[]; ctypes: string[]; stages: string[]; probs: string[]; markets: string[];
 }> {
   if (repIds !== null && repIds.length === 0) return { reps: [], prodTypes: [], industries: [], ctypes: [], stages: [], probs: [], markets: [] };
-  const repFilter = repIds === null ? '' : ` AND o.rep_id = ANY($1::int[])`;
+  // Whose forecast a row belongs to is the client's owner, not o.rep_id — the
+  // attribution rule of 1 Oct 2026 (lib/risansi-attribution.ts). Everything
+  // here is open work, so credited_rep_id is always NULL and this resolves to
+  // the live owner; it goes through the helper anyway so the forecast cannot
+  // drift from the board it is forecasting.
+  const repFilter = repIds === null ? '' : ` AND ${creditedRepSql()} = ANY($1::int[])`;
   const params = repIds === null ? [] : [repIds];
   const q = async (expr: string) => (await pool.query<{ v: string }>(
     `SELECT DISTINCT ${expr} AS v FROM opportunities o JOIN clients c ON c.id = o.client_id WHERE ${OPEN}${repFilter} AND ${expr} IS NOT NULL AND ${expr} <> '' ORDER BY 1`, params)).rows.map(r => r.v);
   const [reps, prodTypes, industries, ctypes, stages, probs, markets] = await Promise.all([
     pool.query<{ id: number; name: string }>(
-      `SELECT DISTINCT u.id, u.name FROM opportunities o JOIN users u ON u.id = o.rep_id WHERE ${OPEN}${repFilter} ORDER BY u.name`, params).then(r => r.rows),
+      `SELECT DISTINCT u.id, u.name FROM opportunities o
+         JOIN clients c ON c.id = o.client_id
+         JOIN users u ON u.id = ${creditedRepSql()}
+        WHERE ${OPEN}${repFilter} ORDER BY u.name`, params).then(r => r.rows),
     q('o.product_type'), q('c.industry'), q('c.client_type'), q('o.stage'), q('o.probability_code'), q('o.market'),
   ]);
   return { reps, prodTypes, industries, ctypes, stages, probs, markets };
@@ -146,8 +155,8 @@ export async function loadProjection(
   const conds: string[] = [];
   const params: (number | string | number[] | string[])[] = [];
   const add = (sql: string, v: number | string | number[] | string[]) => { params.push(v); conds.push(sql.replace('?', `$${params.length}`)); };
-  if (repIds !== null) add('o.rep_id = ANY(?::int[])', repIds);
-  if (f.rep != null) add('o.rep_id = ?', f.rep);
+  if (repIds !== null) add(`${creditedRepSql()} = ANY(?::int[])`, repIds);
+  if (f.rep != null) add(`${creditedRepSql()} = ?`, f.rep);
   if (f.prodType?.length) add('o.product_type = ANY(?::text[])', f.prodType);
   if (f.stage?.length)    add('o.stage = ANY(?::text[])', f.stage);
   if (f.prob?.length)     add('o.probability_code = ANY(?::text[])', f.prob);
@@ -176,17 +185,18 @@ export async function loadProjection(
     rep_id: number; name: string; bucket: string;
     gross: string; weighted: string; weighted_base: string; n: string;
   }>(`
-    SELECT COALESCE(o.rep_id, 0) AS rep_id, COALESCE(u.name, 'Unassigned') AS name, ${bucket} AS bucket,
+    SELECT COALESCE(${creditedRepSql()}, 0) AS rep_id, COALESCE(u.name, 'Unassigned') AS name, ${bucket} AS bucket,
            COALESCE(sum(${VALUE}), 0)::text AS gross,
            COALESCE(sum(${VALUE} * ${PROB_PCT} / 100.0)
                       FILTER (WHERE ${HAS_PROB}), 0)::text AS weighted,
            COALESCE(sum(${VALUE}) FILTER (WHERE ${HAS_PROB}), 0)::text AS weighted_base,
            count(*)::text AS n
       FROM opportunities o
-      LEFT JOIN users u ON u.id = o.rep_id
+      JOIN clients c ON c.id = o.client_id
+      LEFT JOIN users u ON u.id = ${creditedRepSql()}
      WHERE ${OPEN}${repFilter}
-     GROUP BY o.rep_id, u.name, ${bucket}
-     ORDER BY (o.rep_id IS NULL), u.name`, params);
+     GROUP BY ${creditedRepSql()}, u.name, ${bucket}
+     ORDER BY (${creditedRepSql()} IS NULL), u.name`, params);
 
   const byRep = new Map<number, ProjectionRep>();
   for (const r of rows) {

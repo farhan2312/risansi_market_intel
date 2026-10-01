@@ -9,11 +9,22 @@ export interface SelRep { id: string; name: string }
 // fiscal year to date and turnover spans full FYs, so there is no month picker.
 //
 // The Accounts control decides which of a TSM's clients the whole review counts.
-// It defaults to the ones they OWN, because that is the book they are answerable
-// for — folding in accounts they merely cover would credit them with revenue and
-// visits belonging to a colleague's client, and on a rep who covers a lot it
-// moves every number on the page at once. Covering work is real work, so it can
-// be added back; it is a deliberate choice rather than the default.
+//
+// It defaults to OWNED AND COVERED, which is what the Opportunities board has
+// always counted. The default used to be owned-only, and the two pages then
+// disagreed the moment you landed on them with nothing wrong in the data:
+// Akshay Awasthi's quoted pipe read 2.74 Cr over 71 opportunities here and
+// 4.72 Cr over 75 on the board, the four extra being three TKIL Industries
+// quotes and one Racon, accounts he covers for Sudhir and Aviral.
+//
+// Showing them is not the same as crediting him with them. Attribution is the
+// client's owner, always (lib/risansi-attribution.ts); scope is who the work
+// appears for, which includes a covering rep. Both are true at once, and the
+// Book & Coverage panel is where the page keeps them visibly apart.
+//
+// The narrower view is still one click away, because a manager asking "what is
+// actually mine" is a fair question — it is just not the question the page
+// should open on.
 export interface FyOpt { value: string; label: string }
 
 export function ExecutiveSelector({ reps, tsm, scope, fys, fy }: {
@@ -48,19 +59,19 @@ export function ExecutiveSelector({ reps, tsm, scope, fys, fy }: {
     </label>
   );
 
-  // A rep may only review themselves, so there is nothing to pick — show the
-  // name as static text rather than a one-option dropdown. (The server scopes
-  // the roster and validates the tsm param; this is presentation only.)
+  // Owned + covered is the default, so it is the one that carries no param: a
+  // shared link with nothing in it means the default, which is what the person
+  // who copied the URL was looking at.
   const accounts = (
     <label>
       <span style={LBL}>Accounts</span>
       <select
         value={scope}
-        onChange={e => update('scope', e.target.value === 'all' ? 'all' : '')}
+        onChange={e => update('scope', e.target.value === 'own' ? 'own' : '')}
         style={{ ...SEL, minWidth: 200 }}
       >
-        <option value="own">Primary only</option>
-        <option value="all">Primary + secondary</option>
+        <option value="all">Owned + covered</option>
+        <option value="own">Accounts they own</option>
       </select>
     </label>
   );

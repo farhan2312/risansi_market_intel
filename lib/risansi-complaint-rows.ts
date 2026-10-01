@@ -20,6 +20,8 @@ export interface ComplaintListRow {
   responsible_department: string | null; channel: string | null;
   complaint_date: string | null; created_at: string; resolved_at: string | null; closed_at: string | null;
   details: string | null; contact_person: string | null;
+  /** The rep the complaint is attributed to: the client's owner. Carries the
+   *  column's old name because every reader keys on it; see the query. */
   rep_user_id: number | null; rep_name: string | null;
   holder_department: string | null; holder_user_id: number | null; holder_name: string | null;
   since: string | null; days_in_status: number; age_days: number;
@@ -41,7 +43,7 @@ export interface ComplaintFilters {
   type?: string;        // complaint_type
   cat?: string;         // defect_category
   resp?: string;        // responsible_department
-  rep?: string;         // rep_user_id
+  rep?: string;         // the client's owner (see rep_user_id above)
   era?: string;         // 'workflow' | 'legacy'
   q?: string;           // free text
   overdue?: string;     // '1'
@@ -135,7 +137,13 @@ export async function loadComplaintRows(user: CurrentUser, opts: { clientId?: nu
   if (f.type) add('c.complaint_type = ?', f.type);
   if (f.cat) add('c.defect_category = ?', f.cat);
   if (f.resp) add('c.responsible_department = ?', f.resp);
-  if (f.rep) add('c.rep_user_id = ?', Number(f.rep) || 0);
+  // The Rep filter means the client's owner, which is who the complaint is
+  // attributed to (lib/risansi-attribution.ts). c.rep_user_id is kept and
+  // still written, but it is blank on 182 of 216 complaints and agrees with
+  // the owner on every one of the 34 that carry it, so reading it was giving
+  // the column nothing to say. It is the fallback only where there is no
+  // client to own the complaint at all.
+  if (f.rep) add('COALESCE(cl.primary_rep_id, c.rep_user_id) = ?', Number(f.rep) || 0);
   // 'none' is the handful of complaints raised against no client at all.
   if (f.client === 'none') conds.push('c.client_id IS NULL');
   else if (f.client) add('c.client_id = ?', Number(f.client) || 0);
@@ -167,7 +175,8 @@ export async function loadComplaintRows(user: CurrentUser, opts: { clientId?: nu
              c.responsible_department, c.channel,
              c.complaint_date::text AS complaint_date, c.created_at::text AS created_at,
              c.resolved_at::text AS resolved_at, c.closed_at::text AS closed_at,
-             c.details, c.contact_person, c.rep_user_id, ur.name AS rep_name,
+             c.details, c.contact_person,
+             COALESCE(cl.primary_rep_id, c.rep_user_id) AS rep_user_id, ur.name AS rep_name,
              l.holder_department, l.holder_user_id, hu.name AS holder_name, l.created_at::text AS since,
              COALESCE(EXTRACT(EPOCH FROM (now() - l.created_at)) / 86400, 0)::float AS days_in_status,
              (EXTRACT(EPOCH FROM (COALESCE(c.closed_at, c.resolved_at, now()) - COALESCE(c.complaint_date::timestamptz, c.created_at))) / 86400)::float AS age_days,
@@ -180,7 +189,7 @@ export async function loadComplaintRows(user: CurrentUser, opts: { clientId?: nu
                          FROM complaint_attachments a WHERE a.complaint_id = c.id AND a.category = 'customer'), '[]'::json) AS customer_files
         FROM complaints c
         LEFT JOIN clients cl ON cl.id = c.client_id
-        LEFT JOIN users ur ON ur.id = c.rep_user_id
+        LEFT JOIN users ur ON ur.id = COALESCE(cl.primary_rep_id, c.rep_user_id)
         LEFT JOIN LATERAL (
           SELECT s.holder_department, s.holder_user_id, s.created_at
             FROM complaint_stage_log s WHERE s.complaint_id = c.id

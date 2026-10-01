@@ -13,6 +13,7 @@ import {
   allowedStatusesForCode, clientStatusLabel,
 } from '@/lib/risansi-client-status';
 import { resolveClientPrimaryRep, clientPrimaryRepSql } from '@/lib/risansi-client-rep';
+import { freezeCreditForClient, thawOpenCredit } from '@/lib/risansi-attribution';
 import { parseSalesOrdersJson, inrToCr, type SoInput, type SalesOrder } from '@/lib/risansi-sales-orders';
 import { parseOfferRevisionsJson, type OfferRevisionInput } from '@/lib/risansi-offer-revisions';
 import { poInrToCr, type PurchaseOrder } from '@/lib/risansi-purchase-orders';
@@ -546,10 +547,17 @@ async function saveClientOwnership(clientId: number, formData: FormData, actorEm
   const rawPrimary = formData.get('primary_rep_id');
   if (rawPrimary !== null) {
     const primary = rawPrimary === '' ? null : parseInt(String(rawPrimary), 10);
+    const next = Number.isInteger(primary as number) ? primary : null;
+    // Closed work stays with the owner this save replaces, and the only place
+    // to read that owner is before the UPDATE. freezeCreditForClient does
+    // nothing when the owner is unchanged, which is almost every save here:
+    // the form posts the field whether or not it was touched.
+    await freezeCreditForClient(risansiPool, clientId, next);
     await risansiPool.query(
       'UPDATE clients SET primary_rep_id = $2, updated_at = NOW() WHERE id = $1',
-      [clientId, Number.isInteger(primary as number) ? primary : null],
+      [clientId, next],
     );
+    await thawOpenCredit(risansiPool, clientId);
   }
 
   const rawSecondary = formData.get('secondary_rep_ids');

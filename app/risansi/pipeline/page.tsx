@@ -3,7 +3,8 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Topbar, MultiSelectFilter, ActiveFilterBar } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, clientScopeSql, OWN_OPEN, orphanSql, hasRole } from '@/lib/risansi-auth';
+import { getCurrentUser, clientScopeSql, OWN_OPEN, hasRole } from '@/lib/risansi-auth';
+import { creditedRepNameSql, CREDITED_REP_JOIN } from '@/lib/risansi-attribution';
 import { getCurrentFY, fmtCr, fmtUsdFromCr } from '@/lib/risansi-utils';
 import { getUsdRate } from '@/lib/risansi-settings';
 import { PROBABILITY_CODE_OPTIONS, probabilityWeight, probabilityPctSql } from '@/lib/risansi-probability-codes';
@@ -360,9 +361,13 @@ export default async function PipelinePage({
   // An opportunity is editable by whoever works its client — the owner, anyone
   // covering it, or a manager above them — which is what userCanEditOpp answers
   // in TypeScript. Sharing a route with the client used to be enough; it is not.
-  // Being the card's rep is deliberately NOT on this list: a card whose rep is
-  // a stranger to the client is an orphan, shown as Blocked (see `orphan`
-  // below), and worked again only once an admin assigns the client.
+  //
+  // A red "Blocked" badge used to sit beside this, raised by orphanSql when the
+  // card's o.rep_id was a stranger to the client. 35 open opportunities were in
+  // that state. It is gone: under one owner per client an opportunity has no
+  // rep of its own to be a stranger with, so the state it reported cannot
+  // arise. orphanSql itself stays, because the Field calendar still uses it on
+  // visits, where a visit really is assigned to a person who has to travel.
   const CAN_EDIT_CASE = `
         CASE
           WHEN $${ceRoleIdx} IN ('admin','sysadmin') THEN TRUE
@@ -372,8 +377,7 @@ export default async function PipelinePage({
                         AND (s.rep_id = $${ceRepIdx}
                              OR s.rep_id IN (SELECT rep_id FROM manager_reps WHERE manager_id = $${ceRepIdx}))) THEN TRUE
           ELSE FALSE
-        END AS can_edit,
-        ${orphanSql('o.rep_id', 'c')} AS orphan`;
+        END AS can_edit`;
 
   const [openOpps, closedOpps, bookedYTD, annualTarget, winLossRows, lostToRows, stageOptions, productTypeOptions, repOptions, industryOptions, clientTypeOptions, clientStatusOptions, wonTotal, orderInHand, orderBooked, wonQuotedPo, stageTotals, usdRate] = await Promise.all([
 
@@ -404,12 +408,16 @@ export default async function PipelinePage({
                         SELECT s.rep_id, 1 FROM client_secondary_reps s WHERE s.client_id = c.id) r2
                   JOIN users u2 ON u2.id = r2.user_id) AS tour_people,
                c.legal_name AS client_name, c.code AS client_code, c.industry,
-               COALESCE(r.name, 'Unassigned') AS rep_name,
+               -- The client's owner, which is the only rep an opportunity has
+               -- under the attribution rule (lib/risansi-attribution.ts). It
+               -- was o.rep_id, so a board filtered to one rep showed cards
+               -- carrying a colleague's name.
+               ${creditedRepNameSql()} AS rep_name,
                (SELECT tr.name FROM tour_routes tr WHERE tr.id = c.tour_id) AS tour_name,
                ${CAN_EDIT_CASE}
         FROM opportunities o
         JOIN clients c ON c.id = o.client_id
-        LEFT JOIN users r ON r.id = o.rep_id
+        ${CREDITED_REP_JOIN()}
         ${openWhere}
         ORDER BY ${sortCol} ${orderDir} NULLS LAST
       `, vals as (string | number)[]
@@ -452,12 +460,16 @@ export default async function PipelinePage({
                         SELECT s.rep_id, 1 FROM client_secondary_reps s WHERE s.client_id = c.id) r2
                   JOIN users u2 ON u2.id = r2.user_id) AS tour_people,
                c.legal_name AS client_name, c.code AS client_code, c.industry,
-               COALESCE(r.name, 'Unassigned') AS rep_name,
+               -- The client's owner, which is the only rep an opportunity has
+               -- under the attribution rule (lib/risansi-attribution.ts). It
+               -- was o.rep_id, so a board filtered to one rep showed cards
+               -- carrying a colleague's name.
+               ${creditedRepNameSql()} AS rep_name,
                (SELECT tr.name FROM tour_routes tr WHERE tr.id = c.tour_id) AS tour_name,
                ${CAN_EDIT_CASE}
         FROM opportunities o
         JOIN clients c ON c.id = o.client_id
-        LEFT JOIN users r ON r.id = o.rep_id
+        ${CREDITED_REP_JOIN()}
         ${closedWhere}
         ) x
         WHERE x.closed_rn <= ${closedLimit}
@@ -698,7 +710,6 @@ export default async function PipelinePage({
                                   ELSE o.value_cr END), 0)::text AS v
            FROM opportunities o
            JOIN clients c ON c.id = o.client_id
-           LEFT JOIN users r ON r.id = o.rep_id
           WHERE (o.stage NOT IN ('Won','Lost','Dropped') OR o.updated_at >= NOW() - INTERVAL '12 months')${filterClause}
           GROUP BY o.stage`,
         filterVals as (string | number)[],
