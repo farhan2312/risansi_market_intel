@@ -12,9 +12,13 @@
 // — it is where the 1,022 clients that arrived with no type at all now sit,
 // waiting to be classified properly.
 export const CLIENT_TYPES: string[] = [
-  'End User', 'OEM', 'EPC', 'Trader', 'Group (Mills)', 'Merchant Exporter', 'Unclassified',
+  'End User', 'OEM', 'Trader', 'Group (Mills)', 'Merchant Exporter', 'Unclassified',
 ];
 
-// EPC and OEM are the two "channel" types we gather extra account intelligence
-// for on a visit (focus industries, pump demand, tenders, competitor suppliers).
+// The extra account intelligence a visit gathers for a channel account — focus
+// industries, pump demand, tenders, competitor suppliers.
+//
+// EPC used to be the other half of this and is no longer a type anyone can
+// choose; no client carries it. The arm stays so a record typed EPC before it
+// was retired still shows its profile rather than losing it silently.
 export const isEpcOem = (t: string | null | undefined): boolean => t === 'EPC' || t === 'OEM';

@@ -9,25 +9,26 @@
 /**
  * Client type, collapsed to the buckets the review reports on.
  *
- * EPC has its own bucket. An engineering contractor specifies and procures for
- * somebody else's plant, which is a different sale from a mill buying for its
- * own, and the ten of them were falling into 'Other' and off the bottom of the
- * table — typed clients dropped for want of a row.
+ * The first bucket is End User, which is the word the rest of the portal uses
+ * and the value actually stored on 1,239 clients. This page alone used to call
+ * it "Direct Mill" — a name no record carries and nothing captures, invented at
+ * the display layer — so the same accounts had two names depending on which
+ * screen you were on. One word now, and it is the one in the data.
  *
- * Head Office goes to Direct Mill. The one client carrying it is the National
- * Sugar Institute, which runs its own plant and buys for it; End User already
- * maps here, and that is what it is.
+ * Head Office folds in here too. The one client carrying it is the National
+ * Sugar Institute, which runs its own plant and buys for it.
+ *
+ * EPC is gone: no client carries it, and it can no longer be chosen.
  */
 export const CANON = `CASE
-  WHEN upper(c.client_type) IN ('DIRECT MILL','END USER','HEAD OFFICE') THEN 'Direct Mill'
+  WHEN upper(c.client_type) IN ('DIRECT MILL','END USER','HEAD OFFICE') THEN 'End User'
   WHEN upper(c.client_type) IN ('GROUP (MILLS)','GROUP')  THEN 'Group Mills'
   WHEN upper(c.client_type) IN ('TRADER','MERCHANT EXPORTER') THEN 'Trader'
   WHEN upper(c.client_type) = 'OEM' THEN 'OEM'
-  WHEN upper(c.client_type) = 'EPC' THEN 'EPC'
   WHEN upper(c.client_type) = 'CHANNEL PARTNER' THEN 'Channel Partner'
   ELSE 'Other' END`;
 
-export const CATS = ['Direct Mill', 'Group Mills', 'Trader', 'OEM', 'EPC', 'Channel Partner'];
+export const CATS = ['End User', 'Group Mills', 'Trader', 'OEM', 'Channel Partner'];
 
 /**
  * CANON's catch-all, and what to call it on screen.
