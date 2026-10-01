@@ -25,7 +25,8 @@ export interface BugCard {
   resolved_at: string | null;
   resolution_notes: string | null;
   created_at: string;
-  has_screenshot: boolean;
+  /** Screenshot ids on this bug, oldest first. Served by /api/risansi/bug-screenshot/<id>. */
+  screenshot_ids: number[];
 }
 
 const ageLabel = (iso: string) => turnaround(iso, new Date());
@@ -176,7 +177,7 @@ export function BugsBoard({ initialBugs }: { initialBugs: BugCard[] }) {
                     <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--fg)', lineHeight: 1.3, overflowWrap: 'anywhere' }}>{bug.title}</div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, marginTop: 5, fontSize: 10, color: 'var(--fg-3)' }}>
                       <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bug.reporter_name}</span>
-                      <span style={{ flexShrink: 0, fontFamily: 'var(--font-mono)' }}>{ageLabel(bug.created_at)}{bug.has_screenshot ? ' · 📎' : ''}</span>
+                      <span style={{ flexShrink: 0, fontFamily: 'var(--font-mono)' }}>{ageLabel(bug.created_at)}{bug.screenshot_ids.length ? ` · 📎${bug.screenshot_ids.length > 1 ? bug.screenshot_ids.length : ''}` : ''}</span>
                     </div>
                   </div>
                 ))}
@@ -315,14 +316,20 @@ function BugDetailModal({ bug, onClose, onMove, onSeverity, onType, onSaveNotes,
             </div>
           )}
 
-          {bug.has_screenshot && (
+          {bug.screenshot_ids.length > 0 && (
             <div>
-              <div style={LBL}>Screenshot</div>
-              <a href={`/api/risansi/bugs/${bug.id}/screenshot`} target="_blank" rel="noreferrer">
-                {/* eslint-disable-next-line @next/next/no-img-element -- dynamic API-route image, next/image can't optimise it */}
-                <img src={`/api/risansi/bugs/${bug.id}/screenshot`} alt="Bug screenshot"
-                  style={{ maxWidth: '100%', maxHeight: 320, borderRadius: 6, border: '1px solid var(--line)', display: 'block' }} />
-              </a>
+              <div style={LBL}>{bug.screenshot_ids.length > 1 ? `Screenshots (${bug.screenshot_ids.length})` : 'Screenshot'}</div>
+              {/* Stacked rather than tiled: a screenshot is unreadable at thumbnail
+                  size, and the admin is reading them to understand the report. */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {bug.screenshot_ids.map(sid => (
+                  <a key={sid} href={`/api/risansi/bug-screenshot/${sid}`} target="_blank" rel="noreferrer">
+                    {/* eslint-disable-next-line @next/next/no-img-element -- dynamic API-route image, next/image can't optimise it */}
+                    <img src={`/api/risansi/bug-screenshot/${sid}`} alt="Bug screenshot"
+                      style={{ maxWidth: '100%', maxHeight: 320, borderRadius: 6, border: '1px solid var(--line)', display: 'block' }} />
+                  </a>
+                ))}
+              </div>
             </div>
           )}
 

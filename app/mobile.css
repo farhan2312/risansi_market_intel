@@ -382,4 +382,9 @@
   .risansi-main .exh-export { display: flex !important; align-items: center; justify-content: center; width: 100% !important; min-height: 44px !important; margin-left: 0 !important; box-sizing: border-box; }
   .risansi-main .exh-meeting-meta { text-align: left !important; }
 
+  /* Bug report: the attached screenshots stay two across on a phone. The
+     blanket one-column rule above would stack them into a tall tower and push
+     the Submit button out of the dialog. */
+  .risansi-main .risansi-bug-shots { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+
 }

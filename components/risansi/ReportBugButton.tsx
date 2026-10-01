@@ -3,9 +3,16 @@
 import { useState, useRef, useEffect, type CSSProperties } from 'react';
 import { BUG_SEVERITIES, BUG_SEVERITY_LABELS, BUG_TYPES, BUG_TYPE_LABELS, BUG_TYPE_COLORS, type BugSeverity, type BugType } from '@/lib/risansi-bugs';
 
-// "Report a Bug" — any signed-in user describes an issue, optionally attaches a
-// screenshot, and files it. Posts multipart to /api/risansi/bugs; the system
-// admin then works it through the pipeline on /risansi/admin/bugs.
+// Matches MAX_SHOTS in app/api/risansi/bugs/route.ts — the form stops the
+// reporter here so they find out before the upload rather than after it.
+const MAX_SHOTS = 10;
+const MAX_SHOT_BYTES = 8 * 1024 * 1024;
+const IMAGE_TYPES = /^image\/(png|jpe?g|gif|webp|bmp)$/i;
+
+// "Report a Bug" — any signed-in user describes an issue, attaches as many
+// screenshots as the problem takes to show, and files it. Posts multipart to
+// /api/risansi/bugs; the system admin then works it through the pipeline on
+// /risansi/admin/bugs.
 export function ReportBugButton() {
   const [open, setOpen]           = useState(false);
   const [title, setTitle]         = useState('');
@@ -13,8 +20,8 @@ export function ReportBugButton() {
   const [type, setType]           = useState<BugType>('bug');
   const [severity, setSeverity]   = useState<BugSeverity>('medium');
   const [pageUrl, setPageUrl]     = useState('');
-  const [file, setFile]           = useState<File | null>(null);
-  const [preview, setPreview]     = useState<string | null>(null);
+  const [files, setFiles]         = useState<File[]>([]);
+  const [previews, setPreviews]   = useState<string[]>([]);
   const [submitting, setSubmit]   = useState(false);
   const [error, setError]         = useState('');
   const [done, setDone]           = useState(false);
@@ -25,28 +32,53 @@ export function ReportBugButton() {
     if (open && !pageUrl) setPageUrl(window.location.pathname + window.location.search);
   }, [open, pageUrl]);
 
-  // Manage the object URL for the screenshot preview.
+  // One object URL per attached image, revoked as a set whenever the list
+  // changes so removing a thumbnail does not leak the blob behind it.
   useEffect(() => {
-    if (!file) { setPreview(null); return; }
-    const url = URL.createObjectURL(file);
-    setPreview(url);
-    return () => URL.revokeObjectURL(url);
-  }, [file]);
+    const urls = files.map(f => URL.createObjectURL(f));
+    setPreviews(urls);
+    return () => urls.forEach(URL.revokeObjectURL);
+  }, [files]);
 
   const reset = () => {
     setTitle(''); setDesc(''); setType('bug'); setSeverity('medium'); setPageUrl('');
-    setFile(null); setError(''); setDone(false); setSubmit(false);
+    setFiles([]); setError(''); setDone(false); setSubmit(false);
     if (fileRef.current) fileRef.current.value = '';
   };
   const close = () => { setOpen(false); reset(); };
 
-  const onPickFile = (f: File | null) => {
+  // Add to what is already attached rather than replacing it, so a reporter can
+  // pick a couple from disk, then paste another, and keep the lot.
+  const addFiles = (picked: File[]) => {
     setError('');
-    if (f && !/^image\/(png|jpe?g|gif|webp|bmp)$/i.test(f.type)) {
-      setError('Screenshot must be a PNG, JPG, GIF, WebP or BMP image.'); return;
-    }
-    if (f && f.size > 8 * 1024 * 1024) { setError('Screenshot is too large (max 8 MB).'); return; }
-    setFile(f);
+    if (!picked.length) return;
+    const bad = picked.find(f => !IMAGE_TYPES.test(f.type));
+    if (bad) { setError('Screenshots must be PNG, JPG, GIF, WebP or BMP images.'); return; }
+    const big = picked.find(f => f.size > MAX_SHOT_BYTES);
+    if (big) { setError(`“${big.name}” is too large (max 8 MB each).`); return; }
+    const room = MAX_SHOTS - files.length;
+    if (room <= 0) { setError(`You can attach at most ${MAX_SHOTS} screenshots.`); return; }
+    if (picked.length > room) setError(`Only the first ${room} were added — the limit is ${MAX_SHOTS} screenshots.`);
+    setFiles(prev => [...prev, ...picked.slice(0, MAX_SHOTS - prev.length)]);
+  };
+
+  const removeFile = (i: number) => {
+    setError('');
+    setFiles(prev => prev.filter((_, n) => n !== i));
+  };
+
+  // Ctrl+V of a screen capture, which is how most of these arrive. The clipboard
+  // names a pasted image "image.png" or nothing at all, so give it a name that
+  // tells the admin where it came from.
+  const onPaste = (e: React.ClipboardEvent) => {
+    const pasted = Array.from(e.clipboardData?.files ?? []).filter(f => IMAGE_TYPES.test(f.type));
+    if (!pasted.length) return;
+    e.preventDefault();
+    const stamp = Date.now();
+    addFiles(pasted.map((f, i) => (
+      f.name && f.name !== 'image.png' ? f
+        : new File([f], `pasted-${stamp}-${i + 1}.${(f.type.split('/')[1] || 'png').replace('jpeg', 'jpg')}`, { type: f.type })
+    )));
   };
 
   const submit = async () => {
@@ -59,7 +91,8 @@ export function ReportBugButton() {
       fd.set('page_url', pageUrl.trim());
       fd.set('type', type);
       fd.set('severity', severity);
-      if (file) fd.set('screenshot', file);
+      // Repeated under the one key: the route reads them back with getAll.
+      for (const f of files) fd.append('screenshot', f);
       const res = await fetch('/api/risansi/bugs', { method: 'POST', body: fd });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -85,7 +118,9 @@ export function ReportBugButton() {
 
       {open && (
         <div style={OVERLAY} onClick={close}>
-          <div style={MODAL} onClick={e => e.stopPropagation()}>
+          {/* Paste is caught on the whole dialog, not just the file field: a
+              reporter who has just hit PrtScn pastes wherever the caret is. */}
+          <div style={MODAL} onClick={e => e.stopPropagation()} onPaste={onPaste}>
             <div style={HEAD}>
               <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--fg)' }}>🐞 Report a Bug</span>
               <button type="button" onClick={close} aria-label="Close" style={CLOSE}>×</button>
@@ -141,22 +176,29 @@ export function ReportBugButton() {
                   </Field>
                 </div>
 
-                <Field label="Screenshot (optional)">
-                  {preview ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={preview} alt="Screenshot preview"
-                        style={{ height: 56, width: 84, objectFit: 'cover', borderRadius: 5, border: '1px solid var(--line)' }} />
-                      <div style={{ fontSize: 11, color: 'var(--fg-3)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {file?.name}
-                      </div>
-                      <button type="button" onClick={() => onPickFile(null)} style={LINK_BTN}>Remove</button>
+                <Field plain label={files.length ? `Screenshots (${files.length})` : 'Screenshots (optional)'}>
+                  {files.length > 0 && (
+                    <div className="risansi-bug-shots" style={SHOT_GRID}>
+                      {files.map((f, i) => (
+                        <div key={`${f.name}-${f.lastModified}-${i}`} style={SHOT_TILE}>
+                          {previews[i] && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={previews[i]} alt={f.name}
+                              style={{ width: '100%', height: 64, objectFit: 'cover', display: 'block', background: 'var(--bg-sunk)' }} />
+                          )}
+                          <div style={SHOT_NAME} title={f.name}>{f.name}</div>
+                          <button type="button" onClick={() => removeFile(i)} aria-label={`Remove ${f.name}`} title="Remove" style={SHOT_X}>×</button>
+                        </div>
+                      ))}
                     </div>
-                  ) : (
-                    <label style={DROP}>
-                      <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp" style={{ display: 'none' }}
-                        onChange={e => onPickFile(e.target.files?.[0] ?? null)} />
-                      <span style={{ fontSize: 12, color: 'var(--fg-3)' }}>📎 Click to attach an image</span>
+                  )}
+                  {files.length < MAX_SHOTS && (
+                    <label style={{ ...DROP, marginTop: files.length ? 8 : 0 }}>
+                      <input ref={fileRef} type="file" multiple accept="image/png,image/jpeg,image/gif,image/webp,image/bmp" style={{ display: 'none' }}
+                        onChange={e => { addFiles(Array.from(e.target.files ?? [])); e.target.value = ''; }} />
+                      <span style={{ fontSize: 12, color: 'var(--fg-3)' }}>
+                        📎 {files.length ? 'Add another image' : 'Click to attach images'} — or paste a screenshot
+                      </span>
                     </label>
                   )}
                 </Field>
@@ -178,14 +220,25 @@ export function ReportBugButton() {
   );
 }
 
-function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
+function Field({ label, required, plain, children }: {
+  label: string; required?: boolean;
+  /**
+   * Render as a plain div rather than a label. A label forwards a click on any
+   * non-interactive part of itself to its first labelable descendant, so the
+   * screenshot field — where tapping a thumbnail would have reached the first
+   * tile's Remove button and deleted it — must not be one.
+   */
+  plain?: boolean;
+  children: React.ReactNode;
+}) {
+  const Tag = plain ? 'div' : 'label';
   return (
-    <label style={{ display: 'block' }}>
+    <Tag style={{ display: 'block' }}>
       <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--fg-2)', marginBottom: 4 }}>
         {label}{required && <span style={{ color: 'var(--neg)' }}> *</span>}
       </div>
       {children}
-    </label>
+    </Tag>
   );
 }
 
@@ -219,8 +272,20 @@ const DROP: CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '14px',
   border: '1px dashed var(--line-strong)', borderRadius: 6, cursor: 'pointer', background: 'var(--bg-sunk)',
 };
-const LINK_BTN: CSSProperties = {
-  background: 'none', border: 'none', color: 'var(--neg)', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,
+const SHOT_GRID: CSSProperties = {
+  display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(104px, 1fr))', gap: 8,
+};
+const SHOT_TILE: CSSProperties = {
+  position: 'relative', border: '1px solid var(--line)', borderRadius: 6, overflow: 'hidden', background: 'var(--bg-paper)',
+};
+const SHOT_NAME: CSSProperties = {
+  fontSize: 10, color: 'var(--fg-3)', padding: '3px 5px',
+  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+};
+const SHOT_X: CSSProperties = {
+  position: 'absolute', top: 3, right: 3, width: 20, height: 20, lineHeight: '18px', textAlign: 'center',
+  borderRadius: '50%', border: 'none', cursor: 'pointer', padding: 0,
+  background: 'rgba(15,23,42,0.72)', color: '#fff', fontSize: 15, fontFamily: 'inherit',
 };
 const BTN_GHOST: CSSProperties = {
   padding: '7px 14px', fontSize: 13, fontFamily: 'inherit', background: 'none',

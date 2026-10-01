@@ -36,9 +36,13 @@ export default async function BugsPage({ searchParams }: {
         SELECT b.id, b.title, b.description, b.page_url, b.type, b.severity, b.status,
                b.reporter_name, b.reporter_email, b.recorded_by, b.recorded_at,
                b.resolved_by, b.resolved_at, b.resolution_notes, b.created_at,
-               (s.bug_id IS NOT NULL) AS has_screenshot
+               -- Every screenshot on the bug, oldest first, so the board can show
+               -- the whole set rather than just the one the old join could carry.
+               COALESCE((
+                 SELECT array_agg(s.id ORDER BY s.id)
+                   FROM bug_screenshots s WHERE s.bug_id = b.id
+               ), '{}') AS screenshot_ids
         FROM bugs b
-        LEFT JOIN bug_screenshots s ON s.bug_id = b.id
         ${where}
         ORDER BY b.created_at DESC`, vals);
       return rows.map(r => ({
@@ -48,7 +52,8 @@ export default async function BugsPage({ searchParams }: {
         recorded_by: r.recorded_by, recorded_at: iso(r.recorded_at),
         resolved_by: r.resolved_by, resolved_at: iso(r.resolved_at),
         resolution_notes: r.resolution_notes,
-        created_at: iso(r.created_at) as string, has_screenshot: r.has_screenshot,
+        created_at: iso(r.created_at) as string,
+        screenshot_ids: (r.screenshot_ids ?? []).map(Number),
       }));
     })(),
     (async (): Promise<KpiRow> => {
