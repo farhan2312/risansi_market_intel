@@ -6,6 +6,7 @@ import {
   canReassignClient, getReassignImpact, reassignOpportunityClient,
   type ReassignImpact,
 } from '@/app/actions/risansi-opportunity-client';
+import { useCloseGuard, CloseX, CloseConfirm, KeepOpenHint } from './FormCloseGuard';
 
 // Sysadmin-only: point an opportunity at the client it should have been on.
 //
@@ -98,8 +99,18 @@ function ChangeDialog({ oppId, currentCode, currentName, onClose, onDone }: {
     }
   };
 
+  // No draft here — nothing is typed into this one but a client search, and the
+  // search results are a lookup rather than work. The close still has to be
+  // deliberate, though: a picked client thrown away by a stray backdrop click
+  // sends the sysadmin back through the search.
+  const guard = useCloseGuard({
+    dirty: Boolean(picked) || q.trim().length > 0,
+    onClose,
+    enabled: !busy && !done,
+  });
+
   return (
-    <div onClick={e => { if (e.target === e.currentTarget && !busy) onClose(); }}
+    <div onClick={guard.onBackdropClick}
       style={{
         position: 'fixed', inset: 0, zIndex: 600, background: 'rgba(0,0,0,0.5)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
@@ -110,11 +121,25 @@ function ChangeDialog({ oppId, currentCode, currentName, onClose, onDone }: {
           background: 'var(--bg-paper)', color: 'var(--fg)', borderRadius: 12,
           boxShadow: '0 24px 64px rgba(0,0,0,0.35)',
         }}>
-        <div style={{ padding: '14px 18px', background: '#0A3D8F', color: '#fff' }}>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>Change the client on this opportunity</div>
-          <div style={{ fontSize: 11.5, opacity: 0.9, marginTop: 3 }}>
-            Sysadmin only · {impact?.quoteRef ?? `Opportunity #${oppId}`}
+        <div style={{ padding: '14px 18px', background: '#0A3D8F', color: '#fff', position: 'sticky', top: 0, zIndex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: 14, fontWeight: 700 }}>Change the client on this opportunity</div>
+              <div style={{ fontSize: 11.5, opacity: 0.9, marginTop: 3 }}>
+                Sysadmin only · {impact?.quoteRef ?? `Opportunity #${oppId}`}
+              </div>
+            </div>
+            <CloseX onClick={guard.requestClose} tone="onDark" title="Close this form" />
           </div>
+          {guard.asking && (
+            <CloseConfirm
+              tone="onDark"
+              message="Close without moving it? The client you picked will be forgotten."
+              onConfirm={guard.confirmClose}
+              onCancel={guard.keepEditing}
+            />
+          )}
+          {guard.hint && !guard.asking && <KeepOpenHint tone="onDark" />}
         </div>
 
         <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -196,7 +221,7 @@ function ChangeDialog({ oppId, currentCode, currentName, onClose, onDone }: {
 
           {!done && (
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button type="button" onClick={onClose} disabled={busy} style={GHOST}>Cancel</button>
+              <button type="button" onClick={guard.requestClose} disabled={busy} style={GHOST}>Cancel</button>
               <button type="button" onClick={submit} disabled={busy || !picked}
                 style={{ ...PRIMARY, opacity: busy || !picked ? 0.5 : 1 }}>
                 {busy ? 'Moving…' : 'Move this opportunity'}

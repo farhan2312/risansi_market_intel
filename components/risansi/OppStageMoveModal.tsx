@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { updateOpportunity } from '@/app/actions/risansi';
 import { addOpportunityRemark } from '@/app/actions/risansi-opportunity-remarks';
@@ -12,8 +12,11 @@ import { applyFieldChange,
 import { OppStageSections } from './OppStageSections';
 import { useCompetitors } from './useCompetitors';
 import { QuoteLineItems, emptyItem, itemsAreBlank, type QuoteItem } from './QuoteLineItems';
-import { SalesOrderList } from './SalesOrderList';
+import { SalesOrderList, type SoRow } from './SalesOrderList';
 import { useQuotationDocs, QuotationDocList, type UploadResponse } from './QuotationDocs';
+import { useStateDraft } from './useFormDraft';
+import { SaveIndicator, DraftRestoredBanner } from './SaveIndicator';
+import { useCloseGuard, CloseX, CloseConfirm, KeepOpenHint } from './FormCloseGuard';
 import type { FieldValues } from './OppFields';
 
 // Moving an opportunity to its next stage.
@@ -81,6 +84,14 @@ export function OppStageMoveModal({ opp, target, usdRate = 86, onCancel, onDone 
   const [remark, setRemark] = useState('');
   const [busy, setBusy]     = useState(false);
   const [error, setError]   = useState('');
+  // The sales-order rows a Won move asks for. SalesOrderList owns them and
+  // sends them through a hidden input; this copy exists only so the draft can
+  // keep them, and `soSeed` is how a restored draft gets back into it.
+  // `n` is a remount counter: SalesOrderList seeds itself once from initialRows,
+  // so putting drafted rows back into it (or clearing them again on a discard)
+  // means giving it a new key.
+  const [soSeed, setSoSeed] = useState<{ rows: SoRow[]; n: number }>({ rows: [], n: 0 });
+  const [soRows, setSoRows] = useState<SoRow[]>([]);
 
   const onChange = useCallback((name: string, value: string) => {
     setValues(v => applyFieldChange(v, name, value));
@@ -88,13 +99,20 @@ export function OppStageMoveModal({ opp, target, usdRate = 86, onCancel, onDone 
   }, []);
 
   // Existing line items, so a re-quote edits them rather than starting over.
+  //
+  // `seeded` tells the draft when this is finished: until then a loaded quote
+  // would look to it like fields someone had just typed, and every re-quote
+  // would open claiming unsaved changes.
+  const [seeded, setSeeded] = useState(!showQuote);
+  // A restored draft outranks the server's lines — it is the newer edit of them.
+  const draftApplied = useRef(false);
   useEffect(() => {
     if (!showQuote) return;
     let alive = true;
     fetch(`/api/risansi/opportunities/${oppId}/items`)
       .then(r => (r.ok ? r.json() : { items: [] }))
       .then((d: { items?: Record<string, unknown>[] }) => {
-        if (!alive || !d.items?.length) return;
+        if (!alive || !d.items?.length || draftApplied.current) return;
         setItems(d.items.map(it => ({
           pump_model: String(it.pump_model ?? ''), pump_qty: String(it.pump_qty ?? ''),
           pump_speed: String(it.pump_speed ?? ''), geared_motor_detail: String(it.geared_motor_detail ?? ''),
@@ -103,9 +121,30 @@ export function OppStageMoveModal({ opp, target, usdRate = 86, onCancel, onDone 
           detailed_specifications: String(it.detailed_specifications ?? ''),
         })));
       })
-      .catch(() => {});
+      .catch(() => {})
+      // Whether the lines arrived or the fetch failed, the form is as seeded as
+      // it is going to get, so the draft must not wait on it any longer.
+      .finally(() => { if (alive) setSeeded(true); });
     return () => { alive = false; };
   }, [oppId, showQuote]);
+
+  // Keep what is typed, keyed by the deal AND the destination: the same
+  // opportunity being moved to Dropped is a different piece of work from the
+  // same one being moved to Won, and one must not restore into the other.
+  const draft = useStateDraft(
+    Number.isFinite(oppId) ? `risansi:opp-draft:move:${oppId}:${target}` : null,
+    { values, items, remark, soRows },
+    {
+      ready: seeded,
+      onRestore: d => {
+        draftApplied.current = true;
+        if (d.values) setValues(d.values);
+        if (Array.isArray(d.items) && d.items.length) setItems(d.items);
+        setRemark(d.remark ?? '');
+        setSoSeed(s => ({ rows: Array.isArray(d.soRows) ? d.soRows : [], n: s.n + 1 }));
+      },
+    },
+  );
 
   // The two lists the catalogue cannot hold, because they come from the database
   // and from a constant that would otherwise be duplicated here. The competitor
@@ -179,6 +218,9 @@ export function OppStageMoveModal({ opp, target, usdRate = 86, onCancel, onDone 
       if (remark.trim()) {
         await addOpportunityRemark(oppId, target, remark).catch(() => {});
       }
+      // The move is on record, so the local copy of it has served its purpose.
+      // Left behind, it would be offered back the next time this deal was moved.
+      draft.clear();
       onDone();
       router.refresh();
     } catch (e) {
@@ -194,27 +236,60 @@ export function OppStageMoveModal({ opp, target, usdRate = 86, onCancel, onDone 
 
   const wantsRemark = REMARK_STAGES.includes(target);
 
+  // Closing this form used to be a trap: a backdrop click threw away a long
+  // quotation, and there was no × anywhere in the header to close it on purpose.
+  const guard = useCloseGuard({ dirty: draft.dirty, onClose: onCancel, enabled: !busy });
+
   return (
-    <div onClick={e => { if (e.target === e.currentTarget && !busy) onCancel(); }}
+    <div onClick={guard.onBackdropClick}
       style={{
         position: 'fixed', inset: 0, zIndex: 420, background: 'rgba(10,22,40,0.45)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
       }}>
-      <div className="risansi-modal" style={{
+      <div className="risansi-modal" role="dialog" aria-modal="true" style={{
         width: 880, maxWidth: '100%', maxHeight: '92vh', overflowY: 'auto',
         background: 'var(--bg-paper)', color: 'var(--fg)', borderRadius: 12,
         boxShadow: '0 24px 64px rgba(10,61,143,0.25)',
       }}>
+        {/* Sticky, so the × and the draft indicator stay in reach however long
+            the stage's field list is. The Cancel at the foot of the form was the
+            only way out before, which is a scroll away on every long quotation. */}
         <div style={{ padding: '16px 20px', background: '#0A3D8F', color: '#fff', position: 'sticky', top: 0, zIndex: 1 }}>
-          <div style={{ fontSize: 15, fontWeight: 700 }}>
-            {opp.stage} → {target}
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>
+                {opp.stage} → {target}
+              </div>
+              <div style={{ fontSize: 11.5, opacity: 0.9, marginTop: 3 }}>
+                {opp.client_name}{opp.client_code ? ` · ${opp.client_code}` : ''} — {STAGE_HINT[target]}
+              </div>
+            </div>
+            <CloseX onClick={guard.requestClose} tone="onDark" title="Close this form" />
           </div>
-          <div style={{ fontSize: 11.5, opacity: 0.9, marginTop: 3 }}>
-            {opp.client_name}{opp.client_code ? ` · ${opp.client_code}` : ''} — {STAGE_HINT[target]}
+          {/* On its own line rather than beside the heading: at 375px the two
+              together squeezed the stage names onto three lines. */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 2 }}>
+            <SaveIndicator state={draft.state} at={draft.savedAt} tone="onDark" />
           </div>
+          {guard.asking && (
+            <CloseConfirm
+              tone="onDark"
+              message="Close without moving this deal? What you typed is kept and comes back when you reopen it."
+              onConfirm={guard.confirmClose}
+              onCancel={guard.keepEditing}
+            />
+          )}
+          {guard.hint && !guard.asking && <KeepOpenHint tone="onDark" />}
         </div>
 
         <div style={{ padding: '18px 20px' }}>
+          {draft.restored && (
+            <DraftRestoredBanner
+              what={`move to ${target}`}
+              onDismiss={draft.dismissRestored}
+              onDiscard={draft.discard}
+            />
+          )}
           <OppStageSections
             stage={target} values={values} onChange={onChange}
             usdRate={usdRate} optionsFor={optionsFor}
@@ -254,7 +329,12 @@ export function OppStageMoveModal({ opp, target, usdRate = 86, onCancel, onDone 
             )}
             {target === 'Won' && (
               <div style={{ marginTop: 12 }}>
-                <SalesOrderList finalValueInr={parseFloat(values.final_value_inr || '') || null} />
+                <SalesOrderList
+                  key={`so-${soSeed.n}`}
+                  initialRows={soSeed.rows.length ? soSeed.rows : undefined}
+                  onRowsChange={setSoRows}
+                  finalValueInr={parseFloat(values.final_value_inr || '') || null}
+                />
               </div>
             )}
           </OppStageSections>
@@ -273,7 +353,7 @@ export function OppStageMoveModal({ opp, target, usdRate = 86, onCancel, onDone 
           {error && <div style={ERR}>{error}</div>}
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
-            <button type="button" onClick={onCancel} disabled={busy} style={GHOST}>Cancel</button>
+            <button type="button" onClick={guard.requestClose} disabled={busy} style={GHOST}>Cancel</button>
             <button type="button" onClick={submit} disabled={busy} style={{ ...PRIMARY, opacity: busy ? 0.6 : 1 }}>
               {busy ? 'Saving…' : `Move to ${target}`}
             </button>

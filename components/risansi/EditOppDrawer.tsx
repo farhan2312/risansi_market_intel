@@ -24,6 +24,9 @@ import { QuotationPdfManager } from './QuotationPdfManager';
 import { QuotationLinkView } from './QuotationLinkView';
 import { ChangeOppClient } from './ChangeOppClient';
 import { OppRemarksLog } from './OppRemarksLog';
+import { useStateDraft } from './useFormDraft';
+import { SaveIndicator, DraftRestoredBanner } from './SaveIndicator';
+import { useCloseGuard, CloseX, CloseConfirm, KeepOpenHint } from './FormCloseGuard';
 
 /** Crores → the whole rupee figure the money inputs take. */
 const inrOfCr = (cr: unknown) =>
@@ -139,6 +142,19 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
     return () => { active = false; };
   }, [opp.id, itemsVersion]);
 
+  const isLocked = opp.stage === 'Won' || opp.stage === 'Lost';
+  // View-only when locked (Won/Lost) OR the viewer lacks edit rights.
+  const readOnly = isLocked || !canEdit;
+
+  // An edit in progress, kept locally so that closing the drawer — by any
+  // route, including the stray backdrop click this used to close on — never
+  // throws the typing away. A read-only drawer has nothing to keep.
+  const draft = useStateDraft(
+    `risansi:opp-draft:edit:${opp.id}`,
+    { values },
+    { enabled: !readOnly, onRestore: d => { if (d.values) setValues(d.values); } },
+  );
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true); setError('');
@@ -158,6 +174,8 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
       // error is redacted in production and the reason never reaches the screen.
       const res = await updateOpportunity(Number(opp.id), fd);
       if (!res.ok) { setError(res.error); setLoading(false); return; }
+      // Saved for real — keeping the local copy would offer it back on reopen.
+      draft.clear();
       router.refresh();
       onClose();
     } catch (err: unknown) {
@@ -174,9 +192,13 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
   const inrLabel = (cr: number | string | null | undefined) =>
     cr != null && cr !== '' ? '₹' + Math.round(parseFloat(String(cr)) * 10_000_000).toLocaleString('en-IN') : '';
 
-  const isLocked = opp.stage === 'Won' || opp.stage === 'Lost';
-  // View-only when locked (Won/Lost) OR the viewer lacks edit rights.
-  const readOnly = isLocked || !canEdit;
+  // Escape is handed to the move form while that is open, so one press does not
+  // close both it and the drawer underneath.
+  const guard = useCloseGuard({
+    dirty: draft.dirty,
+    onClose,
+    enabled: !loading && moveTo === null,
+  });
 
   const probLabel = probabilityCodeDisplay(opp.probability_code);
   // Static deal facts for a Won opp — shown as a compact grid below the actionable
@@ -194,7 +216,9 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
 
   return (
     <>
-      <div onClick={onClose} style={{
+      {/* The backdrop no longer closes a drawer with typing in it: that click
+          was how a part-finished edit disappeared. Untouched, it still closes. */}
+      <div onClick={guard.onBackdropClick} style={{
         position: 'fixed', inset: 0, background: 'rgba(10,22,40,0.35)',
         backdropFilter: 'blur(3px)', WebkitBackdropFilter: 'blur(3px)', zIndex: 300,
       }} />
@@ -205,10 +229,12 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
         zIndex: 301, display: 'flex', flexDirection: 'column',
         boxShadow: '0 20px 60px rgba(10,61,143,0.2)', overflow: 'hidden',
       }}>
-        {/* Header */}
+        {/* Header. Sticky by virtue of the flex column: it never scrolls out of
+            reach, so the × and the draft indicator are always where they were. */}
+        <div style={{ borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
         <div style={{
-          padding: '16px 20px', borderBottom: '1px solid var(--line)',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
+          padding: '16px 20px 0',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
           <div>
             <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--fg)' }}>
@@ -280,8 +306,24 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
             >
               ⤓ Export Excel
             </a>
-            <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--fg-3)', lineHeight: 1 }}>×</button>
+            <CloseX onClick={guard.requestClose} title="Close this form" />
           </div>
+        </div>
+        <div style={{ padding: readOnly && !guard.asking && !guard.hint ? '0 20px 16px' : '0 20px 14px' }}>
+          {!readOnly && (
+            <div style={{ display: 'flex', justifyContent: 'flex-end', minHeight: 14 }}>
+              <SaveIndicator state={draft.state} at={draft.savedAt} />
+            </div>
+          )}
+          {guard.asking && (
+            <CloseConfirm
+              message="Close this edit? What you typed is kept and comes back when you reopen it."
+              onConfirm={guard.confirmClose}
+              onCancel={guard.keepEditing}
+            />
+          )}
+          {guard.hint && !guard.asking && <KeepOpenHint />}
+        </div>
         </div>
 
         {/* Auto-created notice */}
@@ -381,6 +423,13 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
         /* Editable form */
         <form onSubmit={handleSubmit} style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {draft.restored && (
+              <DraftRestoredBanner
+                what="edits to this opportunity"
+                onDismiss={draft.dismissRestored}
+                onDiscard={draft.discard}
+              />
+            )}
 
             {/* Stage — the record's own; any other pill opens the move form */}
             <div>
@@ -450,9 +499,9 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
             )}
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', paddingTop: 4 }}>
-              <DeleteOppButton oppId={Number(opp.id)} onDeleted={() => { onClose(); router.refresh(); }} />
+              <DeleteOppButton oppId={Number(opp.id)} onDeleted={() => { draft.clear(); onClose(); router.refresh(); }} />
               <div style={{ display: 'flex', gap: 8 }}>
-                <button type="button" onClick={onClose} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid var(--line-strong)', background: 'white', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}>
+                <button type="button" onClick={guard.requestClose} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid var(--line-strong)', background: 'white', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}>
                   Cancel
                 </button>
                 <button type="submit" disabled={loading} style={{ padding: '8px 20px', borderRadius: 6, background: '#0A3D8F', color: 'white', border: 'none', cursor: loading ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 500, fontFamily: 'inherit', opacity: loading ? 0.7 : 1 }}>
@@ -474,7 +523,7 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
           target={moveTo}
           usdRate={usdRate}
           onCancel={() => setMoveTo(null)}
-          onDone={() => { setMoveTo(null); onClose(); router.refresh(); }}
+          onDone={() => { draft.clear(); setMoveTo(null); onClose(); router.refresh(); }}
         />
       )}
     </>

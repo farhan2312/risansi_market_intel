@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 
 // Dynamic Sales Order entry used wherever a deal is marked Won (the kanban
 // completion modal, the New Opportunity Won step, and the Edit drawer's Won
@@ -19,12 +19,26 @@ export function SalesOrderList({
   name = 'sales_orders_json',
   finalValueInr = null,
   initialRows,
+  onRowsChange,
 }: {
   name?: string;
   finalValueInr?: number | null;
   initialRows?: SoRow[];
+  /**
+   * Reports the rows up so a form holding a draft can keep them. The rows
+   * otherwise only ever reach the server through the hidden input below, which
+   * no draft can see — and the SO numbers on a Won move are exactly the kind of
+   * typing that was being lost.
+   */
+  onRowsChange?: (rows: SoRow[]) => void;
 }) {
   const [rows, setRows] = useState<SoRow[]>(initialRows && initialRows.length ? initialRows : [blank()]);
+
+  // In an effect rather than inside `set`, so every route that changes the rows
+  // (add, remove, edit) reports without each having to remember to.
+  const report = useRef(onRowsChange);
+  useEffect(() => { report.current = onRowsChange; });
+  useEffect(() => { report.current?.(rows); }, [rows]);
 
   const set = (i: number, k: keyof SoRow, v: string) =>
     setRows(rs => rs.map((r, j) => (j === i ? { ...r, [k]: v } : r)));

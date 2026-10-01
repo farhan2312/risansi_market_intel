@@ -8,6 +8,9 @@ import { applyFieldChange,
 } from '@/lib/risansi-opportunity-fields';
 import { OppStageSections } from './OppStageSections';
 import { QuoteLineItems, emptyItem, itemsAreBlank, type QuoteItem } from './QuoteLineItems';
+import { useStateDraft } from './useFormDraft';
+import { SaveIndicator, DraftRestoredBanner } from './SaveIndicator';
+import { useCloseGuard, CloseX, CloseConfirm, KeepOpenHint } from './FormCloseGuard';
 import type { FieldValues } from './OppFields';
 
 /** The only stages an opportunity may be raised at. */
@@ -94,24 +97,46 @@ export function NewOpportunityModal(props: NewOpportunityModalProps) {
 
   const reset = () => { onClose(); setSearch(''); setResults([]); if (!lockClient) setSelected(null); };
 
+  // The form below reports whether anything has been filled in; this parent owns
+  // the × and Escape, so it has to know before it closes on either.
+  const [dirty, setDirty] = useState(false);
+  const guard = useCloseGuard({ dirty, onClose: reset, enabled: open });
+
   if (!open) return null;
 
   return (
-    <div onClick={e => { if (e.target === e.currentTarget) reset(); }}
+    <div onClick={guard.onBackdropClick}
       style={{
         position: 'fixed', inset: 0, zIndex: 400, background: 'rgba(10,22,40,0.45)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
       }}>
-      <div className="risansi-modal" style={{
+      <div className="risansi-modal" role="dialog" aria-modal="true" style={{
         width: 880, maxWidth: '100%', maxHeight: '92vh', overflowY: 'auto',
         background: 'var(--bg-paper)', color: 'var(--fg)', borderRadius: 12,
         boxShadow: '0 24px 64px rgba(10,61,143,0.25)',
       }}>
+        {/* Sticky with the header, so there is always a deliberate way out that
+            is not a scroll to the bottom — and is not a click on the backdrop,
+            which no longer discards a form someone has started filling in. */}
         <div style={{ padding: '16px 20px', background: '#0A3D8F', color: '#fff', position: 'sticky', top: 0, zIndex: 1 }}>
-          <div style={{ fontSize: 15, fontWeight: 700 }}>New Opportunity</div>
-          <div style={{ fontSize: 11.5, opacity: 0.9, marginTop: 3 }}>
-            Choose where it starts — everything up to that stage is asked here
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>New Opportunity</div>
+              <div style={{ fontSize: 11.5, opacity: 0.9, marginTop: 3 }}>
+                Choose where it starts — everything up to that stage is asked here
+              </div>
+            </div>
+            <CloseX onClick={guard.requestClose} tone="onDark" title="Close this form" />
           </div>
+          {guard.asking && (
+            <CloseConfirm
+              tone="onDark"
+              message="Close without creating it? What you typed is kept and comes back when you reopen the form."
+              onConfirm={guard.confirmClose}
+              onCancel={guard.keepEditing}
+            />
+          )}
+          {guard.hint && !guard.asking && <KeepOpenHint tone="onDark" />}
         </div>
 
         <div style={{ padding: '18px 20px' }}>
@@ -125,6 +150,8 @@ export function NewOpportunityModal(props: NewOpportunityModalProps) {
               client={selected} lockClient={!!lockClient} usdRate={usdRate}
               onBack={() => { if (!lockClient) { setSelected(null); setResults([]); } }}
               onSuccess={reset}
+              onCancel={guard.requestClose}
+              onDirtyChange={setDirty}
             />
           )}
         </div>
@@ -171,9 +198,12 @@ function ClientPicker({ search, setSearch, results, onPick, onCancel }: {
   );
 }
 
-function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess }: {
+function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess, onCancel, onDirtyChange }: {
   client: ClientResult; lockClient: boolean; usdRate: number;
   onBack: () => void; onSuccess: () => void;
+  /** Routed through the parent's close guard, which asks before walking away. */
+  onCancel: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const router = useRouter();
   const [stage, setStage]   = useState<StartStage>('Prospect');
@@ -187,6 +217,32 @@ function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess }: {
     setValues(v => applyFieldChange(v, name, value));
     setError('');
   }, []);
+
+  // Kept per client, because that is what makes two half-raised enquiries
+  // different pieces of work. The attached PDFs are deliberately not in here:
+  // a File cannot survive a page reload, and a draft that silently dropped them
+  // would be worse than one that says it keeps the typing.
+  const draft = useStateDraft(
+    `risansi:opp-draft:new:${client.id}`,
+    { stage, values, items },
+    {
+      onRestore: d => {
+        if (d.stage && (START_STAGES as readonly string[]).includes(d.stage)) setStage(d.stage);
+        if (d.values) setValues(d.values);
+        if (Array.isArray(d.items) && d.items.length) setItems(d.items);
+      },
+    },
+  );
+
+  // The × and Escape live on the modal header above, so dirtiness has to travel
+  // up. Reported through a ref so a parent that re-creates the callback on every
+  // render cannot turn this into a loop.
+  const report = useRef(onDirtyChange);
+  useEffect(() => { report.current = onDirtyChange; });
+  useEffect(() => { report.current?.(draft.dirty); }, [draft.dirty]);
+  // On the way out — a different client picked, or the modal closed — the form
+  // is gone and the parent must stop treating it as half-filled.
+  useEffect(() => () => report.current?.(false), []);
 
   const required = requiredFieldNames(stage);
   const missing  = required.filter(n => !values[n]?.trim());
@@ -243,6 +299,8 @@ function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess }: {
         }
       }
 
+      // On record now, so the local copy has served its purpose.
+      draft.clear();
       onSuccess();
       router.refresh();
     } catch (err) {
@@ -259,7 +317,7 @@ function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess }: {
   return (
     <div>
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16,
+        display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, flexWrap: 'wrap',
         padding: '9px 12px', borderRadius: 8, background: 'var(--bg-elev)', border: '1px solid var(--line)',
       }}>
         <div style={{ minWidth: 0 }}>
@@ -269,7 +327,18 @@ function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess }: {
         {!lockClient && (
           <button type="button" onClick={onBack} style={{ ...LINK, marginLeft: 'auto' }}>Change</button>
         )}
+        <span style={{ marginLeft: lockClient ? 'auto' : 10, display: 'inline-flex' }}>
+          <SaveIndicator state={draft.state} at={draft.savedAt} />
+        </span>
       </div>
+
+      {draft.restored && (
+        <DraftRestoredBanner
+          what="opportunity you had started"
+          onDismiss={draft.dismissRestored}
+          onDiscard={draft.discard}
+        />
+      )}
 
       <StagePicker value={stage} onChange={setStage} />
 
@@ -290,7 +359,7 @@ function NewOppForm({ client, lockClient, usdRate, onBack, onSuccess }: {
       {error && <div style={ERR}>{error}</div>}
 
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
-        <button type="button" onClick={onSuccess} disabled={busy} style={GHOST}>Cancel</button>
+        <button type="button" onClick={onCancel} disabled={busy} style={GHOST}>Cancel</button>
         <button type="button" onClick={submit} disabled={busy} style={{ ...PRIMARY, opacity: busy ? 0.6 : 1 }}>
           {busy ? 'Creating…' : 'Create Opportunity'}
         </button>
