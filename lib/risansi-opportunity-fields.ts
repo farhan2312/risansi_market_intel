@@ -26,7 +26,7 @@
 export const PRODUCT_TYPES = ['PCP', 'MMP', 'RBL', 'OLB', 'SPARE', 'SERVICE', 'OTHER'] as const;
 
 /** Pump or Spare — a different axis from PRODUCT_TYPES. A spare for a PCP is still PCP. */
-export const OPPORTUNITY_TYPES = ['Pump', 'Spare'] as const;
+export const OPPORTUNITY_TYPES = ['Pump', 'Spare', 'OLB'] as const;
 
 export const OPPORTUNITY_SOURCES = [
   'By Post', 'Email', 'WhatsApp', 'Tender Portal', 'India MART', 'Verbal',
