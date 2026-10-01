@@ -264,7 +264,7 @@ export default async function ExecDashboardPage() {
             <RepKpi label={`Revenue (${fy.label})`} value={fmtCr(myRevenue)}       sub="Booked · your clients" drill={{ kind: 'my_revenue' }} />
             <RepKpi label="Visits This Week"   value={String(myVisitsCount)}  sub="Last 7 days" drill={{ kind: 'my_visits_week' }} />
             <RepKpi label="Overdue Clients"    value={String(myOverdueCount)} sub="No visit 90+ days" neg={myOverdueCount > 0} drill={{ kind: 'my_overdue' }} />
-            <RepKpi label="Pipeline"           value={fmtCr(myPipelineValue)} sub="Open opportunities" drill={{ kind: 'my_pipeline' }} />
+            <RepKpi label="Open Pipeline"      value={fmtCr(myPipelineValue)} sub="Quoted + negotiating" drill={{ kind: 'my_pipeline' }} />
             <RepKpi label="Active Clients"     value={String(myClientsCount)} sub="You own or cover" drill={{ kind: 'my_clients' }} />
           </div>
 

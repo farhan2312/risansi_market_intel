@@ -152,7 +152,13 @@ export const stageWhere = (s: DashScope, stages: readonly string[]) =>
 
 /** Open opportunities on the rep dashboard — everything still in play. */
 export const repPipelineWhere = (s: DashScope) =>
-  `o.stage NOT IN ('Won','Lost')${s.oppOwnerAnd}`;
+  // The quoted pipe, the same PIPELINE_STAGES the admin dashboard's Open
+  // Pipeline uses. This was `NOT IN ('Won','Lost')`, which counted Suspect and
+  // Prospect — neither of which carries an offer — and, because Dropped is
+  // neither Won nor Lost, counted dead deals as pipeline too. On one rep's
+  // board that read ₹13.74 Cr against a real quoted pipe of ₹4.72 Cr, ₹0.88 Cr
+  // of it dropped.
+  `o.stage IN (${PIPELINE_STAGES.map(x => `'${x}'`).join(', ')})${s.oppOwnerAnd}`;
 
 /**
  * Order in Hand and Order Booked, as the two halves of a Won opportunity.

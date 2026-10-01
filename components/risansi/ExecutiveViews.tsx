@@ -186,7 +186,9 @@ export function ConversionFigures({ c }: { c: ExecConversion }) {
     <div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 16, alignItems: 'start' }}>
         <Figure label="Annual Target" value={fmtCr(c.targetInr)} sub={c.targetNote} />
-        <Figure label="Total Quoted" value={fmtCr(c.quotedInr)} sub="real quoted pipeline" color="var(--accent)" />
+        {/* All of it, won and lost included — which is why this is larger than
+            the board's Quoted tile, and why Order Received matches its Won. */}
+        <Figure label="Total Quoted" value={fmtCr(c.quotedInr)} sub="everything quoted this FY, won and lost included" color="var(--accent)" />
         <Figure label="Order Received" value={fmtCr(c.orderReceivedInr)} sub="won, of that pipeline" color="var(--pos)" />
         <Figure label="Conversion" value={pct(c.pct)} sub="order received ÷ total quoted" big
           color={c.pct == null ? 'var(--fg-3)' : c.pct >= 50 ? 'var(--pos)' : c.pct >= 25 ? 'var(--warn)' : 'var(--neg)'} />

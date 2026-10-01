@@ -598,9 +598,15 @@ export default async function ExecutiveReviewPage({ searchParams }: {
       drill: [...CLIENT_COLS, 'total' as const].map(col => ({ kind: 'clients_by_type' as const, tsm, key, col })),
     };
   };
-  const clientRows: Row[] = CATS.map(cat => rowFor(cat, cat, cmMap[cat] ? [cmMap[cat]] : []));
+  const allClientRows: Row[] = CATS.map(cat => rowFor(cat, cat, cmMap[cat] ? [cmMap[cat]] : []));
   const otherSrc = clients.filter(r => !CATS.includes(r.cat));
-  clientRows.push(rowFor(CAT_OTHER_LABEL, CAT_OTHER, otherSrc));
+  allClientRows.push(rowFor(CAT_OTHER_LABEL, CAT_OTHER, otherSrc));
+  // A category this book has nobody in says nothing, so it is left out rather
+  // than printed as a row of zeroes. The Grand Total below still sums every
+  // category, so a hidden row — being zero — cannot change it. If a book turns
+  // out to be empty altogether, show the categories rather than an empty table.
+  const nonEmpty = allClientRows.filter(r => (r.vals[r.vals.length - 1] ?? 0) > 0);
+  const clientRows: Row[] = nonEmpty.length ? nonEmpty : allClientRows;
   const cmTot = CLIENT_COLS.map(k => sumCol(clients, k));
   clientRows.push({ label: 'Grand Total', vals: [...cmTot, cmTot.reduce((a, b) => a + b, 0)], strong: true });
 

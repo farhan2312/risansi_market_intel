@@ -146,7 +146,16 @@ export function formatLastVisitShort(
 // ── Currency formatting ────────────────────────────────────────
 
 /** ₹12.4 Cr — null-safe. For values already in Crores (orders.order_value_cr, sales_targets). */
-export function fmtCr(val: number | null | undefined, decimals = 1): string {
+/**
+ * Two decimals, because one hides a lakh.
+ *
+ * This read ₹3.0 Cr on the dashboard beside ₹2.97 Cr on the Executive Review —
+ * the same rupees, rounded differently, which looked like two pages
+ * disagreeing. At a crore scale the first decimal is ten lakh and the second is
+ * one, and a lakh is worth seeing. The exec review's own formatter has always
+ * used two; this brings everything else into line with it.
+ */
+export function fmtCr(val: number | null | undefined, decimals = 2): string {
   if (val == null || isNaN(val)) return '—';
   return `₹${val.toFixed(decimals)} Cr`;
 }

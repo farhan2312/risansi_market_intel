@@ -911,8 +911,12 @@ export default async function PipelinePage({
                 carries no opportunity link — it's the actuals that land after a
                 win, not literally the same rupees moving out of the Won card. */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr auto 1fr auto 1fr auto 1fr', gap: 10, alignItems: 'center' }}>
+              {/* Says "still at Quoted" because the Executive Review's Total
+                  Quoted counts everything quoted this year including what has
+                  since been won or lost, and the two reading differently looked
+                  like a mismatch. Each label now names its own question. */}
               <ForecastBlock label="Quoted" value={quotedCr}
-                sub={quotedCount > 0 ? `${quotedCount} awaiting outcome` : 'nothing quoted'} color="var(--fg)" rate={usdRate}
+                sub={quotedCount > 0 ? `${quotedCount} still at Quoted · not those since won or lost` : 'nothing still at Quoted'} color="var(--fg)" rate={usdRate}
                 {...bracket('quoted')} />
               <FlowArrow />
               <ForecastBlock label="In Negotiation" value={negotiatingCr}
