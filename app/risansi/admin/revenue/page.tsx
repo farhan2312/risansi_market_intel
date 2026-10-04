@@ -5,7 +5,10 @@ import { Topbar } from '@/components/risansi';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 import { RevenueUploadBox } from '@/components/risansi/RevenueUploadBox';
-import { DeleteUploadButton } from '@/components/risansi/DeleteUploadButton';
+import {
+  RevenueUploadLogTable, RevenueEntriesTable,
+  type RevenueLogRow, type RevenueEntryRow,
+} from '@/components/risansi/AdminUploadTables';
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -16,51 +19,15 @@ async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   }
 }
 
-function fmtMonth(raw: unknown): string {
-  if (!raw) return '—';
-  try {
-    return new Date(String(raw)).toLocaleDateString('en-IN', {
-      month: 'short', year: 'numeric',
-    });
-  } catch {
-    return String(raw);
-  }
-}
-
-function fmtInr(n: number) {
-  if (!n || n === 0) return '—';
-  return n.toLocaleString('en-IN');
-}
-
 // ── Types ──────────────────────────────────────────────────────
+//
+// Both tables moved to AdminUploadTables, which owns their row shapes now —
+// every column there sorts, and that needs a client component. Neither table
+// is paginated: the queries below fetch the whole of what the page shows, so
+// the sort happens in memory and the panel headings stay true.
 
-interface RevenueRow {
-  id:          string;
-  month:       string;
-  pump_value:  number;
-  spare_value: number;
-  total_value: number;
-  entered_by:  string | null;
-  entered_at:  string | null;
-  code:        string;
-  legal_name:  string;
-  industry:    string | null;
-  state:       string | null;
-}
-
-interface LogRow {
-  id:            number;
-  uploaded_by:   string;
-  filename:      string;
-  month:         string | null;
-  rows_total:    number;
-  rows_inserted: number;
-  rows_updated:  number;
-  rows_skipped:  number;
-  skipped_codes: string[] | null;
-  status:        string;
-  uploaded_at:   string;
-}
+type RevenueRow = RevenueEntryRow;
+type LogRow = RevenueLogRow;
 
 // ── Page ──────────────────────────────────────────────────────
 
@@ -176,75 +143,7 @@ export default async function RevenueAdminPage() {
               No uploads yet
             </div>
           ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead>
-                  <tr style={{ background: 'var(--bg-elev)' }}>
-                    <th style={TH}>Date &amp; Time</th>
-                    <th style={TH}>File</th>
-                    <th style={TH}>Month</th>
-                    <th style={{ ...TH, textAlign: 'center' }}>Rows</th>
-                    <th style={{ ...TH, textAlign: 'center' }}>Inserted</th>
-                    <th style={{ ...TH, textAlign: 'center' }}>Updated</th>
-                    <th style={{ ...TH, textAlign: 'center' }}>Skipped</th>
-                    <th style={TH}>Status</th>
-                    <th style={TH}>Uploaded By</th>
-                    <th style={TH}>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {uploadLog.map((log, i) => (
-                    <tr key={log.id} style={{
-                      borderBottom: i < uploadLog.length - 1 ? '1px solid var(--line)' : 'none',
-                    }}>
-                      <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, whiteSpace: 'nowrap' }}>
-                        {new Date(log.uploaded_at).toLocaleString('en-IN', {
-                          day: '2-digit', month: 'short', year: 'numeric',
-                          hour: '2-digit', minute: '2-digit',
-                        })}
-                      </td>
-                      <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {log.filename}
-                      </td>
-                      <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-                        {fmtMonth(log.month)}
-                      </td>
-                      <td style={{ ...TD, textAlign: 'center' }}>{log.rows_total}</td>
-                      <td style={{ ...TD, textAlign: 'center', color: '#065F46', fontWeight: 600 }}>
-                        {log.rows_inserted}
-                      </td>
-                      <td style={{ ...TD, textAlign: 'center', color: '#1E40AF' }}>
-                        {log.rows_updated}
-                      </td>
-                      <td style={{ ...TD, textAlign: 'center', color: log.rows_skipped > 0 ? '#9B1C1C' : 'var(--fg-3)' }}>
-                        {log.rows_skipped}
-                        {(log.skipped_codes?.length ?? 0) > 0 && (
-                          <span title={(log.skipped_codes ?? []).join(', ')} style={{ cursor: 'help' }}> ⓘ</span>
-                        )}
-                      </td>
-                      <td style={TD}>
-                        <span style={{
-                          padding: '2px 8px', borderRadius: 10,
-                          fontSize: 11, fontWeight: 600,
-                          background: log.status === 'success' ? '#D1FAE5' :
-                                      log.status === 'partial' ? '#FEF3C7' : '#FDE8E8',
-                          color: log.status === 'success' ? '#065F46' :
-                                 log.status === 'partial' ? '#92400E' : '#9B1C1C',
-                        }}>
-                          {log.status}
-                        </span>
-                      </td>
-                      <td style={{ ...TD, color: 'var(--fg-3)', fontSize: 11 }}>
-                        {log.uploaded_by}
-                      </td>
-                      <td style={TD}>
-                        <DeleteUploadButton logId={log.id} month={log.month ?? ''} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <RevenueUploadLogTable rows={uploadLog} />
           )}
         </div>
 
@@ -265,59 +164,7 @@ export default async function RevenueAdminPage() {
               No revenue data uploaded yet
             </div>
           ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead>
-                  <tr style={{ background: 'var(--bg-elev)' }}>
-                    <th style={TH}>Month</th>
-                    <th style={TH}>Client Code</th>
-                    <th style={TH}>Client Name</th>
-                    <th style={TH}>Industry</th>
-                    <th style={TH}>State</th>
-                    <th style={{ ...TH, textAlign: 'right' }}>Pump ₹</th>
-                    <th style={{ ...TH, textAlign: 'right' }}>Spare ₹</th>
-                    <th style={{ ...TH, textAlign: 'right' }}>Total ₹</th>
-                    <th style={TH}>Entered By</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {revenueHistory.map((row, i) => (
-                    <tr key={row.id} style={{
-                      borderBottom: i < revenueHistory.length - 1 ? '1px solid var(--line)' : 'none',
-                    }}>
-                      <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, whiteSpace: 'nowrap' }}>
-                        {fmtMonth(row.month)}
-                      </td>
-                      <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)' }}>
-                        {row.code}
-                      </td>
-                      <td style={{ ...TD, minWidth: 160 }}>
-                        <a
-                          href={`/risansi/clients/${row.code}`}
-                          style={{ color: '#1A5CB8', textDecoration: 'none', fontWeight: 500 }}
-                        >
-                          {row.legal_name}
-                        </a>
-                      </td>
-                      <td style={{ ...TD, color: 'var(--fg-3)' }}>{row.industry ?? '—'}</td>
-                      <td style={{ ...TD, color: 'var(--fg-3)' }}>{row.state ?? '—'}</td>
-                      <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
-                        {fmtInr(row.pump_value)}
-                      </td>
-                      <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
-                        {fmtInr(row.spare_value)}
-                      </td>
-                      <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
-                        {fmtInr(row.total_value)}
-                      </td>
-                      <td style={{ ...TD, fontSize: 11, color: 'var(--fg-3)' }}>
-                        {row.entered_by ?? '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <RevenueEntriesTable rows={revenueHistory} />
           )}
         </div>
 
@@ -332,13 +179,3 @@ const PANEL: CSSProperties = {
   background: 'var(--bg-paper)', border: '1px solid var(--line)',
   borderRadius: 'var(--radius)',
 };
-
-const TH: CSSProperties = {
-  padding: '9px 12px', textAlign: 'left', fontSize: 10,
-  textTransform: 'uppercase', letterSpacing: '0.08em',
-  fontWeight: 500, color: 'var(--fg-3)',
-  borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap',
-  background: 'var(--bg-elev)',
-};
-
-const TD: CSSProperties = { padding: '9px 12px', verticalAlign: 'middle' };

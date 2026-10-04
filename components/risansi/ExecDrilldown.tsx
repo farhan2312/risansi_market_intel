@@ -1,7 +1,9 @@
 'use client';
 
 import { createContext, useContext, useState, useTransition, useMemo, type ReactNode, type CSSProperties } from 'react';
-import { execDrilldown, type DrillParams, type DrillResult } from '@/app/actions/risansi-exec-drilldown';
+import { execDrilldown, type DrillParams, type DrillResult, type DrillRow } from '@/app/actions/risansi-exec-drilldown';
+import { useTableSort, SortTH } from './SortTH';
+import type { SortableColumn } from '@/lib/risansi-table-sort';
 
 // Click a number on the Executive Review, see the clients it is made of.
 //
@@ -16,6 +18,18 @@ const DrillCtx = createContext<Ctx | null>(null);
 
 const fmtINR = (n: number) =>
   '₹' + Math.round(n).toLocaleString('en-IN');
+
+// The three columns of the breakdown table. The panel holds the whole list and
+// filters it in the browser, so every row is already in hand and this sorts in
+// memory rather than going back to the server for an ORDER BY.
+//
+// The value column reads r.value, the raw rupee figure, not the "₹4,21,000" the
+// cell prints: sorting the formatted string would order by the first digit.
+const DRILL_COLS: SortableColumn<DrillRow>[] = [
+  { key: 'code',  kind: 'text' },
+  { key: 'name',  kind: 'text' },
+  { key: 'value', kind: 'number' },
+];
 
 export function ExecDrilldownProvider({ tsm, scope, fy, children }: {
   tsm: string; scope: 'own' | 'all';
@@ -46,7 +60,14 @@ export function ExecDrilldownProvider({ tsm, scope, fy, children }: {
       : result.rows;
   }, [result, q]);
 
+  const { rows: shown, sortBy } = useTableSort(rows, DRILL_COLS);
+
   const close = () => { setShowing(false); setResult(null); setQ(''); };
+
+  // A count-only breakdown prints no value, so the column has no heading and
+  // nothing to order by; it stays a plain cell rather than offering an arrow
+  // over an empty column.
+  const valueLabel = result?.unit === 'money' ? 'Value' : '';
 
   return (
     <DrillCtx.Provider value={{ open }}>
@@ -108,15 +129,15 @@ export function ExecDrilldownProvider({ tsm, scope, fy, children }: {
                     <table style={{ borderCollapse: 'collapse', width: '100%' }}>
                       <thead>
                         <tr>
-                          <th style={TH}>Code</th>
-                          <th style={TH}>Client</th>
-                          <th style={{ ...TH, textAlign: 'right' }}>
-                            {result.unit === 'money' ? 'Value' : ''}
-                          </th>
+                          <SortTH {...sortBy('code')} style={TH}>Code</SortTH>
+                          <SortTH {...sortBy('name')} style={TH}>Client</SortTH>
+                          {valueLabel
+                            ? <SortTH {...sortBy('value')} style={TH} align="right">{valueLabel}</SortTH>
+                            : <th style={{ ...TH, textAlign: 'right' }} />}
                         </tr>
                       </thead>
                       <tbody>
-                        {rows.map((r, i) => (
+                        {shown.map((r, i) => (
                           <tr key={`${r.clientId}-${i}`}>
                             <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11.5, whiteSpace: 'nowrap' }}>
                               {r.code}

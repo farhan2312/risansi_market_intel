@@ -22,7 +22,7 @@ interface Props {
 
 export function SortableTH({
   col, label, currentSort, currentDir, kind = 'text',
-  style, align = 'left',
+  style, align,
 }: Props) {
   const router   = useRouter();
   const pathname = usePathname();
@@ -52,12 +52,18 @@ export function SortableTH({
       aria-sort={isActive ? (currentDir === 'asc' ? 'ascending' : 'descending') : 'none'}
       title={`Sort by ${label}`}
       style={{
-        cursor:       'pointer',
-        userSelect:   'none',
-        textAlign:    align,
+        cursor:     'pointer',
+        userSelect: 'none',
+        textAlign:  align ?? 'left',
         ...TH_BASE,
-        ...(isActive ? { color: 'var(--accent)' } : {}),
         ...style,
+        // After the caller's style, not before. Most tables pass a shared TH
+        // object carrying its own colour and alignment, and spreading it last
+        // meant an explicit align was ignored and the active header never took
+        // the accent — it just stayed the colour of every other header, so the
+        // column you had sorted by was the one thing the table did not say.
+        ...(align ? { textAlign: align } : {}),
+        ...(isActive ? { color: 'var(--accent)' } : {}),
       }}
     >
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
-import { fmtInr, fmtInrFull, type ExhibitionStatus } from '@/lib/risansi-exhibition-fields';
+import { fmtInr, fmtInrFull, INTEREST_LEVELS, type ExhibitionStatus } from '@/lib/risansi-exhibition-fields';
 import {
   updateMeetingCompany, setMeetingFollowUp,
   reviewExhibitionExpenses, closeExhibition, reopenExhibition, saveExhibitionReview,
@@ -11,6 +11,8 @@ import {
 import type { MeetingRow, ExpenseRow, ReviewRow } from './ExhibitionDetail';
 import { PotentialLeads } from './PotentialLeads';
 import type { UserOpt } from './ExhibitionsClient';
+import { useTableSort, SortTH } from './SortTH';
+import type { SortableColumn } from '@/lib/risansi-table-sort';
 
 /**
  * The post-event review, worked meeting by meeting.
@@ -43,6 +45,32 @@ const DISPOSITIONS: { value: FollowUpType; label: string; needsClient: boolean; 
   { value: 'Opportunity', label: 'Raise an opportunity', needsClient: true, hint: 'Creates a Suspect-stage opportunity in the pipeline.' },
 ];
 
+/**
+ * What the review produced for one meeting, as the Result column says it.
+ * Shared with the sort so the column orders by the words on screen rather than
+ * by the three id columns they are derived from.
+ */
+function resultLabel(m: ReviewMeeting): string | null {
+  return m.linked_visit_id ? 'Visit planned'
+    : m.linked_task_id ? 'Action assigned'
+    : m.linked_opportunity_id ? 'Opportunity raised'
+    : m.follow_up_type === 'None' ? 'No follow-up'
+    : null;
+}
+
+// Interest runs Hot → Warm → Cold, and the follow-up runs down the list of
+// dispositions the review offers; neither is alphabetical, and both lists are
+// already declared above / in the exhibition fields module.
+const MEETING_COLS: SortableColumn<ReviewMeeting>[] = [
+  { key: 'company',   kind: 'text',   value: m => m.company_name },
+  { key: 'contact',   kind: 'text',   value: m => m.contact_person },
+  { key: 'interest',  kind: 'status', order: INTEREST_LEVELS, value: m => m.interest },
+  { key: 'potential', kind: 'number', value: m => m.potential_value_inr },
+  { key: 'followup',  kind: 'status', order: DISPOSITIONS.map(d => d.value), value: m => m.follow_up_type },
+  { key: 'owner',     kind: 'text',   value: m => m.follow_up_owner_name },
+  { key: 'result',    kind: 'text',   value: resultLabel },
+];
+
 export function ExhibitionReviewWorkbench({
   exhibitionId, status, meetings, expenses, users,
   expensesReviewedAt, closedAt, closedByName, isOwner, isSysadmin, blockers, hasReview, review,
@@ -55,6 +83,9 @@ export function ExhibitionReviewWorkbench({
 }) {
   const closed = status === 'Closed';
   const decided = meetings.filter(m => m.follow_up_type != null).length;
+  // Every meeting captured at the event is on this page; the table is not a
+  // window onto a longer query, so the sort runs here over all of them.
+  const { rows: ordered, sortBy } = useTableSort(meetings, MEETING_COLS);
 
   return (
     <div style={{ display: 'grid', gap: 18 }}>
@@ -92,12 +123,18 @@ export function ExhibitionReviewWorkbench({
             <div style={{ overflowX: 'auto' }}>
               <table className="exh-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
-                  <tr>{['Company', 'Contact', 'Interest', 'Potential', 'Follow-up', 'Assigned to', 'Result'].map(h => (
-                    <th key={h} style={TH}>{h}</th>
-                  ))}</tr>
+                  <tr>
+                    <SortTH {...sortBy('company')}   style={TH}>Company</SortTH>
+                    <SortTH {...sortBy('contact')}   style={TH}>Contact</SortTH>
+                    <SortTH {...sortBy('interest')}  style={TH}>Interest</SortTH>
+                    <SortTH {...sortBy('potential')} style={TH}>Potential</SortTH>
+                    <SortTH {...sortBy('followup')}  style={TH}>Follow-up</SortTH>
+                    <SortTH {...sortBy('owner')}     style={TH}>Assigned to</SortTH>
+                    <SortTH {...sortBy('result')}    style={TH}>Result</SortTH>
+                  </tr>
                 </thead>
                 <tbody>
-                  {meetings.map(m => (
+                  {ordered.map(m => (
                     <MeetingReviewRow key={m.id} exhibitionId={exhibitionId} meeting={m}
                       users={users} editable={isOwner && !closed} />
                   ))}
@@ -171,11 +208,7 @@ function MeetingReviewRow({ exhibitionId, meeting: m, users, editable }: {
     } finally { setBusy(false); }
   }
 
-  const result = m.linked_visit_id ? 'Visit planned'
-    : m.linked_task_id ? 'Action assigned'
-    : m.linked_opportunity_id ? 'Opportunity raised'
-    : m.follow_up_type === 'None' ? 'No follow-up'
-    : null;
+  const result = resultLabel(m);
 
   return (
     <>

@@ -56,9 +56,17 @@ export const DIRECT_WIN_CATEGORIES: readonly string[] = ['Against Rate Contract'
 export const CREATE_STAGES = ['Prospect', 'Suspect', 'Quoted', 'Negotiating', 'Won', 'Lost'] as const;
 export type CreateStage = typeof CREATE_STAGES[number];
 
-/** Every stage an opportunity can hold, including the two it can only be moved into. */
+/**
+ * Every stage an opportunity can hold, including the two it can only be moved
+ * into, IN FLOW ORDER — a suspect is an unqualified name, a prospect is one
+ * that has been qualified, so Suspect comes first. The order is load-bearing
+ * now that tables sort their Stage column by it; it used to read Prospect,
+ * Suspect, which disagreed with OPEN_STAGES in lib/risansi-dashboard.ts and
+ * would have sorted the pipeline into an order it never runs in. Nothing
+ * indexes this list, so the sequence is free to say something true.
+ */
 export const ALL_STAGES = [
-  'Prospect', 'Suspect', 'Quoted', 'Negotiating', 'On Hold', 'Won', 'Lost', 'Dropped',
+  'Suspect', 'Prospect', 'Quoted', 'Negotiating', 'On Hold', 'Won', 'Lost', 'Dropped',
 ] as const;
 export type OppStage = typeof ALL_STAGES[number];
 

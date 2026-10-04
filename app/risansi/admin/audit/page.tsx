@@ -1,10 +1,14 @@
 import type { CSSProperties } from 'react';
 import Link from 'next/link';
-import { Topbar, Tag } from '@/components/risansi';
+import { Topbar, Tag, SortableTH } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser } from '@/lib/risansi-auth';
 import { AccessDenied } from '../_components/AccessDenied';
-import { AuditOverall, COL_HELP } from '@/components/risansi/AuditOverall';
+import { AuditOverall } from '@/components/risansi/AuditOverall';
+import {
+  UsageUsersTable, UsagePagesTable, UsageSessionsTable,
+  type UsageUserRow, type UsagePageRow, type UsageSessionRow,
+} from '@/components/risansi/AuditTables';
 import { loadOverall, OVERALL_WINDOWS, type OverallData } from '@/lib/risansi-audit-overall';
 import { PERSON_WINDOWS } from '@/lib/risansi-person-metrics';
 
@@ -64,6 +68,46 @@ function pageLabel(path: string): string { return PAGE_LABELS[path] ?? path; }
 const LOGIN_EVENTS = ['login', 'login_failed', 'logout', 'password_changed'];
 const ACTIVITY_ACTIONS = ['create', 'update', 'delete', 'submit', 'assign', 'export', 'activity'];
 
+// ── Sorting ─────────────────────────────────────────────────────
+//
+// Every table on this page below the Overall and Usage tabs is one page of a
+// much longer trail — fifty rows out of tens of thousands. So the sort has to
+// happen in SQL. Reordering the fifty rows in the browser would reorder the
+// page and nothing else, and a column clicked to find the earliest sign-in
+// would answer with the earliest of the fifty it happens to be showing.
+//
+// The clicked key never reaches the query. It is looked up in the map for the
+// tab being shown, and anything unmapped falls back to the tab's own default
+// order, which is also what an unsorted table gets.
+const SORT_MAPS: Record<string, Record<string, string>> = {
+  logins: {
+    when: 'created_at', event: 'event', user: 'lower(email)', role: 'role',
+    ip: 'ip', device: 'user_agent', reason: 'reason',
+  },
+  activity: {
+    when: 'created_at', actor: 'lower(actor_email)', action: 'action',
+    entity: 'entity_type', what: 'COALESCE(summary, entity_label)', ip: 'ip',
+  },
+  changes: {
+    when: 'changed_at', entity: 'entity_type', id: 'entity_id',
+    action: 'action', by: 'lower(changed_by)',
+  },
+  exhibitions: {
+    when: 'created_at', kind: 'kind', exhibition: 'lower(exhibition)',
+    what: 'lower(what)', who: 'lower(who)', amount: 'amount',
+  },
+};
+
+/**
+ * The ORDER BY for a tab. NULLS LAST on both directions: Postgres puts nulls
+ * first on a DESC sort, so a descending Amount would open on a screenful of
+ * approvals carrying no money and bury the largest figures underneath them.
+ */
+function orderByFor(tab: string, key: string, dir: 'ASC' | 'DESC', fallback: string): string {
+  const col = SORT_MAPS[tab]?.[key];
+  return col ? `ORDER BY ${col} ${dir} NULLS LAST` : fallback;
+}
+
 interface LoginRow { id: number; event: string; email: string | null; role: string | null; ip: string | null; user_agent: string | null; reason: string | null; created_at: string; }
 interface ActivityRow { id: number; actor_email: string | null; actor_role: string | null; action: string; entity_type: string | null; entity_id: string | null; entity_label: string | null; summary: string | null; ip: string | null; created_at: string; }
 interface ChangeRow { id: number; entity_type: string; entity_id: string; action: string; old_value: unknown; new_value: unknown; changed_by: string | null; changed_at: string; }
@@ -94,6 +138,12 @@ export default async function AuditPage({
   const act  = typeof sp.action === 'string' ? sp.action : '';
   const pageNum = Math.max(1, parseInt(typeof sp.page === 'string' ? sp.page : '1', 10) || 1);
   const offset = (pageNum - 1) * PAGE_SIZE;
+
+  // Unset until a header is clicked, so each tab opens in the order it chose.
+  const sortKey = typeof sp.sort === 'string' ? sp.sort : '';
+  const curDir: 'asc' | 'desc' = sp.dir === 'asc' ? 'asc' : 'desc';
+  const sortDir: 'ASC' | 'DESC' = curDir === 'asc' ? 'ASC' : 'DESC';
+  const sorted = Boolean(SORT_MAPS[tab]?.[sortKey]);
 
   // ── Top stats (security/overview) ──
   const stats = await q(async () => {
@@ -151,7 +201,7 @@ export default async function AuditPage({
     const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
     [logins, total] = await Promise.all([
       q<LoginRow[]>(async () => (await risansiPool.query<LoginRow>(
-        `SELECT id, event, email, role, ip, user_agent, reason, created_at::text FROM auth_audit ${where} ORDER BY created_at DESC LIMIT ${PAGE_SIZE} OFFSET ${offset}`, params)).rows, []),
+        `SELECT id, event, email, role, ip, user_agent, reason, created_at::text FROM auth_audit ${where} ${orderByFor(tab, sortKey, sortDir, 'ORDER BY created_at DESC')} LIMIT ${PAGE_SIZE} OFFSET ${offset}`, params)).rows, []),
       q<number>(async () => Number((await risansiPool.query<{ c: string }>(`SELECT COUNT(*)::text c FROM auth_audit ${where}`, params)).rows[0]?.c ?? 0), 0),
     ]);
   } else if (tab === 'activity') {
@@ -161,7 +211,7 @@ export default async function AuditPage({
     const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
     [activity, total] = await Promise.all([
       q<ActivityRow[]>(async () => (await risansiPool.query<ActivityRow>(
-        `SELECT id, actor_email, actor_role, action, entity_type, entity_id, entity_label, summary, ip, created_at::text FROM audit_log ${where} ORDER BY created_at DESC LIMIT ${PAGE_SIZE} OFFSET ${offset}`, params)).rows, []),
+        `SELECT id, actor_email, actor_role, action, entity_type, entity_id, entity_label, summary, ip, created_at::text FROM audit_log ${where} ${orderByFor(tab, sortKey, sortDir, 'ORDER BY created_at DESC')} LIMIT ${PAGE_SIZE} OFFSET ${offset}`, params)).rows, []),
       q<number>(async () => Number((await risansiPool.query<{ c: string }>(`SELECT COUNT(*)::text c FROM audit_log ${where}`, params)).rows[0]?.c ?? 0), 0),
     ]);
   } else if (tab === 'exhibitions') {
@@ -213,7 +263,7 @@ export default async function AuditPage({
         `SELECT created_at::text AS created_at, kind, exhibition, what, detail, who, who_role,
                 amount::float8 AS amount, existing_client
            FROM (${feedSql}) t
-          ORDER BY created_at DESC NULLS LAST
+          ${orderByFor(tab, sortKey, sortDir, 'ORDER BY created_at DESC NULLS LAST')}
           LIMIT ${PAGE_SIZE} OFFSET ${offset}`, params)).rows, []),
       q<number>(async () => Number((await risansiPool.query<{ c: string }>(
         `SELECT COUNT(*)::text c FROM (${feedSql}) t`, params)).rows[0]?.c ?? 0), 0),
@@ -224,7 +274,7 @@ export default async function AuditPage({
     const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
     [changes, total] = await Promise.all([
       q<ChangeRow[]>(async () => (await risansiPool.query<ChangeRow>(
-        `SELECT id, entity_type, entity_id, action, old_value, new_value, changed_by, changed_at::text FROM assignment_audit ${where} ORDER BY changed_at DESC LIMIT ${PAGE_SIZE} OFFSET ${offset}`, params)).rows, []),
+        `SELECT id, entity_type, entity_id, action, old_value, new_value, changed_by, changed_at::text FROM assignment_audit ${where} ${orderByFor(tab, sortKey, sortDir, 'ORDER BY changed_at DESC')} LIMIT ${PAGE_SIZE} OFFSET ${offset}`, params)).rows, []),
       q<number>(async () => Number((await risansiPool.query<{ c: string }>(`SELECT COUNT(*)::text c FROM assignment_audit ${where}`, params)).rows[0]?.c ?? 0), 0),
     ]);
   }
@@ -236,6 +286,9 @@ export default async function AuditPage({
     if (qStr) base.q = qStr;
     if (evt)  base.event = evt;
     if (act)  base.action = act;
+    // Prev/Next keep the chosen column. Paging out of a sort and silently back
+    // into newest-first would make page 2 a different list from page 1.
+    if (sorted) { base.sort = sortKey; base.dir = curDir; }
     base.page = String(pageNum);
     const merged = { ...base, ...Object.fromEntries(Object.entries(over).map(([k, v]) => [k, v == null ? undefined : String(v)])) };
     const p = new URLSearchParams();
@@ -355,15 +408,18 @@ export default async function AuditPage({
           {(qStr || evt || act) && <Link href={`/risansi/admin/audit?tab=${tab}`} style={{ fontSize: 12, color: 'var(--fg-3)' }}>Clear</Link>}
         </form>
 
-        <div style={{ fontSize: 12, color: 'var(--fg-3)', marginBottom: 8 }}>{total.toLocaleString('en-IN')} entr{total !== 1 ? 'ies' : 'y'} · newest first</div>
+        <div style={{ fontSize: 12, color: 'var(--fg-3)', marginBottom: 8 }}>
+          {total.toLocaleString('en-IN')} entr{total !== 1 ? 'ies' : 'y'}
+          {sorted ? ' · sorted across every page' : ' · newest first'}
+        </div>
 
         {/* Table */}
         <div style={PANEL}>
           <div style={{ overflowX: 'auto' }}>
-            {tab === 'logins' && <LoginsTable rows={logins} />}
-            {tab === 'activity' && <ActivityTable rows={activity} />}
-            {tab === 'changes' && <ChangesTable rows={changes} />}
-            {tab === 'exhibitions' && <ExhibitionAuditTable rows={exhibitionRows} />}
+            {tab === 'logins' && <LoginsTable rows={logins} sort={sortKey} dir={curDir} />}
+            {tab === 'activity' && <ActivityTable rows={activity} sort={sortKey} dir={curDir} />}
+            {tab === 'changes' && <ChangesTable rows={changes} sort={sortKey} dir={curDir} />}
+            {tab === 'exhibitions' && <ExhibitionAuditTable rows={exhibitionRows} sort={sortKey} dir={curDir} />}
           </div>
         </div>
 
@@ -388,10 +444,24 @@ export default async function AuditPage({
 
 // ── Tables ──────────────────────────────────────────────────────
 
-function LoginsTable({ rows }: { rows: LoginRow[] }) {
+/** What every table below is handed: the page of rows, and which column the
+ *  SQL was ordered by, so the header can show the arrow on the right one. */
+interface SortedTable { sort: string; dir: 'asc' | 'desc' }
+
+function LoginsTable({ rows, sort, dir }: { rows: LoginRow[] } & SortedTable) {
   return (
     <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-      <thead><tr style={{ background: 'var(--bg-elev)' }}>{['When', 'Event', 'User', 'Role', 'IP', 'Device', 'Reason'].map(h => <th key={h} style={TH}>{h}</th>)}</tr></thead>
+      <thead><tr style={{ background: 'var(--bg-elev)' }}>
+        <SortableTH col="when"   label="When"   kind="date" currentSort={sort} currentDir={dir} style={TH} />
+        <SortableTH col="event"  label="Event"  kind="text" currentSort={sort} currentDir={dir} style={TH} />
+        <SortableTH col="user"   label="User"   kind="text" currentSort={sort} currentDir={dir} style={TH} />
+        <SortableTH col="role"   label="Role"   kind="text" currentSort={sort} currentDir={dir} style={TH} />
+        <SortableTH col="ip"     label="IP"     kind="text" currentSort={sort} currentDir={dir} style={TH} />
+        {/* Device is read off the user-agent string, which is what it sorts on:
+            every Chrome-on-Windows row lands together, whatever the version. */}
+        <SortableTH col="device" label="Device" kind="text" currentSort={sort} currentDir={dir} style={TH} />
+        <SortableTH col="reason" label="Reason" kind="text" currentSort={sort} currentDir={dir} style={TH} />
+      </tr></thead>
       <tbody>
         {rows.length === 0 ? <tr><td colSpan={7} style={EMPTY}>No login events yet</td></tr> : rows.map((r, i) => (
           <tr key={r.id} style={{ borderBottom: i < rows.length - 1 ? '1px solid var(--line)' : 'none' }}>
@@ -409,10 +479,19 @@ function LoginsTable({ rows }: { rows: LoginRow[] }) {
   );
 }
 
-function ActivityTable({ rows }: { rows: ActivityRow[] }) {
+function ActivityTable({ rows, sort, dir }: { rows: ActivityRow[] } & SortedTable) {
   return (
     <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-      <thead><tr style={{ background: 'var(--bg-elev)' }}>{['When', 'Actor', 'Action', 'Entity', 'What', 'IP'].map(h => <th key={h} style={TH}>{h}</th>)}</tr></thead>
+      <thead><tr style={{ background: 'var(--bg-elev)' }}>
+        <SortableTH col="when"   label="When"   kind="date" currentSort={sort} currentDir={dir} style={TH} />
+        <SortableTH col="actor"  label="Actor"  kind="text" currentSort={sort} currentDir={dir} style={TH} />
+        <SortableTH col="action" label="Action" kind="text" currentSort={sort} currentDir={dir} style={TH} />
+        <SortableTH col="entity" label="Entity" kind="text" currentSort={sort} currentDir={dir} style={TH} />
+        {/* The cell falls back from summary to entity_label, and so does the
+            sort — otherwise the rows with only a label would all read blank. */}
+        <SortableTH col="what"   label="What"   kind="text" currentSort={sort} currentDir={dir} style={TH} />
+        <SortableTH col="ip"     label="IP"     kind="text" currentSort={sort} currentDir={dir} style={TH} />
+      </tr></thead>
       <tbody>
         {rows.length === 0 ? <tr><td colSpan={6} style={EMPTY}>No activity recorded yet</td></tr> : rows.map((r, i) => (
           <tr key={r.id} style={{ borderBottom: i < rows.length - 1 ? '1px solid var(--line)' : 'none' }}>
@@ -435,7 +514,7 @@ function ActivityTable({ rows }: { rows: ActivityRow[] }) {
  * with the person who recorded it and their role, which is the question this tab
  * exists to answer.
  */
-function ExhibitionAuditTable({ rows }: { rows: ExhibitionAuditRow[] }) {
+function ExhibitionAuditTable({ rows, sort, dir }: { rows: ExhibitionAuditRow[] } & SortedTable) {
   if (rows.length === 0) {
     return <div style={{ padding: 30, textAlign: 'center', fontSize: 13, color: 'var(--fg-3)' }}>
       No exhibition activity yet.
@@ -452,13 +531,14 @@ function ExhibitionAuditTable({ rows }: { rows: ExhibitionAuditRow[] }) {
     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
       <thead>
         <tr>
-          {['When', 'Type', 'Exhibition', 'What', 'Recorded by', 'Amount'].map(h => (
-            <th key={h} style={{
-              padding: '9px 12px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase',
-              letterSpacing: '0.08em', fontWeight: 500, color: 'var(--fg-3)',
-              borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap',
-            }}>{h}</th>
-          ))}
+          <SortableTH col="when"       label="When"        kind="date"   currentSort={sort} currentDir={dir} style={FEED_TH} />
+          <SortableTH col="kind"       label="Type"        kind="text"   currentSort={sort} currentDir={dir} style={FEED_TH} />
+          <SortableTH col="exhibition" label="Exhibition"  kind="text"   currentSort={sort} currentDir={dir} style={FEED_TH} />
+          <SortableTH col="what"       label="What"        kind="text"   currentSort={sort} currentDir={dir} style={FEED_TH} />
+          <SortableTH col="who"        label="Recorded by" kind="text"   currentSort={sort} currentDir={dir} style={FEED_TH} />
+          {/* Money: the largest on the first click, and read off the numeric
+              column rather than the "₹1.4 L" the cell prints. */}
+          <SortableTH col="amount"     label="Amount"      kind="number" currentSort={sort} currentDir={dir} style={FEED_TH} />
         </tr>
       </thead>
       <tbody>
@@ -506,10 +586,19 @@ function ExhibitionAuditTable({ rows }: { rows: ExhibitionAuditRow[] }) {
   );
 }
 
-function ChangesTable({ rows }: { rows: ChangeRow[] }) {
+function ChangesTable({ rows, sort, dir }: { rows: ChangeRow[] } & SortedTable) {
   return (
     <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-      <thead><tr style={{ background: 'var(--bg-elev)' }}>{['When', 'Entity', 'ID', 'Action', 'Old → New', 'By'].map(h => <th key={h} style={TH}>{h}</th>)}</tr></thead>
+      <thead><tr style={{ background: 'var(--bg-elev)' }}>
+        <SortableTH col="when"   label="When"   kind="date" currentSort={sort} currentDir={dir} style={TH} />
+        <SortableTH col="entity" label="Entity" kind="text" currentSort={sort} currentDir={dir} style={TH} />
+        <SortableTH col="id"     label="ID"     kind="text" currentSort={sort} currentDir={dir} style={TH} />
+        <SortableTH col="action" label="Action" kind="text" currentSort={sort} currentDir={dir} style={TH} />
+        {/* Two JSON blobs rendered side by side. There is no single value under
+            the cell to order by, so this one stays a plain header. */}
+        <th style={TH}>Old → New</th>
+        <SortableTH col="by"     label="By"     kind="text" currentSort={sort} currentDir={dir} style={TH} />
+      </tr></thead>
       <tbody>
         {rows.length === 0 ? <tr><td colSpan={6} style={EMPTY}>No ownership changes</td></tr> : rows.map((r, i) => (
           <tr key={r.id} style={{ borderBottom: i < rows.length - 1 ? '1px solid var(--line)' : 'none' }}>
@@ -572,12 +661,11 @@ function fmtDuration(sec: number): string {
 
 // ── Usage & Time tab ────────────────────────────────────────────
 
-const USAGE_HELP: Record<string, string> = {
-  'Active time': COL_HELP.Hours,
-  Sessions: COL_HELP.Sessions,
-  Pages: 'Distinct pages of the portal they opened in the window.',
-  'Last active': COL_HELP['Last seen'],
-};
+// The three tables here are complete sets rather than pages of a longer list —
+// everyone active in the window, every page one person opened, every session
+// they had — so they sort in the browser. What this component does is format
+// the durations and dates once, on the server, and hand the island both the
+// label to print and the raw seconds or ISO date to order by.
 
 function UsageView({ users, pages, sessions, selUser, win }: {
   users: UsageUser[]; pages: UsagePage[]; sessions: UsageSession[]; selUser: string; win: string;
@@ -601,7 +689,20 @@ function UsageView({ users, pages, sessions, selUser, win }: {
   // ── Per-user drill-down ──
   if (selUser) {
     const totalActive = pages.reduce((s, p) => s + p.total, 0);
-    const maxPage = Math.max(1, ...pages.map(p => p.total));
+    const pageRows: UsagePageRow[] = pages.map(p => ({
+      path: p.path, label: pageLabel(p.path),
+      total: p.total, totalLabel: fmtDuration(p.total),
+      hits: p.hits,
+    }));
+    const sessionRows: UsageSessionRow[] = sessions.map(s => {
+      const span = Math.max(0, Math.round((new Date(s.ended).getTime() - new Date(s.started).getTime()) / 1000));
+      return {
+        key: s.session_id,
+        started: s.started, startedLabel: fmtWhen(s.started),
+        active: s.active, activeLabel: fmtDuration(s.active),
+        span, spanLabel: fmtDuration(span),
+      };
+    });
     return (
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10, flexWrap: 'wrap' }}>
@@ -615,40 +716,12 @@ function UsageView({ users, pages, sessions, selUser, win }: {
           {/* Time per page */}
           <div style={PANEL}>
             <div style={SECTION_H}>Time per page</div>
-            <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-              <thead><tr style={{ background: 'var(--bg-elev)' }}>{['Page', 'Active time', 'Visits'].map(h => <th key={h} style={TH}>{h}</th>)}</tr></thead>
-              <tbody>
-                {pages.length === 0 ? <tr><td colSpan={3} style={EMPTY}>No page activity</td></tr> : pages.map((p, i) => (
-                  <tr key={i} style={{ borderBottom: i < pages.length - 1 ? '1px solid var(--line)' : 'none' }}>
-                    <td data-label="" style={{ ...TD, fontWeight: 500 }}>
-                      {pageLabel(p.path)}
-                      <div style={{ height: 3, marginTop: 4, borderRadius: 2, background: 'var(--accent)', width: `${Math.round((p.total / maxPage) * 100)}%`, minWidth: 4, opacity: 0.5 }} />
-                    </td>
-                    <td data-label="Active time" style={{ ...MONO, color: 'var(--fg)' }}>{fmtDuration(p.total)}</td>
-                    <td data-label="Visits" style={MONO}>{p.hits}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <UsagePagesTable rows={pageRows} />
           </div>
           {/* Sessions */}
           <div style={PANEL}>
             <div style={SECTION_H}>Sessions</div>
-            <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-              <thead><tr style={{ background: 'var(--bg-elev)' }}>{['Started', 'Active', 'Span'].map(h => <th key={h} style={TH}>{h}</th>)}</tr></thead>
-              <tbody>
-                {sessions.length === 0 ? <tr><td colSpan={3} style={EMPTY}>No sessions</td></tr> : sessions.map((s, i) => {
-                  const span = Math.max(0, Math.round((new Date(s.ended).getTime() - new Date(s.started).getTime()) / 1000));
-                  return (
-                    <tr key={i} style={{ borderBottom: i < sessions.length - 1 ? '1px solid var(--line)' : 'none' }}>
-                      <td data-label="" style={MONO}>{fmtWhen(s.started)}</td>
-                      <td data-label="Active" style={{ ...MONO, color: 'var(--fg)' }}>{fmtDuration(s.active)}</td>
-                      <td data-label="Span" style={MONO}>{fmtDuration(span)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <UsageSessionsTable rows={sessionRows} />
           </div>
         </div>
       </div>
@@ -657,6 +730,12 @@ function UsageView({ users, pages, sessions, selUser, win }: {
 
   // ── Per-user summary ──
   const grandTotal = users.reduce((s, u) => s + u.total, 0);
+  const userRows: UsageUserRow[] = users.map(u => ({
+    email: u.email, role: u.role,
+    total: u.total, totalLabel: fmtDuration(u.total),
+    sessions: u.sessions, pages: u.pages,
+    lastActive: u.last_active, lastActiveLabel: fmtWhen(u.last_active),
+  }));
   return (
     <div>
       {windowPills}
@@ -665,27 +744,7 @@ function UsageView({ users, pages, sessions, selUser, win }: {
       </div>
       <div style={PANEL}>
         <div style={{ overflowX: 'auto' }}>
-          <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-            <thead><tr style={{ background: 'var(--bg-elev)' }}>{['User', 'Role', 'Active time', 'Sessions', 'Pages', 'Last active'].map(h => (
-              <th key={h} title={USAGE_HELP[h]} style={{ ...TH, cursor: USAGE_HELP[h] ? 'help' : undefined, textDecoration: USAGE_HELP[h] ? 'underline dotted' : undefined, textUnderlineOffset: 3 }}>{h}</th>
-            ))}</tr></thead>
-            <tbody>
-              {users.length === 0 ? (
-                <tr><td colSpan={6} style={EMPTY}>No activity recorded yet in this window. Data appears once users browse the portal.</td></tr>
-              ) : users.map((u, i) => (
-                <tr key={i} style={{ borderBottom: i < users.length - 1 ? '1px solid var(--line)' : 'none' }}>
-                  <td data-label="" style={{ ...TD, fontWeight: 500 }}>
-                    <Link href={link({ user: u.email })} style={{ color: 'var(--accent)', textDecoration: 'none' }}>{u.email}</Link>
-                  </td>
-                  <td data-label="Role" style={TD}>{u.role ? <Tag kind={u.role === 'sysadmin' || u.role === 'admin' ? 'accent' : undefined}>{u.role}</Tag> : '—'}</td>
-                  <td data-label="Active time" style={{ ...MONO, color: 'var(--fg)', fontWeight: 600 }}>{fmtDuration(u.total)}</td>
-                  <td data-label="Sessions" style={MONO}>{u.sessions}</td>
-                  <td data-label="Pages" style={MONO}>{u.pages}</td>
-                  <td data-label="Last active" style={MONO}>{fmtWhen(u.last_active)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <UsageUsersTable rows={userRows} win={win} />
         </div>
       </div>
     </div>
@@ -696,6 +755,12 @@ const PANEL: CSSProperties = { background: 'var(--bg-paper)', border: '1px solid
 const SECTION_H: CSSProperties = { padding: '10px 14px', borderBottom: '1px solid var(--line)', fontSize: 11, fontWeight: 700, color: '#0A3D8F', textTransform: 'uppercase', letterSpacing: '0.07em' };
 const DUR_BADGE: CSSProperties = { padding: '3px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600, background: 'var(--accent-soft, #EBF1FB)', color: '#0A3D8F', fontFamily: 'var(--font-mono)' };
 const TH: CSSProperties = { padding: '9px 12px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, color: 'var(--fg-3)', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
+// The exhibition feed's own header, lifted out of the JSX so the sortable
+// headers wear exactly the style the plain ones did.
+// `background` is named only to keep it unset, the way the plain <th> had it:
+// this one table has no tinted header band, and SortableTH's own base style
+// would otherwise hand it one.
+const FEED_TH: CSSProperties = { padding: '9px 12px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 500, color: 'var(--fg-3)', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap', background: 'transparent' };
 const TD: CSSProperties = { padding: '10px 12px', verticalAlign: 'middle' };
 const MONO: CSSProperties = { ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap' };
 const EMPTY: CSSProperties = { padding: '40px 0', textAlign: 'center', color: 'var(--fg-3)' };

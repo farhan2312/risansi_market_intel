@@ -7,6 +7,7 @@ import { clientRepNamesSql } from '@/lib/risansi-client-rep';
 import { getCurrentUser, clientVisibilitySql, clientScopeSql , OWN_OPEN } from '@/lib/risansi-auth';
 import { fmtCr } from '@/lib/risansi-utils';
 import { AND_LIVE_CLIENT } from '@/lib/risansi-opportunity-scope';
+import { SortedTable } from '@/components/risansi/SortedTable';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
@@ -551,17 +552,17 @@ export default async function CompetePage({
               <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: 'var(--bg-elev)' }}>
-                    <SortableTH col="client"         label="Client"          currentSort={curSort} currentDir={curDir} />
-                    <SortableTH col="zone"           label="Zone"            currentSort={curSort} currentDir={curDir} />
-                    <SortableTH col="ril_pcp"        label="RIL PCP"         currentSort={curSort} currentDir={curDir} align="right" />
-                    <SortableTH col="competitor_pcp" label="Competitor PCP"  currentSort={curSort} currentDir={curDir} align="right" />
-                    <SortableTH col="total_pcp"      label="Total PCP"       currentSort={curSort} currentDir={curDir} align="right" />
-                    <SortableTH col="share"          label="PCP Share"       currentSort={curSort} currentDir={curDir} />
-                    <SortableTH col="ril_mmp"        label="RIL MMP"         currentSort={curSort} currentDir={curDir} align="right" />
-                    <SortableTH col="competitor_mmp" label="Competitor MMP"  currentSort={curSort} currentDir={curDir} align="right" />
-                    <SortableTH col="total_mmp"      label="Total MMP"       currentSort={curSort} currentDir={curDir} align="right" />
-                    <SortableTH col="mmp_share"      label="MMP Share"       currentSort={curSort} currentDir={curDir} />
-                    <SortableTH col="rep"            label="Rep"             currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="client"         label="Client"          kind="text"   currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="zone"           label="Zone"            kind="text"   currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="ril_pcp"        label="RIL PCP"         kind="number" currentSort={curSort} currentDir={curDir} align="right" />
+                    <SortableTH col="competitor_pcp" label="Competitor PCP"  kind="number" currentSort={curSort} currentDir={curDir} align="right" />
+                    <SortableTH col="total_pcp"      label="Total PCP"       kind="number" currentSort={curSort} currentDir={curDir} align="right" />
+                    <SortableTH col="share"          label="PCP Share"       kind="number" currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="ril_mmp"        label="RIL MMP"         kind="number" currentSort={curSort} currentDir={curDir} align="right" />
+                    <SortableTH col="competitor_mmp" label="Competitor MMP"  kind="number" currentSort={curSort} currentDir={curDir} align="right" />
+                    <SortableTH col="total_mmp"      label="Total MMP"       kind="number" currentSort={curSort} currentDir={curDir} align="right" />
+                    <SortableTH col="mmp_share"      label="MMP Share"       kind="number" currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="rep"            label="Rep"             kind="text"   currentSort={curSort} currentDir={curDir} />
                   </tr>
                 </thead>
                 <tbody>
@@ -647,15 +648,29 @@ export default async function CompetePage({
                 ))}
               </div>
               <div style={{ overflowX: 'auto' }}>
-                <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                  <thead>
-                    <tr style={{ background: 'var(--bg-elev)' }}>
-                      {['Competitor', 'Pump Type', 'Application', 'Client', 'Logged', 'Condition'].map(h => <th key={h} style={TH}>{h}</th>)}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {fieldSightings.map((s, i) => (
-                      <tr key={i} style={{ borderBottom: '1px solid var(--line)' }}>
+                <SortedTable
+                  className="r-cards"
+                  style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}
+                  headRowStyle={{ background: 'var(--bg-elev)' }}
+                  divider="1px solid var(--line)"
+                  columns={[
+                    { key: 'supplier',    label: 'Competitor',  kind: 'text', style: TH },
+                    { key: 'pump_type',   label: 'Pump Type',   kind: 'text', style: TH },
+                    { key: 'application', label: 'Application', kind: 'text', style: TH },
+                    { key: 'client',      label: 'Client',      kind: 'text', style: TH },
+                    { key: 'visit_date',  label: 'Logged',      kind: 'date', style: TH },
+                    { key: 'condition',   label: 'Condition',   kind: 'text', style: TH },
+                  ]}
+                  rows={fieldSightings.map((s, i) => ({
+                    id: `${i}`,
+                    // visit_date sorts on the 'YYYY-MM-DD' the query casts ::text,
+                    // not on the '04 Oct 2026' the cell shows.
+                    values: {
+                      supplier: s.supplier, pump_type: s.pump_type, application: s.application,
+                      client: s.client_name, visit_date: s.visit_date, condition: s.condition,
+                    },
+                    cells: (
+                      <>
                         <td data-label="" style={{ ...TD, fontWeight: 500 }}>{s.supplier}</td>
                         <td data-label="Pump Type" style={TD}>{s.pump_type ?? '—'}</td>
                         <td data-label="Application" style={{ ...TD, color: 'var(--fg-3)' }}>{s.application ?? '—'}</td>
@@ -669,10 +684,10 @@ export default async function CompetePage({
                             ? <Tag kind={/eol|end of life/i.test(s.condition) ? 'neg' : undefined}>{s.condition}</Tag>
                             : '—'}
                         </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                      </>
+                    ),
+                  }))}
+                />
               </div>
             </>
           )}
@@ -742,15 +757,25 @@ export default async function CompetePage({
             <div style={EMPTY}>No competitor price captures recorded yet</div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
-              <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead>
-                  <tr style={{ background: 'var(--bg-elev)' }}>
-                    {['Client', 'Date', 'Rep', 'Price Photos'].map(h => <th key={h} style={TH}>{h}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {priceIntel.map((p, i) => (
-                    <tr key={i} style={{ borderBottom: '1px solid var(--line)' }}>
+              <SortedTable
+                className="r-cards"
+                style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}
+                headRowStyle={{ background: 'var(--bg-elev)' }}
+                divider="1px solid var(--line)"
+                columns={[
+                  { key: 'client',     label: 'Client',       kind: 'text',   style: TH },
+                  { key: 'visit_date', label: 'Date',         kind: 'date',   style: TH },
+                  { key: 'rep_name',   label: 'Rep',          kind: 'text',   style: TH },
+                  { key: 'pics',       label: 'Price Photos', kind: 'number', style: TH },
+                ]}
+                rows={priceIntel.map((p, i) => ({
+                  id: `${i}`,
+                  values: {
+                    client: p.client_name, visit_date: p.visit_date,
+                    rep_name: p.rep_name, pics: p.pics,
+                  },
+                  cells: (
+                    <>
                       <td data-label="" style={{ ...TD, fontWeight: 500 }}>
                         {p.client_name}
                         <span style={{ marginLeft: 6, fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>{p.client_code}</span>
@@ -758,10 +783,10 @@ export default async function CompetePage({
                       <td data-label="Date" style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)' }}>{fmtD(p.visit_date)}</td>
                       <td data-label="Rep" style={{ ...TD, color: 'var(--fg-3)', fontSize: 11 }}>{p.rep_name}</td>
                       <td data-label="Price Photos" style={{ ...TD, fontFamily: 'var(--font-mono)' }}>{p.pics > 0 ? `📷 ${p.pics}` : '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                    </>
+                  ),
+                }))}
+              />
             </div>
           )}
         </div>
@@ -850,18 +875,33 @@ function MarketShareGrid({ title, breakdownTitle, unitLabel, donut, rilShare, ri
             No competitor data
           </div>
         ) : (
-          <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-            <thead>
-              <tr style={{ background: 'var(--bg-elev)' }}>
-                {['Make', unitLabel, 'Share', '', 'vs RIL'].map(h => <th key={h} style={TH}>{h}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {competitors.map(comp => {
-                const barPct = maxCompPct > 0 ? (comp.pct / maxCompPct) * 100 : 0;
-                const vsRil  = rilUnits > 0 ? ((comp.units - rilUnits) / rilUnits) * 100 : 0;
-                return (
-                  <tr key={comp.name} style={{ borderBottom: '1px solid var(--line)' }}>
+          <SortedTable
+            className="r-cards"
+            style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}
+            headRowStyle={{ background: 'var(--bg-elev)' }}
+            divider="1px solid var(--line)"
+            columns={[
+              { key: 'name',  label: 'Make',   kind: 'text',   style: TH },
+              { key: 'units', label: unitLabel, kind: 'number', align: 'right', style: TH },
+              { key: 'pct',   label: 'Share',  kind: 'number', align: 'right', style: TH },
+              // The bar is the Share column drawn again and carries no label to
+              // click, so the sort lives on Share beside it.
+              { key: 'bar',   label: '', style: TH },
+              { key: 'vsRil', label: 'vs RIL', kind: 'number', style: TH },
+            ]}
+            rows={competitors.map(comp => {
+              const barPct = maxCompPct > 0 ? (comp.pct / maxCompPct) * 100 : 0;
+              const vsRil  = rilUnits > 0 ? ((comp.units - rilUnits) / rilUnits) * 100 : 0;
+              return {
+                id: comp.name,
+                values: {
+                  name: comp.name, units: comp.units, pct: comp.pct,
+                  // No RIL baseline means no comparison, which is a blank rather
+                  // than a 0% that would sort among the real figures.
+                  vsRil: rilUnits > 0 ? vsRil : null,
+                },
+                cells: (
+                  <>
                     <td data-label="" style={{ padding: '10px 12px', verticalAlign: 'middle' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <span style={{ width: 8, height: 8, borderRadius: 2, background: comp.color, display: 'inline-block', flexShrink: 0 }} />
@@ -882,11 +922,11 @@ function MarketShareGrid({ title, breakdownTitle, unitLabel, donut, rilShare, ri
                     <td data-label="vs RIL" style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: vsRil > 0 ? 'var(--neg)' : 'var(--pos)' }}>
                       {rilUnits > 0 ? `${vsRil > 0 ? '+' : ''}${vsRil.toFixed(0)}%` : '—'}
                     </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                  </>
+                ),
+              };
+            })}
+          />
         )}
       </div>
     </div>

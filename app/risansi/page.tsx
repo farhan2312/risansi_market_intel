@@ -9,7 +9,9 @@ import { RefreshButton } from '@/components/risansi/RefreshButton';
 import Link from 'next/link';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, hasRole } from '@/lib/risansi-auth';
-import { clientStatusLabel } from '@/lib/risansi-client-status';
+import { clientStatusLabel, CLIENT_STATUSES } from '@/lib/risansi-client-status';
+import { SortableTH } from '@/components/risansi/SortableTH';
+import { sortRows, type SortableColumn } from '@/lib/risansi-table-sort';
 import {
   getCurrentFY, fyShortLabel,
   fyYtdPct, fyDaysLeft, formatIndianDate, formatTime, fmtCr, fmtL,
@@ -93,9 +95,42 @@ interface AutoOpp {
   client_name: string; client_code: string;
 }
 
+// ── Top Accounts sort ──────────────────────────────────────────
+//
+// The one table on this page, and the only one sorted from the URL rather than
+// in the browser. The panel is a server component: it runs fourteen queries and
+// prints the result, and a React hook cannot live in it, so the sort travels as
+// ?sort= & ?dir= and the page re-renders in the new order.
+//
+// The ordering itself still happens over the whole set the panel holds — all
+// seven rows, already fetched — rather than being pushed into the SQL. That
+// matters: "Top Accounts · YTD Revenue" means the seven largest accounts, so an
+// ORDER BY in the query would change WHICH seven are listed the moment somebody
+// sorted by name, and the panel would stop being what its heading promises.
+//
+// vs PY sorts on the ratio, not the "+12.4%" the cell prints, and an account
+// with no previous year has no ratio at all — it reads null and sinks to the
+// bottom either way, which is where its em-dash belongs.
+const TOP_ACCOUNT_COLS: SortableColumn<TopAccount>[] = [
+  { key: 'legal_name', kind: 'text' },
+  { key: 'industry',   kind: 'text' },
+  { key: 'zone',       kind: 'text' },
+  { key: 'ytd',        kind: 'number' },
+  { key: 'vspy',       kind: 'number', value: a => (a.py > 0 ? ((a.ytd - a.py) / a.py) * 100 : null) },
+  // A client status is a lifecycle, not a word list, so it sorts by
+  // CLIENT_STATUSES — the sequence the portal defines everywhere else.
+  { key: 'status',     kind: 'status', order: CLIENT_STATUSES },
+];
+
 // ── Page ───────────────────────────────────────────────────────
 
-export default async function ExecDashboardPage() {
+export default async function ExecDashboardPage({ searchParams }: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = await searchParams;
+  const sortKey = typeof sp.sort === 'string' ? sp.sort : '';
+  const sortDir: 'asc' | 'desc' = sp.dir === 'asc' ? 'asc' : 'desc';
+
   // ── Mobile redirect (must live here, not in layout) ────────
   const headersList = await headers();
   const ua = headersList.get('user-agent') ?? '';
@@ -668,6 +703,10 @@ export default async function ExecDashboardPage() {
 
   // ── Derived values ────────────────────────────────────────────
 
+  // Unsorted, this is the query's own order — highest revenue first, which is
+  // what the panel is for. A third click on a header clears ?sort= and brings
+  // it back.
+  const topAccountRows = sortRows(topAccounts, TOP_ACCOUNT_COLS, { key: sortKey || null, dir: sortDir });
   const totalBooked = revSplit.pump + revSplit.spare;
   const pumpPct  = totalBooked > 0 ? Math.round((revSplit.pump  / totalBooked) * 100) : 0;
   const sparePct = totalBooked > 0 ? Math.round((revSplit.spare / totalBooked) * 100) : 0;
@@ -1133,13 +1172,16 @@ export default async function ExecDashboardPage() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead>
                     <tr style={{ background: 'var(--bg-elev)' }}>
-                      {['Account', 'Industry', 'Zone', 'YTD Rev', 'vs PY', 'Status'].map(h => (
-                        <th key={h} style={TH}>{h}</th>
-                      ))}
+                      <SortableTH col="legal_name" label="Account"  kind="text"   currentSort={sortKey} currentDir={sortDir} style={TH} />
+                      <SortableTH col="industry"   label="Industry" kind="text"   currentSort={sortKey} currentDir={sortDir} style={TH} />
+                      <SortableTH col="zone"       label="Zone"     kind="text"   currentSort={sortKey} currentDir={sortDir} style={TH} />
+                      <SortableTH col="ytd"        label="YTD Rev"  kind="number" currentSort={sortKey} currentDir={sortDir} align="right" style={TH} />
+                      <SortableTH col="vspy"       label="vs PY"    kind="number" currentSort={sortKey} currentDir={sortDir} align="right" style={TH} />
+                      <SortableTH col="status"     label="Status"   kind="status" currentSort={sortKey} currentDir={sortDir} style={TH} />
                     </tr>
                   </thead>
                   <tbody>
-                    {topAccounts.map(acc => {
+                    {topAccountRows.map(acc => {
                       const deltaPct = acc.py > 0 ? ((acc.ytd - acc.py) / acc.py) * 100 : 0;
                       return (
                         <tr key={acc.client_code} style={{ borderBottom: '1px solid var(--line)' }}>

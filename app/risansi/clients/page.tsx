@@ -10,19 +10,36 @@ import risansiPool from '@/lib/db-risansi';
 import { formatLastVisitShort, formatRev } from '@/lib/risansi-utils';
 import { getCurrentUser, clientVisibilitySql } from '@/lib/risansi-auth';
 import { OWNERS_SUBQUERY, REV_JOIN, REV_BUCKETS, VISIT_BUCKETS, buildClientFilter } from '@/lib/risansi-client-filter';
-import { clientStatusLabel, statusDotKind, CLIENT_STATUS_FILTER_OPTIONS, CLIENT_STATUS_LABELS, CLIENT_STATUS_COLORS, PROSPECTIVE_STATUSES } from '@/lib/risansi-client-status';
+import { clientStatusLabel, statusDotKind, CLIENT_STATUS_FILTER_OPTIONS, CLIENT_STATUS_LABELS, CLIENT_STATUS_COLORS, PROSPECTIVE_STATUSES, CLIENT_STATUSES } from '@/lib/risansi-client-status';
 import { FilterBar } from './FilterBar';
 
 const PAGE_SIZE = 50;
 
-// Only columns confirmed to exist are listed here
+// Status is a lifecycle, not a word list: Prospective-Lead comes before Active
+// which comes before Closed, and the alphabet agrees with none of that. The
+// rank comes straight off CLIENT_STATUSES so a status added there orders itself.
+const STATUS_RANK_SQL = `CASE UPPER(c.status) ${
+  CLIENT_STATUSES.map((s, i) => `WHEN '${s}' THEN ${i}`).join(' ')
+} ELSE ${CLIENT_STATUSES.length} END`;
+
+// Only columns confirmed to exist are listed here. A key that is not in this
+// map never reaches the query — it falls back to the default below.
+// A client nobody has ever visited is not a blank in these two columns, it is
+// the extreme: infinitely long since the last visit, infinitely overdue. Left
+// as NULL it sorted as an absence and sank to the bottom, which on a list whose
+// whole point is "who needs visiting" put the most neglected accounts last.
+// Ordering on a floor date instead keeps them at the top of the overdue end and
+// at the bottom of the recently-visited end, which is true both ways round. The
+// SELECT still returns NULL, so the cell still reads "Never".
 const SORT_MAP: Record<string, string> = {
   code:       'c.code',
   name:       'c.legal_name',
   industry:   'c.industry',
-  zone:       'tr.zone',
-  last_visit: 'c.last_visit_date',
-  status:     'c.status',
+  // Matches what the cell shows (c.zone falling back to the route's zone),
+  // rather than the route's zone alone.
+  zone:       `COALESCE(NULLIF(c.zone, ''), tr.zone)`,
+  last_visit: `COALESCE(c.last_visit_date, DATE '0001-01-01')`,
+  status:     STATUS_RANK_SQL,
   tier:       'c.tier',
   rep:        'rep_name',
 };
@@ -42,7 +59,10 @@ export default async function ClientListPage({
   const q_str     = typeof sp.q        === 'string' ? sp.q.trim()        : '';
   const sugarFilt = typeof sp.sugar    === 'string' ? sp.sugar.trim()    : '';
   const sortKey   = typeof sp.sort     === 'string' ? sp.sort            : 'last_visit';
-  const orderDir  = sp.order === 'desc'             ? 'DESC'             : 'ASC';
+  // The headers write ?dir=; the mobile sort sheet writes ?order=. Reading both
+  // keeps an existing bookmark working and stops a header click being ignored.
+  const dirParam  = typeof sp.dir === 'string' ? sp.dir : typeof sp.order === 'string' ? sp.order : '';
+  const orderDir  = dirParam === 'desc'             ? 'DESC'             : 'ASC';
   const pageNum   = Math.max(1, parseInt(typeof sp.page === 'string' ? sp.page : '1', 10) || 1);
   const limit     = PAGE_SIZE;
   const offset    = (pageNum - 1) * limit;    // page 1 → offset 0  ✓
@@ -125,7 +145,13 @@ export default async function ClientListPage({
            LEFT JOIN tour_routes tr ON tr.id = c.tour_id
            ${REV_JOIN}
            WHERE ${whereClause}
-           ORDER BY ${sortCol} ${orderDir} ${orderDir === 'ASC' ? 'NULLS FIRST' : 'NULLS LAST'}
+           -- NULLS LAST both ways. Postgres defaults to NULLS FIRST on DESC and
+           -- this clause used to ask for it explicitly on ASC, so either end of
+           -- a column could open on a screenful of empty cells with the rows
+           -- somebody clicked the header to find pushed off the page.
+           -- c.id breaks ties. Without it two rows sharing a value can swap
+           -- between pages, so one repeats on page 2 and another is never seen.
+           ORDER BY ${sortCol} ${orderDir} NULLS LAST, c.id
            LIMIT  $${limIdx}
            OFFSET $${offIdx}`,
           mainParams as (string | number)[],
@@ -674,14 +700,14 @@ export default async function ClientListPage({
                     <th style={{ width: 34, padding: '8px 0 8px 12px', background: 'var(--bg-elev)', borderBottom: '1px solid var(--line)' }}>
                       <SelectPageBox codes={clients.map(c => c.code)} />
                     </th>
-                    <SortableTH col="code"       label="Code"         currentSort={curSort} currentDir={curDir} />
-                    <SortableTH col="name"       label="Client"       currentSort={curSort} currentDir={curDir} />
-                    <SortableTH col="industry"   label="Industry"     currentSort={curSort} currentDir={curDir} />
-                    <SortableTH col="zone"       label="Zone / Route" currentSort={curSort} currentDir={curDir} />
-                    <SortableTH col="rep"        label="Rep"          currentSort={curSort} currentDir={curDir} />
-                    <SortableTH col="last_visit" label="Last Visit"   currentSort={curSort} currentDir={curDir} />
-                    <SortableTH col="status"     label="Status"       currentSort={curSort} currentDir={curDir} />
-                    <SortableTH col="tier"       label="Tier"         currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="code"       label="Code"         kind="text"   currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="name"       label="Client"       kind="text"   currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="industry"   label="Industry"     kind="text"   currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="zone"       label="Zone / Route" kind="text"   currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="rep"        label="Rep"          kind="text"   currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="last_visit" label="Last Visit"   kind="date"   currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="status"     label="Status"       kind="status" currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="tier"       label="Tier"         kind="text"   currentSort={curSort} currentDir={curDir} />
                   </tr>
                 </thead>
                 <tbody>

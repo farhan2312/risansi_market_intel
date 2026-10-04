@@ -85,7 +85,13 @@ export function statusStep(s: string): number {
 
 // ── Severity ───────────────────────────────────────────────────────────────
 
-export type Severity = 'S1' | 'S2' | 'S3' | 'S4';
+/**
+ * Worst first. Declared as a sequence rather than read off the key order of
+ * SEVERITY_TONE below, which is a colour map: reordering that for readability
+ * would silently reorder every table sorted by severity.
+ */
+export const SEVERITIES = ['S1', 'S2', 'S3', 'S4'] as const;
+export type Severity = typeof SEVERITIES[number];
 
 export interface RiskAnswers {
   risk_safety?: boolean | null; risk_shutdown?: boolean | null; risk_penalty?: boolean | null; risk_pump_failure?: boolean | null;

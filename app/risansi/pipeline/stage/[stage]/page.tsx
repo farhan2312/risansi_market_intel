@@ -13,6 +13,9 @@ import {
   type SelDim, type Selection,
 } from '@/lib/risansi-stage-dashboard';
 import { loadStageRows, loadFyActuals, type StageDashRow, type SearchParams } from '@/lib/risansi-stage-rows';
+import { SortableTH } from '@/components/risansi';
+import { sortRows, type SortableColumn, type SortKind, type SortDir } from '@/lib/risansi-table-sort';
+import type { StageColumn } from '@/lib/risansi-stage-dashboard';
 import {
   ChartPanel, BarList, AgeingBars, StackedBar, TrendBars, OfferMovement, StageKpi,
   NoData, CHART_GRID, CHART_GRID_4, ClosureBars, CoverageList,
@@ -37,6 +40,39 @@ export const dynamic = 'force-dynamic';
 type Row = StageDashRow;
 
 const PAGE_SIZE = 100;
+
+// ── Column sorting ─────────────────────────────────────────────
+// STAGE_COLUMNS says what each column holds well enough to sort it: `num` marks
+// the money and the counts, these three keys are the dates, and the rest is
+// text. Two columns are computed rather than read off the row, so they say
+// where their value comes from.
+
+const DATE_COLS = new Set(['enquiry_date', 'quote_date', 'revised_on']);
+
+/** Won coverage, in its own order: still Open before Closed. */
+const SO_STATUS_ORDER = ['Open', 'Closed'] as const;
+
+function sortColumn(col: StageColumn): SortableColumn<Row> {
+  if (col.key === 'so_status') {
+    // The cell derives Open/Closed from the SO total against the final value,
+    // so the sort has to derive it the same way rather than read a column.
+    return {
+      key: col.key, kind: 'status', order: SO_STATUS_ORDER,
+      value: r => {
+        const base = r.final_cr != null ? Number(r.final_cr) : r.value_cr;
+        return base > 0 && r.so_sum_cr >= base ? 'Closed' : 'Open';
+      },
+    };
+  }
+  if (col.key === 'eta_text') {
+    // A month as the rep typed it. Sorted as text, 'April' would land next to
+    // 'August'; parseEtaMonth turns it into the month index the closure charts
+    // already use, and anything unreadable comes back null and sinks.
+    return { key: col.key, kind: 'number', value: r => parseEtaMonth((r.eta_text ?? '').trim()) };
+  }
+  if (DATE_COLS.has(col.key)) return { key: col.key, kind: 'date' };
+  return { key: col.key, kind: col.num ? 'number' : 'text' };
+}
 
 export default async function StageDashboardPage({ params, searchParams }: {
   params: Promise<{ stage: string }>;
@@ -70,11 +106,31 @@ export default async function StageDashboardPage({ params, searchParams }: {
   const P = (dim: SelDim) => (sel[dim] != null ? summariseStage(forDim(dim)) : A);
   const C = (dim: SelDim) => summariseClosure(forDim(dim), todayIdx, undefined, 4, actuals);
 
+  // ── Sort ─────────────────────────────────────────────────────
+  // The whole stage is already in hand, but the table shows one 100-row page of
+  // it, so the order has to be settled before the slice is taken: sorting the
+  // 100 on screen would reorder a hundredth of the stage and claim to rank all
+  // of it. The column rides in the URL and the page resets, the same way the
+  // paginated SQL tables work.
+  const columns  = STAGE_COLUMNS[stage];
+  const sortCols = columns.map(sortColumn);
+  const sortKey  = typeof sp.sort === 'string' && sortCols.some(c => c.key === sp.sort) ? sp.sort : null;
+  const sortDir: SortDir = sp.dir === 'asc' ? 'asc' : 'desc';
+  const kindOf = (key: string): SortKind =>
+    sortCols.find(c => c.key === key)?.kind ?? 'text';
+  // No column chosen means sortRows hands back the very same array, so the
+  // stage keeps the order loadStageRows gave it.
+  const ordered = sortRows(rows, sortCols, { key: sortKey, dir: sortDir });
+
   // ── Links ────────────────────────────────────────────────────
   const base = () => oppFilterQuery(sp, ['stage']);
   const withSel = (s: Selection, page?: number) => {
     const q = base();
     for (const e of selectionEntries(s)) q.append('sel', e);
+    // oppFilterQuery only carries the board's own filters, so the chosen column
+    // has to be re-added by hand — without this, turning a page or clicking a
+    // bar silently dropped the sort and the list jumped back to its default.
+    if (sortKey) { q.set('sort', sortKey); q.set('dir', sortDir); }
     if (page && page > 1) q.set('page', String(page));
     const qs = q.toString();
     return qs ? `?${qs}` : '?';
@@ -98,7 +154,7 @@ export default async function StageDashboardPage({ params, searchParams }: {
   // ── Paging ───────────────────────────────────────────────────
   const page  = Math.max(1, parseInt(typeof sp.page === 'string' ? sp.page : '1', 10) || 1);
   const pages = Math.max(1, Math.ceil(n / PAGE_SIZE));
-  const slice = rows.slice((Math.min(page, pages) - 1) * PAGE_SIZE, Math.min(page, pages) * PAGE_SIZE);
+  const slice = ordered.slice((Math.min(page, pages) - 1) * PAGE_SIZE, Math.min(page, pages) * PAGE_SIZE);
 
   const hue = STAGE_COLOR[stage];
   const inr = (v: number | null | undefined) => (v == null ? '—' : '₹' + Math.round(v).toLocaleString('en-IN'));
@@ -366,18 +422,24 @@ export default async function StageDashboardPage({ params, searchParams }: {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead>
                     <tr>
-                      {STAGE_COLUMNS[stage].map(col => (
-                        <th key={col.key} style={{
-                          ...TH, textAlign: col.num ? 'right' : 'left',
-                          width: col.width, minWidth: col.width,
-                        }}>{col.label}</th>
+                      {columns.map(col => (
+                        <SortableTH
+                          key={col.key}
+                          col={col.key}
+                          label={col.label}
+                          kind={kindOf(col.key)}
+                          currentSort={sortKey ?? ''}
+                          currentDir={sortDir}
+                          align={col.num ? 'right' : 'left'}
+                          style={{ ...TH, width: col.width, minWidth: col.width }}
+                        />
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {slice.map((r, i) => (
                       <tr key={r.id} style={{ borderTop: i === 0 ? 'none' : '1px solid var(--line)' }}>
-                        {STAGE_COLUMNS[stage].map(col => (
+                        {columns.map(col => (
                           <td key={col.key} style={{
                             ...TD, textAlign: col.num ? 'right' : 'left',
                             fontFamily: col.num ? 'var(--font-mono)' : 'inherit',

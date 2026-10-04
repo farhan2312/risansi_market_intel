@@ -3,6 +3,8 @@
 import { useState, useTransition, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { Tag } from '@/components/risansi';
+import { useTableSort, SortTH } from '@/components/risansi/SortTH';
+import type { SortableColumn } from '@/lib/risansi-table-sort';
 import { createRep, updateRep } from '@/app/actions/risansi-reps';
 import { approveUser, rejectUser, reapproveUser, revokeUser, resetUserPassword } from '@/app/actions/admin';
 import { deleteUser } from '@/app/actions/sysadmin';
@@ -26,9 +28,29 @@ export interface UserRow {
 // 'staff' first, because it is the one that needs explaining: it is not the
 // bottom of the ladder, it is off it. A staff user reaches Client 360 and
 // Complaints and nothing else, whatever their department.
-const ROLES = ['staff', 'rep', 'manager', 'admin', 'sysadmin'];
+// Exported because it is the only ladder for a role in the codebase, and the
+// reps roster sorts its Role column by it rather than by the alphabet.
+export const ROLES = ['staff', 'rep', 'manager', 'admin', 'sysadmin'];
 // The same list as lib/risansi-auth DEPARTMENTS, which is what the server accepts.
 const DEPARTMENTS = ['Complaint Team', 'QC', 'Quotation Team', 'Billing Team', 'Purchase'];
+
+// An account's lifecycle, in the order it travels and in the order the status
+// filter above lists it: a request arrives Pending, and is then either let in
+// or turned away. Sorting on the alphabet would open the column on Approved
+// and bury the Pending rows, which are the only ones needing a decision.
+const USER_STATUSES = ['Pending', 'Approved', 'Rejected'];
+
+const USER_COLS: SortableColumn<UserRow>[] = [
+  { key: 'name',          kind: 'text' },
+  { key: 'role',          kind: 'status', order: ROLES },
+  { key: 'status',        kind: 'status', order: USER_STATUSES },
+  // A flag, not a word. As a number it opens on the live accounts; as text it
+  // would open on "No", which is nobody's first question about a user list.
+  { key: 'is_active',     kind: 'number', value: u => (u.is_active ? 1 : 0) },
+  { key: 'zone',          kind: 'text' },
+  { key: 'team_count',    kind: 'number' },
+  { key: 'clients_count', kind: 'number' },
+];
 
 // Account + access management for every user. Lives on /admin (sysadmin only).
 // Ownership and teams are handled separately on Reps & Managers.
@@ -56,6 +78,10 @@ export function UsersManager({ users }: { users: UserRow[] }) {
   });
 
   const pendingCount = users.filter(u => u.status === 'Pending').length;
+
+  // Sorting sits on top of the search and status filters, so it reorders what
+  // is on screen rather than fighting it.
+  const { rows: shown, sortBy } = useTableSort(filtered, USER_COLS);
 
   function refresh() { router.refresh(); }
 
@@ -87,16 +113,22 @@ export function UsersManager({ users }: { users: UserRow[] }) {
           <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
               <tr style={{ background: 'var(--bg-elev)' }}>
-                {['User', 'Role', 'Status', 'Active', 'Zone / Route', 'Team', 'Clients', ''].map(h => (
-                  <th key={h} style={TH}>{h}</th>
-                ))}
+                <SortTH {...sortBy('name')}          style={TH}>User</SortTH>
+                <SortTH {...sortBy('role')}          style={TH}>Role</SortTH>
+                <SortTH {...sortBy('status')}        style={TH}>Status</SortTH>
+                <SortTH {...sortBy('is_active')}     style={TH}>Active</SortTH>
+                <SortTH {...sortBy('zone')}          style={TH}>Zone / Route</SortTH>
+                <SortTH {...sortBy('team_count')}    style={TH}>Team</SortTH>
+                <SortTH {...sortBy('clients_count')} style={TH}>Clients</SortTH>
+                {/* Row actions — nothing to order by. */}
+                <th style={TH} />
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 ? (
+              {shown.length === 0 ? (
                 <tr><td colSpan={8} style={{ padding: '40px 0', textAlign: 'center', color: 'var(--fg-3)' }}>No users found</td></tr>
-              ) : filtered.map((u, i) => (
-                <tr key={u.id} style={{ borderBottom: i < filtered.length - 1 ? '1px solid var(--line)' : 'none' }}>
+              ) : shown.map((u, i) => (
+                <tr key={u.id} style={{ borderBottom: i < shown.length - 1 ? '1px solid var(--line)' : 'none' }}>
                   <td data-label="" style={{ padding: '10px 12px' }}>
                     <div style={{ fontWeight: 500, color: 'var(--fg)' }}>{u.name}</div>
                     <div style={{ fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', marginTop: 1 }}>{u.email}</div>

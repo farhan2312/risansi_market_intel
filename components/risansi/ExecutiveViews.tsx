@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import Link from 'next/link';
 import { DrillCell } from './ExecDrilldown';
+import { ExecMiniTable } from './ExecMiniTable';
 import { StackedHBars, GroupedBars, Donut, HBars, fmtCr } from './ExecCharts';
 import type { DrillParams } from '@/app/actions/risansi-exec-drilldown';
 
@@ -105,10 +106,7 @@ export interface ExecData {
   kpis:            ExecKpi[];
 }
 
-const inr = (n: number) => n.toLocaleString('en-IN');
-
 export function MiniTable({ title, note, table, full, chart, footer }: { title: string; note?: string; table: ExecTable; full?: boolean; chart?: ReactNode; footer?: ReactNode }) {
-  const { headers, rows, moneyFrom, colors = [], notes = [] } = table;
   return (
     <div style={{ ...PANEL, ...(full ? { gridColumn: '1 / -1' } : {}) }}>
       <div style={PANEL_H}>
@@ -118,40 +116,10 @@ export function MiniTable({ title, note, table, full, chart, footer }: { title: 
       {/* The picture first, the figures under it: the chart says the shape,
           the table keeps the exact numbers and the drill-through on each. */}
       {chart && <div style={{ padding: '14px 14px 6px' }}>{chart}</div>}
+      {/* The grid itself is a client component so its headers can sort; the
+          panel, the chart and the footnote stay on the server. */}
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-          <thead>
-            <tr>{headers.map((h, i) => {
-              const c = i > 0 ? colors[i - 1] : undefined;
-              return (
-                <th key={h} title={i > 0 ? notes[i - 1] : undefined} style={{ ...TH, textAlign: i === 0 ? 'left' : 'right', color: c ?? TH.color }}>
-                  {c && <span aria-hidden style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: c, marginRight: 5, verticalAlign: 'middle' }} />}{h}
-                </th>
-              );
-            })}</tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? (
-              <tr><td colSpan={headers.length} style={{ ...TD, textAlign: 'center', color: 'var(--fg-3)', padding: '18px 0' }}>No data</td></tr>
-            ) : rows.map((r, ri) => (
-              <tr key={ri} style={{ background: r.strong ? 'var(--bg-elev)' : 'transparent' }}>
-                <td style={{ ...TD, fontWeight: r.strong ? 700 : 500, color: 'var(--fg)', borderTop: r.strong ? '2px solid var(--line-strong)' : '1px solid var(--line)' }}>{r.label}</td>
-                {r.vals.map((v, vi) => {
-                  const text = v == null ? '—' : (vi >= moneyFrom ? '₹' : '') + inr(v);
-                  const d = r.drill?.[vi];
-                  return (
-                    <td key={vi} style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: r.strong ? 700 : 400,
-                                          color: v == null || v === 0 ? 'var(--fg-3)' : colors[vi] ?? 'var(--fg)',
-                                          background: colors[vi] && v ? `color-mix(in oklab, ${colors[vi]} ${r.strong ? 14 : 8}%, transparent)` : undefined,
-                                          borderTop: r.strong ? '2px solid var(--line-strong)' : '1px solid var(--line)' }}>
-                      {d && v ? <DrillCell params={d}>{text}</DrillCell> : text}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <ExecMiniTable table={table} />
       </div>
       {footer && <div style={{ padding: '10px 14px', borderTop: '1px solid var(--line)' }}>{footer}</div>}
     </div>
@@ -394,5 +362,4 @@ const METRIC_LABEL: CSSProperties = { fontSize: 10, textTransform: 'uppercase', 
 // cool/neutral end, live work in the accent, the three endings in won/lost/grey.
 const OFFER_COLORS = ['#0891B2', '#7C3AED', 'var(--accent)', 'var(--warn)', 'var(--pos)', 'var(--neg)', 'var(--fg-3)'];
 const BAR_LABEL: CSSProperties = { display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--fg-3)', marginBottom: 4, fontFamily: 'var(--font-mono)' };
-const TH: CSSProperties = { padding: '8px 12px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600, color: 'var(--fg-3)', background: 'var(--bg-elev)', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
-const TD: CSSProperties = { padding: '8px 12px', verticalAlign: 'middle', whiteSpace: 'nowrap' };
+// The table's own TH / TD moved to ExecMiniTable.tsx with the markup they style.

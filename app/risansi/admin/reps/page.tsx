@@ -3,6 +3,7 @@ import { Topbar } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, hasRole } from '@/lib/risansi-auth';
 import { AddRepButton } from '@/components/risansi/AddRepButton';
+import { AdminRepsRoster } from '@/components/risansi/AdminRepsRoster';
 import {
   TeamMatrix, UnassignedClients, MoveClients, RepClients,
   type Person, type UnownedClient, type RepClient,
@@ -93,6 +94,20 @@ export default async function RepsAndManagersPage({
   const managers = people.filter(p => p.role === 'manager');
   const withHistory = unowned.filter(c => c.opps || c.visits).length;
 
+  // The roster, with both halves of the team link resolved to the names the
+  // cells print. Doing it here rather than in the table means the Reports-to
+  // and Team columns can be sorted on what a reader sees, and the client
+  // bundle never needs the pairs list.
+  const roster = people.map(p => ({
+    id: p.id, name: p.name, role: p.role, owned: p.owned, covered: p.covered,
+    reportsTo: managers
+      .filter(m => pairs.some(x => x.manager_id === m.id && x.rep_id === p.id))
+      .map(m => m.name).join(', '),
+    team: people
+      .filter(r => pairs.some(x => x.manager_id === p.id && x.rep_id === r.id))
+      .map(r => r.name).join(', '),
+  }));
+
   const selectedRep = people.find(r => r.id === repParam)
     ?? people.find(r => r.owned > 0 || r.covered > 0)
     ?? people[0];
@@ -158,40 +173,7 @@ export default async function RepsAndManagersPage({
                 and it would be squeezed into a button-sized column up there. */}
             <MoveClients people={people} />
             <div style={S.card}>
-              <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-                <thead>
-                  <tr>
-                    <th style={S.th}>Name</th><th style={S.th}>Role</th>
-                    <th style={{ ...S.th, textAlign: 'right' }}>Owns</th>
-                    <th style={{ ...S.th, textAlign: 'right' }}>Covers</th>
-                    <th style={S.th}>Reports to</th>
-                    <th style={S.th}>Team</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {people.map(p => {
-                    const above = managers.filter(m => pairs.some(x => x.manager_id === m.id && x.rep_id === p.id));
-                    const below = people.filter(r => pairs.some(x => x.manager_id === p.id && x.rep_id === r.id));
-                    return (
-                      <tr key={p.id}>
-                        <td style={{ ...S.td, fontWeight: 600 }}>{p.name}</td>
-                        <td style={{ ...S.td, fontSize: 11.5, color: 'var(--fg-3)' }}>{p.role}</td>
-                        <td style={{ ...S.td, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{p.owned}</td>
-                        <td style={{ ...S.td, textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>
-                          {p.covered || '—'}
-                        </td>
-                        <td style={{ ...S.td, fontSize: 12, color: 'var(--fg-2)' }}>
-                          {above.length ? above.map(m => m.name).join(', ')
-                            : <span style={{ color: 'var(--fg-4)' }}>manages themselves</span>}
-                        </td>
-                        <td style={{ ...S.td, fontSize: 12, color: 'var(--fg-2)' }}>
-                          {below.length ? below.map(r => r.name).join(', ') : <span style={{ color: 'var(--fg-4)' }}>—</span>}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <AdminRepsRoster rows={roster} th={S.th} td={S.td} />
             </div>
           </>
         )}

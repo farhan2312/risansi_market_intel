@@ -2,8 +2,26 @@
 
 import { useState, type CSSProperties } from 'react';
 import { RepRow, type RepData, ZONE_BG, ZONE_COLOR } from './RepRow';
+import { useTableSort, SortTH } from './SortTH';
+import type { SortableColumn } from '@/lib/risansi-table-sort';
 
 const ZONES = ['North', 'Central', 'West', 'South', 'Export'];
+
+// client_count and visits_last_30d arrive as strings from pg's ::count casts,
+// which is why they are numbers here rather than text: "9" must not sort above
+// "10", and the comparator reads through the string for us.
+const REP_COLS: SortableColumn<RepData>[] = [
+  { key: 'name',            kind: 'text' },
+  // Zone is a region, not a stage: the five of them have no lifecycle, so A-Z
+  // is the honest order and matches the pill row above.
+  { key: 'zone',            kind: 'text' },
+  { key: 'route',           kind: 'text' },
+  { key: 'client_count',    kind: 'number' },
+  { key: 'visits_last_30d', kind: 'number' },
+  // Active before inactive on the first click; a yes/no flag has no lifecycle
+  // list to follow, and as text it would open on "Inactive".
+  { key: 'is_active',       kind: 'number', value: r => (r.is_active ? 1 : 0) },
+];
 
 const ZONE_LABELS: Record<string, string> = {
   North: 'N', Central: 'C', West: 'W', South: 'S', Export: 'E',
@@ -12,7 +30,8 @@ const ZONE_LABELS: Record<string, string> = {
 export function RepsZoneFilter({ reps }: { reps: RepData[] }) {
   const [activeZone, setActiveZone] = useState<string | null>(null);
 
-  const filtered = activeZone ? reps.filter(r => r.zone === activeZone) : reps;
+  const zoned = activeZone ? reps.filter(r => r.zone === activeZone) : reps;
+  const { rows: filtered, sortBy } = useTableSort(zoned, REP_COLS);
 
   return (
     <>
@@ -57,12 +76,13 @@ export function RepsZoneFilter({ reps }: { reps: RepData[] }) {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
               <tr style={{ background: 'var(--bg-elev)' }}>
-                <th style={TH}>Name</th>
-                <th style={TH}>Zone</th>
-                <th style={TH}>Tour</th>
-                <th style={{ ...TH, textAlign: 'center' }}>Clients</th>
-                <th style={{ ...TH, textAlign: 'center' }}>Visits (30d)</th>
-                <th style={{ ...TH, textAlign: 'center' }}>Status</th>
+                <SortTH {...sortBy('name')}             style={TH}>Name</SortTH>
+                <SortTH {...sortBy('zone')}             style={TH}>Zone</SortTH>
+                <SortTH {...sortBy('route')}            style={TH}>Tour</SortTH>
+                <SortTH {...sortBy('client_count')}     style={{ ...TH, textAlign: 'center' }}>Clients</SortTH>
+                <SortTH {...sortBy('visits_last_30d')}  style={{ ...TH, textAlign: 'center' }}>Visits (30d)</SortTH>
+                <SortTH {...sortBy('is_active')}        style={{ ...TH, textAlign: 'center' }}>Status</SortTH>
+                {/* The Edit button's column. */}
                 <th style={TH} />
               </tr>
             </thead>

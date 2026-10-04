@@ -2,6 +2,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import Link from 'next/link';
 import { quartersOf, type Projection } from '@/lib/risansi-sales-projection';
 import { GroupedBars, HBars, fmtCr } from './ExecCharts';
+import { SalesProjectionGrid, type ProjCol, type ProjRow } from './SalesProjectionGrid';
 
 // Expected closures by rep, across the fiscal year.
 //
@@ -12,7 +13,6 @@ import { GroupedBars, HBars, fmtCr } from './ExecCharts';
 // inverse of that share, and the number that tells them so has to arrive first.
 
 const cr = (n: number) => (n / 1e7).toFixed(2);
-const crShort = (n: number) => (n === 0 ? '—' : (n / 1e7).toFixed(2));
 
 const MONTH_LABEL = (ym: string) => {
   const [y, m] = ym.split('-').map(Number);
@@ -69,6 +69,46 @@ export function SalesProjection({ d, mode, hrefFor, filters, subtitle, embedded 
     ],
   }));
   const repBars = d.reps.map(r => ({ label: r.name, value: fyTotal(r) })).filter(r => r.value > 0).slice(0, 10);
+
+  // ── the grid, flattened for the client component that renders it ──
+  // Column keys are prefixed because a quarter is called 'Q1' and a tail column
+  // 'none', and the two namespaces must not be able to collide.
+  const gridCols: ProjCol[] = [
+    ...periods.map(p => ({ key: `p:${p.key}`, label: p.label })),
+    { key: 'fy', label: 'FY total', rule: true, strong: true },
+    ...TAIL.map(t => ({
+      key: `t:${t.key}`, label: t.label, hint: t.hint,
+      tone: t.key === 'none' ? 'var(--warn-strong, var(--warn))' : 'var(--fg-3)',
+      footTone: t.key === 'none' ? 'var(--warn-strong, var(--warn))' : 'var(--fg-2)',
+    })),
+    { key: 'all', label: 'All open', rule: true, strong: true },
+  ];
+
+  const gridRows: ProjRow[] = d.reps.map(rep => {
+    const vals: Record<string, number> = {};
+    const counts: Record<string, number> = {};
+    for (const p of periods) {
+      const v = cellOf(rep, p.months);
+      vals[`p:${p.key}`] = v.gross; counts[`p:${p.key}`] = v.count;
+    }
+    vals.fy = fyTotal(rep); counts.fy = 0;
+    for (const t of TAIL) {
+      const v = cellOf(rep, [t.key]);
+      vals[`t:${t.key}`] = v.gross; counts[`t:${t.key}`] = v.count;
+    }
+    vals.all = rep.totalGross; counts.all = 0;
+    // A rep whose whole book is undated contributes nothing to any period; the
+    // row would otherwise read as "no pipeline".
+    const undated = cellOf(rep, ['none']).gross;
+    return {
+      id: String(rep.repId), name: rep.name, vals, counts,
+      note: rep.totalGross > 0 && undated === rep.totalGross ? 'nothing dated' : undefined,
+    };
+  });
+
+  const gridTotals: Record<string, number> = { fy: colTotal(d.months), all: d.reps.reduce((s, r) => s + r.totalGross, 0) };
+  for (const p of periods) gridTotals[`p:${p.key}`] = colTotal(p.months);
+  for (const t of TAIL) gridTotals[`t:${t.key}`] = colTotal([t.key]);
 
   return (
     <section style={{ marginTop: embedded ? 0 : 26 }}>
@@ -147,76 +187,14 @@ export function SalesProjection({ d, mode, hrefFor, filters, subtitle, embedded 
       )}
 
       <div style={{ overflowX: 'auto', border: '1px solid var(--line)', borderRadius: 'var(--radius)', background: 'var(--bg-paper)' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-          <thead>
-            <tr style={{ background: 'var(--bg-elev)' }}>
-              <th style={{ ...TH, textAlign: 'left', position: 'sticky', left: 0, background: 'var(--bg-elev)', minWidth: 150 }}>Rep</th>
-              {periods.map(p => <th key={p.key} style={TH}>{p.label}</th>)}
-              <th style={{ ...TH, borderLeft: '2px solid var(--line-strong)' }}>FY total</th>
-              {TAIL.map(t => <th key={t.key} style={TH} title={t.hint}>{t.label}</th>)}
-              <th style={{ ...TH, borderLeft: '2px solid var(--line-strong)' }}>All open</th>
-            </tr>
-          </thead>
-          <tbody>
-            {d.reps.length === 0 && (
-              <tr><td colSpan={periods.length + TAIL.length + 3} style={{ ...TD, textAlign: 'center', color: 'var(--fg-3)', padding: 24 }}>
-                No open opportunities for the reps you can see.
-              </td></tr>
-            )}
-            {d.reps.map(rep => {
-              const undated = cellOf(rep, ['none']).gross;
-              // A rep whose whole book is undated contributes nothing to any
-              // period; the row would otherwise read as "no pipeline".
-              const allUndated = rep.totalGross > 0 && undated === rep.totalGross;
-              return (
-                <tr key={rep.repId} style={{ borderBottom: '1px solid var(--line-2)' }}>
-                  <td style={{ ...TD, fontWeight: 500, position: 'sticky', left: 0, background: 'var(--bg-paper)' }}>
-                    {rep.name}
-                    {allUndated && (
-                      <div style={{ fontSize: 9.5, color: 'var(--warn-strong, var(--warn))' }}>nothing dated</div>
-                    )}
-                  </td>
-                  {periods.map(p => {
-                    const v = cellOf(rep, p.months);
-                    return (
-                      <td key={p.key} style={NUM} title={v.count ? `${v.count} opportunit${v.count === 1 ? 'y' : 'ies'}` : undefined}>
-                        {crShort(v.gross)}
-                      </td>
-                    );
-                  })}
-                  <td style={{ ...NUM, fontWeight: 700, borderLeft: '2px solid var(--line-strong)' }}>{crShort(fyTotal(rep))}</td>
-                  {TAIL.map(t => {
-                    const v = cellOf(rep, [t.key]);
-                    return (
-                      <td key={t.key} style={{ ...NUM, color: t.key === 'none' ? 'var(--warn-strong, var(--warn))' : 'var(--fg-3)' }}
-                        title={v.count ? `${v.count} opportunit${v.count === 1 ? 'y' : 'ies'}` : undefined}>
-                        {crShort(v.gross)}
-                      </td>
-                    );
-                  })}
-                  <td style={{ ...NUM, fontWeight: 700, borderLeft: '2px solid var(--line-strong)' }}>{crShort(rep.totalGross)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-          {d.reps.length > 0 && (
-            <tfoot>
-              <tr style={{ background: 'var(--bg-elev)', fontWeight: 700 }}>
-                <td style={{ ...TD, position: 'sticky', left: 0, background: 'var(--bg-elev)' }}>All reps</td>
-                {periods.map(p => <td key={p.key} style={NUM}>{crShort(colTotal(p.months))}</td>)}
-                <td style={{ ...NUM, borderLeft: '2px solid var(--line-strong)' }}>{crShort(colTotal(d.months))}</td>
-                {TAIL.map(t => (
-                  <td key={t.key} style={{ ...NUM, color: t.key === 'none' ? 'var(--warn-strong, var(--warn))' : 'var(--fg-2)' }}>
-                    {crShort(colTotal([t.key]))}
-                  </td>
-                ))}
-                <td style={{ ...NUM, borderLeft: '2px solid var(--line-strong)' }}>
-                  {crShort(d.reps.reduce((s, r) => s + r.totalGross, 0))}
-                </td>
-              </tr>
-            </tfoot>
-          )}
-        </table>
+        {/* The grid is a client component so its headers can sort; everything
+            above it stays on the server. */}
+        <SalesProjectionGrid
+          cols={gridCols}
+          rows={gridRows}
+          totals={gridTotals}
+          emptyNote="No open opportunities for the reps you can see."
+        />
       </div>
 
       <p style={{ fontSize: 11, color: 'var(--fg-3)', margin: '8px 0 0', maxWidth: 900, lineHeight: 1.55 }}>
@@ -233,13 +211,8 @@ export function SalesProjection({ d, mode, hrefFor, filters, subtitle, embedded 
 }
 
 const CH_T: CSSProperties = { fontSize: 10.5, fontWeight: 600, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 };
-const TH: CSSProperties = {
-  padding: '8px 10px', fontSize: 9.5, textTransform: 'uppercase', letterSpacing: '0.06em',
-  fontWeight: 700, color: 'var(--fg-3)', borderBottom: '1px solid var(--line)',
-  whiteSpace: 'nowrap', textAlign: 'right',
-};
-const TD: CSSProperties = { padding: '7px 10px', whiteSpace: 'nowrap' };
-const NUM: CSSProperties = { ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' };
+// The grid's own TH / TD / NUM moved to SalesProjectionGrid.tsx with the markup
+// they style.
 const LBL: CSSProperties = { fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--fg-3)' };
 const BIG: CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 19, fontWeight: 700, lineHeight: 1.2, marginTop: 2 };
 const SUB: CSSProperties = { fontSize: 10.5, color: 'var(--fg-3)', marginTop: 1 };

@@ -3,7 +3,15 @@ import Link from 'next/link';
 import type { OverallData } from '@/lib/risansi-audit-overall';
 import { OVERALL_WINDOWS } from '@/lib/risansi-audit-overall';
 import { AuditDrilldownProvider, DrillTile } from './AuditDrilldown';
+import { AuditPeopleTable, COL_HELP } from './AuditTables';
 import type { DrillKind } from '@/app/actions/risansi-audit-drilldown';
+
+// The people table moved to AuditTables, which is a client island, so its
+// columns can be sorted. Everything else here stays a server component: the
+// charts below are static SVG and have nothing to hydrate. COL_HELP travels
+// with the table it labels and is re-exported for the audit page, which also
+// uses it on the Usage tab.
+export { COL_HELP };
 
 // The Overall tab, laid out as the questions get asked rather than as the tables
 // happen to be shaped:
@@ -132,7 +140,7 @@ export function AuditOverall({ d, win, role, user, people, print = false }: {
         title="Who is doing the work"
         note="red · never signed in, or quiet over a large book · amber · dormant, nothing in 30 days"
       >
-        <PeopleTable rows={d.people} />
+        <AuditPeopleTable rows={d.people} print={print} />
       </Section>
 
       {/* ── 6. What came out of it ──────────────────────────────── */}
@@ -450,93 +458,6 @@ function Actions({ rows }: { rows: OverallData['actions'] }) {
   );
 }
 
-// ── 5. People ─────────────────────────────────────────────────────
-
-// What each column means, on hover. Written out because every one of these
-// has been asked about, and "Sessions" in particular is not what it sounds like.
-export const COL_HELP: Record<string, string> = {
-  Hours:
-    'Time with the portal actually in front of them, in the chosen window. Counted only while the tab is visible and there has been a click, key or scroll in the last 60 seconds; a tab left open in the background counts nothing. Summed across all pages.',
-  Sessions:
-    'How many separate browser tabs or windows they opened the portal in, in the chosen window. A session starts when a tab first loads the portal and ends when that tab is closed — so someone who works in three tabs, or closes and reopens the browser, counts several sessions in one sitting. It is a count of openings, not of working days.',
-  Days:
-    'Calendar days (Indian time) on which they did anything in the portal, in the chosen window. The window is whole days ending today — "7 days" is today and the six before it — so this can never exceed the window.',
-  Records:
-    'Things they created, changed or deleted in the chosen window — clients, visits, opportunities, actions, complaints, uploads. One count per saved change, from the audit log. Reading pages does not count.',
-  'Clients owned':
-    'Clients where they are the primary rep, as it stands today. Not windowed: it is the size of their book, the denominator the other columns should be read against.',
-  'Last seen':
-    'The most recent day they did anything in the portal, regardless of the window.',
-};
-
-function PeopleTable({ rows }: { rows: OverallData['people'] }) {
-  const maxH = Math.max(...rows.map(r => r.hours), 0.1);
-  const maxR = Math.max(...rows.map(r => r.records), 1);
-  return (
-    <div style={{ overflowX: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-        <thead>
-          <tr style={{ background: 'var(--bg-elev)' }}>
-            {['Person', 'Role', 'Zone', 'Hours', '', 'Sessions', 'Days', 'Records', '', 'Clients owned', 'Last seen'].map((h, i) => (
-              <th key={i} title={COL_HELP[h]} style={{
-                ...TH, textAlign: i === 0 || i === 1 || i === 2 ? 'left' : 'right',
-                cursor: COL_HELP[h] ? 'help' : undefined,
-                textDecoration: COL_HELP[h] ? 'underline dotted' : undefined, textUnderlineOffset: 3,
-              }}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(p => {
-            // A big book and no activity is the row worth seeing, so it is
-            // coloured rather than left to be spotted by scanning two columns.
-            const idle = p.hours < 0.5 && p.clientsOwned >= 25;
-            // Three states, one tint each, in order of how much they matter.
-            // Never signed in and quiet-with-a-large-book are the red ones;
-            // dormant — signed in once, nothing in 30 days — is amber, because
-            // it is a person drifting away rather than a person who never came.
-            const tint = p.state === 'never' || idle ? 'var(--neg-soft)'
-              : p.state === 'dormant' ? 'var(--warn-soft)'
-              : undefined;
-            return (
-              <tr key={p.email} style={{ borderBottom: '1px solid var(--line-2)', background: tint }}>
-                <td style={{ ...TD, fontWeight: 500 }}>
-                  {p.name}
-                  {idle && <span style={{ fontSize: 10, color: RED, marginLeft: 7 }}>quiet, large book</span>}
-                  {!idle && p.state === 'never' && <span style={{ fontSize: 10, color: RED, marginLeft: 7 }}>never signed in</span>}
-                  {p.state === 'dormant' && <span style={{ fontSize: 10, color: AMBER, marginLeft: 7 }}>dormant</span>}
-                </td>
-                <td style={{ ...TD, fontSize: 11, color: 'var(--fg-3)' }}>{p.role}</td>
-                <td style={{ ...TD, fontSize: 11, color: 'var(--fg-3)' }}>{p.zone || '—'}</td>
-                <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{p.hours || '—'}</td>
-                <td style={{ ...TD, width: 90 }}><MiniBar v={p.hours} max={maxH} colour={NAVY} /></td>
-                <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>{p.sessions || '—'}</td>
-                <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>{p.days || '—'}</td>
-                <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{p.records || '—'}</td>
-                <td style={{ ...TD, width: 90 }}><MiniBar v={p.records} max={maxR} colour={GREEN} /></td>
-                <td style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: p.clientsOwned > 0 ? 600 : 400 }}>
-                  {p.clientsOwned || '—'}
-                </td>
-                <td style={{ ...TD, textAlign: 'right', fontSize: 11, color: p.lastSeen ? 'var(--fg-3)' : RED }}>
-                  {p.lastSeen ?? 'never'}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function MiniBar({ v, max, colour }: { v: number; max: number; colour: string }) {
-  return (
-    <div style={{ height: 7, background: 'var(--bg-sunk)', borderRadius: 3, overflow: 'hidden' }}>
-      <div style={{ height: '100%', width: `${max > 0 ? Math.max((v / max) * 100, v > 0 ? 3 : 0) : 0}%`, background: colour }} />
-    </div>
-  );
-}
-
 // ── 6. Funnel ─────────────────────────────────────────────────────
 
 function Funnel({ rows }: { rows: OverallData['funnel'] }) {
@@ -628,8 +549,3 @@ const OUT_ROW: CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 10,
   padding: '8px 15px', borderBottom: '1px solid var(--line-2)',
 };
-const TH: CSSProperties = {
-  padding: '8px 10px', fontSize: 9.5, textTransform: 'uppercase', letterSpacing: '0.07em',
-  fontWeight: 700, color: 'var(--fg-3)', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap',
-};
-const TD: CSSProperties = { padding: '7px 10px', verticalAlign: 'middle', whiteSpace: 'nowrap' };

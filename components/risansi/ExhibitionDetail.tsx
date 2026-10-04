@@ -20,6 +20,8 @@ import {
 } from '@/lib/risansi-exhibition-files';
 import { ExhibitionReviewWorkbench, type ReviewMeeting } from './ExhibitionReview';
 import type { UserOpt } from './ExhibitionsClient';
+import { useTableSort, SortTH } from './SortTH';
+import type { SortableColumn } from '@/lib/risansi-table-sort';
 
 export interface ExhibitionFull {
   id: number; name: string; organizer: string | null; website: string | null;
@@ -929,12 +931,28 @@ function MeetingForm({ exhibitionId, meeting, onDone }: {
 
 // ── Expenses ─────────────────────────────────────────────────────
 
+// The money columns sort on the stored rupee figure, not on the "₹1.2 L" the
+// cell prints. The invoice column sorts on the attached file's name, so the
+// lines with no bill against them collect at the bottom.
+const EXPENSE_COLS: SortableColumn<ExpenseRow>[] = [
+  { key: 'category',  kind: 'text',   value: x => x.category },
+  { key: 'details',   kind: 'text',   value: x => x.description },
+  { key: 'vendor',    kind: 'text',   value: x => x.vendor },
+  { key: 'estimated', kind: 'number', value: x => x.estimated_inr },
+  { key: 'actual',    kind: 'number', value: x => x.actual_inr },
+  { key: 'paid',      kind: 'number', value: x => x.paid_inr },
+  { key: 'invoice',   kind: 'text',   value: x => x.file_name },
+];
+
 function ExpensesTab({ exhibitionId, expenses, totals, canManage }: {
   exhibitionId: number; expenses: ExpenseRow[]; totals: ReturnType<typeof sumExpenses>; canManage: boolean;
 }) {
   const router = useRouter();
   const [adding, setAdding] = useState(false);
   const [err, setErr] = useState('');
+  // Every expense line for this exhibition is already on the page, so the sort
+  // is in memory and covers all of them.
+  const { rows: lines, sortBy } = useTableSort(expenses, EXPENSE_COLS);
 
   return (
     <div>
@@ -958,11 +976,23 @@ function ExpensesTab({ exhibitionId, expenses, totals, canManage }: {
       ) : (
         <div style={PANEL}>
           <table className="exh-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead><tr>{['Category', 'Description', 'Vendor', 'Estimated', 'Actual', 'Paid', 'Invoice', ''].map(h => <th key={h} style={TH}>{h}</th>)}</tr></thead>
+            <thead>
+              <tr>
+                <SortTH {...sortBy('category')}  style={TH}>Category</SortTH>
+                <SortTH {...sortBy('details')}   style={TH}>Description</SortTH>
+                <SortTH {...sortBy('vendor')}    style={TH}>Vendor</SortTH>
+                <SortTH {...sortBy('estimated')} style={TH}>Estimated</SortTH>
+                <SortTH {...sortBy('actual')}    style={TH}>Actual</SortTH>
+                <SortTH {...sortBy('paid')}      style={TH}>Paid</SortTH>
+                <SortTH {...sortBy('invoice')}   style={TH}>Invoice</SortTH>
+                {/* The delete button's column. Nothing to order by. */}
+                <th style={TH} />
+              </tr>
+            </thead>
             <tbody>
               {/* data-label feeds the ::before on each cell when the table
                   reflows to one card per row on a phone (app/mobile.css). */}
-              {expenses.map(x => (
+              {lines.map(x => (
                 <tr key={x.id} style={{ borderTop: '1px solid var(--line)' }}>
                   <td data-label="Category"  style={{ ...TD, fontWeight: 600 }}>{x.category}</td>
                   <td data-label="Details"   style={TD}>{x.description || '—'}</td>

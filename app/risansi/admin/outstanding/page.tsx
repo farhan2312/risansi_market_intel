@@ -4,8 +4,11 @@ import { redirect } from 'next/navigation';
 import { Topbar } from '@/components/risansi';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
-import { DEBTOR_BOOK } from '@/lib/risansi-outstanding-debtors';
 import { OutstandingUploadBox } from '@/components/risansi/OutstandingUploadBox';
+import {
+  OutstandingUploadLogTable, OutstandingCurrentTable,
+  type OutstandingLogRow, type OutstandingRow,
+} from '@/components/risansi/AdminUploadTables';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch (err) { console.error('[outstanding/page]', err); return fallback; }
@@ -14,12 +17,11 @@ const fmtDate = (raw: unknown) => raw ? new Date(String(raw)).toLocaleDateString
 const fmtInr  = (n: number) => (!n || n === 0) ? '—' : `₹${n.toLocaleString('en-IN')}`;
 
 interface Summary { clients: number; total: number; as_of: string | null; }
-interface LogRow {
-  id: number; uploaded_by: string; filename: string; as_of_date: string | null;
-  rows_total: number; rows_matched: number; rows_skipped: number; skipped_codes: string[] | null;
-  grand_total: number | null; status: string; uploaded_at: string;
-}
-interface OutRow { code: string; legal_name: string; amount: number; debtor: string | null; owner: string | null; as_of: string | null; }
+// Both tables moved to AdminUploadTables so their columns can sort. Neither is
+// paginated — "Top 300 by amount" is the whole of what the query returns — so
+// the sort runs in memory over exactly those rows and the heading stays true.
+type LogRow = OutstandingLogRow;
+type OutRow = OutstandingRow;
 
 export default async function OutstandingAdminPage() {
   const session = await getServerSession(authOptions);
@@ -89,37 +91,7 @@ export default async function OutstandingAdminPage() {
         {/* Upload history */}
         <div style={{ ...PANEL, marginBottom: 16 }}>
           <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--line)', fontSize: 13, fontWeight: 600 }}>Upload History</div>
-          {log.length === 0 ? <div style={EMPTY}>No uploads yet</div> : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead><tr style={{ background: 'var(--bg-elev)' }}>
-                  <th style={TH}>Date</th><th style={TH}>File</th><th style={TH}>As Of</th>
-                  <th style={{ ...TH, textAlign: 'center' }}>Rows</th><th style={{ ...TH, textAlign: 'center' }}>Matched</th>
-                  <th style={{ ...TH, textAlign: 'center' }}>Skipped</th><th style={{ ...TH, textAlign: 'right' }}>Total ₹</th>
-                  <th style={TH}>Status</th><th style={TH}>By</th>
-                </tr></thead>
-                <tbody>
-                  {log.map((l, i) => (
-                    <tr key={l.id} style={{ borderBottom: i < log.length - 1 ? '1px solid var(--line)' : 'none' }}>
-                      <td style={{ ...TD, ...MONO, whiteSpace: 'nowrap' }}>{new Date(l.uploaded_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
-                      <td style={{ ...TD, ...MONO, color: 'var(--fg-3)', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.filename}</td>
-                      <td style={{ ...TD, ...MONO }}>{fmtDate(l.as_of_date)}</td>
-                      <td style={{ ...TD, textAlign: 'center' }}>{l.rows_total}</td>
-                      <td style={{ ...TD, textAlign: 'center', color: 'var(--pos-strong)', fontWeight: 600 }}>{l.rows_matched}</td>
-                      <td style={{ ...TD, textAlign: 'center', color: l.rows_skipped > 0 ? 'var(--neg-strong)' : 'var(--fg-3)' }}>
-                        {l.rows_skipped}{(l.skipped_codes?.length ?? 0) > 0 && <span title={(l.skipped_codes ?? []).join(', ')} style={{ cursor: 'help' }}> ⓘ</span>}
-                      </td>
-                      <td style={{ ...TD, ...MONO, textAlign: 'right' }}>{fmtInr(l.grand_total ?? 0)}</td>
-                      <td style={TD}><span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600,
-                        background: l.status === 'success' ? 'var(--pos-soft)' : l.status === 'partial' ? 'var(--warn-soft)' : 'var(--neg-soft)',
-                        color: l.status === 'success' ? 'var(--pos-strong)' : l.status === 'partial' ? 'var(--warn)' : 'var(--neg-strong)' }}>{l.status}</span></td>
-                      <td style={{ ...TD, color: 'var(--fg-3)', fontSize: 11 }}>{l.uploaded_by}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          {log.length === 0 ? <div style={EMPTY}>No uploads yet</div> : <OutstandingUploadLogTable rows={log} />}
         </div>
 
         {/* Current outstanding data */}
@@ -127,28 +99,9 @@ export default async function OutstandingAdminPage() {
           <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--line)', fontSize: 13, fontWeight: 600 }}>
             Current Outstanding <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--fg-3)', fontWeight: 400 }}>Top 300 by amount</span>
           </div>
-          {current.length === 0 ? <div style={EMPTY}>No outstanding data — upload a sheet above.</div> : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead><tr style={{ background: 'var(--bg-elev)' }}>
-                  <th style={TH}>Code</th><th style={TH}>Client</th><th style={TH}>Debtor</th><th style={TH}>Owner</th>
-                  <th style={{ ...TH, textAlign: 'right' }}>Outstanding ₹</th><th style={TH}>As Of</th>
-                </tr></thead>
-                <tbody>
-                  {current.map((r, i) => (
-                    <tr key={r.code + i} style={{ borderBottom: i < current.length - 1 ? '1px solid var(--line)' : 'none' }}>
-                      <td style={{ ...TD, ...MONO, color: 'var(--fg-3)' }}>{r.code}</td>
-                      <td style={{ ...TD, minWidth: 180 }}><a href={`/risansi/clients/${r.code}`} style={{ color: '#1A5CB8', textDecoration: 'none', fontWeight: 500 }}>{r.legal_name}</a></td>
-                      <td style={{ ...TD, ...MONO, color: 'var(--fg-3)' }}>{r.debtor ?? '—'}</td>
-                      <td style={{ ...TD, color: 'var(--fg-2)' }}>{r.owner ?? (r.debtor ? DEBTOR_BOOK[r.debtor] ?? r.debtor : '—')}</td>
-                      <td style={{ ...TD, ...MONO, textAlign: 'right', fontWeight: 600, color: 'var(--neg)' }}>{fmtInr(r.amount)}</td>
-                      <td style={{ ...TD, ...MONO, fontSize: 11 }}>{fmtDate(r.as_of)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          {current.length === 0
+            ? <div style={EMPTY}>No outstanding data — upload a sheet above.</div>
+            : <OutstandingCurrentTable rows={current} />}
         </div>
 
       </div>
@@ -159,7 +112,4 @@ export default async function OutstandingAdminPage() {
 const PANEL: CSSProperties = { background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 'var(--radius)' };
 const LBL: CSSProperties = { fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fg-3)', fontWeight: 600 };
 const VAL: CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 26, fontWeight: 700, color: 'var(--fg)', marginTop: 4, lineHeight: 1.1 };
-const TH: CSSProperties = { padding: '9px 12px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 500, color: 'var(--fg-3)', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap', background: 'var(--bg-elev)' };
-const TD: CSSProperties = { padding: '9px 12px', verticalAlign: 'middle' };
-const MONO: CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 11 };
 const EMPTY: CSSProperties = { padding: 32, textAlign: 'center', color: 'var(--fg-3)', fontSize: 13 };

@@ -3,6 +3,8 @@
 import { useState, useMemo, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { formatRev } from '@/lib/risansi-utils';
+import { useTableSort, SortTH } from './SortTH';
+import type { SortableColumn } from '@/lib/risansi-table-sort';
 
 export interface RevenueClientRow {
   id:         string;
@@ -18,34 +20,48 @@ export interface RevenueClientRow {
   prev_total: number;
 }
 
-type SortKey = 'total' | 'pump' | 'spare' | 'vsly';
 const PAGE = 20;
+
+// Every column of the table, and what it holds.
+//
+// The whole list is in hand — the page hands over the top hundred and "Load
+// more" only widens the slice the browser is already holding — so this sorts in
+// memory. Nothing here is one page of a longer query, so there is no larger set
+// for a browser sort to misrepresent.
+//
+// The money columns sort on the raw rupee figures rather than the "₹1.2 Cr" the
+// cells print, and vs LY sorts on the ratio rather than the "+12%" string. A
+// client with no previous year has no ratio at all, so it reads null and sinks
+// to the bottom either way, which is where the em-dash in the cell belongs.
+const COLS: SortableColumn<RevenueClientRow>[] = [
+  { key: 'legal_name', kind: 'text' },
+  { key: 'industry',   kind: 'text' },
+  { key: 'state',      kind: 'text' },
+  { key: 'rep_name',   kind: 'text' },
+  { key: 'pump',       kind: 'number' },
+  { key: 'spare',      kind: 'number' },
+  { key: 'total',      kind: 'number' },
+  { key: 'vsly',       kind: 'number',
+    value: c => (c.prev_total > 0 ? (c.total - c.prev_total) / c.prev_total : null) },
+  { key: 'tier',       kind: 'text' },
+];
 
 export function RevenueTopClients({ clients }: { clients: RevenueClientRow[] }) {
   const router = useRouter();
   const [search, setSearch] = useState('');
-  const [sort, setSort]     = useState<SortKey>('total');
   const [limit, setLimit]   = useState(PAGE);
-
-  const vsly = (c: RevenueClientRow) => (c.prev_total > 0 ? (c.total - c.prev_total) / c.prev_total : -Infinity);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const rows = q
+    return q
       ? clients.filter(c => c.legal_name.toLowerCase().includes(q) || (c.code ?? '').toLowerCase().includes(q))
       : clients;
-    const sorted = [...rows].sort((a, b) => {
-      if (sort === 'vsly') return vsly(b) - vsly(a);
-      return (b[sort] as number) - (a[sort] as number);
-    });
-    return sorted;
-  }, [clients, search, sort]);
+  }, [clients, search]);
 
-  const shown = filtered.slice(0, limit);
-
-  const th = (key: SortKey, label: string): CSSProperties => ({
-    ...TH, cursor: 'pointer', color: sort === key ? 'var(--accent)' : 'var(--fg-3)', textAlign: 'right',
-  });
+  // No sort chosen means the order the query chose — highest revenue first —
+  // which is what this panel is for. Clicking a third time comes back to it.
+  const { rows: sorted, sortBy } = useTableSort(filtered, COLS);
+  const shown = sorted.slice(0, limit);
 
   return (
     <div style={PANEL}>
@@ -70,16 +86,18 @@ export function RevenueTopClients({ clients }: { clients: RevenueClientRow[] }) 
             <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
                 <tr style={{ background: 'var(--bg-elev)' }}>
+                  {/* The rank is the row's position in whatever order is on
+                      screen, so there is nothing to order it by. */}
                   <th style={{ ...TH, width: 44 }}>#</th>
-                  <th style={TH}>Client</th>
-                  <th style={TH}>Industry</th>
-                  <th style={TH}>State</th>
-                  <th style={TH}>Rep</th>
-                  <th style={th('pump', 'Pump')}  onClick={() => setSort('pump')}>Pump{sort === 'pump' ? ' ↓' : ''}</th>
-                  <th style={th('spare', 'Spare')} onClick={() => setSort('spare')}>Spare{sort === 'spare' ? ' ↓' : ''}</th>
-                  <th style={th('total', 'Total')} onClick={() => setSort('total')}>Total{sort === 'total' ? ' ↓' : ''}</th>
-                  <th style={th('vsly', 'vs LY')}  onClick={() => setSort('vsly')}>vs LY{sort === 'vsly' ? ' ↓' : ''}</th>
-                  <th style={TH}>Tier</th>
+                  <SortTH {...sortBy('legal_name')} style={TH}>Client</SortTH>
+                  <SortTH {...sortBy('industry')} style={TH}>Industry</SortTH>
+                  <SortTH {...sortBy('state')} style={TH}>State</SortTH>
+                  <SortTH {...sortBy('rep_name')} style={TH}>Rep</SortTH>
+                  <SortTH {...sortBy('pump')}  style={TH} align="right">Pump</SortTH>
+                  <SortTH {...sortBy('spare')} style={TH} align="right">Spare</SortTH>
+                  <SortTH {...sortBy('total')} style={TH} align="right">Total</SortTH>
+                  <SortTH {...sortBy('vsly')}  style={TH} align="right">vs LY</SortTH>
+                  <SortTH {...sortBy('tier')} style={TH}>Tier</SortTH>
                 </tr>
               </thead>
               <tbody>

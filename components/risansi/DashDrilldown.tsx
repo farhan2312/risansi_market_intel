@@ -5,9 +5,11 @@ import {
   type CSSProperties, type ReactNode,
 } from 'react';
 import {
-  dashDrilldown, type DashDrillParams, type DashDrillResult, type DashUnit,
+  dashDrilldown, type DashDrillParams, type DashDrillResult, type DashUnit, type DrillRow,
 } from '@/app/actions/risansi-dashboard-drilldown';
 import { fmtCr, fmtL, formatRev } from '@/lib/risansi-utils';
+import { useTableSort, SortTH } from './SortTH';
+import type { SortableColumn } from '@/lib/risansi-table-sort';
 
 // Click a number on the landing dashboard, see the clients it is made of.
 //
@@ -41,6 +43,18 @@ function fmt(unit: DashUnit, n: number, place: 'total' | 'row' = 'row'): string 
   }
 }
 
+// The three columns of the breakdown table. Every row the drill-down fetched is
+// already in hand — the panel holds the whole list and filters it in the browser
+// — so this sorts in memory rather than going back for an ORDER BY.
+//
+// The value column reads r.value, the raw number, not the "₹4.21 Cr" the cell
+// prints: sorting the formatted string would put ₹9 L above ₹4 Cr.
+const DRILL_COLS: SortableColumn<DrillRow>[] = [
+  { key: 'code',  kind: 'text' },
+  { key: 'name',  kind: 'text' },
+  { key: 'value', kind: 'number' },
+];
+
 export function DashDrilldownProvider({ children }: { children: ReactNode }) {
   const [pending, start] = useTransition();
   const [result, setResult] = useState<DashDrillResult | null>(null);
@@ -65,7 +79,16 @@ export function DashDrilldownProvider({ children }: { children: ReactNode }) {
       : result.rows;
   }, [result, q]);
 
+  const { rows: shown, sortBy } = useTableSort(rows, DRILL_COLS);
+
   const close = () => { setShowing(false); setResult(null); setQ(''); };
+
+  // A count-only breakdown prints no value, so the column has no heading and
+  // nothing to order by; it stays a plain cell rather than offering an arrow
+  // over an empty column.
+  const valueLabel = result == null
+    ? ''
+    : result.unit === 'count' ? '' : result.unit === 'units' ? 'Units' : 'Value';
 
   return (
     <DrillCtx.Provider value={{ open }}>
@@ -128,15 +151,15 @@ export function DashDrilldownProvider({ children }: { children: ReactNode }) {
                     <table style={{ borderCollapse: 'collapse', width: '100%' }}>
                       <thead>
                         <tr>
-                          <th style={TH}>Code</th>
-                          <th style={TH}>Client</th>
-                          <th style={{ ...TH, textAlign: 'right' }}>
-                            {result.unit === 'count' ? '' : result.unit === 'units' ? 'Units' : 'Value'}
-                          </th>
+                          <SortTH {...sortBy('code')} style={TH}>Code</SortTH>
+                          <SortTH {...sortBy('name')} style={TH}>Client</SortTH>
+                          {valueLabel
+                            ? <SortTH {...sortBy('value')} style={TH} align="right">{valueLabel}</SortTH>
+                            : <th style={{ ...TH, textAlign: 'right' }} />}
                         </tr>
                       </thead>
                       <tbody>
-                        {rows.map((r, i) => (
+                        {shown.map((r, i) => (
                           <tr key={`${r.clientId}-${i}`}>
                             <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11.5, whiteSpace: 'nowrap' }}>
                               {r.code}

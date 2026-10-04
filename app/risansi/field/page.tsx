@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react';
 import Link from 'next/link';
 import { headers } from 'next/headers';
 import { getServerSession } from 'next-auth/next';
-import { Topbar, Tag } from '@/components/risansi';
+import { Topbar, Tag, SortableTH } from '@/components/risansi';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, clientVisibilitySql, clientScopeSql, OWN_OPEN, orphanSql } from '@/lib/risansi-auth';
@@ -110,10 +110,20 @@ const STATUS_BG: Record<string, string> = {
   'cancelled':  'var(--bg-elev)',
 };
 
+// Every column the Overdue table shows, and nothing else: an unmapped ?sort=
+// falls back to days_overdue rather than reaching the query.
 const SORT_MAP: Record<string, string> = {
   name:         'c.legal_name',
-  days_overdue: 'days_overdue',
-  last_visit:   'c.last_visit_date',
+  industry:     'c.industry',
+  state:        'c.state',
+  tier:         'c.tier',
+  // Never visited is the extreme of both of these, not a gap in them: the
+  // Overdue tab exists to surface exactly those accounts, and sorting them as
+  // absences dropped them to the bottom of the list they most belong at the top
+  // of. Ordering off a floor date makes "never" read as longest-overdue, while
+  // the SELECT still returns NULL so the cell still says Never.
+  days_overdue: `(CURRENT_DATE - COALESCE(c.last_visit_date, DATE '0001-01-01'))`,
+  last_visit:   `COALESCE(c.last_visit_date, DATE '0001-01-01')`,
   rep:          'rep_name',
 };
 
@@ -138,6 +148,7 @@ export default async function FieldActivityPage({
   const feedTab    = typeof sp.feed === 'string' ? sp.feed : 'today';
   const sortKey    = typeof sp.sort === 'string' ? sp.sort : 'days_overdue';
   const sortDir    = sp.dir === 'asc' ? 'ASC' : 'DESC';
+  const curDir     = sortDir === 'ASC' ? 'asc' as const : 'desc' as const;
 
   // Server-side date-range filters — Visit Feed (ffrom/fto) and Visit Reports
   // (rfrom/rto). Both queries are LIMITed, so the range scopes the query itself.
@@ -351,7 +362,10 @@ export default async function FieldActivityPage({
              c.last_visit_date IS NULL OR
              c.last_visit_date < CURRENT_DATE - INTERVAL '90 days'
            )${cVisAnd}${filters.clientAnd}
-         ORDER BY ${sortCol} ${sortDir} NULLS FIRST
+         -- NULLS LAST, not FIRST. A never-visited client has no days_overdue
+         -- and no last visit, and floating those to the top of a descending
+         -- column pushed the rows with real figures off the first screen.
+         ORDER BY ${sortCol} ${sortDir} NULLS LAST, c.id
          LIMIT 200`,
       );
       return rows;
@@ -1151,13 +1165,17 @@ export default async function FieldActivityPage({
                 <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead>
                     <tr style={{ background: 'var(--bg-elev)' }}>
-                      <th style={TH}>Client</th>
-                      <th style={TH}>Industry</th>
-                      <th style={TH}>State</th>
-                      <th style={TH}>Tier</th>
-                      <th style={TH}>Rep</th>
-                      <OverdueSortTH col="last_visit"   label="Last Visit"   curSort={sortKey} curDir={sortDir} />
-                      <OverdueSortTH col="days_overdue" label="Days Overdue" curSort={sortKey} curDir={sortDir} />
+                      {/* Every column sorts in SQL, because this list is the first
+                          200 of the overdue accounts — reordering the 200 on
+                          screen would claim to rank the whole backlog. */}
+                      <SortableTH col="name"         label="Client"       kind="text"   currentSort={sortKey} currentDir={curDir} style={TH} />
+                      <SortableTH col="industry"     label="Industry"     kind="text"   currentSort={sortKey} currentDir={curDir} style={TH} />
+                      <SortableTH col="state"        label="State"        kind="text"   currentSort={sortKey} currentDir={curDir} style={TH} />
+                      <SortableTH col="tier"         label="Tier"         kind="text"   currentSort={sortKey} currentDir={curDir} style={TH} />
+                      <SortableTH col="rep"          label="Rep"          kind="text"   currentSort={sortKey} currentDir={curDir} style={TH} />
+                      <SortableTH col="last_visit"   label="Last Visit"   kind="date"   currentSort={sortKey} currentDir={curDir} style={TH} />
+                      <SortableTH col="days_overdue" label="Days Overdue" kind="number" currentSort={sortKey} currentDir={curDir} style={TH} />
+                      {/* The assign button has nothing to order by. */}
                       <th style={TH}>Action</th>
                     </tr>
                   </thead>
@@ -1377,21 +1395,11 @@ function StatCard({ label, value, color, small }: { label: string; value: number
   );
 }
 
-function OverdueSortTH({ col, label, curSort, curDir }: {
-  col: string; label: string; curSort: string; curDir: string;
-}) {
-  const isActive = curSort === col;
-  const nextDir  = isActive && curDir === 'DESC' ? 'asc' : 'desc';
-  return (
-    <th style={{ ...TH, cursor: 'pointer' }}>
-      <a href={`/risansi/field?tab=overdue&sort=${col}&dir=${nextDir}`}
-         style={{ textDecoration: 'none', color: isActive ? 'var(--accent)' : 'inherit', display: 'flex', alignItems: 'center', gap: 3 }}>
-        {label}
-        {isActive && <span>{curDir === 'DESC' ? '↓' : '↑'}</span>}
-      </a>
-    </th>
-  );
-}
+// OverdueSortTH used to live here: a hand-rolled header with its own arrows and
+// its own direction rule, whose link rebuilt the URL from scratch as
+// /risansi/field?tab=overdue&sort=… and so dropped every zone, tour, rep and
+// date filter the viewer had set. SortableTH keeps them and shares one
+// direction rule with the rest of the portal.
 
 // ── Style constants ────────────────────────────────────────────
 

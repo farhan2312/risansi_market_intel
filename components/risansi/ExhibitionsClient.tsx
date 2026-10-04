@@ -8,6 +8,8 @@ import {
   type ExhibitionStatus,
 } from '@/lib/risansi-exhibition-fields';
 import { createExhibition } from '@/app/actions/risansi-exhibitions';
+import { useTableSort, SortTH } from './SortTH';
+import type { SortableColumn } from '@/lib/risansi-table-sort';
 
 export interface ExhibitionRow {
   id: number; name: string; organizer: string | null; venue: string | null;
@@ -25,6 +27,19 @@ export interface ExhibitionRow {
 }
 
 export interface UserOpt { id: number; name: string; role: string }
+
+// Status sorts along the exhibition's own run — Draft through Closed — because
+// that sequence is what the column means. EXHIBITION_STATUSES already holds it.
+const COLS: SortableColumn<ExhibitionRow>[] = [
+  { key: 'name',   kind: 'text',   value: r => r.name },
+  { key: 'when',   kind: 'date',   value: r => r.start_date },
+  { key: 'where',  kind: 'text',   value: r => r.city },
+  { key: 'status', kind: 'status', order: EXHIBITION_STATUSES, value: r => r.status },
+  { key: 'team',   kind: 'number', value: r => r.team_count },
+  { key: 'met',    kind: 'number', value: r => r.meeting_count },
+  { key: 'budget', kind: 'number', value: r => r.estimated_cost_inr },
+  { key: 'spend',  kind: 'number', value: r => r.actual_cost_inr },
+];
 
 export function ExhibitionsClient({ rows, users, me }: {
   rows: ExhibitionRow[];
@@ -51,6 +66,10 @@ export function ExhibitionsClient({ rows, users, me }: {
         .some(v => (v ?? '').toLowerCase().includes(t));
     });
   }, [rows, status, term]);
+
+  // Every exhibition the user may see is already here — the filter above only
+  // narrows it — so the sort runs in memory over the whole filtered set.
+  const { rows: ordered, sortBy } = useTableSort(shown, COLS);
 
   const kpi = useMemo(() => {
     const awaiting = rows.filter(r => r.status === 'Submitted').length;
@@ -106,13 +125,18 @@ export function ExhibitionsClient({ rows, users, me }: {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr>
-                {['Exhibition', 'When', 'Where', 'Status', 'Team', 'Met', 'Budget', 'Spend'].map(h => (
-                  <th key={h} style={TH}>{h}</th>
-                ))}
+                <SortTH {...sortBy('name')}   style={TH}>Exhibition</SortTH>
+                <SortTH {...sortBy('when')}   style={TH}>When</SortTH>
+                <SortTH {...sortBy('where')}  style={TH}>Where</SortTH>
+                <SortTH {...sortBy('status')} style={TH}>Status</SortTH>
+                <SortTH {...sortBy('team')}   style={TH}>Team</SortTH>
+                <SortTH {...sortBy('met')}    style={TH}>Met</SortTH>
+                <SortTH {...sortBy('budget')} style={TH}>Budget</SortTH>
+                <SortTH {...sortBy('spend')}  style={TH}>Spend</SortTH>
               </tr>
             </thead>
             <tbody>
-              {shown.map(r => {
+              {ordered.map(r => {
                 const days = eventDays(r.start_date, r.end_date);
                 return (
                   <tr

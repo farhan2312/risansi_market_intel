@@ -10,6 +10,7 @@ import { formatRev } from '@/lib/risansi-utils';
 import { RevenueTopClients, type RevenueClientRow } from '@/components/risansi/RevenueTopClients';
 import { UrlSelect } from '@/components/risansi/UrlSelect';
 import { clientPrimaryRepSql, clientRepNamesSql } from '@/lib/risansi-client-rep';
+import { SortedTable } from '@/components/risansi/SortedTable';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
@@ -450,15 +451,33 @@ export default async function RevenuePage({
                 <div style={PANEL_H}><span style={PANEL_TITLE}>Revenue by Industry</span></div>
                 {byIndustry.length === 0 ? <Empty>No data</Empty> : (
                   <div style={{ overflowX: 'auto' }}>
-                    <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                      <thead><tr style={{ background: 'var(--bg-elev)' }}>
-                        {['Industry', 'Clients', 'Pump', 'Spare', 'Total', '% Share'].map(h => <th key={h} style={TH}>{h}</th>)}
-                      </tr></thead>
-                      <tbody>
-                        {byIndustry.map(r => {
-                          const share = summary.total > 0 ? (r.total / summary.total) * 100 : 0;
-                          return (
-                            <tr key={r.industry} style={{ borderBottom: '1px solid var(--line)' }}>
+                    <SortedTable
+                      className="r-cards"
+                      style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}
+                      headRowStyle={{ background: 'var(--bg-elev)' }}
+                      divider="1px solid var(--line)"
+                      columns={[
+                        { key: 'industry', label: 'Industry', kind: 'text',   style: TH },
+                        { key: 'clients',  label: 'Clients',  kind: 'number', style: TH },
+                        { key: 'pump',     label: 'Pump',     kind: 'number', align: 'right', style: TH },
+                        { key: 'spare',    label: 'Spare',    kind: 'number', align: 'right', style: TH },
+                        { key: 'total',    label: 'Total',    kind: 'number', style: TH },
+                        { key: 'share',    label: '% Share',  kind: 'number', align: 'right', style: TH },
+                      ]}
+                      rows={byIndustry.map(r => {
+                        const share = summary.total > 0 ? (r.total / summary.total) * 100 : 0;
+                        return {
+                          id: r.industry,
+                          // Rupee figures sort on the number, not on the '₹1.2 Cr'
+                          // the cell prints, and Total sorts on the value behind
+                          // its bar.
+                          values: {
+                            industry: r.industry, clients: r.clients,
+                            pump: r.pump, spare: r.spare, total: r.total,
+                            share: summary.total > 0 ? share : null,
+                          },
+                          cells: (
+                            <>
                               <td data-label="" style={{ ...TD, fontWeight: 500 }}>{r.industry}</td>
                               <td data-label="Clients" style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)' }}>{r.clients}</td>
                               <td data-label="Pump" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{r.pump > 0 ? formatRev(r.pump) : '—'}</td>
@@ -472,11 +491,11 @@ export default async function RevenuePage({
                                 </div>
                               </td>
                               <td data-label="% Share" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)' }}>{share.toFixed(0)}%</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                            </>
+                          ),
+                        };
+                      })}
+                    />
                   </div>
                 )}
               </div>
@@ -486,16 +505,29 @@ export default async function RevenuePage({
                 <div style={PANEL_H}><span style={PANEL_TITLE}>Revenue by Rep</span></div>
                 {byRep.length === 0 ? <Empty>No data</Empty> : (
                   <div style={{ overflowX: 'auto' }}>
-                    <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                      <thead><tr style={{ background: 'var(--bg-elev)' }}>
-                        {['Rep', 'Zone', 'Clients', 'Total', 'vs Target'].map(h => <th key={h} style={TH}>{h}</th>)}
-                      </tr></thead>
-                      <tbody>
-                        {byRep.map(r => {
-                          const targetInr = r.target_cr != null ? r.target_cr * 1_00_00_000 : null; // Cr → INR
-                          const pct = targetInr && targetInr > 0 ? (r.total / targetInr) * 100 : null;
-                          return (
-                            <tr key={r.rep} style={{ borderBottom: '1px solid var(--line)' }}>
+                    <SortedTable
+                      className="r-cards"
+                      style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}
+                      headRowStyle={{ background: 'var(--bg-elev)' }}
+                      divider="1px solid var(--line)"
+                      columns={[
+                        { key: 'rep',     label: 'Rep',       kind: 'text',   style: TH },
+                        { key: 'zone',    label: 'Zone',      kind: 'text',   style: TH },
+                        { key: 'clients', label: 'Clients',   kind: 'number', style: TH },
+                        { key: 'total',   label: 'Total',     kind: 'number', align: 'right', style: TH },
+                        { key: 'pct',     label: 'vs Target', kind: 'number', style: TH },
+                      ]}
+                      rows={byRep.map(r => {
+                        const targetInr = r.target_cr != null ? r.target_cr * 1_00_00_000 : null; // Cr → INR
+                        const pct = targetInr && targetInr > 0 ? (r.total / targetInr) * 100 : null;
+                        return {
+                          id: r.rep,
+                          // A rep with no target has no attainment, so vs Target
+                          // is blank and sinks to the bottom either way rather
+                          // than reading as 0%.
+                          values: { rep: r.rep, zone: r.zone, clients: r.clients, total: r.total, pct },
+                          cells: (
+                            <>
                               <td data-label="" style={{ ...TD, fontWeight: 500 }}>{r.rep}</td>
                               <td data-label="Zone" style={{ ...TD, color: 'var(--fg-3)', fontSize: 11 }}>{r.zone ?? '—'}</td>
                               <td data-label="Clients" style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)' }}>{r.clients}</td>
@@ -510,11 +542,11 @@ export default async function RevenuePage({
                                   </div>
                                 )}
                               </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                            </>
+                          ),
+                        };
+                      })}
+                    />
                   </div>
                 )}
               </div>
@@ -537,18 +569,33 @@ export default async function RevenuePage({
               </div>
               <div style={{ overflowX: 'auto' }}>
                 {momRows.length < 2 ? <Empty>Not enough recorded months to compare</Empty> : (
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                    <thead>
-                      <tr>{['Month', 'Pump', 'Spare', 'Total', 'Prev month', 'Change', '%'].map((h, i) => (
-                        <th key={h} style={{ ...TH, textAlign: i === 0 ? 'left' : 'right' }}>{h}</th>
-                      ))}</tr>
-                    </thead>
-                    <tbody>
-                      {[...momRows].reverse().map(m => {
-                        const diff = m.prevTotal == null ? null : m.total - m.prevTotal;
-                        const tone = m.change == null ? 'var(--fg-3)' : m.change >= 0 ? 'var(--pos)' : 'var(--neg)';
-                        return (
-                          <tr key={m.ym} style={{ background: m.ym === monthSel ? 'var(--bg-elev)' : undefined }}>
+                  <SortedTable
+                    style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}
+                    columns={[
+                      { key: 'ym',        label: 'Month',      kind: 'date',   style: { ...TH, textAlign: 'left' } },
+                      { key: 'pump',      label: 'Pump',       kind: 'number', align: 'right', style: TH },
+                      { key: 'spare',     label: 'Spare',      kind: 'number', align: 'right', style: TH },
+                      { key: 'total',     label: 'Total',      kind: 'number', align: 'right', style: TH },
+                      { key: 'prevTotal', label: 'Prev month', kind: 'number', align: 'right', style: TH },
+                      { key: 'diff',      label: 'Change',     kind: 'number', align: 'right', style: TH },
+                      { key: 'change',    label: '%',          kind: 'number', align: 'right', style: TH },
+                    ]}
+                    rows={[...momRows].reverse().map(m => {
+                      const diff = m.prevTotal == null ? null : m.total - m.prevTotal;
+                      const tone = m.change == null ? 'var(--fg-3)' : m.change >= 0 ? 'var(--pos)' : 'var(--neg)';
+                      return {
+                        id: m.ym,
+                        // Change and % sort signed, so a descending click puts the
+                        // biggest rise at the top and the steepest fall at the
+                        // bottom. The first month has nothing to compare against,
+                        // so both are blank rather than zero.
+                        values: {
+                          ym: m.ym, pump: m.pump, spare: m.spare, total: m.total,
+                          prevTotal: m.prevTotal, diff, change: m.change,
+                        },
+                        style: { background: m.ym === monthSel ? 'var(--bg-elev)' : undefined },
+                        cells: (
+                          <>
                             <td style={{ ...TD, fontWeight: m.ym === monthSel ? 700 : 500 }}>
                               <a href={buildUrl({ month: m.ym })} style={{ color: 'inherit', textDecoration: 'none' }}>
                                 {monthLabelLong(m.ym)}
@@ -564,11 +611,11 @@ export default async function RevenuePage({
                             <td style={{ ...NUM, color: tone, fontWeight: 600 }}>
                               {m.change == null ? '—' : `${m.change >= 0 ? '▲' : '▼'} ${Math.abs(m.change).toFixed(1)}%`}
                             </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                          </>
+                        ),
+                      };
+                    })}
+                  />
                 )}
               </div>
             </div>
@@ -582,15 +629,30 @@ export default async function RevenuePage({
             <div style={PANEL}>
               <div style={PANEL_H}><span style={PANEL_TITLE}>Business Category</span><span style={META}>by client type</span></div>
               {byCat.length === 0 ? <Empty>No data</Empty> : (
-                <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                  <thead><tr style={{ background: 'var(--bg-elev)' }}>
-                    {['Category', 'Clients', 'Revenue', '% of Total'].map(h => <th key={h} style={TH}>{h}</th>)}
-                  </tr></thead>
-                  <tbody>
-                    {byCat.map((r, i) => {
-                      const pct = catTotal > 0 ? (r.total / catTotal) * 100 : 0;
-                      return (
-                        <tr key={r.category} style={{ borderBottom: '1px solid var(--line)' }}>
+                <SortedTable
+                  className="r-cards"
+                  style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}
+                  headRowStyle={{ background: 'var(--bg-elev)' }}
+                  divider="1px solid var(--line)"
+                  columns={[
+                    { key: 'category', label: 'Category',   kind: 'text',   style: TH },
+                    { key: 'clients',  label: 'Clients',    kind: 'number', style: TH },
+                    { key: 'total',    label: 'Revenue',    kind: 'number', align: 'right', style: TH },
+                    { key: 'pct',      label: '% of Total', kind: 'number', style: TH },
+                  ]}
+                  rows={byCat.map((r, i) => {
+                    const pct = catTotal > 0 ? (r.total / catTotal) * 100 : 0;
+                    return {
+                      id: r.category,
+                      // The category pill keeps the colour it was given by the
+                      // query's order, so re-sorting the table does not recolour
+                      // the rows underneath the reader.
+                      values: {
+                        category: r.category, clients: r.clients, total: r.total,
+                        pct: catTotal > 0 ? pct : null,
+                      },
+                      cells: (
+                        <>
                           <td data-label="" style={{ ...TD }}><span style={catPill(i)}>{r.category}</span></td>
                           <td data-label="Clients" style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)' }}>{r.clients}</td>
                           <td data-label="Revenue" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{formatRev(r.total)}</td>
@@ -602,11 +664,11 @@ export default async function RevenuePage({
                               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)', minWidth: 34, textAlign: 'right' }}>{pct.toFixed(0)}%</span>
                             </div>
                           </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                        </>
+                      ),
+                    };
+                  })}
+                />
               )}
             </div>
           </>

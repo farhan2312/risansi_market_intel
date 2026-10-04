@@ -6,6 +6,7 @@ import { getCurrentUser, clientVisibilitySql } from '@/lib/risansi-auth';
 import { parseVisitFilters, getVisitFilterOptions } from '@/lib/risansi-visit-filters';
 import { VisitFilterControls } from '@/components/risansi/VisitFilterControls';
 import { clientRepIdsSql, clientRepNamesSql } from '@/lib/risansi-client-rep';
+import { SortedTable } from '@/components/risansi/SortedTable';
 
 // ── Safe query wrapper ─────────────────────────────────────────
 
@@ -91,7 +92,14 @@ export default async function CoverageMapPage({
          LEFT JOIN tour_routes tr ON tr.id = c.tour_id
          WHERE c.deleted_at IS NULL AND c.status = 'ACTIVE'${cVisAnd}${filters.clientAnd}
          GROUP BY tr.name
-         ORDER BY COUNT(*) DESC`,
+         -- The route with the most overdue clients first: this table's job is
+         -- to say where coverage is worst. The order used to be applied in JS
+         -- after the query, which meant a sortable header had to fight it.
+         ORDER BY COUNT(*) FILTER (
+                    WHERE c.last_visit_date < NOW() - INTERVAL '100 days'
+                       OR c.last_visit_date IS NULL
+                  ) DESC,
+                  COUNT(*) DESC`,
       );
       return rows.map(r => ({
         tour:         r.tour,
@@ -110,7 +118,6 @@ export default async function CoverageMapPage({
   const overdue   = clients.filter(c => c.days_since == null || c.days_since > 150).length;
 
   const unassigned = tours.find(t => t.tour === 'Unassigned')?.client_count ?? 0;
-  const sortedTours = [...tours].sort((a, b) => b.overdue - a.overdue);
 
   // ── Render ─────────────────────────────────────────────────────
 
@@ -165,25 +172,38 @@ export default async function CoverageMapPage({
             </span>
           </div>
           <div style={{ overflowX: 'auto' }}>
-            {sortedTours.length === 0 ? (
+            {tours.length === 0 ? (
               <div style={{ padding: '32px 0', textAlign: 'center', fontSize: 12, color: 'var(--fg-3)' }}>
                 No tour route data
               </div>
             ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead>
-                  <tr style={{ background: 'var(--bg-elev)' }}>
-                    {['Tour Route', 'Clients', 'Compliant', 'Overdue', 'Coverage %'].map(h => (
-                      <th key={h} style={TH}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedTours.map((t, i) => {
-                    const pct = t.client_count > 0 ? (t.compliant / t.client_count) * 100 : 0;
-                    const barColor = pct >= 80 ? '#0E9F6E' : pct >= 50 ? '#D97706' : '#E02424';
-                    return (
-                      <tr key={t.tour} style={{ borderBottom: i < sortedTours.length - 1 ? '1px solid var(--line)' : 'none' }}>
+              <SortedTable
+                style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}
+                headRowStyle={{ background: 'var(--bg-elev)' }}
+                divider="1px solid var(--line)"
+                lastDivider={false}
+                columns={[
+                  { key: 'tour',       label: 'Tour Route', kind: 'text',   style: TH },
+                  { key: 'clients',    label: 'Clients',    kind: 'number', style: TH },
+                  { key: 'compliant',  label: 'Compliant',  kind: 'number', style: TH },
+                  { key: 'overdue',    label: 'Overdue',    kind: 'number', style: TH },
+                  { key: 'pct',        label: 'Coverage %', kind: 'number', style: TH },
+                ]}
+                rows={tours.map(t => {
+                  const pct = t.client_count > 0 ? (t.compliant / t.client_count) * 100 : 0;
+                  const barColor = pct >= 80 ? '#0E9F6E' : pct >= 50 ? '#D97706' : '#E02424';
+                  return {
+                    id: t.tour,
+                    // Coverage sorts on the percentage behind the bar, not on
+                    // the bar; a route with no clients has no coverage to rank,
+                    // so it is blank rather than a 0% among real figures.
+                    values: {
+                      tour: t.tour, clients: t.client_count,
+                      compliant: t.compliant, overdue: t.overdue,
+                      pct: t.client_count > 0 ? pct : null,
+                    },
+                    cells: (
+                      <>
                         <td style={{ ...TD, fontWeight: t.tour === 'Unassigned' ? 400 : 500, color: t.tour === 'Unassigned' ? 'var(--fg-3)' : 'var(--fg)' }}>
                           {t.tour}
                         </td>
@@ -206,11 +226,11 @@ export default async function CoverageMapPage({
                             </span>
                           </div>
                         </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                      </>
+                    ),
+                  };
+                })}
+              />
             )}
           </div>
           {unassigned > 0 && (

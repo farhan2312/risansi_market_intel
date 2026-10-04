@@ -57,12 +57,17 @@ export interface SortTHProps {
   align?: 'left' | 'right' | 'center';
   colSpan?: number;
   title?: string;
+  /** Goes on the <th> itself. Some tables freeze a column by class rather than
+   *  by inline style — the complaints table's sticky number and client columns
+   *  are un-frozen for phones from app/mobile.css — and a header that dropped
+   *  the class would stay stuck while its body cells scrolled away beneath it. */
+  className?: string;
   children: ReactNode;
 }
 
 export function SortTH({
   sortable = true, active = false, mark = '↕', dir = 'asc', onSort,
-  style, align, colSpan, title, children,
+  style, align, colSpan, title, className, children,
 }: SortTHProps) {
   // `align` is applied AFTER the table's own style, not before. A table's shared
   // TH object usually carries a textAlign of its own, and spreading it last
@@ -72,12 +77,13 @@ export function SortTH({
   // A column nobody can sort still has to look like the ones beside it, so it
   // renders the same cell without the affordance rather than a different cell.
   if (!sortable || !onSort) {
-    return <th colSpan={colSpan} title={title} style={cell}>{children}</th>;
+    return <th colSpan={colSpan} className={className} title={title} style={cell}>{children}</th>;
   }
 
   return (
     <th
       colSpan={colSpan}
+      className={className}
       // aria-sort is what tells a screen reader the table is ordered and which
       // way; the arrow alone says it only to people who can see it.
       aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}

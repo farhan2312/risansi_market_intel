@@ -4,6 +4,13 @@
 // without a request, a session or a database — scripts/portal-usage-preview.mjs
 // feeds it real rows and writes an HTML file, which is the only way to look at
 // a print layout short of logging in and pressing Ctrl-P.
+//
+// None of the tables here sort, and that is not an oversight. This is a sheet
+// of A4 somebody saves as a PDF and sends: there is no header to click once it
+// has left the browser, and the preview script renders it with no React runtime
+// at all. "Every metric" could not take a sort even on screen — its rows are
+// grouped under section headings, and ordering the body would scatter the rows
+// out from under the heading that names them.
 import type { CSSProperties, ReactNode } from 'react';
 import { C, TH, TD, DocHeader } from '@/components/risansi/print-shared';
 import { AutoPrint } from '@/components/risansi/AutoPrint';

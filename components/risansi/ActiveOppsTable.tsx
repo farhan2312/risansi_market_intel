@@ -1,51 +1,43 @@
 'use client';
 
-import { useState, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { stageTone } from '@/lib/risansi-stage-tone';
 import { useRouter } from 'next/navigation';
 import { EditOppDrawer, type EditableOpp } from './EditOppDrawer';
 import { fmtUsdFromCr } from '@/lib/risansi-utils';
-
-
-const STAGE_RANK: Record<string, number> = {
-  Suspect: 0, Prospect: 1, Quoted: 2, Negotiating: 3, 'On Hold': 4, Won: 5, Lost: 6, Dropped: 7,
-};
+import { ALL_STAGES } from '@/lib/risansi-opportunity-fields';
+import { useTableSort, SortTH } from './SortTH';
+import type { SortableColumn } from '@/lib/risansi-table-sort';
 
 const PAGE_SIZE = 50;
 
-type SortKey = 'quote_date' | 'client' | 'stage' | 'value' | 'eta';
 // A Prospect or a Suspect has no quote date, and the column read "—" for every
 // one of them. It carries the enquiry date instead, marked as such, so the
 // first column always says when the deal entered the book. Sorting follows.
 const dateOf = (o: EditableOpp) => o.quote_date || o.enquiry_date || '';
-const SORT_ACCESSOR: Record<SortKey, (o: EditableOpp) => string | number> = {
-  quote_date: dateOf,
-  client:     o => (o.client_name || '').toLowerCase(),
-  stage:      o => STAGE_RANK[o.stage] ?? 99,
-  value:      o => o.value_cr ?? 0,
-  eta:        o => o.eta_text || '',
-};
-// Columns that default to descending on first click (most-useful-first).
-const DESC_FIRST: Partial<Record<SortKey, boolean>> = { quote_date: true, value: true };
 
-function compare(a: string | number, b: string | number, dir: 'asc' | 'desc'): number {
-  const ea = a === '' || a == null;
-  const eb = b === '' || b == null;
-  if (ea && eb) return 0;
-  if (ea) return 1;   // empties always sort last, regardless of direction
-  if (eb) return -1;
-  const r = typeof a === 'number' && typeof b === 'number'
-    ? a - b
-    : String(a).localeCompare(String(b));
-  return dir === 'asc' ? r : -r;
-}
+// Stage sorts down the pipeline, not down the alphabet, and ALL_STAGES is the
+// list the rest of the module already works from.
+const COLS: SortableColumn<EditableOpp>[] = [
+  { key: 'date',    kind: 'date',   value: dateOf },
+  { key: 'client',  kind: 'text',   value: o => o.client_name },
+  { key: 'stage',   kind: 'status', order: ALL_STAGES, value: o => o.stage },
+  { key: 'value',   kind: 'number', value: o => o.value_cr },
+  { key: 'product', kind: 'text',   value: o => [o.product, o.product_type].filter(Boolean).join(' · ') },
+  { key: 'eta',     kind: 'text',   value: o => o.eta_text },
+];
 
 export function ActiveOppsTable({ opps, usdRate }: { opps: EditableOpp[]; usdRate?: number }) {
   const router = useRouter();
   const [selectedOpp, setSelectedOpp] = useState<EditableOpp | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey | null>(null);
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [page, setPage] = useState(0);
+  // Every opportunity is already here; the pages below are slices of this
+  // array, not of a query, so the sort belongs in memory and covers all of them.
+  const { rows: sorted, sort, sortBy } = useTableSort(opps, COLS);
+
+  // A new sort re-decides which rows are first, so staying on page 7 would hide
+  // exactly the rows the click was asking for.
+  useEffect(() => { setPage(0); }, [sort.key, sort.dir]);
 
   if (opps.length === 0) {
     return (
@@ -55,26 +47,10 @@ export function ActiveOppsTable({ opps, usdRate }: { opps: EditableOpp[]; usdRat
     );
   }
 
-  const sorted = sortKey
-    ? [...opps].sort((a, b) => compare(SORT_ACCESSOR[sortKey](a), SORT_ACCESSOR[sortKey](b), sortDir))
-    : opps;
-
   const pageCount = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
   const safePage  = Math.min(page, pageCount - 1);
   const start     = safePage * PAGE_SIZE;
   const rows      = sorted.slice(start, start + PAGE_SIZE);
-
-  const onSort = (key: SortKey) => {
-    if (sortKey === key) {
-      setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortKey(key);
-      setSortDir(DESC_FIRST[key] ? 'desc' : 'asc');
-    }
-    setPage(0);
-  };
-
-  const arrow = (key: SortKey) => (sortKey === key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '');
 
   return (
     <>
@@ -82,12 +58,12 @@ export function ActiveOppsTable({ opps, usdRate }: { opps: EditableOpp[]; usdRat
         <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
             <tr style={{ background: 'var(--bg-elev)' }}>
-              <SortableTH label="Quote / Enquiry Date" onClick={() => onSort('quote_date')} indicator={arrow('quote_date')} />
-              <SortableTH label="Client" onClick={() => onSort('client')} indicator={arrow('client')} />
-              <SortableTH label="Stage" onClick={() => onSort('stage')} indicator={arrow('stage')} />
-              <SortableTH label="Value" onClick={() => onSort('value')} indicator={arrow('value')} align="right" />
-              <th style={TH}>Product &amp; Notes</th>
-              <SortableTH label="Expected Close" onClick={() => onSort('eta')} indicator={arrow('eta')} />
+              <SortTH {...sortBy('date')}    style={TH}>Quote / Enquiry Date</SortTH>
+              <SortTH {...sortBy('client')}  style={TH}>Client</SortTH>
+              <SortTH {...sortBy('stage')}   style={TH}>Stage</SortTH>
+              <SortTH {...sortBy('value')}   style={TH} align="right">Value</SortTH>
+              <SortTH {...sortBy('product')} style={TH}>Product &amp; Notes</SortTH>
+              <SortTH {...sortBy('eta')}     style={TH}>Expected Close</SortTH>
             </tr>
           </thead>
           <tbody>
@@ -183,20 +159,6 @@ export function ActiveOppsTable({ opps, usdRate }: { opps: EditableOpp[]; usdRat
         />
       )}
     </>
-  );
-}
-
-function SortableTH({ label, onClick, indicator, align = 'left' }: {
-  label: string; onClick: () => void; indicator: string; align?: 'left' | 'right';
-}) {
-  return (
-    <th
-      onClick={onClick}
-      style={{ ...TH, textAlign: align, cursor: 'pointer', userSelect: 'none' }}
-      title="Sort"
-    >
-      {label}<span style={{ color: 'var(--accent)' }}>{indicator}</span>
-    </th>
   );
 }
 

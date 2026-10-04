@@ -37,12 +37,17 @@ export function MobileSort({ currentSort, currentOrder }: {
 
   const apply = (key: string) => {
     const p = new URLSearchParams(window.location.search);
+    // `dir`, the same parameter the desktop headers write. This sheet used to
+    // write `order`, which the pages had stopped reading, so a sort chosen on a
+    // phone did nothing at all; and once both existed, whichever the page read
+    // first won and the other silently lost.
     if (key === currentSort) {
-      p.set('order', currentOrder === 'asc' ? 'desc' : 'asc');
+      p.set('dir', currentOrder === 'asc' ? 'desc' : 'asc');
     } else {
       p.set('sort', key);
-      p.set('order', 'asc');
+      p.set('dir', 'asc');
     }
+    p.delete('order');
     p.delete('page');
     setOpen(false);
     router.push(`${pathname}?${p.toString()}`);

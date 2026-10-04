@@ -2,8 +2,13 @@
 
 import Link from 'next/link';
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
-import { SEVERITY_TONE, STATUS_TONE, type Severity } from '@/lib/risansi-complaint-flow';
+import {
+  SEVERITY_TONE, SEVERITIES, STATUS_TONE, STATUSES, LEGACY_STATUSES, statusStep,
+  type Severity,
+} from '@/lib/risansi-complaint-flow';
 import type { ComplaintListRow, ComplaintSort, ComplaintSortKey } from '@/lib/risansi-complaint-rows';
+import { useTableSort, SortTH } from '../SortTH';
+import type { SortKind, SortableColumn } from '@/lib/risansi-table-sort';
 
 // The complaints list as a table. The rows are decided on the server; this
 // half exists because two things about the table are the reader's to choose
@@ -15,6 +20,12 @@ import type { ComplaintListRow, ComplaintSort, ComplaintSortKey } from '@/lib/ri
 // its 200-odd rows. That is the whole point: the horizontal scrollbar is at
 // the bottom of what you can see rather than below the last row, and the
 // header and the two identifying columns stay put while you scroll.
+//
+// Sorting is the third thing the reader decides, and it is deliberately NOT
+// kept: it lives in component state, so a filter change or a fresh visit puts
+// the table back in the order the query chose. The column choice and the
+// sort are independent — hiding a column leaves the rows exactly where the
+// sort put them, including when the hidden column is the sorted one.
 
 const day = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' }) : '—');
 const fmtDays = (d: number) => (d < 1 ? '<1d' : `${Math.round(d)}d`);
@@ -30,35 +41,77 @@ interface Col {
   head: string;
   /** What the column picker calls it, where the header is blank or cryptic. */
   pick?: string;
-  /** Clicking this header sorts; the page decides the cycle and hands us the href. */
-  sort?: ComplaintSortKey;
   right?: boolean;
   /** The complaint number is what makes a row a row, so it is never hideable. */
   locked?: boolean;
+  /** How this column sorts. Omitted only where there is nothing to order by. */
+  kind?: SortKind;
+  /** What to sort on, where the cell prints something other than the raw value. */
+  value?: (r: ComplaintListRow) => unknown;
+  /** For kind 'status': the sequence that defines the order. */
+  order?: readonly string[];
 }
 
+// A complaint's statuses in workflow order, the legacy five folded in at the
+// step each one stands for. Built from the module's own lists rather than
+// retyped, so a status added there cannot drift out of this order.
+const STATUS_ORDER: readonly string[] = [...new Set<string>([...STATUSES, ...LEGACY_STATUSES])]
+  .sort((a, b) => statusStep(a) - statusStep(b));
+
+// Worst first, from the declared sequence rather than from the key order of a
+// colour map, so recolouring the badges cannot reorder the column.
+const SEVERITY_ORDER = SEVERITIES;
+
+/** Whether the complaint is still somebody's to move. */
+const isOpenRow = (r: ComplaintListRow) => r.status !== 'Resolved' && r.status !== 'Closed';
+/** Pre-workflow rows carry no holder and no dwell, and the cells print "—". */
+const isLegacyRow = (r: ComplaintListRow) => r.schema_version < 2;
+
+/** Who the "Sitting with" cell names — nobody, on a closed or legacy row. */
+const holderLabel = (r: ComplaintListRow): string | null =>
+  isOpenRow(r) && !isLegacyRow(r)
+    ? (r.holder_name ?? r.holder_department ?? 'Complaint Team')
+    : null;
+
+/** What the "Free repl." cell says: Free, Paid, No, or nothing decided yet. */
+const freeReplLabel = (r: ComplaintListRow): string | null =>
+  r.free_replacement ? 'Free'
+    : r.action_category ? (r.action_category === 'Paid Replacement' ? 'Paid' : 'No')
+    : null;
+
 const COLUMNS: Col[] = [
-  { id: 'no',         head: 'No.', locked: true },
-  { id: 'client',     head: 'Client' },
-  { id: 'status',     head: 'Status' },
-  { id: 'sev',        head: 'Sev', pick: 'Severity' },
-  { id: 'type',       head: 'Type · category' },
-  { id: 'model',      head: 'Pump model' },
-  { id: 'qty',        head: 'Qty', pick: 'Quantity', right: true },
-  { id: 'freeRepl',   head: 'Free repl.', pick: 'Free replacement' },
-  { id: 'frEc',       head: 'FR EC no.' },
-  { id: 'frDispatch', head: 'FR dispatch' },
-  { id: 'holder',     head: 'Sitting with' },
-  { id: 'since',      head: 'Since', sort: 'since', right: true },
-  { id: 'age',        head: 'Age', sort: 'age', right: true },
-  { id: 'target',     head: 'Target', sort: 'target' },
-  { id: 'rep',        head: 'Rep' },
-  { id: 'raised',     head: 'Raised', sort: 'raised' },
-  { id: 'docs',       head: 'Customer docs' },
+  { id: 'no',         head: 'No.', locked: true, kind: 'text', value: r => r.complaint_no },
+  { id: 'client',     head: 'Client', kind: 'text', value: r => r.client_name },
+  { id: 'status',     head: 'Status', kind: 'status', order: STATUS_ORDER, value: r => r.status },
+  { id: 'sev',        head: 'Sev', pick: 'Severity', kind: 'status', order: SEVERITY_ORDER, value: r => r.severity },
+  { id: 'type',       head: 'Type · category', kind: 'text', value: r => r.complaint_type },
+  { id: 'model',      head: 'Pump model', kind: 'text', value: r => r.pump_model },
+  { id: 'qty',        head: 'Qty', pick: 'Quantity', right: true, kind: 'number', value: r => r.quantity },
+  { id: 'freeRepl',   head: 'Free repl.', pick: 'Free replacement', kind: 'text', value: freeReplLabel },
+  { id: 'frEc',       head: 'FR EC no.', kind: 'text', value: r => r.fr_ec_no },
+  { id: 'frDispatch', head: 'FR dispatch', kind: 'date', value: r => r.target_dispatch_date },
+  { id: 'holder',     head: 'Sitting with', kind: 'text', value: holderLabel },
+  // Days in the current status, which is what the cell prints — longest-sitting
+  // first on the first click. Blank on the rows that show "—".
+  { id: 'since',      head: 'Since', right: true, kind: 'number',
+    value: r => (isOpenRow(r) && !isLegacyRow(r) ? r.days_in_status : null) },
+  { id: 'age',        head: 'Age', right: true, kind: 'number', value: r => r.age_days },
+  { id: 'target',     head: 'Target', kind: 'date', value: r => r.target_completion_date },
+  { id: 'rep',        head: 'Rep', kind: 'text', value: r => r.rep_name },
+  { id: 'raised',     head: 'Raised', kind: 'date', value: r => r.complaint_date ?? r.created_at },
+  // How many customer letters are attached — the question this column answers.
+  { id: 'docs',       head: 'Customer docs', kind: 'number', value: r => r.customer_files.length },
+  // The trailing "Open →" link. An action, so there is nothing to sort.
   { id: 'open',       head: '', pick: 'Open link' },
 ];
 
 const ALL_IDS = COLUMNS.map(c => c.id);
+
+// Every column, not only the showing ones: hiding a column must not disturb the
+// order the table is in, and a sorted column that is then hidden keeps its sort.
+const SORT_COLS: SortableColumn<ComplaintListRow>[] = COLUMNS
+  .filter((c): c is Col & { kind: SortKind } => c.kind != null)
+  .map(c => ({ key: c.id, kind: c.kind, value: c.value, order: c.order }));
 
 // Remembers which columns the reader chose, so the choice survives the server
 // navigations that remount this table (sorting, filtering, paging back in).
@@ -72,13 +125,28 @@ const COLS_KEY = 'risansi.complaints.cols';
 const NO_W = 124;
 const NO_INNER = NO_W - 20;   // less the cell's 10px of padding on each side
 
-export function ComplaintTableClient({ rows, sort, sortHrefs }: {
+// `sort` and `sortHrefs` are still accepted because the page and the server
+// half still hand them over, and an old bookmark can still carry ?sort=. They
+// are no longer read: the four URL sorts have become eighteen in-memory ones
+// (see useTableSort below), and the server's ORDER BY remains what the table
+// arrives in.
+export function ComplaintTableClient({ rows }: {
   rows: ComplaintListRow[];
   sort: ComplaintSort | null;
   sortHrefs: Partial<Record<ComplaintSortKey, string>> | null;
 }) {
   const [visible, setVisible] = useState<ColId[]>(ALL_IDS);
   const [pickerOpen, setPickerOpen] = useState(false);
+
+  // This is not one page of a longer query. loadComplaintRows takes no LIMIT:
+  // every complaint matching the filters is here, and all of them render inside
+  // the scroll box below — which is why the sort belongs in memory rather than
+  // in the URL, and why every column can have one instead of the four a
+  // ?sort= param carried.
+  //
+  // It starts unset, so the table still arrives in the order the query chose:
+  // open before closed, overdue first, longest-sitting first.
+  const { rows: ordered, sortBy } = useTableSort(rows, SORT_COLS);
 
   // Read the saved choice after mount rather than during render: the server
   // has no localStorage, and a first paint that disagrees with the server's
@@ -201,33 +269,30 @@ export function ComplaintTableClient({ rows, sort, sortHrefs }: {
         <table className="r-own-scroll" style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 12 }}>
           <thead>
             <tr>
-              {shown.map(col => {
-                const href = col.sort ? sortHrefs?.[col.sort] : undefined;
-                const on = col.sort && sort?.key === col.sort;
-                return (
-                  <th key={col.id}
-                    className={col.id === 'no' ? 'cmp-fz-no' : col.id === 'client' ? 'cmp-fz-client' : undefined}
-                    style={{
-                      ...TH,
-                      textAlign: col.right ? 'right' : 'left',
-                      ...(col.id === 'no' ? { ...freezeNo(!clientFrozen), ...TH_FREEZE }
-                        : col.id === 'client' ? { ...FREEZE_CLIENT, ...TH_FREEZE, boxShadow: SEAM }
-                        : null),
-                    }}>
-                    {col.id === 'no' ? <div style={NO_BOX}>{col.head}</div> : href ? (
-                      <a href={href} title={on ? (sort!.dir === 'desc' ? 'Sorted newest / largest first — click for oldest first' : 'Sorted oldest / smallest first — click to clear') : `Sort by ${col.head.toLowerCase()}`}
-                        style={{ color: on ? 'var(--accent)' : 'inherit', textDecoration: 'none', whiteSpace: 'nowrap' }}>
-                        {col.head}{on ? (sort!.dir === 'desc' ? ' ↓' : ' ↑') : <span style={{ opacity: 0.35 }}> ↕</span>}
-                      </a>
-                    ) : col.head}
-                  </th>
-                );
-              })}
+              {shown.map(col => (
+                <SortTH key={col.id}
+                  {...sortBy(col.id)}
+                  // The class stays on the cell: app/mobile.css keys off it to
+                  // un-freeze the client column on a phone and move the seam.
+                  className={col.id === 'no' ? 'cmp-fz-no' : col.id === 'client' ? 'cmp-fz-client' : undefined}
+                  align={col.right ? 'right' : 'left'}
+                  title={col.kind ? `Sort by ${(col.pick ?? col.head).toLowerCase()}` : undefined}
+                  style={{
+                    ...TH,
+                    ...(col.id === 'no' ? { ...freezeNo(!clientFrozen), ...TH_FREEZE }
+                      : col.id === 'client' ? { ...FREEZE_CLIENT, ...TH_FREEZE, boxShadow: SEAM }
+                      : null),
+                  }}>
+                  {/* The number column's contents are boxed to the cell's fixed
+                      width, because that width is the client column's offset. */}
+                  {col.id === 'no' ? <div style={NO_BOX}>{col.head}</div> : col.head}
+                </SortTH>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {rows.map(r => {
-              const open = r.status !== 'Resolved' && r.status !== 'Closed';
+            {ordered.map(r => {
+              const open = isOpenRow(r);
               return (
                 <tr key={r.id} style={{ opacity: open ? 1 : 0.7 }}>
                   {shown.map(col => renderCell(col, r, clientFrozen))}
@@ -243,8 +308,8 @@ export function ComplaintTableClient({ rows, sort, sortHrefs }: {
 
 /** One body cell. Split out so the row can be assembled from whichever columns are showing. */
 function renderCell(col: Col, r: ComplaintListRow, clientFrozen: boolean): ReactNode {
-  const open = r.status !== 'Resolved' && r.status !== 'Closed';
-  const legacy = r.schema_version < 2;
+  const open = isOpenRow(r);
+  const legacy = isLegacyRow(r);
 
   switch (col.id) {
     case 'no':
@@ -289,8 +354,8 @@ function renderCell(col: Col, r: ComplaintListRow, clientFrozen: boolean): React
         <td key={col.id} style={{ ...TD, fontSize: 11 }}>
           {r.free_replacement
             ? <span style={{ ...PILL, background: 'var(--warn, #B45309)' }}>Free</span>
-            : r.action_category
-              ? <span style={{ color: 'var(--fg-3)' }}>{r.action_category === 'Paid Replacement' ? 'Paid' : 'No'}</span>
+            : freeReplLabel(r)
+              ? <span style={{ color: 'var(--fg-3)' }}>{freeReplLabel(r)}</span>
               : <span style={{ color: 'var(--fg-4)' }}>—</span>}
         </td>
       );
@@ -306,7 +371,7 @@ function renderCell(col: Col, r: ComplaintListRow, clientFrozen: boolean): React
       return (
         <td key={col.id} style={{ ...TD, fontSize: 11.5 }}>
           {open && !legacy ? <>
-            <div>{r.holder_name ?? r.holder_department ?? 'Complaint Team'}</div>
+            <div>{holderLabel(r)}</div>
             {r.holder_name && <div style={{ fontSize: 10.5, color: 'var(--fg-3)' }}>{r.holder_department}</div>}
           </> : <span style={{ color: 'var(--fg-4)' }}>—</span>}
         </td>

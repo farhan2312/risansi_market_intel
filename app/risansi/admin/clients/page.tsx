@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { Topbar, Tag, StatusDot, MultiSelectFilter, ActiveFilterBar, SortableTH } from '@/components/risansi';
-import { clientStatusLabel, statusDotKind, CLIENT_STATUS_FILTER_OPTIONS, CLIENT_STATUS_LABELS } from '@/lib/risansi-client-status';
+import { clientStatusLabel, statusDotKind, CLIENT_STATUS_FILTER_OPTIONS, CLIENT_STATUS_LABELS, CLIENT_STATUSES } from '@/lib/risansi-client-status';
 import { AddClientButton } from '@/components/risansi/ClientFormDrawer';
 import { EditClientLink } from '@/components/risansi/EditClientLink';
 import { ArchiveClientToggle } from '@/components/risansi/ArchiveClientToggle';
@@ -13,14 +13,22 @@ import { clientRepIdsSql, clientRepNamesSql } from '@/lib/risansi-client-rep';
 
 const PAGE_SIZE = 50;
 
-// Only columns confirmed to exist are listed here
+// Status is a lifecycle, not a word list, so it ranks by CLIENT_STATUSES rather
+// than by the alphabet. A status added there orders itself here.
+const STATUS_RANK_SQL = `CASE UPPER(c.status) ${
+  CLIENT_STATUSES.map((s, i) => `WHEN '${s}' THEN ${i}`).join(' ')
+} ELSE ${CLIENT_STATUSES.length} END`;
+
+// Only columns confirmed to exist are listed here. A key that is not in this
+// map never reaches the query — it falls back to the default below.
 const SORT_MAP: Record<string, string> = {
   code:       'c.code',
   name:       'c.legal_name',
   industry:   'c.industry',
-  zone:       'tr.zone',
-  last_visit: 'c.last_visit_date',
-  status:     'c.status',
+  // What the cell shows: the client's own zone, falling back to the route's.
+  zone:       `COALESCE(NULLIF(c.zone, ''), tr.zone)`,
+  last_visit: `COALESCE(c.last_visit_date, DATE '0001-01-01')`,
+  status:     STATUS_RANK_SQL,
   tier:       'c.tier',
   rep:        'rep_name',
 };
@@ -45,7 +53,10 @@ export default async function ClientMasterPage({
   // that can show them, so the tick can be undone where it was made.
   const showArchived = sp.archived === '1';
   const sortKey   = typeof sp.sort     === 'string' ? sp.sort            : 'last_visit';
-  const orderDir  = sp.order === 'desc'             ? 'DESC'             : 'ASC';
+  // The headers write ?dir=; older links carry ?order=. Reading both means a
+  // header click is never silently ignored and a bookmark still works.
+  const dirParam  = typeof sp.dir === 'string' ? sp.dir : typeof sp.order === 'string' ? sp.order : '';
+  const orderDir  = dirParam === 'desc'             ? 'DESC'             : 'ASC';
   const pageNum   = Math.max(1, parseInt(typeof sp.page === 'string' ? sp.page : '1', 10) || 1);
   const limit     = PAGE_SIZE;
   const offset    = (pageNum - 1) * limit;    // page 1 → offset 0  ✓
@@ -149,7 +160,11 @@ export default async function ClientMasterPage({
            FROM clients c
            LEFT JOIN tour_routes tr ON tr.id = c.tour_id
            WHERE ${whereClause}
-           ORDER BY ${sortCol} ${orderDir} ${orderDir === 'ASC' ? 'NULLS FIRST' : 'NULLS LAST'}
+           -- NULLS LAST both ways: a row with no value is an absence, not the
+           -- smallest value, and floating them to the top of either direction
+           -- buries the rows the header was clicked to surface.
+           -- c.id breaks ties, so a row cannot swap pages under the pager.
+           ORDER BY ${sortCol} ${orderDir} NULLS LAST, c.id
            LIMIT  $${limIdx}
            OFFSET $${offIdx}`,
           mainParams as (string | number)[],
@@ -254,7 +269,8 @@ export default async function ClientMasterPage({
     if (sugarFilt)          base.sugar    = sugarFilt;
     if (showArchived)       base.archived = '1';
     if (sortKey)            base.sort     = sortKey;
-    if (orderDir === 'DESC') base.order   = 'desc';
+    // Same param the headers write, so turning a page keeps the chosen order.
+    if (orderDir === 'DESC') base.dir     = 'desc';
     base.page = String(pageNum);
     const merged = { ...base, ...Object.fromEntries(
       Object.entries(overrides).map(([k, v]) => [k, v == null ? undefined : String(v)])
@@ -371,14 +387,14 @@ export default async function ClientMasterPage({
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: 'var(--bg-elev)' }}>
-                    <SortableTH col="code"       label="Code"         currentSort={curSort} currentDir={curDir} />
-                    <SortableTH col="name"       label="Client"       currentSort={curSort} currentDir={curDir} />
-                    <SortableTH col="industry"   label="Industry"     currentSort={curSort} currentDir={curDir} />
-                    <SortableTH col="zone"       label="Zone / Route" currentSort={curSort} currentDir={curDir} />
-                    <SortableTH col="rep"        label="Rep"          currentSort={curSort} currentDir={curDir} />
-                    <SortableTH col="last_visit" label="Last Visit"   currentSort={curSort} currentDir={curDir} />
-                    <SortableTH col="status"     label="Status"       currentSort={curSort} currentDir={curDir} />
-                    <SortableTH col="tier"       label="Tier"         currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="code"       label="Code"         kind="text"   currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="name"       label="Client"       kind="text"   currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="industry"   label="Industry"     kind="text"   currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="zone"       label="Zone / Route" kind="text"   currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="rep"        label="Rep"          kind="text"   currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="last_visit" label="Last Visit"   kind="date"   currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="status"     label="Status"       kind="status" currentSort={curSort} currentDir={curDir} />
+                    <SortableTH col="tier"       label="Tier"         kind="text"   currentSort={curSort} currentDir={curDir} />
                     <th style={{ padding: '9px 12px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>Archive</th>
                     <th style={{ padding: '9px 12px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>Owner & cover</th>
                   </tr>

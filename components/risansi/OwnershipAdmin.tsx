@@ -8,6 +8,9 @@ import {
 } from '@/app/actions/risansi-ownership';
 import { ClientOwnershipButton } from '@/components/risansi/ClientOwnershipButton';
 import { ArchiveClientToggle } from '@/components/risansi/ArchiveClientToggle';
+import { useTableSort, SortTH } from '@/components/risansi/SortTH';
+import type { SortableColumn } from '@/lib/risansi-table-sort';
+import { CLIENT_STATUSES } from '@/lib/risansi-client-status';
 
 export interface Person { id: number; name: string; role: string; owned: number; covered: number; team?: number; }
 export interface UnownedClient { id: number; code: string; name: string; status: string; opps: number; visits: number; }
@@ -36,6 +39,28 @@ const SEL: CSSProperties = {
 };
 const NOTE: CSSProperties = { fontSize: 12, color: 'var(--fg-3)', margin: '0 0 12px' };
 
+// Status columns follow CLIENT_STATUSES — the lifecycle a client actually
+// travels (lead, prospective client, active, then the ways it ends). The
+// alphabet would put ACTIVE before PROSPECTIVE_LEAD and read as nothing.
+const STATUS_ORDER = CLIENT_STATUSES;
+
+const UNOWNED_COLS: SortableColumn<UnownedClient>[] = [
+  { key: 'code',   kind: 'text' },
+  { key: 'name',   kind: 'text' },
+  { key: 'status', kind: 'status', order: STATUS_ORDER },
+  // The cell reads "3 opp · 1 visit". What the column is scanned for is how
+  // much history is sitting here unowned, so it sorts on the two together.
+  { key: 'history', kind: 'number', value: c => c.opps + c.visits },
+];
+
+const ARCHIVED_COLS: SortableColumn<ArchivedClient>[] = [
+  { key: 'code',        kind: 'text' },
+  { key: 'name',        kind: 'text' },
+  { key: 'status',      kind: 'status', order: STATUS_ORDER },
+  { key: 'archived_at', kind: 'date' },
+  { key: 'opps',        kind: 'number' },
+];
+
 function Banner({ msg, bad }: { msg: string; bad?: boolean }) {
   if (!msg) return null;
   return (
@@ -49,6 +74,11 @@ function Banner({ msg, bad }: { msg: string; bad?: boolean }) {
 }
 
 // ── Teams: the manager × rep matrix ───────────────────────────────
+//
+// Not sortable, and deliberately. Its columns are people rather than fields,
+// its cells are checkboxes being edited, and both axes already carry the one
+// order that means anything here — managers down, the same rep list across.
+// A sort would shuffle the grid somebody is halfway through ticking.
 
 export function TeamMatrix({ managers, reps, pairs }: {
   managers: Person[]; reps: Person[]; pairs: { manager_id: number; rep_id: number }[];
@@ -142,10 +172,14 @@ export function UnassignedClients({ clients, reps }: { clients: UnownedClient[];
   const [picks, setPicks] = useState<Record<number, string>>({});
   const [q, setQ] = useState('');
 
-  const shown = useMemo(() => {
+  const found = useMemo(() => {
     const t = q.trim().toLowerCase();
     return t ? clients.filter(c => c.code.toLowerCase().includes(t) || c.name.toLowerCase().includes(t)) : clients;
   }, [clients, q]);
+
+  // Sorts whatever the search left behind. Unset by default, so the list keeps
+  // the order the query chose — anything carrying history first.
+  const { rows: shown, sortBy } = useTableSort(found, UNOWNED_COLS);
 
   const assign = (clientId: number) => {
     const repId = Number(picks[clientId]);
@@ -185,8 +219,12 @@ export function UnassignedClients({ clients, reps }: { clients: UnownedClient[];
         <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 780 }}>
           <thead>
             <tr>
-              <th style={TH}>Code</th><th style={TH}>Client</th><th style={TH}>Status</th>
-              <th style={{ ...TH, textAlign: 'right' }}>History</th><th style={TH}>Assign to</th>
+              <SortTH {...sortBy('code')}    style={TH}>Code</SortTH>
+              <SortTH {...sortBy('name')}    style={TH}>Client</SortTH>
+              <SortTH {...sortBy('status')}  style={TH}>Status</SortTH>
+              <SortTH {...sortBy('history')} style={{ ...TH, textAlign: 'right' }} align="right">History</SortTH>
+              {/* A picker and a button. Neither holds a value to order by. */}
+              <th style={TH}>Assign to</th>
               <th style={TH}></th>
             </tr>
           </thead>
@@ -326,6 +364,7 @@ export function RecoverableClients({ clients }: { clients: ArchivedClient[] }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState(''); const [bad, setBad] = useState(false);
+  const { rows: shown, sortBy } = useTableSort(clients, ARCHIVED_COLS);
 
   const undo = (c: ArchivedClient) => {
     if (typeof window !== 'undefined'
@@ -354,13 +393,17 @@ export function RecoverableClients({ clients }: { clients: ArchivedClient[] }) {
         <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 700 }}>
           <thead>
             <tr>
-              <th style={TH}>Code</th><th style={TH}>Client</th><th style={TH}>Status</th>
-              <th style={TH}>Archived</th><th style={{ ...TH, textAlign: 'right' }}>Records kept</th>
+              <SortTH {...sortBy('code')}        style={TH}>Code</SortTH>
+              <SortTH {...sortBy('name')}        style={TH}>Client</SortTH>
+              <SortTH {...sortBy('status')}      style={TH}>Status</SortTH>
+              <SortTH {...sortBy('archived_at')} style={TH}>Archived</SortTH>
+              <SortTH {...sortBy('opps')}        style={{ ...TH, textAlign: 'right' }} align="right">Records kept</SortTH>
+              {/* Restore button. */}
               <th style={{ ...TH, textAlign: 'right' }}>Action</th>
             </tr>
           </thead>
           <tbody>
-            {clients.map(c => (
+            {shown.map(c => (
               <tr key={c.id}>
                 <td style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{c.code}</td>
                 <td style={TD}>{c.name}</td>
@@ -389,6 +432,18 @@ export interface RepClient {
   opps: number; cover_count: number; owner_name: string | null;
 }
 
+const REP_CLIENT_COLS: SortableColumn<RepClient>[] = [
+  { key: 'code',   kind: 'text' },
+  { key: 'name',   kind: 'text' },
+  { key: 'status', kind: 'status', order: STATUS_ORDER },
+  // Owning comes before covering, which is the order the query itself uses
+  // (ORDER BY 5 puts 'covering' first only because of the alphabet) and the
+  // order the pills are explained in: what this person owns, then what they
+  // merely back up. Sorting it as text would lead on Covers.
+  { key: 'relation', kind: 'status', order: ['primary', 'covering'] },
+  { key: 'opps',     kind: 'number' },
+];
+
 /**
  * Every client a given rep or manager works, each row saying whether they own it
  * or cover it.
@@ -406,12 +461,14 @@ export function RepClients({ people, selected, clients }: {
   const [q, setQ] = useState('');
   const [only, setOnly] = useState<'all' | 'primary' | 'covering'>('all');
 
-  const shown = useMemo(() => {
+  const found = useMemo(() => {
     const t = q.trim().toLowerCase();
     return clients.filter(c =>
       (only === 'all' || c.relation === only)
       && (!t || c.code.toLowerCase().includes(t) || c.name.toLowerCase().includes(t)));
   }, [clients, q, only]);
+
+  const { rows: shown, sortBy } = useTableSort(found, REP_CLIENT_COLS);
 
   const owned = clients.filter(c => c.relation === 'primary').length;
   const covers = clients.length - owned;
@@ -461,8 +518,12 @@ export function RepClients({ people, selected, clients }: {
           <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 760 }}>
             <thead>
               <tr>
-                <th style={TH}>Code</th><th style={TH}>Client</th><th style={TH}>Status</th>
-                <th style={TH}>Relation</th><th style={{ ...TH, textAlign: 'right' }}>Opps</th>
+                <SortTH {...sortBy('code')}     style={TH}>Code</SortTH>
+                <SortTH {...sortBy('name')}     style={TH}>Client</SortTH>
+                <SortTH {...sortBy('status')}   style={TH}>Status</SortTH>
+                <SortTH {...sortBy('relation')} style={TH}>Relation</SortTH>
+                <SortTH {...sortBy('opps')}     style={{ ...TH, textAlign: 'right' }} align="right">Opps</SortTH>
+                {/* The ownership editor button. */}
                 <th style={TH}>Owner &amp; cover</th>
               </tr>
             </thead>

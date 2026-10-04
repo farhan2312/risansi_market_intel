@@ -1,4 +1,9 @@
+'use client';
+
 import type { CSSProperties, ReactNode } from 'react';
+import { ALL_STAGES } from '@/lib/risansi-opportunity-fields';
+import { useTableSort, SortTH } from './SortTH';
+import type { SortableColumn } from '@/lib/risansi-table-sort';
 
 // ────────────────────────────────────────────────────────────────
 // Account Review — the group-of-mills and OEM executive formats.
@@ -6,6 +11,17 @@ import type { CSSProperties, ReactNode } from 'react';
 // system (FR/red-money on complaints, a "budgetary" opportunity category, a
 // named-projects register, per-FY pump counts) are deliberately omitted rather
 // than shown as empty scaffolding.
+//
+// A client component, and only because the tables sort. Every table on this page
+// holds its whole set of rows — a group has a dozen units, an OEM has five
+// fiscal years — so sorting happens in the browser against rows that are all
+// already there. None of this is one page of a longer query, so there is no
+// larger set a browser sort could misrepresent, and no reason to make a reader
+// wait for a round trip to reorder eleven lines.
+//
+// The totals and averages sit in <tfoot> rather than at the end of <tbody>, so
+// they are outside the array that gets sorted and stay at the bottom whichever
+// column is pointing which way.
 // ────────────────────────────────────────────────────────────────
 
 const inr = (n: number | null | undefined) => (n == null ? '—' : Math.round(n).toLocaleString('en-IN'));
@@ -64,6 +80,36 @@ export interface OemReviewData {
   currentFy: CurrentFyView;
 }
 
+// ── Sort column definitions ─────────────────────────────────────
+
+// Unit Overview. The pump counts and the spares figure are quantities, so the
+// first click gives the largest; Unit and Action Points are labels, so theirs
+// gives A to Z. Action Points sorts on the joined text the cell actually shows,
+// and a unit with no action points reads blank and sinks to the bottom rather
+// than sorting as an empty string somewhere in the middle.
+const UNIT_COLS: SortableColumn<GroupUnit>[] = [
+  { key: 'name',          kind: 'text' },
+  { key: 'tcd',           kind: 'number' },
+  { key: 'rilPcp',        kind: 'number' },
+  { key: 'rotoPcp',       kind: 'number' },
+  { key: 'otherPcp',      kind: 'number' },
+  { key: 'totalPcp',      kind: 'number' },
+  { key: 'rilMmp',        kind: 'number' },
+  { key: 'otherMmp',      kind: 'number' },
+  { key: 'sparesPerPump', kind: 'number' },
+  { key: 'actions',       kind: 'text', value: u => u.actions.join(' · ') || null },
+];
+
+type ComplaintRow = GroupReviewData['complaints'][number];
+// The year is a number, not a date string, so it sorts as one — and like every
+// other number column the first click gives the largest, which here is the most
+// recent year.
+const COMPLAINT_COLS: SortableColumn<ComplaintRow>[] = [
+  { key: 'year',   kind: 'number' },
+  { key: 'nature', kind: 'text' },
+  { key: 'count',  kind: 'number' },
+];
+
 // ── Group (Mills) ───────────────────────────────────────────────
 /**
  * Where this account stands this fiscal year.
@@ -109,8 +155,8 @@ function Fig({ label, value, sub, tone }: { label: string; value: string; sub: s
 
 export function GroupReview({ d }: { d: GroupReviewData }) {
   const f = d.footprint;
-  const sum = (xs: (number | null)[]) => xs.reduce<number>((a, b) => a + (b ?? 0), 0);
-  const avg = (xs: (number | null)[]) => { const v = xs.filter(x => x != null) as number[]; return v.length ? sum(v) / d.fys.length : null; };
+  const { rows: units, sortBy: unitSort } = useTableSort(d.units, UNIT_COLS);
+  const { rows: complaints, sortBy: complaintSort } = useTableSort(d.complaints, COMPLAINT_COLS);
 
   return (
     <div style={{ display: 'grid', gap: 12 }}>
@@ -145,11 +191,19 @@ export function GroupReview({ d }: { d: GroupReviewData }) {
         <Scroll>
           <table style={TBL}>
             <thead><tr>
-              {['Unit', 'Cap TCD', 'RIL PCP', 'ROTO PCP', 'OTHER PCP', 'Total PCP', 'RIL MMP', 'OTHER MMP', 'Spares / Pump', 'Action Points'].map((h, i) =>
-                <th key={h} style={{ ...TH, textAlign: i === 0 || i === 9 ? 'left' : 'right' }}>{h}</th>)}
+              <SortTH {...unitSort('name')} style={TH} align="left">Unit</SortTH>
+              <SortTH {...unitSort('tcd')} style={TH} align="right">Cap TCD</SortTH>
+              <SortTH {...unitSort('rilPcp')} style={TH} align="right">RIL PCP</SortTH>
+              <SortTH {...unitSort('rotoPcp')} style={TH} align="right">ROTO PCP</SortTH>
+              <SortTH {...unitSort('otherPcp')} style={TH} align="right">OTHER PCP</SortTH>
+              <SortTH {...unitSort('totalPcp')} style={TH} align="right">Total PCP</SortTH>
+              <SortTH {...unitSort('rilMmp')} style={TH} align="right">RIL MMP</SortTH>
+              <SortTH {...unitSort('otherMmp')} style={TH} align="right">OTHER MMP</SortTH>
+              <SortTH {...unitSort('sparesPerPump')} style={TH} align="right">Spares / Pump</SortTH>
+              <SortTH {...unitSort('actions')} style={TH} align="left">Action Points</SortTH>
             </tr></thead>
             <tbody>
-              {d.units.map(u => (
+              {units.map(u => (
                 <tr key={u.code}>
                   <td style={{ ...TD, fontWeight: 500 }}>{u.name}</td>
                   <Num v={u.tcd} /><Num v={u.rilPcp} /><Num v={u.rotoPcp} /><Num v={u.otherPcp} />
@@ -159,6 +213,8 @@ export function GroupReview({ d }: { d: GroupReviewData }) {
                   <td style={{ ...TD, fontSize: 11, color: u.actions.length ? 'var(--warn)' : 'var(--fg-3)' }}>{u.actions.join(' · ') || '—'}</td>
                 </tr>
               ))}
+            </tbody>
+            <tfoot>
               <tr style={{ background: 'var(--bg-elev)' }}>
                 <td style={{ ...TD, fontWeight: 700, borderTop: BT }}>Total</td>
                 <td style={{ ...TD, borderTop: BT }} />
@@ -166,46 +222,13 @@ export function GroupReview({ d }: { d: GroupReviewData }) {
                   <td key={i} style={{ ...TD, textAlign: 'right', fontFamily: MONO, fontWeight: 700, borderTop: BT }}>{v}</td>)}
                 <td style={{ ...TD, borderTop: BT }} /><td style={{ ...TD, borderTop: BT }} />
               </tr>
-            </tbody>
+            </tfoot>
           </table>
         </Scroll>
       </Panel>
 
       {([['Pump Revenue by Unit', 'pumpByFy'], ['Spares Revenue by Unit', 'spareByFy']] as const).map(([title, key]) => (
-        <Panel key={title} title={title} note="₹ per financial year">
-          <Scroll>
-            <table style={TBL}>
-              <thead><tr>
-                <th style={{ ...TH, textAlign: 'left' }}>Unit</th>
-                <th style={{ ...TH, textAlign: 'right' }}>TCD</th>
-                {d.fys.map(fy => <th key={fy} style={{ ...TH, textAlign: 'right' }}>{fy}</th>)}
-                <th style={{ ...TH, textAlign: 'right' }}>Avg/Yr</th>
-              </tr></thead>
-              <tbody>
-                {d.units.map(u => (
-                  <tr key={u.code}>
-                    <td style={{ ...TD, fontWeight: 500 }}>{u.name}</td>
-                    <Num v={u.tcd} />
-                    {u[key].map((v, i) => <td key={i} style={{ ...TD, textAlign: 'right', fontFamily: MONO, color: v ? 'var(--fg)' : 'var(--fg-3)' }}>{v ? inr(v) : '—'}</td>)}
-                    <td style={{ ...TD, textAlign: 'right', fontFamily: MONO, fontWeight: 600 }}>{inr(avg(u[key]))}</td>
-                  </tr>
-                ))}
-                <tr style={{ background: 'var(--bg-elev)' }}>
-                  <td style={{ ...TD, fontWeight: 700, borderTop: BT }}>Group Total</td>
-                  <td style={{ ...TD, borderTop: BT }} />
-                  {d.fys.map((_, i) => (
-                    <td key={i} style={{ ...TD, textAlign: 'right', fontFamily: MONO, fontWeight: 700, borderTop: BT }}>
-                      {inr(sum(d.units.map(u => u[key][i])))}
-                    </td>
-                  ))}
-                  <td style={{ ...TD, textAlign: 'right', fontFamily: MONO, fontWeight: 700, borderTop: BT }}>
-                    {inr(sum(d.units.map(u => sum(u[key]))) / d.fys.length)}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </Scroll>
-        </Panel>
+        <RevenueByUnit key={title} title={title} fys={d.fys} units={d.units} field={key} />
       ))}
 
       <Panel title="Complaints" note="by year">
@@ -213,12 +236,12 @@ export function GroupReview({ d }: { d: GroupReviewData }) {
           <Scroll>
             <table style={TBL}>
               <thead><tr>
-                <th style={{ ...TH, textAlign: 'left' }}>Year</th>
-                <th style={{ ...TH, textAlign: 'left' }}>Nature of complaint</th>
-                <th style={{ ...TH, textAlign: 'right' }}>No. of complaints</th>
+                <SortTH {...complaintSort('year')} style={TH} align="left">Year</SortTH>
+                <SortTH {...complaintSort('nature')} style={TH} align="left">Nature of complaint</SortTH>
+                <SortTH {...complaintSort('count')} style={TH} align="right">No. of complaints</SortTH>
               </tr></thead>
               <tbody>
-                {d.complaints.map((c, i) => (
+                {complaints.map((c, i) => (
                   <tr key={i}>
                     <td style={{ ...TD, fontFamily: MONO }}>{c.year}</td>
                     <td style={TD}>{c.nature}</td>
@@ -234,8 +257,102 @@ export function GroupReview({ d }: { d: GroupReviewData }) {
   );
 }
 
+/**
+ * Revenue per unit across the fiscal years, for pumps or for spares.
+ *
+ * Its own component rather than two blocks inside GroupReview's loop, because
+ * each copy keeps its own sort and a hook cannot be called inside a map.
+ */
+function RevenueByUnit({ title, fys, units, field }: {
+  title: string; fys: string[]; units: GroupUnit[]; field: 'pumpByFy' | 'spareByFy';
+}) {
+  const sum = (xs: (number | null)[]) => xs.reduce<number>((a, b) => a + (b ?? 0), 0);
+  // Divided by the number of years, not by the number of years that had revenue:
+  // a unit that bought in one year of five averages a fifth, not the whole.
+  const avg = (xs: (number | null)[]) => {
+    const v = xs.filter(x => x != null) as number[];
+    return v.length ? sum(v) / fys.length : null;
+  };
+
+  const COLS: SortableColumn<GroupUnit>[] = [
+    { key: 'name', kind: 'text' },
+    { key: 'tcd',  kind: 'number' },
+    ...fys.map((fy, i) => ({ key: `fy${i}`, kind: 'number' as const, value: (u: GroupUnit) => u[field][i] })),
+    { key: 'avg',  kind: 'number', value: (u: GroupUnit) => avg(u[field]) },
+  ];
+  const { rows, sortBy } = useTableSort(units, COLS);
+
+  return (
+    <Panel title={title} note="₹ per financial year">
+      <Scroll>
+        <table style={TBL}>
+          <thead><tr>
+            <SortTH {...sortBy('name')} style={TH} align="left">Unit</SortTH>
+            <SortTH {...sortBy('tcd')} style={TH} align="right">TCD</SortTH>
+            {fys.map((fy, i) => (
+              <SortTH key={fy} {...sortBy(`fy${i}`)} style={TH} align="right">{fy}</SortTH>
+            ))}
+            <SortTH {...sortBy('avg')} style={TH} align="right">Avg/Yr</SortTH>
+          </tr></thead>
+          <tbody>
+            {rows.map(u => (
+              <tr key={u.code}>
+                <td style={{ ...TD, fontWeight: 500 }}>{u.name}</td>
+                <Num v={u.tcd} />
+                {u[field].map((v, i) => <td key={i} style={{ ...TD, textAlign: 'right', fontFamily: MONO, color: v ? 'var(--fg)' : 'var(--fg-3)' }}>{v ? inr(v) : '—'}</td>)}
+                <td style={{ ...TD, textAlign: 'right', fontFamily: MONO, fontWeight: 600 }}>{inr(avg(u[field]))}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr style={{ background: 'var(--bg-elev)' }}>
+              <td style={{ ...TD, fontWeight: 700, borderTop: BT }}>Group Total</td>
+              <td style={{ ...TD, borderTop: BT }} />
+              {fys.map((_, i) => (
+                <td key={i} style={{ ...TD, textAlign: 'right', fontFamily: MONO, fontWeight: 700, borderTop: BT }}>
+                  {inr(sum(units.map(u => u[field][i])))}
+                </td>
+              ))}
+              <td style={{ ...TD, textAlign: 'right', fontFamily: MONO, fontWeight: 700, borderTop: BT }}>
+                {inr(sum(units.map(u => sum(u[field]))) / fys.length)}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </Scroll>
+    </Panel>
+  );
+}
+
 // ── OEM ─────────────────────────────────────────────────────────
+
+interface OemRevenueRow { fy: string; revenue: number | null }
+interface OemStageRow { stage: string; vals: (number | null)[] }
+
 export function OemReview({ d }: { d: OemReviewData }) {
+  // The fiscal year and its figure as one row, so the table sorts on a pair
+  // rather than on two arrays that have to be kept in step by index.
+  const revenueRows: OemRevenueRow[] = d.fys.map((fy, i) => ({ fy, revenue: d.revenueByFy[i] ?? null }));
+  // A fiscal-year label reads '24-25', so text order and chronological order are
+  // the same thing and the numeric collator keeps them that way.
+  const REV_COLS: SortableColumn<OemRevenueRow>[] = [
+    { key: 'fy',      kind: 'text' },
+    { key: 'revenue', kind: 'number' },
+  ];
+  const { rows: revenue, sortBy: revSort } = useTableSort(revenueRows, REV_COLS);
+
+  const stageRows: OemStageRow[] = d.stages.map((s, si) => ({ stage: s, vals: d.oppMatrix[si] ?? [] }));
+  // Stage is a lifecycle, not a word list: ALL_STAGES is the sequence an
+  // opportunity actually moves through (Prospect, Suspect, Quoted, Negotiating,
+  // On Hold, Won, Lost, Dropped), and sorting it alphabetically would put
+  // Dropped first and Won next to Suspect. The rows arrive alphabetical from the
+  // page, so the first click on this column is what puts them in pipeline order.
+  const STAGE_COLS: SortableColumn<OemStageRow>[] = [
+    { key: 'stage', kind: 'status', order: ALL_STAGES },
+    ...d.oppFys.map((fy, i) => ({ key: `fy${i}`, kind: 'number' as const, value: (r: OemStageRow) => r.vals[i] })),
+  ];
+  const { rows: stages, sortBy: stageSort } = useTableSort(stageRows, STAGE_COLS);
+
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       <CurrentFyStrip d={d.currentFy} />
@@ -249,21 +366,26 @@ export function OemReview({ d }: { d: OemReviewData }) {
         <Panel title="Revenue by Financial Year">
           <Scroll>
             <table style={TBL}>
-              <thead><tr><th style={{ ...TH, textAlign: 'left' }}>F.Y.</th><th style={{ ...TH, textAlign: 'right' }}>Revenue</th></tr></thead>
+              <thead><tr>
+                <SortTH {...revSort('fy')} style={TH} align="left">F.Y.</SortTH>
+                <SortTH {...revSort('revenue')} style={TH} align="right">Revenue</SortTH>
+              </tr></thead>
               <tbody>
-                {d.fys.map((fy, i) => (
-                  <tr key={fy}>
-                    <td style={{ ...TD, fontWeight: 500 }}>{fy}</td>
-                    <td style={{ ...TD, textAlign: 'right', fontFamily: MONO, color: d.revenueByFy[i] ? 'var(--fg)' : 'var(--fg-3)' }}>
-                      {d.revenueByFy[i] ? inr(d.revenueByFy[i]) : '—'}
+                {revenue.map(r => (
+                  <tr key={r.fy}>
+                    <td style={{ ...TD, fontWeight: 500 }}>{r.fy}</td>
+                    <td style={{ ...TD, textAlign: 'right', fontFamily: MONO, color: r.revenue ? 'var(--fg)' : 'var(--fg-3)' }}>
+                      {r.revenue ? inr(r.revenue) : '—'}
                     </td>
                   </tr>
                 ))}
+              </tbody>
+              <tfoot>
                 <tr style={{ background: 'var(--bg-elev)' }}>
                   <td style={{ ...TD, fontWeight: 700, borderTop: BT }}>Avg/Yr</td>
                   <td style={{ ...TD, textAlign: 'right', fontFamily: MONO, fontWeight: 700, borderTop: BT }}>{inr(d.avgPerYear)}</td>
                 </tr>
-              </tbody>
+              </tfoot>
             </table>
           </Scroll>
         </Panel>
@@ -273,18 +395,22 @@ export function OemReview({ d }: { d: OemReviewData }) {
             <Scroll>
               <table style={TBL}>
                 <thead><tr>
-                  <th style={{ ...TH, textAlign: 'left' }}>Stage</th>
-                  {d.oppFys.map(fy => <th key={fy} style={{ ...TH, textAlign: 'right' }}>{fy}</th>)}
+                  <SortTH {...stageSort('stage')} style={TH} align="left">Stage</SortTH>
+                  {d.oppFys.map((fy, i) => (
+                    <SortTH key={fy} {...stageSort(`fy${i}`)} style={TH} align="right">{fy}</SortTH>
+                  ))}
                 </tr></thead>
                 <tbody>
-                  {d.stages.map((s, si) => (
-                    <tr key={s}>
-                      <td style={{ ...TD, fontWeight: 500 }}>{s}</td>
-                      {d.oppMatrix[si].map((v, vi) => (
+                  {stages.map(r => (
+                    <tr key={r.stage}>
+                      <td style={{ ...TD, fontWeight: 500 }}>{r.stage}</td>
+                      {r.vals.map((v, vi) => (
                         <td key={vi} style={{ ...TD, textAlign: 'right', fontFamily: MONO, color: v ? 'var(--fg)' : 'var(--fg-3)' }}>{v ? inr(v) : '—'}</td>
                       ))}
                     </tr>
                   ))}
+                </tbody>
+                <tfoot>
                   <tr style={{ background: 'var(--bg-elev)' }}>
                     <td style={{ ...TD, fontWeight: 700, borderTop: BT }}>Total</td>
                     {d.oppFys.map((_, fi) => (
@@ -293,7 +419,7 @@ export function OemReview({ d }: { d: OemReviewData }) {
                       </td>
                     ))}
                   </tr>
-                </tbody>
+                </tfoot>
               </table>
             </Scroll>
           )}
