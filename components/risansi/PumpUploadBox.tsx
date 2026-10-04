@@ -3,6 +3,8 @@
 import { useState, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import { uploadPumps } from '@/app/actions/risansi-pumps';
+import { SortTH, useTableSort } from '@/components/risansi/SortTH';
+import type { SortableColumn } from '@/lib/risansi-table-sort';
 import type { PumpUploadResult } from '@/app/actions/risansi-pumps';
 
 // ── Types ──────────────────────────────────────────────────────
@@ -24,6 +26,24 @@ interface UploadRow {
   statusMsg:   string;
   dbClientName?: string;
 }
+
+// Problems first when the Status column is clicked. A pump sheet runs to
+// hundreds of serials and the handful that match no client are what decides
+// whether to import or go back and fix the file; hunting them by eye is the
+// work this saves. Unsorted until clicked, so the sheet's own row order — the
+// thing you need to correct the spreadsheet — is what you see first.
+const STATUS_ORDER = ['invalid_code', 'checking', 'valid'] as const;
+
+const COLS: SortableColumn<UploadRow>[] = [
+  { key: 'status', kind: 'status', order: STATUS_ORDER },
+  { key: 'cust', kind: 'text' },
+  { key: 'dbClientName', kind: 'text', value: r => r.dbClientName ?? r.statusMsg },
+  { key: 'model', kind: 'text' },
+  { key: 'srNo', kind: 'text' },
+  { key: 'ecNo', kind: 'text' },
+  { key: 'soNo', kind: 'text' },
+  { key: 'liquid', kind: 'text' },
+];
 
 type Stage = 'empty' | 'validating' | 'preview' | 'saving' | 'done';
 
@@ -47,6 +67,8 @@ const TH = {
 export function PumpUploadBox() {
   const [dragOver, setDragOver] = useState(false);
   const [rows,     setRows]     = useState<UploadRow[]>([]);
+  // Above the stage branches below, because a hook cannot live inside one.
+  const { rows: previewRows, sortBy } = useTableSort(rows, COLS);
   const [fileName, setFileName] = useState('');
   const [stage,    setStage]    = useState<Stage>('empty');
   const [result,   setResult]   = useState<PumpUploadResult | null>(null);
@@ -208,7 +230,7 @@ export function PumpUploadBox() {
         </div>
 
         {error && (
-          <div style={{ margin: '16px 20px 0', padding: '10px 14px', background: '#FDE8E8', border: '1px solid #F87171', borderLeft: '3px solid #E02424', borderRadius: 6, color: '#9B1C1C', fontSize: 13 }}>
+          <div style={{ margin: '16px 20px 0', padding: '10px 14px', background: '#FDE8E8', border: '1px solid #F87171', borderLeft: '3px solid #E02424', borderRadius: 6, color: 'var(--neg-strong)', fontSize: 13 }}>
             ⚠ {error}
           </div>
         )}
@@ -268,11 +290,11 @@ export function PumpUploadBox() {
         </div>
 
         <div style={{ padding: '10px 20px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <span style={{ padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500, background: '#D1FAE5', color: '#065F46' }}>
+          <span style={{ padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500, background: '#D1FAE5', color: 'var(--pos-strong)' }}>
             ✓ {validCount} ready to import
           </span>
           {invalidCount > 0 && (
-            <span style={{ padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500, background: '#FDE8E8', color: '#9B1C1C' }}>
+            <span style={{ padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500, background: '#FDE8E8', color: 'var(--neg-strong)' }}>
               ✗ {invalidCount} unmatched (skipped)
             </span>
           )}
@@ -282,27 +304,27 @@ export function PumpUploadBox() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
               <tr>
-                <th style={{ ...TH, textAlign: 'left' }}>Status</th>
-                <th style={{ ...TH, textAlign: 'left' }}>CUST</th>
-                <th style={{ ...TH, textAlign: 'left' }}>Client (from DB)</th>
-                <th style={{ ...TH, textAlign: 'left' }}>Model</th>
-                <th style={{ ...TH, textAlign: 'left' }}>Serial</th>
-                <th style={{ ...TH, textAlign: 'left' }}>EC No</th>
-                <th style={{ ...TH, textAlign: 'left' }}>SO No</th>
-                <th style={{ ...TH, textAlign: 'left' }}>Liquid</th>
+                <SortTH {...sortBy('status')}       style={TH} align="left">Status</SortTH>
+                <SortTH {...sortBy('cust')}         style={TH} align="left">CUST</SortTH>
+                <SortTH {...sortBy('dbClientName')} style={TH} align="left">Client (from DB)</SortTH>
+                <SortTH {...sortBy('model')}        style={TH} align="left">Model</SortTH>
+                <SortTH {...sortBy('srNo')}         style={TH} align="left">Serial</SortTH>
+                <SortTH {...sortBy('ecNo')}         style={TH} align="left">EC No</SortTH>
+                <SortTH {...sortBy('soNo')}         style={TH} align="left">SO No</SortTH>
+                <SortTH {...sortBy('liquid')}       style={TH} align="left">Liquid</SortTH>
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, i) => (
-                <tr key={i} style={{ background: row.status !== 'valid' ? '#FFF8F8' : 'white', borderBottom: '1px solid var(--line)' }}>
+              {previewRows.map((row, i) => (
+                <tr key={i} style={{ background: row.status !== 'valid' ? 'var(--neg-soft)' : 'transparent', borderBottom: '1px solid var(--line)' }}>
                   <td style={{ padding: '8px 12px' }}>
                     {row.status === 'valid'
-                      ? <span style={{ color: '#065F46', fontSize: 11, fontWeight: 600 }}>✓ Ready</span>
-                      : <span title={row.statusMsg} style={{ color: '#9B1C1C', fontSize: 11, fontWeight: 600, cursor: 'help' }}>✗ No client</span>}
+                      ? <span style={{ color: 'var(--pos-strong)', fontSize: 11, fontWeight: 600 }}>✓ Ready</span>
+                      : <span title={row.statusMsg} style={{ color: 'var(--neg-strong)', fontSize: 11, fontWeight: 600, cursor: 'help' }}>✗ No client</span>}
                   </td>
-                  <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: 11, color: row.status !== 'valid' ? '#9B1C1C' : 'var(--fg)' }}>{row.cust}</td>
+                  <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: 11, color: row.status !== 'valid' ? 'var(--neg-strong)' : 'var(--fg)' }}>{row.cust}</td>
                   <td style={{ padding: '8px 12px', color: 'var(--fg-2)' }}>
-                    {row.dbClientName ?? <span style={{ color: '#9B1C1C', fontStyle: 'italic', fontSize: 11 }}>{row.statusMsg}</span>}
+                    {row.dbClientName ?? <span style={{ color: 'var(--neg-strong)', fontStyle: 'italic', fontSize: 11 }}>{row.statusMsg}</span>}
                   </td>
                   <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{row.model || '—'}</td>
                   <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{row.srNo || '—'}</td>
@@ -337,12 +359,12 @@ export function PumpUploadBox() {
         <div style={{ fontSize: 36, marginBottom: 12 }}>✅</div>
         <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>Upload Complete</div>
         <div style={{ fontSize: 13, color: 'var(--fg-3)', marginBottom: 4 }}>
-          <span style={{ color: '#065F46', fontWeight: 600 }}>{result.inserted}</span> inserted ·{' '}
+          <span style={{ color: 'var(--pos-strong)', fontWeight: 600 }}>{result.inserted}</span> inserted ·{' '}
           <span style={{ color: '#1E40AF', fontWeight: 600 }}>{result.updated}</span> updated ·{' '}
           <span style={{ color: result.skipped > 0 ? '#9B1C1C' : 'var(--fg-3)', fontWeight: result.skipped > 0 ? 600 : 400 }}>{result.skipped}</span> skipped
         </div>
         {result.skippedCodes.length > 0 && (
-          <div style={{ marginTop: 8, fontSize: 12, color: '#9B1C1C' }}>Codes not found: {result.skippedCodes.join(', ')}</div>
+          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--neg-strong)' }}>Codes not found: {result.skippedCodes.join(', ')}</div>
         )}
         <button onClick={() => window.location.reload()} style={{ marginTop: 20, padding: '8px 20px', borderRadius: 6, fontFamily: 'inherit', background: '#0A3D8F', color: 'white', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
           Upload Another File

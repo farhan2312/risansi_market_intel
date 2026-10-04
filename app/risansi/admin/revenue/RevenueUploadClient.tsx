@@ -2,6 +2,9 @@
 
 import { useState, useRef, useCallback } from 'react';
 import { uploadRevenue } from '@/app/actions/risansi-admin-revenue';
+import { parseMonthYear } from '@/lib/risansi-month-year';
+import { SortTH, useTableSort } from '@/components/risansi/SortTH';
+import type { SortableColumn } from '@/lib/risansi-table-sort';
 
 interface ParsedRow {
   client_code:  string;
@@ -15,6 +18,44 @@ interface ParsedRow {
 }
 
 interface UploadResult { inserted: number; skipped: number; }
+
+// Problems first when Status is clicked: a code that matched nothing, then a
+// duplicate, then the rows that are fine. Until a header is clicked the sheet's
+// own row order stands, which is the order you need to correct the file in.
+const STATUS_ORDER = ['not_found', 'duplicate', 'found'] as const;
+
+/**
+ * Month sorts chronologically. The cell shows the sheet's own text ("May-2026",
+ * or "May-2026 H1" for a fortnight), and as text that orders Apr, Aug, Dec —
+ * the alphabet, which is not an order any month has. The H1/H2 suffix is kept
+ * on the end of the key so the first half of a month precedes the second.
+ */
+const monthKey = (raw: string): string | null => {
+  const p = parseMonthYear(raw);
+  if (!p) return null;
+  const half = /H2/i.test(raw) ? '2' : /H1/i.test(raw) ? '1' : '0';
+  return `${p.y}-${String(p.m + 1).padStart(2, '0')}-${half}`;
+};
+
+const COLS: SortableColumn<ParsedRow>[] = [
+  { key: 'client_code', kind: 'text' },
+  { key: 'client_name', kind: 'text' },
+  { key: 'month', kind: 'date', value: r => monthKey(r.month) },
+  { key: 'pump_value', kind: 'number' },
+  { key: 'spare_value', kind: 'number' },
+  { key: 'total_value', kind: 'number' },
+  { key: 'status', kind: 'status', order: STATUS_ORDER },
+];
+
+const HEADERS: { key: string; label: string; align: 'left' | 'right' }[] = [
+  { key: 'client_code', label: 'Code',        align: 'left'  },
+  { key: 'client_name', label: 'Client Name', align: 'left'  },
+  { key: 'month',       label: 'Month',       align: 'left'  },
+  { key: 'pump_value',  label: 'Pump ₹',  align: 'right' },
+  { key: 'spare_value', label: 'Spare ₹', align: 'right' },
+  { key: 'total_value', label: 'Total ₹', align: 'right' },
+  { key: 'status',      label: 'Status',      align: 'left'  },
+];
 
 const MONTHS: Record<string, string> = {
   jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',
@@ -30,6 +71,8 @@ function fmtInr(n: number) {
 
 export function RevenueUploadClient({ existingCodes }: { existingCodes: Set<string> }) {
   const [rows,    setRows]    = useState<ParsedRow[] | null>(null);
+  // Above the early returns below, because a hook cannot live inside one.
+  const { rows: previewRows, sortBy } = useTableSort(rows ?? [], COLS);
   const [file,    setFile]    = useState<File | null>(null);
   const [saving,  setSaving]  = useState(false);
   const [result,  setResult]  = useState<UploadResult | null>(null);
@@ -241,18 +284,18 @@ export function RevenueUploadClient({ existingCodes }: { existingCodes: Set<stri
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
                 <tr style={{ background: 'var(--bg-elev)' }}>
-                  {['Code', 'Client Name', 'Month', 'Pump ₹', 'Spare ₹', 'Total ₹', 'Status'].map(h => (
-                    <th key={h} style={{
-                      padding: '8px 12px', textAlign: 'left', fontSize: 10,
+                  {HEADERS.map(h => (
+                    <SortTH key={h.key} {...sortBy(h.key)} align={h.align} style={{
+                      padding: '8px 12px', fontSize: 10,
                       textTransform: 'uppercase', letterSpacing: '0.07em',
                       color: 'var(--fg-3)', borderBottom: '1px solid var(--line)',
                       whiteSpace: 'nowrap',
-                    }}>{h}</th>
+                    }}>{h.label}</SortTH>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row, i) => (
+                {previewRows.map((row, i) => (
                   <tr key={i} style={{ borderBottom: '1px solid var(--line)' }}>
                     <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)' }}>
                       {row.client_code}

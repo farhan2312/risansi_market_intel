@@ -4,14 +4,15 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "node scripts/sql-placeholder-audit.mjs && node scripts/action-result-check.mjs && node scripts/opp-forms-render-check.mjs && node scripts/opportunity-scope-check.mjs && node scripts/complaint-flow-check.mjs && node scripts/search-box-check.mjs && next build",
+    "build": "node scripts/sql-placeholder-audit.mjs && node scripts/action-result-check.mjs && node scripts/opp-forms-render-check.mjs && node scripts/opportunity-scope-check.mjs && node scripts/complaint-flow-check.mjs && node scripts/search-box-check.mjs && node scripts/table-sort-check.mjs && next build",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "migrate": "node scripts/migrate.mjs",
     "migrate:status": "node scripts/migrate.mjs --status",
     "check:sql": "node scripts/sql-placeholder-audit.mjs",
-    "check:actions": "node scripts/action-result-check.mjs"
+    "check:actions": "node scripts/action-result-check.mjs",
+    "check:sort": "node scripts/table-sort-check.mjs"
   },
   "dependencies": {
     "@auth/core": "^0.34.3",

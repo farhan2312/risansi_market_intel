@@ -2,6 +2,7 @@
 
 import { type CSSProperties } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { type SortKind, firstDir } from '@/lib/risansi-table-sort';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -10,6 +11,9 @@ interface Props {
   label:       string;               // Display label
   currentSort: string;               // Active sort key (from server searchParams)
   currentDir:  'asc' | 'desc';      // Active direction (from server searchParams)
+  /** What the column holds. Decides which way the FIRST click points: a name
+   *  opens at A, a value opens at the largest. Defaults to text. */
+  kind?:       SortKind;
   style?:      CSSProperties;
   align?:      'left' | 'right' | 'center';
 }
@@ -17,7 +21,7 @@ interface Props {
 // ── Component ──────────────────────────────────────────────────
 
 export function SortableTH({
-  col, label, currentSort, currentDir,
+  col, label, currentSort, currentDir, kind = 'text',
   style, align = 'left',
 }: Props) {
   const router   = useRouter();
@@ -31,7 +35,9 @@ export function SortableTH({
       params.set('dir', currentDir === 'asc' ? 'desc' : 'asc');
     } else {
       params.set('sort', col);
-      params.set('dir', 'asc');
+      // Not always 'asc'. Ascending on a money column opens at the smallest
+      // number in the book, which is never the row anyone came to find.
+      params.set('dir', firstDir(kind));
     }
     params.delete('page');
     router.push(`${pathname}?${params.toString()}`);
@@ -40,13 +46,17 @@ export function SortableTH({
   return (
     <th
       onClick={handleClick}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick(); } }}
+      role="button"
+      tabIndex={0}
+      aria-sort={isActive ? (currentDir === 'asc' ? 'ascending' : 'descending') : 'none'}
       title={`Sort by ${label}`}
       style={{
         cursor:       'pointer',
         userSelect:   'none',
         textAlign:    align,
         ...TH_BASE,
-        ...(isActive ? { color: '#0A3D8F' } : {}),
+        ...(isActive ? { color: 'var(--accent)' } : {}),
         ...style,
       }}
     >

@@ -4,6 +4,9 @@ import { useState, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import { uploadRevenue } from '@/app/actions/risansi-revenue';
 import type { UploadResult } from '@/app/actions/risansi-revenue';
+import { parseMonthYear } from '@/lib/risansi-month-year';
+import { SortTH, useTableSort } from '@/components/risansi/SortTH';
+import type { SortableColumn } from '@/lib/risansi-table-sort';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -21,6 +24,35 @@ interface UploadRow {
   dbClientId?:   string;
   dbClientName?: string;
 }
+
+// Problems first when Status is clicked — on a sheet of several hundred months
+// the rows that will not import are the only ones worth reading, and they are
+// scattered through it. Until a header is clicked the sheet's own row order
+// stands, which is what you need to go back and correct the file.
+const STATUS_ORDER = ['invalid_code', 'invalid_month', 'checking', 'valid'] as const;
+
+/**
+ * Month sorts chronologically, not alphabetically. The cell holds the sheet's
+ * raw text ("May-2026"), and sorting that as text gives Apr, Aug, Dec — the
+ * alphabet, which is not an order any month has. parseMonthYear already reads
+ * every shape the sheets arrive in, so this borrows it and hands back a
+ * 'YYYY-MM' key. A month it cannot read sorts as blank, to the bottom, where an
+ * unreadable month belongs anyway.
+ */
+const monthKey = (raw: string): string | null => {
+  const p = parseMonthYear(raw);
+  return p ? `${p.y}-${String(p.m + 1).padStart(2, '0')}` : null;
+};
+
+const COLS: SortableColumn<UploadRow>[] = [
+  { key: 'status', kind: 'status', order: STATUS_ORDER },
+  { key: 'code', kind: 'text' },
+  { key: 'dbClientName', kind: 'text', value: r => r.dbClientName ?? r.clientName },
+  { key: 'month', kind: 'date', value: r => monthKey(r.month) },
+  { key: 'pump', kind: 'number' },
+  { key: 'spare', kind: 'number' },
+  { key: 'total', kind: 'number' },
+];
 
 type Stage = 'empty' | 'validating' | 'preview' | 'saving' | 'done';
 
@@ -55,6 +87,8 @@ const TH = {
 export function RevenueUploadBox() {
   const [dragOver, setDragOver] = useState(false);
   const [rows,     setRows]     = useState<UploadRow[]>([]);
+  // Above the stage branches below, because a hook cannot live inside one.
+  const { rows: previewRows, sortBy } = useTableSort(rows, COLS);
   const [fileName, setFileName] = useState('');
   const [stage,    setStage]    = useState<Stage>('empty');
   const [result,   setResult]   = useState<UploadResult | null>(null);
@@ -244,7 +278,7 @@ export function RevenueUploadBox() {
             margin: '16px 20px 0', padding: '10px 14px',
             background: '#FDE8E8', border: '1px solid #F87171',
             borderLeft: '3px solid #E02424', borderRadius: 6,
-            color: '#9B1C1C', fontSize: 13,
+            color: 'var(--neg-strong)', fontSize: 13,
           }}>
             ⚠ {error}
           </div>
@@ -343,14 +377,14 @@ export function RevenueUploadBox() {
         }}>
           <span style={{
             padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500,
-            background: '#D1FAE5', color: '#065F46',
+            background: '#D1FAE5', color: 'var(--pos-strong)',
           }}>
             ✓ {validCount} ready to import
           </span>
           {invalidCount > 0 && (
             <span style={{
               padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500,
-              background: '#FDE8E8', color: '#9B1C1C',
+              background: '#FDE8E8', color: 'var(--neg-strong)',
             }}>
               ✗ {invalidCount} will be skipped
             </span>
@@ -371,28 +405,28 @@ export function RevenueUploadBox() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
               <tr>
-                <th style={{ ...TH, textAlign: 'left' }}>Status</th>
-                <th style={{ ...TH, textAlign: 'left' }}>Code</th>
-                <th style={{ ...TH, textAlign: 'left' }}>Client (from DB)</th>
-                <th style={{ ...TH, textAlign: 'left' }}>Month</th>
-                <th style={{ ...TH, textAlign: 'right' }}>Pump ₹</th>
-                <th style={{ ...TH, textAlign: 'right' }}>Spare ₹</th>
-                <th style={{ ...TH, textAlign: 'right' }}>Total ₹</th>
+                <SortTH {...sortBy('status')}       style={TH} align="left">Status</SortTH>
+                <SortTH {...sortBy('code')}         style={TH} align="left">Code</SortTH>
+                <SortTH {...sortBy('dbClientName')} style={TH} align="left">Client (from DB)</SortTH>
+                <SortTH {...sortBy('month')}        style={TH} align="left">Month</SortTH>
+                <SortTH {...sortBy('pump')}         style={TH} align="right">Pump ₹</SortTH>
+                <SortTH {...sortBy('spare')}        style={TH} align="right">Spare ₹</SortTH>
+                <SortTH {...sortBy('total')}        style={TH} align="right">Total ₹</SortTH>
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, i) => (
+              {previewRows.map((row, i) => (
                 <tr key={i} style={{
-                  background: row.status !== 'valid' ? '#FFF8F8' : 'white',
+                  background: row.status !== 'valid' ? 'var(--neg-soft)' : 'transparent',
                   borderBottom: '1px solid var(--line)',
                 }}>
                   <td style={{ padding: '8px 12px' }}>
                     {row.status === 'valid' ? (
-                      <span style={{ color: '#065F46', fontSize: 11, fontWeight: 600 }}>✓ Ready</span>
+                      <span style={{ color: 'var(--pos-strong)', fontSize: 11, fontWeight: 600 }}>✓ Ready</span>
                     ) : (
                       <span
                         title={row.statusMsg}
-                        style={{ color: '#9B1C1C', fontSize: 11, fontWeight: 600, cursor: 'help' }}
+                        style={{ color: 'var(--neg-strong)', fontSize: 11, fontWeight: 600, cursor: 'help' }}
                       >
                         ✗ {row.status === 'invalid_code' ? 'Code not found' : 'Invalid month'}
                       </span>
@@ -406,7 +440,7 @@ export function RevenueUploadBox() {
                   </td>
                   <td style={{ padding: '8px 12px', color: 'var(--fg-2)' }}>
                     {row.dbClientName ?? (
-                      <span style={{ color: '#9B1C1C', fontStyle: 'italic', fontSize: 11 }}>
+                      <span style={{ color: 'var(--neg-strong)', fontStyle: 'italic', fontSize: 11 }}>
                         {row.statusMsg}
                       </span>
                     )}
@@ -461,14 +495,14 @@ export function RevenueUploadBox() {
         <div style={{ fontSize: 36, marginBottom: 12 }}>✅</div>
         <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>Upload Complete</div>
         <div style={{ fontSize: 13, color: 'var(--fg-3)', marginBottom: 4 }}>
-          <span style={{ color: '#065F46', fontWeight: 600 }}>{result.inserted}</span> inserted ·{' '}
+          <span style={{ color: 'var(--pos-strong)', fontWeight: 600 }}>{result.inserted}</span> inserted ·{' '}
           <span style={{ color: '#1E40AF', fontWeight: 600 }}>{result.updated}</span> updated ·{' '}
           <span style={{ color: result.skipped > 0 ? '#9B1C1C' : 'var(--fg-3)', fontWeight: result.skipped > 0 ? 600 : 400 }}>
             {result.skipped}
           </span> skipped
         </div>
         {result.skippedCodes.length > 0 && (
-          <div style={{ marginTop: 8, fontSize: 12, color: '#9B1C1C' }}>
+          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--neg-strong)' }}>
             Codes not found: {result.skippedCodes.join(', ')}
           </div>
         )}

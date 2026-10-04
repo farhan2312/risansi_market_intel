@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, type CSSProperties } from 'react';
 import * as XLSX from 'xlsx';
 import { uploadOutstanding, type OutstandingUploadResult } from '@/app/actions/risansi-outstanding';
+import { SortTH, useTableSort } from '@/components/risansi/SortTH';
+import type { SortableColumn } from '@/lib/risansi-table-sort';
 
 type RowStatus = 'valid' | 'invalid_code';
 
@@ -16,6 +18,21 @@ interface UploadRow {
 }
 
 type Stage = 'empty' | 'validating' | 'preview' | 'saving' | 'done';
+
+// Sorting the preview is how you find the rows that will not import. A sheet
+// of 900 debtors has its bad codes scattered through it, and reading for them
+// is the job the Status column can just do. 'invalid_code' before 'valid' so
+// one click puts the problems on top; until then the sheet's own row order
+// holds, which is what you need to go back and fix the file.
+const STATUS_ORDER = ['invalid_code', 'valid'] as const;
+
+const COLS: SortableColumn<UploadRow>[] = [
+  { key: 'status', kind: 'status', order: STATUS_ORDER },
+  { key: 'code', kind: 'text' },
+  { key: 'dbClientName', kind: 'text', value: r => r.dbClientName ?? r.clientName },
+  { key: 'debtor', kind: 'text' },
+  { key: 'amount', kind: 'number' },
+];
 
 const TH: CSSProperties = {
   padding: '9px 12px', fontSize: 11, fontWeight: 600, color: 'var(--fg-3)',
@@ -32,6 +49,8 @@ export function OutstandingUploadBox() {
   const [stage,  setStage]  = useState<Stage>('empty');
   const [result, setResult] = useState<OutstandingUploadResult | null>(null);
   const [error,  setError]  = useState('');
+  // Above the stage branches below, because a hook cannot live inside one.
+  const { rows: previewRows, sortBy } = useTableSort(rows, COLS);
 
   // Default the as-of date to today (set client-side to avoid a hydration mismatch).
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -211,15 +230,15 @@ export function OutstandingUploadBox() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
               <tr>
-                <th style={{ ...TH, textAlign: 'left' }}>Status</th>
-                <th style={{ ...TH, textAlign: 'left' }}>Code</th>
-                <th style={{ ...TH, textAlign: 'left' }}>Client (DB)</th>
-                <th style={{ ...TH, textAlign: 'left' }}>Debtor</th>
-                <th style={{ ...TH, textAlign: 'right' }}>Outstanding ₹</th>
+                <SortTH {...sortBy('status')}       style={TH} align="left">Status</SortTH>
+                <SortTH {...sortBy('code')}         style={TH} align="left">Code</SortTH>
+                <SortTH {...sortBy('dbClientName')} style={TH} align="left">Client (DB)</SortTH>
+                <SortTH {...sortBy('debtor')}       style={TH} align="left">Debtor</SortTH>
+                <SortTH {...sortBy('amount')}       style={TH} align="right">Outstanding ₹</SortTH>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => (
+              {previewRows.map((r, i) => (
                 <tr key={i} style={{ background: r.status !== 'valid' ? 'var(--neg-soft)' : 'transparent', borderBottom: '1px solid var(--line)' }}>
                   <td style={{ padding: '8px 12px' }}>
                     {r.status === 'valid'
