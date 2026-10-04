@@ -365,7 +365,7 @@ export function ExecutiveViews({ data, selector, periodLabel, note, tabs }: {
           chart={<StackedHBars rows={clientRows} series={clientSeries} colors={clientColors} />} />
         <MiniTable title="Quotation Summary" note="₹ by channel" table={data.quotationSummary}
           chart={<GroupedBars cats={quoteCats} series={['Active quotes', 'Order received']} colors={['var(--accent)', 'var(--pos)']} fmt={fmtCr} />} />
-        <MiniTable title="Turnover Summary" note="rows: 5-yr band · cols: whole fiscal years" table={data.turnoverSummary} full
+        <MiniTable title="Turnover Summary" note="active book only · rows: 5-yr band · cols: whole fiscal years" table={data.turnoverSummary} full
           chart={
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: 20 }}>
               <div><div style={CHART_T}>Turnover by band, {h1} vs {h2}</div><GroupedBars cats={turnCats} series={[h1, h2]} colors={['var(--accent)', 'var(--fg-3)']} fmt={fmtCr} height={110} /></div>

@@ -494,12 +494,16 @@ export default async function ExecutiveReviewPage({ searchParams }: {
                    - COALESCE((SELECT sum(so.so_value_cr)*10000000 FROM opportunity_sales_orders so WHERE so.opportunity_id=o.id), 0)
                  , 0))),0) FROM opportunities o JOIN clients c ON c.id=o.client_id
            WHERE ${tourF} AND o.stage='Won' AND ${inMonths(OPP_WINDOW_DATE)})::text AS total_business,
-         -- c.status='ACTIVE' to match the Turnover Summary below, which has
-         -- always filtered that way. Without it the two revenue figures on this
-         -- one screen disagreed: ₹6,08,595 apart on one book, all of it two
-         -- Prospective-Client accounts that invoiced before their status caught up.
+         -- Every status, not just ACTIVE. Money invoiced in a year is a fact
+         -- about that year, and filtering on the status a client holds TODAY
+         -- made it move: a client who bought for a decade and has since gone
+         -- quiet took their whole history out of the table with them, which is
+         -- why FY21-22 was reading ₹2.15 Cr light across 47 such accounts.
+         -- The Turnover Summary below still shows the ACTIVE book only, because
+         -- banding accounts by size is a question about the live portfolio, so
+         -- the two no longer have to agree and the headings say which is which.
          (SELECT COALESCE(round(sum(r.total_value)),0) FROM client_revenue_monthly r JOIN clients c ON c.id = r.client_id
-           WHERE ${tourF} AND c.status='ACTIVE' AND ${inMonths('r.month')})::text AS revenue,
+           WHERE ${tourF} AND ${inMonths('r.month')})::text AS revenue,
          (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status='ACTIVE' AND c.deleted_at IS NULL)::text AS active_clients,
          (SELECT count(*) FROM clients c WHERE ${tourF} AND c.status='ACTIVE' AND c.deleted_at IS NULL
             AND c.last_visit_date >= CURRENT_DATE - INTERVAL '90 days')::text AS active_visited,
@@ -581,7 +585,7 @@ export default async function ExecutiveReviewPage({ searchParams }: {
        rev AS (
          SELECT (c.primary_rep_id IS NOT DISTINCT FROM ${tsmId}) AS owns, r.total_value AS v
            FROM client_revenue_monthly r JOIN clients c ON c.id=r.client_id
-          WHERE ${bothF} AND c.status='ACTIVE' AND ${inMonths('r.month')})
+          WHERE ${bothF} AND ${inMonths('r.month')})
        SELECT
          (SELECT count(*) FILTER (WHERE owns) FROM cl)::text        AS own_clients,
          (SELECT count(*) FILTER (WHERE NOT owns) FROM cl)::text    AS cov_clients,
@@ -789,7 +793,7 @@ export default async function ExecutiveReviewPage({ searchParams }: {
     kpis: [
       { label: 'Order in Hand', value: fmtMoney(n(kpiRow?.total_business)), sub: 'won · not yet in a sales order', accent: true,
         drill: { kind: 'order_in_hand', tsm } },
-      { label: 'Revenue', value: fmtMoney(n(kpiRow?.revenue)), sub: `invoiced · active clients · FY ${yy(fy)}${w.toDate ? ' to date' : ''}`,
+      { label: 'Revenue', value: fmtMoney(n(kpiRow?.revenue)), sub: `invoiced · FY ${yy(fy)}${w.toDate ? ' to date' : ''}`,
         drill: { kind: 'revenue', tsm } },
       {
         label: 'Active Clients',
@@ -849,7 +853,7 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   // so the client component cannot offer a year parseFy would then reject.
   const fyOpts = fyChoices(now).map(y => ({ value: String(y), label: `FY ${yy(y)}` }));
 
-  const note = `Live data for ${tsmName}, fiscal year ${yy(fy)} (Apr–Mar)${w.toDate ? ' to date' : ', complete'}. An opportunity belongs to the year its quotation is dated in, or failing that the day its record was made; anything the year does not reach is counted on its own line in Target & Conversion rather than quietly left out. "Order in Hand" is the value of Won opportunities not yet turned into a Sales Order; "Order Received" is the value of Won opportunities dated in the FY. "Revenue" is invoiced revenue from active clients, the same basis as the Turnover table. "Conversion" divides order received by the quoted pipeline, and that panel says in full what it counts and what it leaves out. Every figure counts the ${accountScope === 'all' ? 'accounts this person owns AND the ones they cover for a colleague, which is what the Opportunities board counts too' : 'accounts this person owns, and leaves out the ones they cover for a colleague'}, which the Accounts control changes${data.bookSplit ? ' — Book & Coverage splits the two, and the value on a covered account still belongs to its owner' : ''}. Turnover columns show each whole fiscal year to date. Clients, Prospective and Active Clients are current-portfolio counts; "Prosp. client" has an ERP code and an enquiry behind it while "Prosp. lead" is only a name so far, and "Unclassified / other" is every client whose type was never set — it is there so the Grand Total is a real total; "Visited" on those two cards means a visit logged within the last 90 days, and every number is clickable through to a filtered client list.`;
+  const note = `Live data for ${tsmName}, fiscal year ${yy(fy)} (Apr–Mar)${w.toDate ? ' to date' : ', complete'}. An opportunity belongs to the year its quotation is dated in, or failing that the day its record was made; anything the year does not reach is counted on its own line in Target & Conversion rather than quietly left out. "Order in Hand" is the value of Won opportunities not yet turned into a Sales Order; "Order Received" is the value of Won opportunities dated in the FY. "Revenue" is everything invoiced in the year, whatever status the client holds now — money booked in a year stays booked for it. The Turnover table below counts the ACTIVE book only, because it bands accounts by size, so its total is the smaller of the two by design rather than by accident. "Conversion" divides order received by the quoted pipeline, and that panel says in full what it counts and what it leaves out. Every figure counts the ${accountScope === 'all' ? 'accounts this person owns AND the ones they cover for a colleague, which is what the Opportunities board counts too' : 'accounts this person owns, and leaves out the ones they cover for a colleague'}, which the Accounts control changes${data.bookSplit ? ' — Book & Coverage splits the two, and the value on a covered account still belongs to its owner' : ''}. Turnover columns show each whole fiscal year to date. Clients, Prospective and Active Clients are current-portfolio counts; "Prosp. client" has an ERP code and an enquiry behind it while "Prosp. lead" is only a name so far, and "Unclassified / other" is every client whose type was never set — it is there so the Grand Total is a real total; "Visited" on those two cards means a visit logged within the last 90 days, and every number is clickable through to a filtered client list.`;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>

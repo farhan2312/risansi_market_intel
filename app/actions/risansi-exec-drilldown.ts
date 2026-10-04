@@ -142,13 +142,13 @@ export async function execDrilldown(p: DrillParams): Promise<DrillResult | null>
           SELECT c.id, c.code, c.legal_name AS name, round(sum(r.total_value)) AS value,
                  count(DISTINCT r.month)::text || ' month(s) invoiced' AS detail
             FROM client_revenue_monthly r JOIN clients c ON c.id = r.client_id
-           WHERE ${scope} AND c.status='ACTIVE' AND ${w.inMonths('r.month')}
+           WHERE ${scope} AND ${w.inMonths('r.month')}
            GROUP BY c.id, c.code, c.legal_name
           HAVING sum(r.total_value) <> 0
            ORDER BY value DESC`);
         return {
           title: `Revenue · FY ${w.fy}${w.toDate ? ' to date' : ''}`,
-          subtitle: `${sub} · active clients only`,
+          subtitle: `${sub} · every status, as invoiced`,
           unit: 'money', rows, total: rows.reduce((s, r) => s + money(r.value), 0),
         };
       }
