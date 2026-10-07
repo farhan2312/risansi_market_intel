@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react';
 import Link from 'next/link';
 import { Topbar } from '@/components/risansi';
 import { getCurrentUser } from '@/lib/risansi-auth';
-import { loadComplaintRows, loadHolderDwells, parseComplaintFilters, parseComplaintSort, FILTER_KEYS, type ComplaintSortKey } from '@/lib/risansi-complaint-rows';
+import { loadComplaintRows, loadHolderDwells, parseComplaintFilters, parseComplaintSort, FILTER_KEYS } from '@/lib/risansi-complaint-rows';
 import { summariseComplaints, clientBars } from '@/lib/risansi-complaint-stats';
 import { ComplaintStats } from '@/components/risansi/complaints/ComplaintStats';
 import { ComplaintFilterBar, type FilterOptions } from '@/components/risansi/complaints/ComplaintFilterBar';
@@ -81,9 +81,6 @@ export default async function ComplaintsPage({ searchParams }: { searchParams: P
     return q ? `${path}?${q}` : path;
   };
   const href = (key: string, v: string) => urlFor('/risansi/complaints', { [key]: value[key] === v ? undefined : v });
-  // A header click: first click sorts newest / largest first, the second flips it, the third clears.
-  const sortHref = (key: ComplaintSortKey) =>
-    urlFor('/risansi/complaints', { sort: !sort || sort.key !== key ? `${key}_desc` : sort.dir === 'desc' ? `${key}_asc` : undefined });
   const exportHref = urlFor('/api/risansi/complaints/export', {});
 
   return (
@@ -113,7 +110,7 @@ export default async function ComplaintsPage({ searchParams }: { searchParams: P
 
         <ComplaintStats s={s} href={href} sel={value} />
 
-        <ComplaintTable rows={rows} sort={sort} sortHref={sortHref} />
+        <ComplaintTable rows={rows} />
       </div>
     </div>
   );

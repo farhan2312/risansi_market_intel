@@ -7,7 +7,7 @@ import {
   statusStep, isOpenStatus,
   type Severity,
 } from '@/lib/risansi-complaint-flow';
-import type { ComplaintListRow, ComplaintSort, ComplaintSortKey } from '@/lib/risansi-complaint-rows';
+import type { ComplaintListRow } from '@/lib/risansi-complaint-rows';
 import { useTableSort, SortTH } from '../SortTH';
 import type { SortKind, SortableColumn } from '@/lib/risansi-table-sort';
 
@@ -163,16 +163,11 @@ const COLS_KEY = 'risansi.complaints.cols';
 const NO_W = 124;
 const NO_INNER = NO_W - 20;   // less the cell's 10px of padding on each side
 
-// `sort` and `sortHrefs` are still accepted because the page and the server
-// half still hand them over, and an old bookmark can still carry ?sort=. They
-// are no longer read: the four URL sorts have become eighteen in-memory ones
-// (see useTableSort below), and the server's ORDER BY remains what the table
-// arrives in.
-export function ComplaintTableClient({ rows }: {
-  rows: ComplaintListRow[];
-  sort: ComplaintSort | null;
-  sortHrefs: Partial<Record<ComplaintSortKey, string>> | null;
-}) {
+// The four URL sorts became eighteen in-memory ones (see useTableSort below),
+// so this takes rows and nothing else. An old bookmark carrying ?sort= still
+// works: the server reads it and the rows arrive in that order, which is the
+// order this table starts in.
+export function ComplaintTableClient({ rows }: { rows: ComplaintListRow[] }) {
   const [visible, setVisible] = useState<ColId[]>(ALL_IDS);
   const [pickerOpen, setPickerOpen] = useState(false);
 

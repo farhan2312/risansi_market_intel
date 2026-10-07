@@ -276,8 +276,8 @@ export function RevenueUploadBox() {
         {error && (
           <div style={{
             margin: '16px 20px 0', padding: '10px 14px',
-            background: '#FDE8E8', border: '1px solid #F87171',
-            borderLeft: '3px solid #E02424', borderRadius: 6,
+            background: 'var(--neg-soft)', border: '1px solid var(--neg)',
+            borderLeft: '3px solid var(--neg-strong)', borderRadius: 6,
             color: 'var(--neg-strong)', fontSize: 13,
           }}>
             ⚠ {error}
@@ -349,7 +349,7 @@ export function RevenueUploadBox() {
             <button onClick={reset} style={{
               padding: '7px 14px', borderRadius: 6, fontFamily: 'inherit',
               border: '1px solid var(--line-strong, #CBD5E1)',
-              background: 'white', cursor: 'pointer', fontSize: 13,
+              background: 'var(--bg-paper)', cursor: 'pointer', fontSize: 13,
             }}>
               Cancel
             </button>
@@ -358,8 +358,8 @@ export function RevenueUploadBox() {
               disabled={validCount === 0}
               style={{
                 padding: '7px 16px', borderRadius: 6, fontFamily: 'inherit',
-                background: validCount > 0 ? '#0A3D8F' : 'var(--bg-sunk)',
-                color: validCount > 0 ? 'white' : 'var(--fg-3)',
+                background: validCount > 0 ? 'var(--accent)' : 'var(--bg-sunk)',
+                color: validCount > 0 ? '#fff' : 'var(--fg-3)',
                 border: 'none',
                 cursor: validCount > 0 ? 'pointer' : 'not-allowed',
                 fontSize: 13, fontWeight: 500,
@@ -377,14 +377,14 @@ export function RevenueUploadBox() {
         }}>
           <span style={{
             padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500,
-            background: '#D1FAE5', color: 'var(--pos-strong)',
+            background: 'var(--pos-soft)', color: 'var(--pos-strong)',
           }}>
             ✓ {validCount} ready to import
           </span>
           {invalidCount > 0 && (
             <span style={{
               padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500,
-              background: '#FDE8E8', color: 'var(--neg-strong)',
+              background: 'var(--neg-soft)', color: 'var(--neg-strong)',
             }}>
               ✗ {invalidCount} will be skipped
             </span>
@@ -434,7 +434,7 @@ export function RevenueUploadBox() {
                   </td>
                   <td style={{
                     padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: 11,
-                    color: row.status !== 'valid' ? '#9B1C1C' : 'var(--fg)',
+                    color: row.status !== 'valid' ? 'var(--neg-strong)' : 'var(--fg)',
                   }}>
                     {row.code}
                   </td>
@@ -496,8 +496,8 @@ export function RevenueUploadBox() {
         <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>Upload Complete</div>
         <div style={{ fontSize: 13, color: 'var(--fg-3)', marginBottom: 4 }}>
           <span style={{ color: 'var(--pos-strong)', fontWeight: 600 }}>{result.inserted}</span> inserted ·{' '}
-          <span style={{ color: '#1E40AF', fontWeight: 600 }}>{result.updated}</span> updated ·{' '}
-          <span style={{ color: result.skipped > 0 ? '#9B1C1C' : 'var(--fg-3)', fontWeight: result.skipped > 0 ? 600 : 400 }}>
+          <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{result.updated}</span> updated ·{' '}
+          <span style={{ color: result.skipped > 0 ? 'var(--neg-strong)' : 'var(--fg-3)', fontWeight: result.skipped > 0 ? 600 : 400 }}>
             {result.skipped}
           </span> skipped
         </div>
@@ -510,7 +510,7 @@ export function RevenueUploadBox() {
           onClick={() => window.location.reload()}
           style={{
             marginTop: 20, padding: '8px 20px', borderRadius: 6, fontFamily: 'inherit',
-            background: '#0A3D8F', color: 'white',
+            background: 'var(--accent)', color: '#fff',
             border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 500,
           }}
         >

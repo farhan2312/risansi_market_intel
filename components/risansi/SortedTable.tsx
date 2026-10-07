@@ -31,9 +31,16 @@
 // index. It still renders through the same cell so it sits level with its
 // neighbours. The direction the first click gives comes from the kind; see
 // lib/risansi-table-sort.ts.
+//
+// On a phone a `className="r-cards"` table becomes cards and its header row is
+// hidden, so the header this component owns is exactly what disappears. It
+// renders the phone sort control itself in that case — every page that already
+// passes columns with labels gets the phone sort with no edit of its own, and a
+// table that keeps its header on a phone gets no second control it does not need.
 
 import { type CSSProperties, type ReactNode } from 'react';
 import { SortTH, useTableSort } from '@/components/risansi/SortTH';
+import { MobileSort } from '@/components/risansi/MobileSort';
 import type { SortKind } from '@/lib/risansi-table-sort';
 
 export interface SortedTableColumn {
@@ -43,6 +50,13 @@ export interface SortedTableColumn {
   kind?: SortKind;
   /** For kind 'status': the sequence that defines the order. */
   order?: readonly string[];
+  /**
+   * What to call this column in the phone sort menu, where there is no header
+   * to read it off. Defaults to `label` when that is plain text; give it when
+   * the label is markup, or when the header wording is too long to tap.
+   * Set it to '' to keep a sortable column out of the menu.
+   */
+  mobileLabel?: string;
   align?: 'left' | 'right' | 'center';
   /** The table's own <th> style object. Passed straight through, unrestyled. */
   style?: CSSProperties;
