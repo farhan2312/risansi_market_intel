@@ -28,11 +28,29 @@ export function useTableSort<T>(
 ) {
   const [sort, setSort] = useState<SortState>(initial);
 
+  /** Choose a column by key, as a header click would. */
+  const pick = (key: string) => {
+    const col = cols.find(c => c.key === key);
+    if (col) setSort(cur => nextSort(cur, key, col.kind));
+  };
+
   return {
     /** The rows in the chosen order — the original array while nothing is chosen. */
     rows: sortRows(rows, cols, sort),
     sort,
     setSort,
+    pick,
+    /**
+     * Everything <MobileSort> needs, ready to spread. A table in card view has
+     * no header row on a phone, so without this it cannot be sorted there at
+     * all — which is most of the tables somebody actually reads on a phone.
+     */
+    mobile: {
+      options: cols.filter(c => c.label).map(c => ({ key: c.key, label: c.label as string })),
+      sort: sort.key,
+      dir: sort.dir,
+      onPick: pick,
+    },
     /** Props for a <SortTH>. Spread it: `<SortTH {...sortBy('name')}>Name</SortTH>`. */
     sortBy(key: string) {
       const col = cols.find(c => c.key === key);

@@ -110,6 +110,13 @@ export function sortMark(cur: SortState, key: string): '▲' | '▼' | '↕' {
 export interface SortableColumn<T> {
   key: string;
   kind: SortKind;
+  /**
+   * What to call this column where there is no header to read it off — the
+   * phone sort menu, mostly, because a table in card view has no visible
+   * header row at all. A column with no label is left out of that menu rather
+   * than listed as its raw key.
+   */
+  label?: string;
   /** The value to sort on. Give this when the cell renders something other than the raw value. */
   value?: (row: T) => unknown;
   /** For kind 'status': the sequence that defines the order. */

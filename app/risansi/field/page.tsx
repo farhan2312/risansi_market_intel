@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { headers } from 'next/headers';
 import { getServerSession } from 'next-auth/next';
 import { Topbar, Tag, SortableTH } from '@/components/risansi';
+import { MobileSortUrl } from '@/components/risansi/MobileSort';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, clientVisibilitySql, clientScopeSql, OWN_OPEN, orphanSql } from '@/lib/risansi-auth';
@@ -112,6 +113,25 @@ const STATUS_BG: Record<string, string> = {
 
 // Every column the Overdue table shows, and nothing else: an unmapped ?sort=
 // falls back to days_overdue rather than reaching the query.
+// What the phone sort menu offers for the Overdue list, and which way each
+// column opens. Reps read this tab on a handset, where the table is cards and
+// the sortable header row is hidden, so without this it is stuck in one order
+// on the device it is most used from. Keys must be SORT_MAP's keys — anything
+// else is dropped by the whitelist and the tap would appear to do nothing.
+const OVERDUE_SORT_OPTIONS = [
+  { key: 'days_overdue', label: 'Days overdue' },
+  { key: 'last_visit',   label: 'Last visit' },
+  { key: 'name',         label: 'Client name' },
+  { key: 'industry',     label: 'Industry' },
+  { key: 'state',        label: 'State' },
+  { key: 'tier',         label: 'Tier' },
+  { key: 'rep',          label: 'Rep' },
+];
+const OVERDUE_SORT_KINDS = {
+  days_overdue: 'number', last_visit: 'date', name: 'text',
+  industry: 'text', state: 'text', tier: 'text', rep: 'text',
+} as const;
+
 const SORT_MAP: Record<string, string> = {
   name:         'c.legal_name',
   industry:     'c.industry',
@@ -1162,6 +1182,14 @@ export default async function FieldActivityPage({
                 background: 'var(--bg-paper)', border: '1px solid var(--line)',
                 borderRadius: 'var(--radius)', overflow: 'hidden',
               }}>
+                <div className="r-mobile-only" style={{ padding: '8px 10px 0' }}>
+                  <MobileSortUrl
+                    options={OVERDUE_SORT_OPTIONS}
+                    kinds={OVERDUE_SORT_KINDS}
+                    currentSort={sortKey}
+                    currentDir={curDir}
+                  />
+                </div>
                 <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead>
                     <tr style={{ background: 'var(--bg-elev)' }}>

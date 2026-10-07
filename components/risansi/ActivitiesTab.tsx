@@ -11,6 +11,9 @@ import { Badge } from '@/components/ui/badge';
 import {
   Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
 } from '@/components/ui/table';
+import { useTableSort, SortTH } from './SortTH';
+import { MobileSort } from './MobileSort';
+import type { SortableColumn } from '@/lib/risansi-table-sort';
 
 export interface ActivityTask {
   id: number;
@@ -29,6 +32,28 @@ export interface ActivityTask {
   visit_id: number | null;
   visit_date: string | null;
 }
+
+// Priority is a ladder, not three words: High first is the only order anybody
+// opens that column to see.
+const PRIORITY_ORDER = ['High', 'Medium', 'Low'] as const;
+// Open before completed, for the same reason.
+const TASK_STATUS_ORDER = ['open', 'completed'] as const;
+
+// `label` is what the phone sort menu shows — this table is cards there and has
+// no header row to tap.
+const TASK_COLS: SortableColumn<ActivityTask>[] = [
+  { key: 'status',   kind: 'status', label: 'Status',      order: TASK_STATUS_ORDER },
+  { key: 'title',    kind: 'text',   label: 'Task',        value: t => t.title },
+  { key: 'client',   kind: 'text',   label: 'Client',      value: t => t.client_name },
+  { key: 'priority', kind: 'status', label: 'Priority',    order: PRIORITY_ORDER, value: t => t.priority ?? 'Medium' },
+  { key: 'due',      kind: 'date',   label: 'Due date',    value: t => t.due_date },
+  { key: 'owner',    kind: 'text',   label: 'Assigned to',
+    value: t => (t.assigned_rep_name && t.assigned_rep_name !== '—' ? t.assigned_rep_name : t.assigned_to_external) },
+  { key: 'visit',    kind: 'date',   label: 'Visit',       value: t => t.visit_date },
+];
+
+// The classes TableHead applies, so a sortable header sits level with a plain one.
+const HEAD_CLS = 'h-10 px-2 text-left align-middle font-medium whitespace-nowrap text-foreground';
 
 const PRIORITY_COLORS: Record<string, { bg: string; text: string }> = {
   High:   { bg: 'var(--neg-soft)',  text: 'var(--neg)'  },
@@ -114,6 +139,8 @@ export function ActivitiesTab({ tasks }: { tasks: ActivityTask[] }) {
     if (statusFilter && t.status !== statusFilter) return false;
     return true;
   });
+  // Sorting sits on top of the filters, so it orders what is on screen.
+  const { rows: shown, sortBy, mobile } = useTableSort(filtered, TASK_COLS);
 
   return (
     <div>
@@ -147,21 +174,26 @@ export function ActivitiesTab({ tasks }: { tasks: ActivityTask[] }) {
           No tasks match the current filters.
         </div>
       ) : (
+        <>
+        {/* Only on a phone, where the header row below becomes invisible. */}
+        <div className="r-mobile-only" style={{ margin: '0 0 8px' }}>
+          <MobileSort {...mobile} />
+        </div>
         <Table className="r-cards">
           <TableHeader>
             <TableRow>
-              <TableHead>Status</TableHead>
-              <TableHead>Task</TableHead>
-              <TableHead>Client</TableHead>
-              <TableHead>Priority</TableHead>
-              <TableHead>Due Date</TableHead>
-              <TableHead>Assigned To</TableHead>
-              <TableHead>Visit</TableHead>
+              <SortTH {...sortBy('status')}   className={HEAD_CLS}>Status</SortTH>
+              <SortTH {...sortBy('title')}    className={HEAD_CLS}>Task</SortTH>
+              <SortTH {...sortBy('client')}   className={HEAD_CLS}>Client</SortTH>
+              <SortTH {...sortBy('priority')} className={HEAD_CLS}>Priority</SortTH>
+              <SortTH {...sortBy('due')}      className={HEAD_CLS}>Due Date</SortTH>
+              <SortTH {...sortBy('owner')}    className={HEAD_CLS}>Assigned To</SortTH>
+              <SortTH {...sortBy('visit')}    className={HEAD_CLS}>Visit</SortTH>
               <TableHead />
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filtered.map(task => {
+            {shown.map(task => {
               const isOverdue = task.status === 'open' && isPastDue(task.due_date);
               const pc = PRIORITY_COLORS[task.priority ?? 'Medium'] ?? PRIORITY_COLORS.Medium;
               return (
@@ -212,6 +244,7 @@ export function ActivitiesTab({ tasks }: { tasks: ActivityTask[] }) {
             })}
           </TableBody>
         </Table>
+        </>
       )}
     </div>
   );

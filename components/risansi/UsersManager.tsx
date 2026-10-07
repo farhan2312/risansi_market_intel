@@ -3,6 +3,7 @@
 import { useState, useTransition, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { Tag } from '@/components/risansi';
+import { MobileSort } from './MobileSort';
 import { useTableSort, SortTH } from '@/components/risansi/SortTH';
 import type { SortableColumn } from '@/lib/risansi-table-sort';
 import { createRep, updateRep } from '@/app/actions/risansi-reps';
@@ -40,16 +41,18 @@ const DEPARTMENTS = ['Complaint Team', 'QC', 'Quotation Team', 'Billing Team', '
 // and bury the Pending rows, which are the only ones needing a decision.
 const USER_STATUSES = ['Pending', 'Approved', 'Rejected'];
 
+// `label` is what the phone sort menu shows: this table becomes cards there,
+// with no header row to tap.
 const USER_COLS: SortableColumn<UserRow>[] = [
-  { key: 'name',          kind: 'text' },
-  { key: 'role',          kind: 'status', order: ROLES },
-  { key: 'status',        kind: 'status', order: USER_STATUSES },
+  { key: 'name',          kind: 'text',   label: 'User' },
+  { key: 'role',          kind: 'status', label: 'Role',   order: ROLES },
+  { key: 'status',        kind: 'status', label: 'Status', order: USER_STATUSES },
   // A flag, not a word. As a number it opens on the live accounts; as text it
   // would open on "No", which is nobody's first question about a user list.
-  { key: 'is_active',     kind: 'number', value: u => (u.is_active ? 1 : 0) },
-  { key: 'zone',          kind: 'text' },
-  { key: 'team_count',    kind: 'number' },
-  { key: 'clients_count', kind: 'number' },
+  { key: 'is_active',     kind: 'number', label: 'Active', value: u => (u.is_active ? 1 : 0) },
+  { key: 'zone',          kind: 'text',   label: 'Zone / route' },
+  { key: 'team_count',    kind: 'number', label: 'Team' },
+  { key: 'clients_count', kind: 'number', label: 'Clients' },
 ];
 
 // Account + access management for every user. Lives on /admin (sysadmin only).
@@ -81,7 +84,7 @@ export function UsersManager({ users }: { users: UserRow[] }) {
 
   // Sorting sits on top of the search and status filters, so it reorders what
   // is on screen rather than fighting it.
-  const { rows: shown, sortBy } = useTableSort(filtered, USER_COLS);
+  const { rows: shown, sortBy, mobile } = useTableSort(filtered, USER_COLS);
 
   function refresh() { router.refresh(); }
 
@@ -110,6 +113,7 @@ export function UsersManager({ users }: { users: UserRow[] }) {
 
       <div style={PANEL}>
         <div style={{ overflowX: 'auto' }}>
+          <div className="r-mobile-only" style={{ margin: '0 0 8px' }}><MobileSort {...mobile} /></div>
           <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
               <tr style={{ background: 'var(--bg-elev)' }}>

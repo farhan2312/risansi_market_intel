@@ -3,6 +3,7 @@
 import { useState, useMemo, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { formatRev } from '@/lib/risansi-utils';
+import { MobileSort } from './MobileSort';
 import { useTableSort, SortTH } from './SortTH';
 import type { SortableColumn } from '@/lib/risansi-table-sort';
 
@@ -33,17 +34,19 @@ const PAGE = 20;
 // cells print, and vs LY sorts on the ratio rather than the "+12%" string. A
 // client with no previous year has no ratio at all, so it reads null and sinks
 // to the bottom either way, which is where the em-dash in the cell belongs.
+// `label` is what the phone sort menu shows: this table becomes cards there,
+// with no header row to tap.
 const COLS: SortableColumn<RevenueClientRow>[] = [
-  { key: 'legal_name', kind: 'text' },
-  { key: 'industry',   kind: 'text' },
-  { key: 'state',      kind: 'text' },
-  { key: 'rep_name',   kind: 'text' },
-  { key: 'pump',       kind: 'number' },
-  { key: 'spare',      kind: 'number' },
-  { key: 'total',      kind: 'number' },
-  { key: 'vsly',       kind: 'number',
+  { key: 'legal_name', kind: 'text',   label: 'Client' },
+  { key: 'industry',   kind: 'text',   label: 'Industry' },
+  { key: 'state',      kind: 'text',   label: 'State' },
+  { key: 'rep_name',   kind: 'text',   label: 'Rep' },
+  { key: 'pump',       kind: 'number', label: 'Pump' },
+  { key: 'spare',      kind: 'number', label: 'Spare' },
+  { key: 'total',      kind: 'number', label: 'Total' },
+  { key: 'vsly',       kind: 'number', label: 'vs last year',
     value: c => (c.prev_total > 0 ? (c.total - c.prev_total) / c.prev_total : null) },
-  { key: 'tier',       kind: 'text' },
+  { key: 'tier',       kind: 'text',   label: 'Tier' },
 ];
 
 export function RevenueTopClients({ clients }: { clients: RevenueClientRow[] }) {
@@ -60,7 +63,7 @@ export function RevenueTopClients({ clients }: { clients: RevenueClientRow[] }) 
 
   // No sort chosen means the order the query chose — highest revenue first —
   // which is what this panel is for. Clicking a third time comes back to it.
-  const { rows: sorted, sortBy } = useTableSort(filtered, COLS);
+  const { rows: sorted, sortBy, mobile } = useTableSort(filtered, COLS);
   const shown = sorted.slice(0, limit);
 
   return (
@@ -83,6 +86,7 @@ export function RevenueTopClients({ clients }: { clients: RevenueClientRow[] }) 
       ) : (
         <>
           <div style={{ overflowX: 'auto' }}>
+            <div className="r-mobile-only" style={{ margin: '0 0 8px' }}><MobileSort {...mobile} /></div>
             <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
                 <tr style={{ background: 'var(--bg-elev)' }}>

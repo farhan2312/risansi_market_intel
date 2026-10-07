@@ -5,7 +5,7 @@ import {
   ClientSelectionProvider, ClientSelectionBar, SelectClientBox, SelectPageBox,
 } from '@/components/risansi/ClientSelection';
 import { Topbar, Tag, StatusDot, MultiSelectFilter, ActiveFilterBar, SortableTH, Donut } from '@/components/risansi';
-import { MobileSort } from '@/components/risansi/MobileSort';
+import { MobileSortUrl } from '@/components/risansi/MobileSort';
 import risansiPool from '@/lib/db-risansi';
 import { formatLastVisitShort, formatRev } from '@/lib/risansi-utils';
 import { getCurrentUser, clientVisibilitySql } from '@/lib/risansi-auth';
@@ -31,6 +31,24 @@ const STATUS_RANK_SQL = `CASE UPPER(c.status) ${
 // Ordering on a floor date instead keeps them at the top of the overdue end and
 // at the bottom of the recently-visited end, which is true both ways round. The
 // SELECT still returns NULL, so the cell still reads "Never".
+// What the phone sort menu offers, and which way each column should open. The
+// keys have to be SORT_MAP's keys: anything else is dropped by the whitelist and
+// the tap would appear to do nothing.
+const CLIENT_SORT_OPTIONS = [
+  { key: 'last_visit', label: 'Last visit' },
+  { key: 'name',       label: 'Client name' },
+  { key: 'code',       label: 'Code' },
+  { key: 'industry',   label: 'Industry' },
+  { key: 'zone',       label: 'Zone / route' },
+  { key: 'rep',        label: 'Rep' },
+  { key: 'status',     label: 'Status' },
+  { key: 'tier',       label: 'Tier' },
+];
+const CLIENT_SORT_KINDS = {
+  last_visit: 'date', name: 'text', code: 'text', industry: 'text',
+  zone: 'text', rep: 'text', status: 'status', tier: 'text',
+} as const;
+
 const SORT_MAP: Record<string, string> = {
   code:       'c.code',
   name:       'c.legal_name',
@@ -615,7 +633,12 @@ export default async function ClientListPage({
         }}>
           <FilterBar q={q_str} sugar={sugarFilt} />
           {/* Mobile-only sort (the sortable table headers are hidden in card view) */}
-          <MobileSort currentSort={sortKey} currentOrder={orderDir === 'DESC' ? 'desc' : 'asc'} />
+          <MobileSortUrl
+            options={CLIENT_SORT_OPTIONS}
+            kinds={CLIENT_SORT_KINDS}
+            currentSort={sortKey}
+            currentDir={orderDir === 'DESC' ? 'desc' : 'asc'}
+          />
           <div className="r-filter-row" style={{
             display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center',
             paddingTop: 10, borderTop: '1px solid var(--line-2)',

@@ -7,6 +7,7 @@ import { EditOppDrawer, type EditableOpp } from './EditOppDrawer';
 import { fmtUsdFromCr } from '@/lib/risansi-utils';
 import { ALL_STAGES } from '@/lib/risansi-opportunity-fields';
 import { useTableSort, SortTH } from './SortTH';
+import { MobileSort } from './MobileSort';
 import type { SortableColumn } from '@/lib/risansi-table-sort';
 
 const PAGE_SIZE = 50;
@@ -18,13 +19,15 @@ const dateOf = (o: EditableOpp) => o.quote_date || o.enquiry_date || '';
 
 // Stage sorts down the pipeline, not down the alphabet, and ALL_STAGES is the
 // list the rest of the module already works from.
+// The labels are for the phone sort menu, where this table is cards and has no
+// header row to tap.
 const COLS: SortableColumn<EditableOpp>[] = [
-  { key: 'date',    kind: 'date',   value: dateOf },
-  { key: 'client',  kind: 'text',   value: o => o.client_name },
-  { key: 'stage',   kind: 'status', order: ALL_STAGES, value: o => o.stage },
-  { key: 'value',   kind: 'number', value: o => o.value_cr },
-  { key: 'product', kind: 'text',   value: o => [o.product, o.product_type].filter(Boolean).join(' · ') },
-  { key: 'eta',     kind: 'text',   value: o => o.eta_text },
+  { key: 'date',    kind: 'date',   label: 'Quote / enquiry date', value: dateOf },
+  { key: 'client',  kind: 'text',   label: 'Client',               value: o => o.client_name },
+  { key: 'stage',   kind: 'status', label: 'Stage', order: ALL_STAGES, value: o => o.stage },
+  { key: 'value',   kind: 'number', label: 'Value',                value: o => o.value_cr },
+  { key: 'product', kind: 'text',   label: 'Product',              value: o => [o.product, o.product_type].filter(Boolean).join(' · ') },
+  { key: 'eta',     kind: 'text',   label: 'Expected close',       value: o => o.eta_text },
 ];
 
 export function ActiveOppsTable({ opps, usdRate }: { opps: EditableOpp[]; usdRate?: number }) {
@@ -33,7 +36,7 @@ export function ActiveOppsTable({ opps, usdRate }: { opps: EditableOpp[]; usdRat
   const [page, setPage] = useState(0);
   // Every opportunity is already here; the pages below are slices of this
   // array, not of a query, so the sort belongs in memory and covers all of them.
-  const { rows: sorted, sort, sortBy } = useTableSort(opps, COLS);
+  const { rows: sorted, sort, sortBy, mobile } = useTableSort(opps, COLS);
 
   // A new sort re-decides which rows are first, so staying on page 7 would hide
   // exactly the rows the click was asking for.
@@ -54,6 +57,10 @@ export function ActiveOppsTable({ opps, usdRate }: { opps: EditableOpp[]; usdRat
 
   return (
     <>
+      {/* Only shows on a phone, where the header row below is hidden. */}
+      <div className="r-mobile-only" style={{ margin: '4px 0 8px' }}>
+        <MobileSort {...mobile} />
+      </div>
       <div style={{ overflowX: 'auto', marginTop: 4 }}>
         <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>

@@ -1,31 +1,40 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+// Sorting, for a table that has no header to tap.
+//
+// On a phone the wider tables stop being tables: `table.r-cards` turns every
+// row into a card and hides the header row entirely (app/mobile.css). That is
+// the right call for reading — six columns of a complaint do not fit across a
+// handset — but it took the sort controls with it, so every one of those tables
+// was sortable at a desk and fixed in one order on the device the reps actually
+// carry. This is the header row, in the only shape that fits.
+//
+// Two ways in, because the portal sorts two ways:
+//
+//   <MobileSort {...mobile} />            a table sorted in memory; `mobile`
+//                                         comes straight off useTableSort
+//   <MobileSortUrl options={…} … />       a table sorted by the server, which
+//                                         sorts by writing ?sort= and ?dir=
+//
+// Both render the same control. Only where the answer is applied differs.
+
+import { useState, useRef, useEffect, type CSSProperties } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { firstDir, type SortKind } from '@/lib/risansi-table-sort';
 
-// Mirrors the sortable column headers (hidden in mobile card view).
-const OPTIONS = [
-  { key: 'last_visit', label: 'Last Visit' },
-  { key: 'name',       label: 'Client Name' },
-  { key: 'code',       label: 'Code' },
-  { key: 'industry',   label: 'Industry' },
-  { key: 'zone',       label: 'Zone / Route' },
-  { key: 'rep',        label: 'Rep' },
-  { key: 'status',     label: 'Status' },
-  { key: 'tier',       label: 'Tier' },
-];
+export interface MobileSortOption { key: string; label: string }
 
-/**
- * Mobile-only sort control for the Client 360 list. On desktop sorting lives in
- * the table headers, which are hidden when the table becomes cards on a phone —
- * this restores it. Tapping the active option flips the direction.
- */
-export function MobileSort({ currentSort, currentOrder }: {
-  currentSort: string;
-  currentOrder: 'asc' | 'desc';
-}) {
-  const router = useRouter();
-  const pathname = usePathname();
+export interface MobileSortProps {
+  options: MobileSortOption[];
+  /** The column in force, or null when the table is in its own order. */
+  sort: string | null;
+  dir: 'asc' | 'desc';
+  onPick: (key: string) => void;
+  /** Shown when nothing is chosen. Defaults to saying so. */
+  restingLabel?: string;
+}
+
+export function MobileSort({ options, sort, dir, onPick, restingLabel }: MobileSortProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -35,65 +44,37 @@ export function MobileSort({ currentSort, currentOrder }: {
     return () => document.removeEventListener('mousedown', h);
   }, []);
 
-  const apply = (key: string) => {
-    const p = new URLSearchParams(window.location.search);
-    // `dir`, the same parameter the desktop headers write. This sheet used to
-    // write `order`, which the pages had stopped reading, so a sort chosen on a
-    // phone did nothing at all; and once both existed, whichever the page read
-    // first won and the other silently lost.
-    if (key === currentSort) {
-      p.set('dir', currentOrder === 'asc' ? 'desc' : 'asc');
-    } else {
-      p.set('sort', key);
-      p.set('dir', 'asc');
-    }
-    p.delete('order');
-    p.delete('page');
-    setOpen(false);
-    router.push(`${pathname}?${p.toString()}`);
-  };
+  // A table with one sortable column does not need a menu to choose from.
+  if (!options.length) return null;
 
-  const curLabel = OPTIONS.find(o => o.key === currentSort)?.label ?? 'Last Visit';
+  const active = options.find(o => o.key === sort);
+  const label = active?.label ?? restingLabel ?? 'the page order';
 
   return (
     <div ref={ref} className="r-mobile-only" style={{ position: 'relative' }}>
-      <button
-        type="button"
-        onClick={() => setOpen(o => !o)}
-        style={{
-          display: 'inline-flex', alignItems: 'center', gap: 6, minHeight: 44,
-          padding: '0 12px', fontSize: 12, fontFamily: 'inherit', cursor: 'pointer',
-          background: 'var(--bg-paper)', border: '1px solid var(--line-strong)',
-          borderRadius: 7, color: 'var(--fg-2)', whiteSpace: 'nowrap',
-        }}
-      >
-        ↕ Sort: <strong style={{ fontWeight: 600, color: 'var(--fg)' }}>{curLabel}</strong>
-        <span style={{ opacity: 0.6 }}>{currentOrder === 'asc' ? '↑' : '↓'}</span>
+      <button type="button" onClick={() => setOpen(o => !o)} style={TRIGGER}>
+        ↕ Sort: <strong style={{ fontWeight: 600, color: 'var(--fg)' }}>{label}</strong>
+        {active && <span style={{ opacity: 0.6 }}>{dir === 'asc' ? '↑' : '↓'}</span>}
       </button>
 
       {open && (
-        <div style={{
-          position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 200,
-          background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', borderRadius: 8,
-          boxShadow: '0 4px 16px rgba(0,0,0,0.14)', minWidth: 200, overflow: 'hidden',
-        }}>
-          {OPTIONS.map(o => {
-            const active = o.key === currentSort;
+        <div style={MENU}>
+          {options.map(o => {
+            const on = o.key === sort;
             return (
               <button
                 key={o.key}
                 type="button"
-                onClick={() => apply(o.key)}
+                onClick={() => { onPick(o.key); setOpen(false); }}
                 style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%',
-                  minHeight: 44, padding: '0 14px', fontSize: 13, fontFamily: 'inherit', cursor: 'pointer',
-                  background: active ? 'var(--accent-soft)' : 'transparent', border: 'none',
-                  borderBottom: '1px solid var(--line-2)',
-                  color: active ? 'var(--accent)' : 'var(--fg)', fontWeight: active ? 600 : 400,
+                  ...ROW,
+                  background: on ? 'var(--accent-soft)' : 'transparent',
+                  color: on ? 'var(--accent)' : 'var(--fg)',
+                  fontWeight: on ? 600 : 400,
                 }}
               >
                 {o.label}
-                {active && <span>{currentOrder === 'asc' ? '↑' : '↓'}</span>}
+                {on && <span>{dir === 'asc' ? '↑' : '↓'}</span>}
               </button>
             );
           })}
@@ -102,3 +83,69 @@ export function MobileSort({ currentSort, currentOrder }: {
     </div>
   );
 }
+
+/**
+ * The same control for a server-sorted table, which is any table showing one
+ * page of a longer query: the order has to be decided in SQL, so choosing a
+ * column means asking the server again rather than reordering what is on screen.
+ *
+ * `kinds` says what each column holds, so the first tap points the way the
+ * desktop header would — a value column opens at the largest, not the smallest.
+ */
+export function MobileSortUrl({ options, currentSort, currentDir, kinds, restingLabel }: {
+  options: MobileSortOption[];
+  currentSort: string;
+  currentDir: 'asc' | 'desc';
+  kinds?: Record<string, SortKind>;
+  restingLabel?: string;
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const apply = (key: string) => {
+    const p = new URLSearchParams(window.location.search);
+    // `dir`, the same parameter the desktop headers write. This sheet used to
+    // write `order`, which the pages had stopped reading, so a sort chosen on a
+    // phone did nothing at all; and once both existed, whichever the page read
+    // first won and the other silently lost.
+    if (key === currentSort) {
+      p.set('dir', currentDir === 'asc' ? 'desc' : 'asc');
+    } else {
+      p.set('sort', key);
+      p.set('dir', firstDir(kinds?.[key] ?? 'text'));
+    }
+    p.delete('order');
+    p.delete('page');
+    router.push(`${pathname}?${p.toString()}`);
+  };
+
+  return (
+    <MobileSort
+      options={options}
+      sort={currentSort || null}
+      dir={currentDir}
+      onPick={apply}
+      restingLabel={restingLabel}
+    />
+  );
+}
+
+const TRIGGER: CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: 6, minHeight: 44,
+  padding: '0 12px', fontSize: 12, fontFamily: 'inherit', cursor: 'pointer',
+  background: 'var(--bg-paper)', border: '1px solid var(--line-strong)',
+  borderRadius: 7, color: 'var(--fg-2)', whiteSpace: 'nowrap',
+};
+
+const MENU: CSSProperties = {
+  position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 200,
+  background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', borderRadius: 8,
+  boxShadow: '0 4px 16px rgba(0,0,0,0.14)', minWidth: 200, overflow: 'hidden',
+  maxHeight: '60vh', overflowY: 'auto',
+};
+
+const ROW: CSSProperties = {
+  display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%',
+  minHeight: 44, padding: '0 14px', fontSize: 13, fontFamily: 'inherit', cursor: 'pointer',
+  border: 'none', borderBottom: '1px solid var(--line-2)', textAlign: 'left',
+};
