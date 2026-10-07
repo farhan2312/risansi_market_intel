@@ -94,20 +94,32 @@ export function SortedTable({
   columns, rows, className, style, headRowStyle,
   divider, lastDivider = true, footer,
 }: SortedTableProps) {
+  // Only a card-view table loses its header on a phone, so only a card-view
+  // table needs the control. Anything else keeps a header row to tap, and a
+  // menu above it would be a second way to do the same thing.
+  const cardView = (className ?? '').split(/\s+/).includes('r-cards');
+
   const cols = columns
     .filter(c => c.kind)
     .map(c => ({
       key:   c.key,
       kind:  c.kind as SortKind,
       order: c.order,
+      label: cardView ? mobileLabelOf(c) : undefined,
       // Always read from `values`, never from the rendered cell: a cell holding
       // '₹1.2 Cr', a badge or a bar has no order of its own.
       value: (r: SortedTableRow) => r.values[c.key],
     }));
 
-  const { rows: ordered, sortBy } = useTableSort(rows, cols);
+  const { rows: ordered, sortBy, mobile } = useTableSort(rows, cols);
 
   return (
+    <>
+    {mobile.options.length > 0 && (
+      <div className="r-mobile-only" style={{ margin: '4px 0 8px' }}>
+        <MobileSort {...mobile} />
+      </div>
+    )}
     <table className={className} style={style}>
       <thead>
         <tr style={headRowStyle}>
@@ -135,5 +147,18 @@ export function SortedTable({
       </tbody>
       {footer && <tfoot>{footer}</tfoot>}
     </table>
+    </>
   );
+}
+
+/**
+ * The name this column answers to in the phone sort menu. A label that is not
+ * plain text — an icon, a two-line header — has nothing to put in a menu row,
+ * so the column is left out rather than listed as its raw key.
+ */
+function mobileLabelOf(c: SortedTableColumn): string | undefined {
+  if (c.mobileLabel != null) return c.mobileLabel.trim() || undefined;
+  if (typeof c.label === 'string' && c.label.trim()) return c.label.trim();
+  if (typeof c.label === 'number') return String(c.label);
+  return undefined;
 }

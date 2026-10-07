@@ -17,6 +17,7 @@ import type { CSSProperties } from 'react';
 import Link from 'next/link';
 import { Tag } from '@/components/risansi';
 import { useTableSort, SortTH } from '@/components/risansi/SortTH';
+import { MobileSort } from '@/components/risansi/MobileSort';
 import type { SortableColumn } from '@/lib/risansi-table-sort';
 import type { OverallData } from '@/lib/risansi-audit-overall';
 
@@ -189,18 +190,20 @@ const USAGE_HELP: Record<string, string> = {
   'Last active': COL_HELP['Last seen'],
 };
 
+// The labels are for the phone sort menu: this table is cards on a handset and
+// the header row below is hidden, so the menu is the only way to reorder it there.
 const USAGE_USER_COLS: SortableColumn<UsageUserRow>[] = [
-  { key: 'email',      kind: 'text' },
-  { key: 'role',       kind: 'text' },
+  { key: 'email',      kind: 'text',   label: 'User' },
+  { key: 'role',       kind: 'text',   label: 'Role' },
   // Seconds, not "1h 20m". The label is for reading; this is for ordering.
-  { key: 'total',      kind: 'number' },
-  { key: 'sessions',   kind: 'number' },
-  { key: 'pages',      kind: 'number' },
-  { key: 'lastActive', kind: 'date' },
+  { key: 'total',      kind: 'number', label: 'Active time' },
+  { key: 'sessions',   kind: 'number', label: 'Sessions' },
+  { key: 'pages',      kind: 'number', label: 'Pages' },
+  { key: 'lastActive', kind: 'date',   label: 'Last active' },
 ];
 
 export function UsageUsersTable({ rows, win }: { rows: UsageUserRow[]; win: string }) {
-  const { rows: shown, sortBy } = useTableSort(rows, USAGE_USER_COLS);
+  const { rows: shown, sortBy, mobile } = useTableSort(rows, USAGE_USER_COLS);
   const link = (user: string) =>
     `/risansi/admin/audit?${new URLSearchParams({ tab: 'usage', win, user }).toString()}`;
 
@@ -212,6 +215,11 @@ export function UsageUsersTable({ rows, win }: { rows: UsageUserRow[]; win: stri
   });
 
   return (
+    <>
+    {/* Only shows on a phone, where the header row below is hidden. */}
+    <div className="r-mobile-only" style={{ margin: '4px 0 8px' }}>
+      <MobileSort {...mobile} />
+    </div>
     <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
       <thead>
         <tr style={{ background: 'var(--bg-elev)' }}>
@@ -242,6 +250,7 @@ export function UsageUsersTable({ rows, win }: { rows: UsageUserRow[]; win: stri
         ))}
       </tbody>
     </table>
+    </>
   );
 }
 
@@ -250,15 +259,19 @@ export function UsageUsersTable({ rows, win }: { rows: UsageUserRow[]; win: stri
 const USAGE_PAGE_COLS: SortableColumn<UsagePageRow>[] = [
   // The label, not the path: the column reads "Client 360 · detail", so A to Z
   // has to mean A to Z of what is on screen.
-  { key: 'label', kind: 'text' },
-  { key: 'total', kind: 'number' },
-  { key: 'hits',  kind: 'number' },
+  { key: 'label', kind: 'text',   label: 'Page' },
+  { key: 'total', kind: 'number', label: 'Active time' },
+  { key: 'hits',  kind: 'number', label: 'Visits' },
 ];
 
 export function UsagePagesTable({ rows }: { rows: UsagePageRow[] }) {
   const maxPage = Math.max(1, ...rows.map(p => p.total));
-  const { rows: shown, sortBy } = useTableSort(rows, USAGE_PAGE_COLS);
+  const { rows: shown, sortBy, mobile } = useTableSort(rows, USAGE_PAGE_COLS);
   return (
+    <>
+    <div className="r-mobile-only" style={{ margin: '4px 0 8px' }}>
+      <MobileSort {...mobile} />
+    </div>
     <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
       <thead>
         <tr style={{ background: 'var(--bg-elev)' }}>
@@ -280,20 +293,25 @@ export function UsagePagesTable({ rows }: { rows: UsagePageRow[] }) {
         ))}
       </tbody>
     </table>
+    </>
   );
 }
 
 const USAGE_SESSION_COLS: SortableColumn<UsageSessionRow>[] = [
-  { key: 'started', kind: 'date' },
-  { key: 'active',  kind: 'number' },
+  { key: 'started', kind: 'date',   label: 'Started' },
+  { key: 'active',  kind: 'number', label: 'Active time' },
   // Wall-clock between the first and last page view. Worked out on the server
   // so the column orders on seconds rather than on the printed "1h 04m".
-  { key: 'span',    kind: 'number' },
+  { key: 'span',    kind: 'number', label: 'Span' },
 ];
 
 export function UsageSessionsTable({ rows }: { rows: UsageSessionRow[] }) {
-  const { rows: shown, sortBy } = useTableSort(rows, USAGE_SESSION_COLS);
+  const { rows: shown, sortBy, mobile } = useTableSort(rows, USAGE_SESSION_COLS);
   return (
+    <>
+    <div className="r-mobile-only" style={{ margin: '4px 0 8px' }}>
+      <MobileSort {...mobile} />
+    </div>
     <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
       <thead>
         <tr style={{ background: 'var(--bg-elev)' }}>
@@ -312,6 +330,7 @@ export function UsageSessionsTable({ rows }: { rows: UsageSessionRow[] }) {
         ))}
       </tbody>
     </table>
+    </>
   );
 }
 

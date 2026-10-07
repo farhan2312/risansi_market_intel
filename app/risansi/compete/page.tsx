@@ -8,6 +8,7 @@ import { getCurrentUser, clientVisibilitySql, clientScopeSql , OWN_OPEN } from '
 import { fmtCr } from '@/lib/risansi-utils';
 import { AND_LIVE_CLIENT } from '@/lib/risansi-opportunity-scope';
 import { SortedTable } from '@/components/risansi/SortedTable';
+import { MobileSortUrl } from '@/components/risansi/MobileSort';
 
 async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }
@@ -85,6 +86,32 @@ interface LostTo { competitor: string; losses: number; value_cr: number; }
 interface PriceIntel {
   visit_date: string | null; pics: number; client_name: string; client_code: string; rep_name: string;
 }
+
+// What the phone sort menu offers for the displacement table, and which way
+// each column opens. The table is cards on a handset, with no header row to
+// tap, so without this it is stuck on competitor PCP there. Keys must be
+// SORT_MAP's keys — anything else is dropped by the whitelist below and the tap
+// would appear to do nothing.
+const DISP_SORT_OPTIONS = [
+  { key: 'competitor_pcp', label: 'Competitor PCP' },
+  { key: 'competitor_mmp', label: 'Competitor MMP' },
+  { key: 'share',          label: 'RIL share of PCP' },
+  { key: 'mmp_share',      label: 'RIL share of MMP' },
+  { key: 'total_pcp',      label: 'Total PCP' },
+  { key: 'total_mmp',      label: 'Total MMP' },
+  { key: 'ril_pcp',        label: 'RIL PCP' },
+  { key: 'ril_mmp',        label: 'RIL MMP' },
+  { key: 'client',         label: 'Client' },
+  { key: 'zone',           label: 'Zone' },
+  { key: 'rep',            label: 'Rep' },
+];
+const DISP_SORT_KINDS = {
+  competitor_pcp: 'number', competitor_mmp: 'number',
+  share: 'number', mmp_share: 'number',
+  total_pcp: 'number', total_mmp: 'number',
+  ril_pcp: 'number', ril_mmp: 'number',
+  client: 'text', zone: 'text', rep: 'text',
+} as const;
 
 // Sort map for displacement table
 const SORT_MAP: Record<string, string> = {
@@ -549,6 +576,16 @@ export default async function CompetePage({
             </div>
           ) : (
             <div style={{ overflowX: 'auto', marginTop: 8 }}>
+              {/* Only shows on a phone, where the header row below is hidden.
+                  The order is decided in SQL, so this asks the server again. */}
+              <div className="r-mobile-only" style={{ padding: '0 14px 8px' }}>
+                <MobileSortUrl
+                  options={DISP_SORT_OPTIONS}
+                  kinds={DISP_SORT_KINDS}
+                  currentSort={curSort}
+                  currentDir={curDir}
+                />
+              </div>
               <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: 'var(--bg-elev)' }}>

@@ -36,13 +36,40 @@ export interface MobileSortProps {
 
 export function MobileSort({ options, sort, dir, onPick, restingLabel }: MobileSortProps) {
   const [open, setOpen] = useState(false);
+  // Where to put the menu, measured from the button when it opens.
+  const [at, setAt] = useState<{ top: number; left: number; width: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const btn = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
   }, []);
+
+  // The menu is positioned against the viewport rather than against this button,
+  // because several of these tables sit inside a panel with overflow hidden or
+  // an overflow-x wrapper, and an absolutely positioned menu is clipped by both
+  // — on a short table it would be cut off at the panel's edge, which is the one
+  // place a sort menu has to work. Fixed positioning escapes every such ancestor.
+  // It has to be measured rather than declared, so it is read when the menu
+  // opens, and the menu closes on a scroll instead of drifting away from its
+  // button.
+  useEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const r = btn.current?.getBoundingClientRect();
+      if (r) setAt({ top: r.bottom + 4, left: r.left, width: r.width });
+    };
+    place();
+    const close = () => setOpen(false);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [open]);
 
   // A table with one sortable column does not need a menu to choose from.
   if (!options.length) return null;
@@ -52,13 +79,13 @@ export function MobileSort({ options, sort, dir, onPick, restingLabel }: MobileS
 
   return (
     <div ref={ref} className="r-mobile-only" style={{ position: 'relative' }}>
-      <button type="button" onClick={() => setOpen(o => !o)} style={TRIGGER}>
+      <button ref={btn} type="button" onClick={() => setOpen(o => !o)} style={TRIGGER}>
         ↕ Sort: <strong style={{ fontWeight: 600, color: 'var(--fg)' }}>{label}</strong>
         {active && <span style={{ opacity: 0.6 }}>{dir === 'asc' ? '↑' : '↓'}</span>}
       </button>
 
-      {open && (
-        <div style={MENU}>
+      {open && at && (
+        <div style={{ ...MENU, top: at.top, left: at.left, minWidth: Math.max(at.width, 200) }}>
           {options.map(o => {
             const on = o.key === sort;
             return (
@@ -138,9 +165,9 @@ const TRIGGER: CSSProperties = {
 };
 
 const MENU: CSSProperties = {
-  position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 200,
+  position: 'fixed', zIndex: 200,
   background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', borderRadius: 8,
-  boxShadow: '0 4px 16px rgba(0,0,0,0.14)', minWidth: 200, overflow: 'hidden',
+  boxShadow: '0 4px 16px rgba(0,0,0,0.14)', overflow: 'hidden',
   maxHeight: '60vh', overflowY: 'auto',
 };
 

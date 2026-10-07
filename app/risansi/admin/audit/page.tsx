@@ -9,6 +9,8 @@ import {
   UsageUsersTable, UsagePagesTable, UsageSessionsTable,
   type UsageUserRow, type UsagePageRow, type UsageSessionRow,
 } from '@/components/risansi/AuditTables';
+import { MobileSortUrl } from '@/components/risansi/MobileSort';
+import type { SortKind } from '@/lib/risansi-table-sort';
 import { loadOverall, OVERALL_WINDOWS, type OverallData } from '@/lib/risansi-audit-overall';
 import { PERSON_WINDOWS } from '@/lib/risansi-person-metrics';
 
@@ -95,6 +97,53 @@ const SORT_MAPS: Record<string, Record<string, string>> = {
   exhibitions: {
     when: 'created_at', kind: 'kind', exhibition: 'lower(exhibition)',
     what: 'lower(what)', who: 'lower(who)', amount: 'amount',
+  },
+};
+
+// What each tab's phone sort menu offers, and which way each column opens.
+// These tables are cards on a handset with no header row to tap, so without
+// this they are fixed in their default order there. Every key is a key of that
+// tab's SORT_MAPS entry — anything else is dropped by the lookup in
+// orderByFor() and the tap would appear to do nothing.
+const MOBILE_SORTS: Record<string, { options: { key: string; label: string }[]; kinds: Record<string, SortKind> }> = {
+  logins: {
+    options: [
+      { key: 'when',   label: 'When' },
+      { key: 'event',  label: 'Event' },
+      { key: 'user',   label: 'User' },
+      { key: 'role',   label: 'Role' },
+      { key: 'ip',     label: 'IP address' },
+      { key: 'device', label: 'Device' },
+      { key: 'reason', label: 'Reason' },
+    ],
+    kinds: {
+      when: 'date', event: 'text', user: 'text', role: 'text',
+      ip: 'text', device: 'text', reason: 'text',
+    },
+  },
+  activity: {
+    options: [
+      { key: 'when',   label: 'When' },
+      { key: 'actor',  label: 'Actor' },
+      { key: 'action', label: 'Action' },
+      { key: 'entity', label: 'Entity' },
+      { key: 'what',   label: 'What' },
+      { key: 'ip',     label: 'IP address' },
+    ],
+    kinds: {
+      when: 'date', actor: 'text', action: 'text',
+      entity: 'text', what: 'text', ip: 'text',
+    },
+  },
+  changes: {
+    options: [
+      { key: 'when',   label: 'When' },
+      { key: 'entity', label: 'Entity' },
+      { key: 'id',     label: 'Record ID' },
+      { key: 'action', label: 'Action' },
+      { key: 'by',     label: 'Changed by' },
+    ],
+    kinds: { when: 'date', entity: 'text', id: 'text', action: 'text', by: 'text' },
   },
 };
 
@@ -448,8 +497,32 @@ export default async function AuditPage({
  *  SQL was ordered by, so the header can show the arrow on the right one. */
 interface SortedTable { sort: string; dir: 'asc' | 'desc' }
 
+/**
+ * The same header, for the phone. These tables are cards on a handset and the
+ * header row above is hidden, so the menu is the only way to reorder them
+ * there — and the order still has to be decided in SQL, because each tab shows
+ * fifty rows of a trail that runs to thousands.
+ */
+function MobileSortFor({ tab, sort, dir }: { tab: string } & SortedTable) {
+  const m = MOBILE_SORTS[tab];
+  if (!m) return null;
+  return (
+    <div className="r-mobile-only" style={{ padding: '8px 10px 0' }}>
+      <MobileSortUrl
+        options={m.options}
+        kinds={m.kinds}
+        currentSort={sort}
+        currentDir={dir}
+        restingLabel="Newest first"
+      />
+    </div>
+  );
+}
+
 function LoginsTable({ rows, sort, dir }: { rows: LoginRow[] } & SortedTable) {
   return (
+    <>
+    <MobileSortFor tab="logins" sort={sort} dir={dir} />
     <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
       <thead><tr style={{ background: 'var(--bg-elev)' }}>
         <SortableTH col="when"   label="When"   kind="date" currentSort={sort} currentDir={dir} style={TH} />
@@ -476,11 +549,14 @@ function LoginsTable({ rows, sort, dir }: { rows: LoginRow[] } & SortedTable) {
         ))}
       </tbody>
     </table>
+    </>
   );
 }
 
 function ActivityTable({ rows, sort, dir }: { rows: ActivityRow[] } & SortedTable) {
   return (
+    <>
+    <MobileSortFor tab="activity" sort={sort} dir={dir} />
     <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
       <thead><tr style={{ background: 'var(--bg-elev)' }}>
         <SortableTH col="when"   label="When"   kind="date" currentSort={sort} currentDir={dir} style={TH} />
@@ -505,6 +581,7 @@ function ActivityTable({ rows, sort, dir }: { rows: ActivityRow[] } & SortedTabl
         ))}
       </tbody>
     </table>
+    </>
   );
 }
 
@@ -588,6 +665,8 @@ function ExhibitionAuditTable({ rows, sort, dir }: { rows: ExhibitionAuditRow[] 
 
 function ChangesTable({ rows, sort, dir }: { rows: ChangeRow[] } & SortedTable) {
   return (
+    <>
+    <MobileSortFor tab="changes" sort={sort} dir={dir} />
     <table className="r-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
       <thead><tr style={{ background: 'var(--bg-elev)' }}>
         <SortableTH col="when"   label="When"   kind="date" currentSort={sort} currentDir={dir} style={TH} />
@@ -618,6 +697,7 @@ function ChangesTable({ rows, sort, dir }: { rows: ChangeRow[] } & SortedTable) 
         ))}
       </tbody>
     </table>
+    </>
   );
 }
 
