@@ -63,6 +63,10 @@ const ADMIN_NAV: NavItem[] = [
   { id: 'revenue-admin', href: '/risansi/admin/revenue', label: 'Revenue Upload', Icon: IcBag },
   { id: 'outstanding-admin', href: '/risansi/admin/outstanding', label: 'Outstanding Upload', Icon: IcBag },
   { id: 'pumps-admin',   href: '/risansi/admin/pumps',   label: 'Pump Ingestion', Icon: IcPump },
+  // The complaint module's editable parts: its dropdown lists, who an action
+  // assigns to, and the overdue thresholds. Admin rather than sysadmin, because
+  // the Complaint Team is who revises them.
+  { id: 'complaints-admin', href: '/risansi/admin/complaints', label: 'Complaint Settings', Icon: IcAlert },
 ];
 
 // GROUP 3 — System Admin (sysadmin only)
@@ -93,6 +97,7 @@ const PATH_TO_ID: [string, string][] = [
   ['/risansi/admin/revenue',    'revenue-admin'],
   ['/risansi/admin/outstanding', 'outstanding-admin'],
   ['/risansi/admin/pumps',      'pumps-admin'],
+  ['/risansi/admin/complaints', 'complaints-admin'],
   ['/risansi/admin/reps',       'reps-admin'],
   ['/risansi/admin/bugs',       'bugs-admin'],
   ['/risansi/exhibitions',      'exhibitions'],

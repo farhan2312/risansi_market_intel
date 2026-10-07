@@ -5,11 +5,12 @@ import { ChartPanel, NoData } from '@/components/risansi/StageCharts';
 
 // Where the complaints are, at two zoom levels.
 //
-// Summary answers the only question most people open the page with — how many
-// are still live and how many are done. Every stage answers the follow-up.
-// They are the same two questions the filter above the list asks, so a bar in
-// either view sets the matching filter: a summary bar sets Overall, a stage bar
-// sets Status.
+// Summary is the five headline names the business uses — Open, Action Taken,
+// Resolved, Feedback, Closed — and answers the question most people open the
+// page with. Every stage answers the follow-up, in the eight sub-stages the
+// Complaint Team actually works with. They are the same two questions the
+// filter above the list asks, so a bar in either view sets the matching
+// filter: a summary bar sets the headline, a stage bar sets the sub-stage.
 //
 // Hrefs are built on the server and passed in, because the page owns the URL
 // and this component only owns which set of bars is on screen.
@@ -18,7 +19,7 @@ export interface StatusBar {
   key: string;
   label: string;
   count: number;
-  /** Part of `count` that is past its target completion date. Drawn in red. */
+  /** Part of `count` that is overdue: older than its severity's threshold. Drawn in red. */
   overdue?: number;
   /** Closed work is drawn green rather than blue. */
   done?: boolean;

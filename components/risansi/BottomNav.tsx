@@ -44,6 +44,7 @@ const MORE_ADMIN: Item[] = [
   { href: '/risansi/admin/revenue',     label: 'Revenue Upload',      Icon: Upload },
   { href: '/risansi/admin/outstanding', label: 'Outstanding Upload',  Icon: Wallet },
   { href: '/risansi/admin/pumps',       label: 'Pump Ingestion',      Icon: Gauge },
+  { href: '/risansi/admin/complaints',  label: 'Complaint Settings',  Icon: AlertTriangle },
 ];
 
 const MORE_SYSADMIN: Item[] = [

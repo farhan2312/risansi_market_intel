@@ -6,10 +6,12 @@ import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, canAccessComplaint, canViewClient, hasRole } from '@/lib/risansi-auth';
 import {
   PAGES, pageBySlug, NEXT, canEditPage, canMove, gateFor, dwells, dwellByHolder, isOpenStatus,
+  isImmediateResponse, IMMEDIATE_RISK_FIELDS,
   SEVERITY_LABEL, SEVERITY_TONE, SEVERITY_REQUIRES, STATUS_TONE, missingOnPage,
   type ComplaintStatus, type ComplaintValues, type Severity,
 } from '@/lib/risansi-complaint-flow';
 import { ComplaintPageForm, type UserOpt, type OemOpt } from '@/components/risansi/complaints/ComplaintPageForm';
+import type { ComplaintPartRow } from '@/components/risansi/complaints/ComplaintPartsEditor';
 import { ComplaintTimeline, ComplaintLifecycle } from '@/components/risansi/complaints/ComplaintTimeline';
 import { ComplaintMoveBar } from '@/components/risansi/complaints/ComplaintMoveBar';
 import { ComplaintAttachments, type AttachmentMeta } from '@/components/risansi/complaints/ComplaintAttachments';
@@ -49,7 +51,7 @@ export default async function ComplaintPage({ params, searchParams }: {
   const user = await getCurrentUser();
   if (!user.email || !(await canAccessComplaint(user, id))) notFound();
 
-  const [{ rows: [c] }, { rows: userRows }, { rows: lookupRows }, { rows: oems }, { rows: logRows }, { rows: files }, { rows: notes }] = await Promise.all([
+  const [{ rows: [c] }, { rows: userRows }, { rows: lookupRows }, { rows: cascadeRows }, { rows: oems }, { rows: partRows }, { rows: logRows }, { rows: files }, { rows: notes }] = await Promise.all([
     risansiPool.query<ComplaintValues & {
       id: number; complaint_no: string; status: string; schema_version: number; client_id: number | null;
       client_name: string | null; client_code: string | null; rep_name: string | null; reporter_name: string | null;
@@ -76,10 +78,28 @@ export default async function ComplaintPage({ params, searchParams }: {
       SELECT u.id, u.name, u.role,
              ARRAY(SELECT d.department FROM user_departments d WHERE d.user_id = u.id ORDER BY 1) AS departments
         FROM users u WHERE u.is_active ORDER BY u.name`),
-    risansiPool.query<{ kind: string; value: string }>('SELECT kind, value FROM complaint_lookups WHERE is_active ORDER BY kind, sort_order, value'),
+    // The flat lists. `parent_value IS NULL` is not decoration: without it
+    // `part_name` comes back with Shaft in it twice — once under External, once
+    // under Child Parts of Joints — and a flat map cannot say which is which.
+    risansiPool.query<{ kind: string; value: string }>(
+      'SELECT kind, value FROM complaint_lookups WHERE is_active AND parent_value IS NULL ORDER BY kind, sort_order, value'),
+    // The cascading lists, grouped by the parent choice they hang under: the
+    // sub-category under the category, the part name under the part type, the
+    // root cause under the root cause category.
+    risansiPool.query<{ kind: string; parent_value: string; value: string }>(`
+      SELECT kind, parent_value, value FROM complaint_lookups
+       WHERE is_active AND parent_value IS NOT NULL
+       ORDER BY kind, parent_value, sort_order, value`),
     risansiPool.query<OemOpt>(`
       SELECT id, legal_name AS name, code
         FROM clients WHERE client_type = 'OEM' AND deleted_at IS NULL ORDER BY legal_name`),
+    // The parts this complaint is about. `quantity` is numeric and the two
+    // dates are `date`, so all three are cast to text before they reach the
+    // editor — a Date serialised to a client component loses a day in IST.
+    risansiPool.query<ComplaintPartRow>(`
+      SELECT id, sort_order, part_type, part_name, quantity::text AS quantity, moc, vendor_name,
+             mfg_date::text AS mfg_date, part_code, ec_no, ec_date::text AS ec_date, liquid, head, capacity
+        FROM complaint_parts WHERE complaint_id = $1 ORDER BY sort_order, id`, [id]),
     risansiPool.query<{ to_status: string; holder_department: string | null; holder_user_id: number | null; holder_name: string | null; created_at: string; note: string | null; actor: string | null; from_status: string | null }>(`
       SELECT l.to_status, l.from_status, l.holder_department, l.holder_user_id, u.name AS holder_name, l.created_at::text AS created_at, l.note,
              COALESCE(a.name, l.actor_email) AS actor
@@ -99,6 +119,8 @@ export default async function ComplaintPage({ params, searchParams }: {
 
   const lookups: Record<string, string[]> = {};
   for (const r of lookupRows) (lookups[r.kind] ??= []).push(r.value);
+  const cascades: Record<string, Record<string, string[]>> = {};
+  for (const r of cascadeRows) ((cascades[r.kind] ??= {})[r.parent_value] ??= []).push(r.value);
 
   const legacy = c.schema_version < 2;
   const worksClient = c.client_id != null && !hasRole(user.role, 'admin') ? await canViewClient(user, c.client_id) : hasRole(user.role, 'admin');
@@ -126,6 +148,16 @@ export default async function ComplaintPage({ params, searchParams }: {
   const canEditFiles = canEditPage(editor, access, PAGES[0]);
   const canEditCapa = canEditPage(editor, access, PAGES[5]);
   const overdueTarget = c.target_completion_date && isOpenStatus(c.status) && String(c.target_completion_date).slice(0, 10) < nowIso.slice(0, 10);
+  // Severe / Immediate Response, separate from the S-grade: one Yes among
+  // Safety, Shutdown, Penalty or Repeat and this needs looking at today. The
+  // department was notified when the answer was given; this is the same fact
+  // on the complaint's own page, for whoever opens it afterwards.
+  const severe = isImmediateResponse(c as Parameters<typeof isImmediateResponse>[0]);
+  const severeWhy = IMMEDIATE_RISK_FIELDS.filter(f => c[f.key] === true).map(f => f.label).join(' · ');
+  // Files staged on the registration screen that would not upload. The
+  // complaint was still registered; this says which ones to attach again.
+  const failedFiles = (typeof sp.files === 'string' ? sp.files : '').slice(0, 600)
+    .split('|').map(s => s.trim().slice(0, 120)).filter(Boolean).slice(0, 10);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -142,6 +174,7 @@ export default async function ComplaintPage({ params, searchParams }: {
               <span style={{ fontFamily: 'var(--font-mono)' }}>{c.complaint_no}</span>
               <span style={{ ...PILL, background: STATUS_TONE[c.status] ?? 'var(--fg-3)' }}>{c.status}</span>
               {sev && <span style={{ ...PILL, background: SEVERITY_TONE[sev] }} title={SEVERITY_REQUIRES[sev]}>{SEVERITY_LABEL[sev]}</span>}
+              {severe && <span style={{ ...PILL, background: 'var(--neg)' }} title={`Immediate response: ${severeWhy}`}>Severe</span>}
               {legacy && <span style={{ ...PILL, background: 'var(--fg-4)' }}>Legacy</span>}
               {c.repeat_complaint === true && <span style={{ ...PILL, background: 'var(--warn, #B45309)' }}>Repeat</span>}
               {(c.reopen_count as number) > 0 && <span style={{ ...PILL, background: 'var(--warn, #B45309)' }}>Reopened ×{String(c.reopen_count)}</span>}
@@ -153,7 +186,15 @@ export default async function ComplaintPage({ params, searchParams }: {
             <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 4, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
               <span>raised {day(String(c.complaint_date ?? c.created_at))}{c.reporter_name ? ` by ${c.reporter_name}` : ''}</span>
               {c.rep_name && <span>rep {c.rep_name}</span>}
-              {c.complaint_type ? <span>{String(c.complaint_type)}{c.defect_category ? ` · ${String(c.defect_category)}` : ''}</span> : null}
+              {/* Category and sub-category where they exist; the complaints
+                  raised before the category did still read on Type and Defect
+                  Category, so those are the fallback rather than a blank. */}
+              {(() => {
+                const now = [c.complaint_category, c.complaint_subcategory].filter(Boolean).map(String);
+                const was = [c.complaint_type, c.defect_category].filter(Boolean).map(String);
+                const show = now.length ? now : was;
+                return show.length ? <span>{show.join(' · ')}</span> : null;
+              })()}
               {c.responsible_department ? <span>responsible: {String(c.responsible_department)}</span> : null}
               {c.target_completion_date ? <span style={{ color: overdueTarget ? 'var(--neg)' : undefined, fontWeight: overdueTarget ? 600 : 400 }}>target {day(String(c.target_completion_date))}{overdueTarget ? ' · overdue' : ''}</span> : null}
             </div>
@@ -206,11 +247,17 @@ export default async function ComplaintPage({ params, searchParams }: {
             </div>
             {page.id === 1 && (
               <div style={{ marginBottom: 14 }}>
+                {failedFiles.length > 0 && (
+                  <div style={{ padding: '9px 12px', borderRadius: 6, fontSize: 12, lineHeight: 1.5, marginBottom: 10,
+                                background: 'var(--warn-soft)', border: '1px solid var(--warn)', color: 'var(--warn-strong, var(--warn))' }}>
+                    The complaint was registered, but {failedFiles.length === 1 ? 'one file' : `${failedFiles.length} files`} chosen at registration did not upload: {failedFiles.join(', ')}. Attach {failedFiles.length === 1 ? 'it' : 'them'} again below.
+                  </div>
+                )}
                 <ComplaintAttachments complaintId={id} files={files} canEdit={canEditFiles} canEditCapa={canEditCapa} only={['complaint', 'photo']} />
               </div>
             )}
             <ComplaintPageForm key={page.id} complaintId={id} clientId={c.client_id} page={page} initial={c} oems={oems}
-              lookups={lookups} users={userRows} canEdit={canEditThis} whyNot={whyNot} />
+              lookups={lookups} cascades={cascades} parts={partRows} users={userRows} canEdit={canEditThis} whyNot={whyNot} />
             {page.id === 6 && (
               <div style={{ marginTop: 16 }}>
                 <div style={LBL}>Documents & attachments</div>

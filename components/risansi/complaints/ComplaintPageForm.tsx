@@ -1,12 +1,16 @@
 'use client';
 
-import { useMemo, useState, useTransition, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, useTransition, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
-import { saveComplaintPage, lookupPump } from '@/app/actions/risansi-complaints-v2';
+import { saveComplaintPage, lookupPump, listClientPumps, type ClientPumpOption } from '@/app/actions/risansi-complaints-v2';
 import {
-  isFieldShown, missingOnPage, severityOf, SEVERITY_LABEL, SEVERITY_REQUIRES, SEVERITY_TONE, RISK_FIELDS,
-  type ComplaintPage, type ComplaintField, type ComplaintValues, type Severity,
+  isFieldShown, missingOnPage, severityOf, optionsFor, cascadeParent, costImpactForced, costImpactReason,
+  responsibleDepartmentFor, PAGES,
+  SEVERITY_LABEL, SEVERITY_REQUIRES, SEVERITY_TONE, RISK_FIELDS,
+  type ComplaintPage, type ComplaintField, type ComplaintValues, type CascadingLookups, type Severity,
 } from '@/lib/risansi-complaint-flow';
+import { ComplaintLinkPicker } from './ComplaintLinkPicker';
+import { ComplaintPartsEditor, type ComplaintPartRow } from './ComplaintPartsEditor';
 
 // One page of a complaint, drawn from the catalogue in lib/risansi-complaint-flow.
 //
@@ -15,19 +19,33 @@ import {
 // whole page in one action, and hides a conditional field the moment its
 // condition stops holding. Page 3 computes the severity live from the same
 // severityOf the server uses, so what the form shows is what will be stored.
+//
+// Three answers are not typed at all. A cascading select offers only the slice
+// of its list that hangs under the parent's answer, and loses its own answer
+// when that parent changes. Cost Impact answers itself for a replacement and is
+// shown locked with the reason. Responsible Department is filled from the root
+// cause and left editable, because the person who did the investigating may know
+// better than the mapping.
+
+/** The label of every field, so a cascading control can name the parent it waits on. */
+const FIELD_LABEL = new Map(PAGES.flatMap(p => p.fields).map(f => [f.name, f.label] as const));
 
 export interface UserOpt { id: number; name: string; role?: string | null; departments?: string[] }
 /** A client with client_type = 'OEM', for the "supply through an OEM" picker. */
 export interface OemOpt { id: number; name: string; code: string | null }
 
-export function ComplaintPageForm({ complaintId, clientId, page, initial, lookups, users, oems = [], canEdit, whyNot }: {
+export function ComplaintPageForm({ complaintId, clientId, page, initial, lookups, cascades, users, oems = [], parts, canEdit, whyNot }: {
   complaintId: number;
   clientId: number | null;
   page: ComplaintPage;
   initial: ComplaintValues;
   lookups: Record<string, string[]>;
+  /** The cascading half of complaint_lookups: `{ kind: { parent: [values] } }`. */
+  cascades?: CascadingLookups;
   users: UserOpt[];
   oems?: OemOpt[];
+  /** The complaint's `complaint_parts` rows, for page 2's parts editor. */
+  parts?: ComplaintPartRow[];
   canEdit: boolean;
   /** One sentence on why the page is read-only, when it is. */
   whyNot?: string | null;
@@ -35,14 +53,91 @@ export function ComplaintPageForm({ complaintId, clientId, page, initial, lookup
   const router = useRouter();
   const [values, setValues] = useState<ComplaintValues>(() => {
     const v: ComplaintValues = {};
-    for (const f of page.fields) v[f.name] = initial[f.name] ?? (f.type === 'bool' ? null : '');
+    for (const f of page.fields) v[f.name] = initial[f.name] ?? (f.type === 'bool' ? null : f.type === 'multi' ? [] : '');
     return v;
   });
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [looking, setLooking] = useState(false);
+  const [pumps, setPumps] = useState<ClientPumpOption[]>([]);
 
-  const set = (name: string, v: unknown) => { setValues(cur => ({ ...cur, [name]: v })); setMsg(null); };
+  // Whether Responsible Department is still holding what the mapping gave it.
+  // A value the investigator typed over the top is theirs and is not replaced
+  // when the root cause changes again.
+  const autoDept = useRef<string | null>(
+    page.id === 4 && initial.responsible_department
+      && responsibleDepartmentFor(initial.root_cause_category as string | null, initial.root_cause_sub as string | null) === initial.responsible_department
+      ? String(initial.responsible_department) : null);
+
+  // Page 2: every pump this client has had from us, so SO, EC and serial are
+  // picked off a list rather than typed blind, and an SO can bring its EC with it.
+  useEffect(() => {
+    if (page.id !== 2 || !clientId) return;
+    let live = true;
+    listClientPumps(clientId).then(res => {
+      if (!live) return;
+      if (res.ok) setPumps(res.data);
+    });
+    return () => { live = false; };
+  }, [page.id, clientId]);
+
+  const suggestions = useMemo(() => {
+    const uniq = (xs: (string | null)[]) => [...new Set(xs.filter((x): x is string => !!x && x.trim() !== '').map(x => x.trim()))].slice(0, 300);
+    return {
+      so_no: uniq(pumps.map(p => p.so_number)),
+      ec_no: uniq(pumps.map(p => p.ec_number)),
+      pump_serial_no: uniq(pumps.map(p => p.pump_sl_no)),
+      pump_model: uniq(pumps.map(p => p.pump_model_plate)),
+    } as Record<string, string[]>;
+  }, [pumps]);
+
+  // Cost Impact decides itself for a replacement or an FR challan. The field is
+  // shown locked with the reason; the save action applies the same rule, so a
+  // post that goes round the UI cannot file a free replacement as costing nothing.
+  const forcedCost = page.id === 5 && costImpactForced(values);
+  const costReason = forcedCost ? costImpactReason(values) : null;
+  useEffect(() => {
+    if (forcedCost && values.cost_impact !== true) setValues(cur => ({ ...cur, cost_impact: true }));
+  }, [forcedCost, values.cost_impact]);
+
+  const set = (name: string, v: unknown) => {
+    const next: ComplaintValues = { ...values, [name]: v };
+    let note: string | null = null;
+
+    // A cascade's parent moved, so the child it was holding is orphaned —
+    // nothing may sit holding Vibration under Supply Related.
+    for (const f of page.fields) if (f.parentField === name && next[f.name]) next[f.name] = '';
+
+    // The document asks that entering an SO recommend the EC against it. The
+    // installed base knows the pairing; blanks are filled and an answer already
+    // typed is left alone and pointed out instead.
+    if (page.id === 2 && name === 'so_no' && v) {
+      const hit = pumps.find(p => (p.so_number ?? '').trim().toUpperCase() === String(v).trim().toUpperCase());
+      if (hit) {
+        const filled: string[] = [], differs: string[] = [];
+        if (hit.ec_number) { if (!next.ec_no) { next.ec_no = hit.ec_number; filled.push(`EC ${hit.ec_number}`); } else if (next.ec_no !== hit.ec_number) differs.push(`EC on this SO is ${hit.ec_number}`); }
+        if (hit.ec_date) { if (!next.ec_date) { next.ec_date = hit.ec_date; filled.push(`EC date ${hit.ec_date}`); } else if (next.ec_date !== hit.ec_date) differs.push(`EC date on this SO is ${hit.ec_date}`); }
+        note = [filled.length ? `Filled from the installed base: ${filled.join(', ')}.` : '', differs.length ? `Already filled differently — ${differs.join('; ')}.` : ''].filter(Boolean).join(' ') || null;
+      }
+    }
+
+    // Responsible Department follows the root cause (decision 8) and stays
+    // editable. A null from the mapping means the pairing has no owner yet:
+    // leave it for a human rather than writing a default nobody chose.
+    if (page.id === 4 && (name === 'root_cause_category' || name === 'root_cause_sub')) {
+      const dept = responsibleDepartmentFor(
+        String(next.root_cause_category ?? '') || null,
+        String(next.root_cause_sub ?? '') || null);
+      const held = next.responsible_department;
+      if (dept && (held == null || held === '' || held === autoDept.current)) {
+        next.responsible_department = dept;
+        autoDept.current = dept;
+      }
+    }
+
+    setValues(next);
+    setMsg(note ? { ok: true, text: note } : null);
+  };
 
   // Page 3 only: what the answers so far make the severity.
   const liveSeverity: Severity | null = useMemo(
@@ -62,7 +157,7 @@ export function ComplaintPageForm({ complaintId, clientId, page, initial, lookup
     });
   };
 
-  // Page 2: the installed base, by EC number or serial. Fills blanks only.
+  // Page 2: the installed base, by SO number, EC number or serial. Fills blanks only.
   const lookup = async (q: string) => {
     if (!q || q.trim().length < 3) return;
     setLooking(true);
@@ -71,7 +166,7 @@ export function ComplaintPageForm({ complaintId, clientId, page, initial, lookup
     if (!res.ok) { setMsg({ ok: false, text: res.error }); return; }
     if (!res.data) { setMsg({ ok: false, text: `Nothing in the installed base matches "${q}". Type the details in; they are saved as typed.` }); return; }
     const d = res.data;
-    const fill: Record<string, unknown> = { so_no: d.so_no, ec_no: d.ec_no, pump_serial_no: d.pump_serial_no, pump_model: d.pump_model, liquid: d.liquid, head_pressure: d.head_pressure, quantity: d.quantity };
+    const fill: Record<string, unknown> = { so_no: d.so_no, ec_no: d.ec_no, ec_date: d.ec_date, pump_serial_no: d.pump_serial_no, pump_model: d.pump_model };
     let n = 0;
     setValues(cur => {
       const next = { ...cur };
@@ -106,18 +201,29 @@ export function ComplaintPageForm({ complaintId, clientId, page, initial, lookup
       <div style={grid}>
         {page.fields.map(f => {
           if (!isFieldShown(f, values)) return null;
-          const wide = f.type === 'long';
+          const wide = f.type === 'long' || f.type === 'multi';
+          const locked = forcedCost && f.name === 'cost_impact';
           return (
             <div key={f.name} style={wide ? { gridColumn: '1 / -1' } : undefined}>
               <label style={LBL}>
                 {f.label}{f.required && <span style={{ color: 'var(--neg)', marginLeft: 3 }}>*</span>}
+                {locked && <span style={{ ...SEV, color: 'var(--fg-3)' }} aria-label="set automatically">🔒</span>}
                 {page.id === 3 && (() => { const r = RISK_FIELDS.find(x => x.key === f.name); return r ? <span style={{ ...SEV, color: SEVERITY_TONE[r.level] }}>{r.level}</span> : null; })()}
               </label>
-              <Field f={f} value={values[f.name]} onChange={v => set(f.name, v)} disabled={!canEdit || pending}
-                lookups={lookups} users={users} oems={oems}
-                onLookup={page.id === 2 && f.fromPump && (f.name === 'ec_no' || f.name === 'pump_serial_no') ? () => lookup(String(values[f.name] ?? '')) : undefined}
-                looking={looking} />
-              {f.hint && <div style={HINT}>{f.hint}</div>}
+              {locked ? (
+                <div style={{ ...INPUT, display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg-elev)', color: 'var(--fg-2)' }}>
+                  <span style={{ fontWeight: 700, fontSize: 12.5 }}>Yes</span>
+                  <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>set automatically</span>
+                </div>
+              ) : (
+                <Field f={f} value={values[f.name]} onChange={v => set(f.name, v)} disabled={!canEdit || pending}
+                  lookups={lookups} cascades={cascades} values={values} users={users} oems={oems}
+                  suggestions={page.id === 2 ? suggestions[f.name] : undefined}
+                  complaintId={complaintId}
+                  onLookup={page.id === 2 && f.fromPump && (f.name === 'ec_no' || f.name === 'pump_serial_no' || f.name === 'so_no') ? () => lookup(String(values[f.name] ?? '')) : undefined}
+                  looking={looking} />
+              )}
+              {(locked ? costReason : f.hint) && <div style={HINT}>{locked ? costReason : f.hint}</div>}
             </div>
           );
         })}
@@ -139,15 +245,29 @@ export function ComplaintPageForm({ complaintId, clientId, page, initial, lookup
           </span>
         </div>
       )}
+
+      {page.id === 2 && (
+        <ComplaintPartsEditor complaintId={complaintId} category={(initial.complaint_category as string | null) ?? null}
+          initial={parts ?? []} lookups={lookups} cascades={cascades} canEdit={canEdit}
+          suggestions={{ ec_no: suggestions.ec_no ?? [] }} />
+      )}
     </div>
   );
 }
 
-export function Field({ f, value, onChange, disabled, lookups, users, oems = [], onLookup, looking }: {
+export function Field({ f, value, onChange, disabled, lookups, cascades, values, users, oems = [], onLookup, looking, suggestions, complaintId }: {
   f: ComplaintField; value: unknown; onChange: (v: unknown) => void; disabled: boolean;
-  lookups: Record<string, string[]>; users: UserOpt[]; oems?: OemOpt[]; onLookup?: () => void; looking?: boolean;
+  lookups: Record<string, string[]>; cascades?: CascadingLookups;
+  /** The page's answers so far — what a cascading select reads its parent from. */
+  values?: ComplaintValues;
+  users: UserOpt[]; oems?: OemOpt[]; onLookup?: () => void; looking?: boolean;
+  /** Offered values for a text field, off the client's installed base. */
+  suggestions?: string[];
+  /** The complaint being edited, so a 'complaint' picker never offers it to itself. */
+  complaintId?: number | null;
 }) {
   const s = value == null ? '' : String(value);
+  const answers = values ?? {};
   switch (f.type) {
     case 'long':
       return <textarea value={s} onChange={e => onChange(e.target.value)} disabled={disabled} rows={3} style={{ ...INPUT, height: 'auto', resize: 'vertical', lineHeight: 1.5 }} />;
@@ -170,12 +290,38 @@ export function Field({ f, value, onChange, disabled, lookups, users, oems = [],
       return <Choices value={s} onChange={onChange} disabled={disabled} options={['Yes', 'No', 'Issued', 'NA']} />;
     case 'paid':
       return <Choices value={s} onChange={onChange} disabled={disabled} options={['Paid', 'To Pay']} />;
+    // Several answers from one list, and no single owner. A BOI failure is QC's
+    // to investigate and Purchase's to take up with the vendor; making one of
+    // them the owner is how the other one stops reading it.
+    case 'multi': {
+      const opts = optionsFor(f, answers, lookups, cascades);
+      const picked = Array.isArray(value) ? (value as unknown[]).map(String)
+        : s ? s.replace(/^\{|\}$/g, '').split(',').map(x => x.trim().replace(/^"|"$/g, '')).filter(Boolean) : [];
+      const toggle = (o: string) => onChange(picked.includes(o) ? picked.filter(x => x !== o) : [...picked, o]);
+      return (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {opts.map(o => (
+            <button key={o} type="button" disabled={disabled} onClick={() => toggle(o)}
+              style={{ ...CHOICE, ...(picked.includes(o) ? CHOICE_ON : {}) }}>{o}</button>
+          ))}
+          {picked.filter(p => !opts.includes(p)).map(o => (
+            <button key={o} type="button" disabled={disabled} onClick={() => toggle(o)}
+              style={{ ...CHOICE, ...CHOICE_ON, opacity: 0.7 }} title="No longer on the list">{o}</button>
+          ))}
+          {!opts.length && !picked.length && <span style={{ fontSize: 11.5, color: 'var(--fg-3)' }}>Nothing on the list yet.</span>}
+        </div>
+      );
+    }
+    // Another complaint, by number or by client. A searching picker rather than
+    // a dropdown: the list it would have to hold is every complaint ever filed.
+    case 'complaint':
+      return <ComplaintLinkPicker value={value} onChange={onChange} disabled={disabled} excludeId={complaintId ?? null} inputStyle={INPUT} />;
     // Suggest, do not confine. A native combobox: pick from the list, or type
     // something it does not have. What is typed is stored as typed and does not
     // join the master list, so the list stays a list rather than a pile of
     // near-identical spellings.
     case 'select_free': {
-      const opts = lookups[f.lookup ?? ''] ?? [];
+      const opts = optionsFor(f, answers, lookups, cascades);
       const listId = `dl-${f.name}`;
       return (
         <>
@@ -197,7 +343,26 @@ export function Field({ f, value, onChange, disabled, lookups, users, oems = [],
       );
     }
     case 'select': {
-      const opts = f.options ?? lookups[f.lookup ?? ''] ?? [];
+      const opts = optionsFor(f, answers, lookups, cascades);
+      // The two empty cases have to look different. Nothing chosen upstream:
+      // there is no list, so the control says which answer it is waiting on and
+      // stays shut. Chosen, with nothing seeded under it: the list is still
+      // coming from the Complaint team — Client Related has no sub-categories
+      // yet — so the field opens for typing instead of pretending to be a
+      // dropdown with nothing in it.
+      if (f.parentField && cascadeParent(f, answers) == null) {
+        return (
+          <select value="" disabled style={{ ...INPUT, opacity: 0.6 }}>
+            <option value="">Choose {FIELD_LABEL.get(f.parentField) ?? f.parentField} first</option>
+          </select>
+        );
+      }
+      if (f.parentField && !opts.length) {
+        return (
+          <input value={s} onChange={e => onChange(e.target.value)} disabled={disabled} style={INPUT}
+            placeholder="Nothing on the list yet — type it in" />
+        );
+      }
       const has = !s || opts.includes(s);
       return (
         <select value={s} onChange={e => onChange(e.target.value)} disabled={disabled} style={INPUT}>
@@ -216,17 +381,20 @@ export function Field({ f, value, onChange, disabled, lookups, users, oems = [],
         </select>
       );
     }
-    default:
+    default: {
+      const listId = suggestions?.length ? `dl-sugg-${f.name}` : undefined;
       return (
         <div style={{ display: 'flex', gap: 6 }}>
-          <input value={s} onChange={e => onChange(e.target.value)} disabled={disabled} style={INPUT}
+          <input value={s} list={listId} onChange={e => onChange(e.target.value)} disabled={disabled} style={INPUT}
             onKeyDown={e => { if (e.key === 'Enter' && onLookup) { e.preventDefault(); onLookup(); } }} />
+          {listId && <datalist id={listId}>{suggestions!.map(o => <option key={o} value={o} />)}</datalist>}
           {onLookup && (
             <button type="button" onClick={onLookup} disabled={disabled || looking || s.trim().length < 3} title="Look this up in the installed base and fill what it knows"
               style={{ ...GHOST, whiteSpace: 'nowrap', opacity: s.trim().length < 3 ? 0.5 : 1 }}>{looking ? '…' : 'Look up'}</button>
           )}
         </div>
       );
+    }
   }
 }
 

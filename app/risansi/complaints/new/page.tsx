@@ -19,7 +19,7 @@ export default async function NewComplaintPage({ searchParams }: { searchParams:
   const all = hasRole(me.role, 'admin') || me.departments.includes('Complaint Team');
   const cVis = all ? null : clientVisibilitySql(me, 'c');
 
-  const [{ rows: clients }, { rows: users }, { rows: lookupRows }, { rows: oems }] = await Promise.all([
+  const [{ rows: clients }, { rows: users }, { rows: lookupRows }, { rows: cascadeRows }, { rows: oems }] = await Promise.all([
     risansiPool.query<ClientOpt>(`
       SELECT c.id::int AS id, c.code, c.legal_name AS name
         FROM clients c
@@ -29,7 +29,16 @@ export default async function NewComplaintPage({ searchParams }: { searchParams:
       SELECT u.id, u.name, u.role,
              ARRAY(SELECT d.department FROM user_departments d WHERE d.user_id = u.id ORDER BY 1) AS departments
         FROM users u WHERE u.is_active ORDER BY u.name`),
-    risansiPool.query<{ kind: string; value: string }>('SELECT kind, value FROM complaint_lookups WHERE is_active ORDER BY kind, sort_order, value'),
+    // The flat lists. `parent_value IS NULL` is not decoration: without it
+    // `part_name` comes back with Shaft in it twice — once under External, once
+    // under Child Parts of Joints — and a flat map cannot say which is which.
+    risansiPool.query<{ kind: string; value: string }>(
+      'SELECT kind, value FROM complaint_lookups WHERE is_active AND parent_value IS NULL ORDER BY kind, sort_order, value'),
+    // The cascading lists, grouped by the parent choice they hang under.
+    risansiPool.query<{ kind: string; parent_value: string; value: string }>(`
+      SELECT kind, parent_value, value FROM complaint_lookups
+       WHERE is_active AND parent_value IS NOT NULL
+       ORDER BY kind, parent_value, sort_order, value`),
     // Every OEM on the client master, for "supply came through an OEM".
     risansiPool.query<OemOpt>(`
       SELECT id, legal_name AS name, code
@@ -37,6 +46,8 @@ export default async function NewComplaintPage({ searchParams }: { searchParams:
   ]);
   const lookups: Record<string, string[]> = {};
   for (const r of lookupRows) (lookups[r.kind] ??= []).push(r.value);
+  const cascades: Record<string, Record<string, string[]>> = {};
+  for (const r of cascadeRows) ((cascades[r.kind] ??= {})[r.parent_value] ??= []).push(r.value);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -51,7 +62,7 @@ export default async function NewComplaintPage({ searchParams }: { searchParams:
             Registration goes to the Complaint Team, who take it from Open through investigation, action and closure. The complaint gets a number and a page of its own the moment it is saved.
           </p>
           {clients.length ? (
-            <NewComplaintForm clients={clients} preselect={preselect} lookups={lookups} users={users} oems={oems} />
+            <NewComplaintForm clients={clients} preselect={preselect} lookups={lookups} cascades={cascades} users={users} oems={oems} />
           ) : (
             <div style={{ padding: '18px 20px', background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', fontSize: 13, color: 'var(--fg-2)' }}>
               You have no clients to raise a complaint for. Ask an admin to assign the client to you, or ask the Complaint Team to register it.

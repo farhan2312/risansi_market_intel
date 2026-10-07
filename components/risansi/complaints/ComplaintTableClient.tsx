@@ -3,7 +3,8 @@
 import Link from 'next/link';
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import {
-  SEVERITY_TONE, SEVERITIES, STATUS_TONE, STATUSES, LEGACY_STATUSES, statusStep,
+  SEVERITY_TONE, SEVERITIES, STATUS_TONE, STATUSES, LEGACY_STATUSES,
+  statusStep, isOpenStatus,
   type Severity,
 } from '@/lib/risansi-complaint-flow';
 import type { ComplaintListRow, ComplaintSort, ComplaintSortKey } from '@/lib/risansi-complaint-rows';
@@ -31,9 +32,10 @@ const day = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDat
 const fmtDays = (d: number) => (d < 1 ? '<1d' : `${Math.round(d)}d`);
 
 type ColId =
-  | 'no' | 'client' | 'status' | 'sev' | 'type' | 'model' | 'qty' | 'freeRepl'
-  | 'frEc' | 'frDispatch' | 'holder' | 'since' | 'age' | 'target' | 'rep'
-  | 'raised' | 'docs' | 'open';
+  | 'no' | 'client' | 'status' | 'sev' | 'severe' | 'category' | 'subcat' | 'industry'
+  | 'ctype' | 'model' | 'qty' | 'action' | 'freeRepl'
+  | 'frEc' | 'frDispatch' | 'capa' | 'linked' | 'holder' | 'since' | 'age'
+  | 'late' | 'target' | 'rep' | 'raised' | 'docs' | 'open';
 
 interface Col {
   id: ColId;
@@ -62,8 +64,13 @@ const STATUS_ORDER: readonly string[] = [...new Set<string>([...STATUSES, ...LEG
 // colour map, so recolouring the badges cannot reorder the column.
 const SEVERITY_ORDER = SEVERITIES;
 
-/** Whether the complaint is still somebody's to move. */
-const isOpenRow = (r: ComplaintListRow) => r.status !== 'Resolved' && r.status !== 'Closed';
+/**
+ * Whether the complaint is still somebody's to move. Delegated to the flow
+ * module rather than retyped: Feedback stopped counting as open there, and a
+ * second copy of the rule here would have carried on dimming nothing and
+ * showing a holder on a complaint that no longer has one.
+ */
+const isOpenRow = (r: ComplaintListRow) => isOpenStatus(r.status);
 /** Pre-workflow rows carry no holder and no dwell, and the cells print "—". */
 const isLegacyRow = (r: ComplaintListRow) => r.schema_version < 2;
 
@@ -72,6 +79,22 @@ const holderLabel = (r: ComplaintListRow): string | null =>
   isOpenRow(r) && !isLegacyRow(r)
     ? (r.holder_name ?? r.holder_department ?? 'Complaint Team')
     : null;
+
+/**
+ * The category cell's main line: the new Complaint Category, or the old
+ * `defect_category` on a historical row that has no new answer (decision 9).
+ * Nothing is hidden — the old value and the retired Technical / Non-technical
+ * type both still show, underneath, marked as the old wording.
+ */
+const categoryLabel = (r: ComplaintListRow): string | null => r.category_any;
+
+/** How long a late complaint has been late, as the cell prints it. */
+const lateLabel = (r: ComplaintListRow): string | null =>
+  r.overdue && r.overdue_days != null ? `${r.overdue_days}d / ${r.overdue_threshold}` : null;
+
+const CAPA_LABEL: Record<string, string> = {
+  none: '—', open: 'Pending', review: 'Under review', closed: 'Closed',
+};
 
 /** What the "Free repl." cell says: Free, Paid, No, or nothing decided yet. */
 const freeReplLabel = (r: ComplaintListRow): string | null =>
@@ -84,18 +107,33 @@ const COLUMNS: Col[] = [
   { id: 'client',     head: 'Client', kind: 'text', value: r => r.client_name },
   { id: 'status',     head: 'Status', kind: 'status', order: STATUS_ORDER, value: r => r.status },
   { id: 'sev',        head: 'Sev', pick: 'Severity', kind: 'status', order: SEVERITY_ORDER, value: r => r.severity },
-  { id: 'type',       head: 'Type · category', kind: 'text', value: r => r.complaint_type },
+  // Severe sorts flagged-first on the first click, which is the only order
+  // anybody opens this column for.
+  { id: 'severe',     head: 'Severe', pick: 'Severe flag', kind: 'number', value: r => (r.severe ? 1 : 0) },
+  { id: 'category',   head: 'Category', pick: 'Complaint category', kind: 'text', value: categoryLabel },
+  { id: 'subcat',     head: 'Sub-category', kind: 'text', value: r => r.complaint_subcategory },
+  { id: 'industry',   head: 'Industry', kind: 'text', value: r => r.industry },
+  { id: 'ctype',      head: 'Direct / OEM', pick: 'Client type', kind: 'text', value: r => r.client_type },
   { id: 'model',      head: 'Pump model', kind: 'text', value: r => r.pump_model },
   { id: 'qty',        head: 'Qty', pick: 'Quantity', right: true, kind: 'number', value: r => r.quantity },
+  { id: 'action',     head: 'Action taken', kind: 'text', value: r => r.action_category },
   { id: 'freeRepl',   head: 'Free repl.', pick: 'Free replacement', kind: 'text', value: freeReplLabel },
   { id: 'frEc',       head: 'FR EC no.', kind: 'text', value: r => r.fr_ec_no },
   { id: 'frDispatch', head: 'FR dispatch', kind: 'date', value: r => r.target_dispatch_date },
+  // Pending before under review before closed before nothing asked for.
+  { id: 'capa',       head: 'CAPA', kind: 'status', order: ['open', 'review', 'closed', 'none'], value: r => r.capa_state },
+  { id: 'linked',     head: 'Repeat of', pick: 'Repeat / linked', kind: 'text', value: r => r.linked_complaint_no ?? (r.repeat_complaint ? 'Repeat' : null) },
   { id: 'holder',     head: 'Sitting with', kind: 'text', value: holderLabel },
   // Days in the current status, which is what the cell prints — longest-sitting
   // first on the first click. Blank on the rows that show "—".
   { id: 'since',      head: 'Since', right: true, kind: 'number',
     value: r => (isOpenRow(r) && !isLegacyRow(r) ? r.days_in_status : null) },
   { id: 'age',        head: 'Age', right: true, kind: 'number', value: r => r.age_days },
+  // Days past the severity's threshold — the overdue rule, sorted worst first.
+  // Not the same column as Target: a target date is typed on page 5 and most
+  // complaints never get one, which is why it could not carry this question.
+  { id: 'late',       head: 'Late by', right: true, kind: 'number',
+    value: r => (r.overdue && r.overdue_days != null && r.overdue_threshold != null ? r.overdue_days - r.overdue_threshold : null) },
   { id: 'target',     head: 'Target', kind: 'date', value: r => r.target_completion_date },
   { id: 'rep',        head: 'Rep', kind: 'text', value: r => r.rep_name },
   { id: 'raised',     head: 'Raised', kind: 'date', value: r => r.complaint_date ?? r.created_at },
@@ -317,6 +355,11 @@ function renderCell(col: Col, r: ComplaintListRow, clientFrozen: boolean): React
         <td key={col.id} className="cmp-fz-no" style={{ ...TD, ...freezeNo(!clientFrozen) }}>
           <div style={NO_BOX}>
             <Link href={`/risansi/complaints/${r.id}`} style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--brand-blue, #1A5CB8)', textDecoration: 'none', fontWeight: 600 }}>{r.complaint_no}</Link>
+            {/* Severe rides on the number, not only on its own column, so it is
+                visible even when that column is scrolled out of sight or
+                hidden - decision 12 asks for a list flag, and a flag that can
+                be scrolled away is not one. */}
+            {r.severe && <span style={{ marginLeft: 5, fontSize: 10, color: 'var(--neg)', fontWeight: 700 }} title="Severe / Immediate Response: safety, shutdown, penalty or repeat answered Yes">⚑</span>}
             {legacy && <span style={{ marginLeft: 5, fontSize: 9, color: 'var(--fg-4)', fontWeight: 700 }}>LEGACY</span>}
             {r.reopen_count > 0 && <span style={{ marginLeft: 5, fontSize: 9, color: 'var(--warn, #B45309)', fontWeight: 700 }}>↩{r.reopen_count}</span>}
           </div>
@@ -332,11 +375,83 @@ function renderCell(col: Col, r: ComplaintListRow, clientFrozen: boolean): React
         </td>
       );
     case 'status':
-      return <td key={col.id} style={TD}><span style={{ ...PILL, background: STATUS_TONE[r.status] ?? 'var(--fg-3)' }}>{r.status}</span></td>;
+      // The pill is the sub-stage, because that is what tells somebody what to
+      // do next. The headline sits under it so the row and the dashboard tile
+      // can be read against each other without translating.
+      return (
+        <td key={col.id} style={TD}>
+          <span style={{ ...PILL, background: STATUS_TONE[r.status] ?? 'var(--fg-3)' }}>{r.status}</span>
+          {r.headline !== r.status && <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 2 }}>{r.headline}</div>}
+        </td>
+      );
     case 'sev':
       return <td key={col.id} style={TD}>{r.severity ? <span style={{ ...PILL, background: SEVERITY_TONE[r.severity as Severity] }} title={r.severity}>{r.severity}</span> : <span style={{ color: 'var(--fg-4)' }}>·</span>}</td>;
-    case 'type':
-      return <td key={col.id} style={{ ...TD, fontSize: 11.5 }}>{r.complaint_type ?? <span style={{ color: 'var(--fg-4)' }}>—</span>}{r.defect_category ? <div style={{ fontSize: 10.5, color: 'var(--fg-3)' }}>{r.defect_category}</div> : null}</td>;
+    case 'severe':
+      return (
+        <td key={col.id} style={{ ...TD, fontSize: 11 }}>
+          {r.severe
+            ? <span style={{ ...PILL, background: 'var(--neg)' }} title="Safety, shutdown, penalty or repeat answered Yes on page 3">Severe</span>
+            : <span style={{ color: 'var(--fg-4)' }}>·</span>}
+        </td>
+      );
+    case 'category':
+      // The new Complaint Category, with the retired wording underneath where
+      // a historical row carries it. Nothing is dropped: `defect_category` and
+      // `complaint_type` are no longer collected but 36 complaints still hold
+      // them, and a blank cell on those rows would read as missing data.
+      return (
+        <td key={col.id} style={{ ...TD, fontSize: 11.5 }}>
+          {r.complaint_category ?? (r.defect_category
+            ? <span title="The old Defect Category - this complaint predates the new list">{r.defect_category}</span>
+            : <span style={{ color: 'var(--fg-4)' }}>—</span>)}
+          {(r.complaint_category && r.defect_category) || r.complaint_type ? (
+            <div style={{ fontSize: 10, color: 'var(--fg-3)' }} title="Retired fields, kept on historical rows">
+              {[r.complaint_category ? r.defect_category : null, r.complaint_type].filter(Boolean).join(' · ')}
+            </div>
+          ) : null}
+        </td>
+      );
+    case 'subcat':
+      return <td key={col.id} style={{ ...TD, fontSize: 11.5 }}>{r.complaint_subcategory ?? <span style={{ color: 'var(--fg-4)' }}>—</span>}</td>;
+    case 'industry':
+      return <td key={col.id} style={{ ...TD, fontSize: 11.5 }}>{r.industry ?? <span style={{ color: 'var(--fg-4)' }}>—</span>}</td>;
+    case 'ctype':
+      return <td key={col.id} style={{ ...TD, fontSize: 11.5 }}>{r.client_type ?? <span style={{ color: 'var(--fg-4)' }}>—</span>}</td>;
+    case 'action':
+      return (
+        <td key={col.id} style={{ ...TD, fontSize: 11.5 }}>
+          {r.action_category ?? <span style={{ color: 'var(--fg-4)' }}>—</span>}
+          {r.cost_impact ? <div style={{ fontSize: 10, color: 'var(--warn, #B45309)', fontWeight: 600 }} title="Cost impact: yes">cost impact</div> : null}
+        </td>
+      );
+    case 'capa':
+      return (
+        <td key={col.id} style={{ ...TD, fontSize: 11 }}
+          title={r.capa_departments?.length ? `With ${r.capa_departments.join(', ')}` : undefined}>
+          {r.capa_state === 'none'
+            ? <span style={{ color: 'var(--fg-4)' }}>—</span>
+            : <span style={{ color: r.capa_state === 'open' ? 'var(--neg)' : 'var(--fg-2)', fontWeight: r.capa_state === 'open' ? 600 : 400 }}>{CAPA_LABEL[r.capa_state]}</span>}
+        </td>
+      );
+    case 'linked':
+      return (
+        <td key={col.id} style={{ ...TD, fontSize: 11, fontFamily: 'var(--font-mono)' }}>
+          {r.linked_complaint_id && r.linked_complaint_no
+            ? <Link href={`/risansi/complaints/${r.linked_complaint_id}`} style={{ color: 'var(--brand-blue, #1A5CB8)', textDecoration: 'none' }} title="The original this one repeats">↻ {r.linked_complaint_no}</Link>
+            : r.repeat_complaint
+              ? <span style={{ color: 'var(--warn, #B45309)', fontFamily: 'inherit' }} title="Flagged a repeat at closure with no original linked">Repeat</span>
+              : <span style={{ color: 'var(--fg-4)' }}>—</span>}
+        </td>
+      );
+    case 'late':
+      return (
+        <td key={col.id} style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: r.overdue ? 700 : 400, color: r.overdue ? (r.overdue_kind === 'no-action' ? 'var(--neg)' : 'var(--warn, #B45309)') : 'var(--fg-4)' }}
+          title={r.overdue_days != null && r.overdue_threshold != null
+            ? `${r.overdue_days} days since raised, against ${r.overdue_threshold} allowed for ${r.severity ?? 'an ungraded complaint (S4)'}${r.overdue ? ` - overdue with ${r.overdue_kind === 'no-action' ? 'no action taken' : 'an action taken'}` : ''}`
+            : 'No raise date, so no age to measure'}>
+          {lateLabel(r) ?? '·'}
+        </td>
+      );
     case 'model':
       return (
         <td key={col.id} style={{ ...TD, fontSize: 11.5, fontFamily: 'var(--font-mono)' }} title={[r.part_type, r.part_name].filter(Boolean).join(' · ') || undefined}>
@@ -385,7 +500,15 @@ function renderCell(col: Col, r: ComplaintListRow, clientFrozen: boolean): React
     case 'age':
       return <td key={col.id} style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--fg-2)' }} title={open ? 'Days since raised' : 'Days from raised to closed'}>{fmtDays(r.age_days)}</td>;
     case 'target':
-      return <td key={col.id} style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: r.overdue ? 'var(--neg)' : 'var(--fg-2)', fontWeight: r.overdue ? 700 : 400 }}>{r.target_completion_date ? day(r.target_completion_date) : '—'}{r.overdue ? ' !' : ''}</td>;
+      // Just the date now. It used to carry the overdue mark, which is exactly
+      // how the old rule hid itself: the mark could only appear on the 14
+      // complaints that have a target date at all. "Late by" carries it.
+      return (
+        <td key={col.id} style={{ ...TD, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-2)' }}
+          title={r.target_completion_date ? 'Target completion date, typed on page 5' : 'No target typed'}>
+          {r.target_completion_date ? day(r.target_completion_date) : '—'}
+        </td>
+      );
     case 'rep':
       return <td key={col.id} style={{ ...TD, fontSize: 11.5 }}>{r.rep_name ?? <span style={{ color: 'var(--fg-4)' }}>—</span>}</td>;
     case 'raised':

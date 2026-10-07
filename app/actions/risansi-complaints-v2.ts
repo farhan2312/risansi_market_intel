@@ -2,12 +2,14 @@
 
 import { revalidatePath } from 'next/cache';
 import risansiPool from '@/lib/db-risansi';
-import { getCurrentUser, hasRole, canViewClient, type CurrentUser } from '@/lib/risansi-auth';
+import { getCurrentUser, hasRole, canViewClient, complaintVisibilitySql, type CurrentUser } from '@/lib/risansi-auth';
 import { recordAudit } from '@/lib/audit';
 import { pushInApp } from '@/lib/risansi-inapp';
 import { sendNotification } from '@/lib/risansi-email';
 import {
   pageById, STATUSES, NEXT, canEditPage, canMove, gateFor, severityOf, holderFor, isFieldShown,
+  cascadeParent, costImpactForced, isImmediateResponse, statusAfterSavingPage,
+  responsibleDepartmentFor, routingOwner, IMMEDIATE_RISK_FIELDS,
   type ComplaintStatus, type ComplaintValues, type ComplaintField,
 } from '@/lib/risansi-complaint-flow';
 
@@ -61,14 +63,55 @@ function coerce(f: ComplaintField, raw: unknown): unknown {
     case 'user':
     case 'oem': { const n = Number(raw); return Number.isInteger(n) && n > 0 ? n : null; }
     case 'date': { const s = String(raw).slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null; }
+    // Several answers from one list, stored as a text[]. An empty tick-list is
+    // null rather than '{}' so "nobody has answered yet" and "answered, nobody"
+    // stay the same thing they are everywhere else on the form.
+    case 'multi': {
+      const list = Array.isArray(raw) ? raw : String(raw).split(',');
+      const allowed = f.options ? new Set(f.options) : null;
+      const out = [...new Set(list.map(v => String(v).trim()).filter(Boolean))].filter(v => !allowed || allowed.has(v));
+      return out.length ? out : null;
+    }
+    case 'complaint': { const n = Number(raw); return Number.isInteger(n) && n > 0 ? n : null; }
     default: return String(raw).trim().slice(0, f.type === 'long' ? 8000 : 500) || null;
   }
 }
 
-async function lookupValues(kind: string): Promise<Set<string>> {
+/**
+ * One list out of `complaint_lookups`, by kind and by the parent it hangs under.
+ *
+ * `parent_value` made the kind alone an ambiguous question: `part_name` holds
+ * Shaft under External and Shaft again under Child Parts of Joints, so a read
+ * that ignores the parent returns the same word twice and validates a part
+ * against the wrong list. `parent === null` means the flat list — the rows that
+ * hang under nothing — not "every row of this kind".
+ */
+async function lookupValues(kind: string, parent: string | null = null): Promise<Set<string>> {
   const { rows } = await risansiPool.query<{ value: string }>(
-    'SELECT value FROM complaint_lookups WHERE kind = $1 AND is_active', [kind]);
+    parent == null
+      ? 'SELECT value FROM complaint_lookups WHERE kind = $1 AND is_active AND parent_value IS NULL'
+      : 'SELECT value FROM complaint_lookups WHERE kind = $1 AND is_active AND parent_value = $2',
+    parent == null ? [kind] : [kind, parent]);
   return new Set(rows.map(r => r.value));
+}
+
+/**
+ * What this field may legally hold, or null when anything typed is acceptable.
+ *
+ * Null covers the two cases the cascading contract keeps apart. The parent is
+ * unanswered, so there is no list to check against and the value is about to be
+ * cleared anyway; or the parent is answered and nothing is seeded under it —
+ * Client Related has no sub-categories until the Complaint team sends them — in
+ * which case refusing a typed answer would make the field unfillable.
+ */
+async function allowedFor(f: ComplaintField, values: ComplaintValues): Promise<Set<string> | null> {
+  if (f.options) return new Set(f.options);
+  if (!f.lookup) return null;
+  if (!f.parentField) return lookupValues(f.lookup, null);
+  const parent = cascadeParent(f, values);
+  if (parent == null) return null;
+  const set = await lookupValues(f.lookup, parent);
+  return set.size ? set : null;
 }
 
 // ── Create ─────────────────────────────────────────────────────────────────
@@ -102,9 +145,14 @@ export async function createComplaintV2(input: { client_id: number; values: Reco
   }
   const missing = page1.fields.filter(f => f.required && (values[f.name] == null || values[f.name] === '')).map(f => f.label);
   if (missing.length) return fail(`Fill in: ${missing.join(', ')}.`);
+  // A cascading answer is checked against the slice under its parent, not the
+  // whole kind: Vibration is a real sub-category and still wrong under Supply
+  // Related. A parent with nothing seeded under it accepts what was typed.
   for (const f of page1.fields) {
-    if (f.type === 'select' && f.lookup && values[f.name] != null && !(await lookupValues(f.lookup)).has(String(values[f.name]))) {
-      return fail(`${f.label}: "${values[f.name]}" is not on the list.`);
+    if (f.type !== 'select' || values[f.name] == null) continue;
+    const allowed = await allowedFor(f, values);
+    if (allowed && !allowed.has(String(values[f.name]))) {
+      return fail(`${f.label}: "${values[f.name]}" is not on the list${f.parentField ? ` for ${String(values[f.parentField] ?? 'that choice')}` : ''}.`);
     }
   }
 
@@ -138,11 +186,15 @@ export async function createComplaintV2(input: { client_id: number; values: Reco
   await risansiPool.query(
     `INSERT INTO complaint_stage_log (complaint_id, from_status, to_status, holder_department, actor_email) VALUES ($1, NULL, 'Open', 'Complaint Team', $2)`,
     [savedId, user.email]);
+  // Category and sub-category, not Complaint Type and Defect Category. Page 1
+  // stopped asking for those two, so the line they built read " · " and told
+  // the Complaint Team nothing about the complaint they were being paged for.
+  const kind = [values.complaint_category, values.complaint_subcategory].filter(Boolean).join(' · ');
   await recordAudit({ action: 'create', entityType: 'complaint', entityId: savedId, entityLabel: `${savedNo} · ${c.legal_name}`,
-    summary: `Complaint registered: ${String(values.defect_category ?? '')} — ${String(values.details ?? '').slice(0, 80)}`, actorEmail: user.email });
+    summary: `Complaint registered: ${kind || 'no category'} — ${String(values.details ?? '').slice(0, 80)}`, actorEmail: user.email });
   await notifyDepartment('Complaint Team', user.email ?? '', {
     kind: 'complaint_raised', title: `New complaint ${savedNo} · ${c.legal_name}`,
-    body: `${values.complaint_type ?? ''} · ${values.defect_category ?? ''}\n${String(values.details ?? '').slice(0, 200)}`,
+    body: `${kind}${kind ? '\n' : ''}${String(values.details ?? '').slice(0, 200)}`,
     link: `/risansi/complaints/${savedId}`, subject: `New complaint ${savedNo}: ${c.legal_name}`,
   });
 
@@ -170,13 +222,28 @@ export async function saveComplaintPage(id: number, pageId: number, input: Recor
   const { rows: [cur] } = await risansiPool.query<ComplaintValues>('SELECT * FROM complaints WHERE id = $1', [id]);
   const values: ComplaintValues = { ...cur };
   const changed: Record<string, unknown> = {};
+  // Coerced first, validated second. A cascading child is judged against the
+  // slice under its parent, and when parent and child arrive in the same save
+  // the parent has to be in `values` before the child is looked at.
   for (const f of page.fields) {
     if (!(f.name in input)) continue;
     const v = coerce(f, input[f.name]);
     if (v === undefined) continue;
+    values[f.name] = v; changed[f.name] = v;
+  }
+  for (const f of page.fields) {
+    const v = changed[f.name];
+    if (v === undefined) continue;
     if (f.type === 'select' && v != null) {
-      const allowed = f.options ? new Set(f.options) : f.lookup ? await lookupValues(f.lookup) : null;
-      if (allowed && !allowed.has(String(v))) return fail(`${f.label}: "${v}" is not on the list.`);
+      const allowed = await allowedFor(f, values);
+      if (allowed && !allowed.has(String(v))) {
+        return fail(`${f.label}: "${v}" is not on the list${f.parentField ? ` for ${String(values[f.parentField] ?? 'that choice')}` : ''}.`);
+      }
+    }
+    if (f.type === 'complaint' && v != null) {
+      if (Number(v) === id) return fail(`${f.label}: a complaint cannot be a repeat of itself.`);
+      const { rows } = await risansiPool.query('SELECT 1 FROM complaints WHERE id = $1', [v]);
+      if (!rows.length) return fail(`${f.label}: that complaint no longer exists.`);
     }
     if (f.type === 'oem' && v != null) {
       const { rows } = await risansiPool.query(
@@ -187,11 +254,18 @@ export async function saveComplaintPage(id: number, pageId: number, input: Recor
       const { rows } = await risansiPool.query('SELECT 1 FROM users WHERE id = $1 AND is_active', [v]);
       if (!rows.length) return fail(`${f.label}: that person is not an active user.`);
     }
-    values[f.name] = v; changed[f.name] = v;
   }
   // A conditional field whose condition no longer holds is cleared, not kept.
   for (const f of page.fields) if (f.showWhen && !isFieldShown(f, values) && values[f.name] != null) { values[f.name] = null; changed[f.name] = null; }
-  if (!Object.keys(changed).length) return { ok: true };
+  // The parent of a cascade moved, so the child it was holding is orphaned —
+  // nothing may sit holding Vibration under Supply Related. Only when the
+  // parent itself was part of this save: a historical row whose answer predates
+  // the list is left as it was recorded.
+  for (const f of page.fields) {
+    if (!f.parentField || !(f.parentField in changed) || values[f.name] == null) continue;
+    const allowed = await allowedFor(f, values);
+    if (allowed && !allowed.has(String(values[f.name]))) { values[f.name] = null; changed[f.name] = null; }
+  }
 
   if (page.id === 3) {
     changed.severity = severityOf(values as Parameters<typeof severityOf>[0]);
@@ -199,6 +273,43 @@ export async function saveComplaintPage(id: number, pageId: number, input: Recor
   if (page.id === 8 && changed.repeat_complaint === undefined && cur.repeat_complaint == null) {
     changed.repeat_complaint = await isRepeat(id);
   }
+  // Cost impact decides itself, here and not only in the form. The UI shows it
+  // locked, but a save posted around the UI — an older tab, a script, a page
+  // saved before the action was chosen — must not be able to file a free
+  // replacement as costing nothing.
+  if (costImpactForced(values) && values.cost_impact !== true) { values.cost_impact = true; changed.cost_impact = true; }
+  // Responsible department follows the root cause (decision 8). Filled only
+  // when nobody has answered it: the mapping suggests, the investigation
+  // decides. A null from the mapping means the pairing has no owner yet — leave
+  // it for a human rather than writing a default nobody chose.
+  if (page.id === 4 && (values.responsible_department == null || values.responsible_department === '')) {
+    const dept = responsibleDepartmentFor(values.root_cause_category as string | null, values.root_cause_sub as string | null);
+    if (dept) { values.responsible_department = dept; changed.responsible_department = dept; }
+  }
+  // Who picks the action up follows the action itself (decision 10). The map is
+  // complaint_action_assignment, edited in Admin, so a staffing change does not
+  // need a release — which is the whole reason it is a table and not a constant.
+  //
+  // Only when nobody has been named. The requirement says no manual dropdown is
+  // needed, not that a human may not overrule it: a complaint already handed to
+  // someone must not be taken off them because the action was edited.
+  if (page.id === 5 && values.action_category && !values.action_assigned_to && !cur.action_assigned_to) {
+    const assignee = await resolveActionAssignee(String(values.action_category), row.client_id);
+    if (assignee.userId) { values.action_assigned_to = assignee.userId; changed.action_assigned_to = assignee.userId; }
+    else if (assignee.department != null) {
+      const dept = assignee.department;
+      // A department rather than a person: there is no id to write, so the work
+      // is announced to the department instead of sitting in a field. This is
+      // also what happens for the two actions that belong to somebody with no
+      // login yet — better the team sees it than nobody does.
+      await notifyDepartment(dept, user.email ?? '', {
+        kind: 'complaint_action', title: `${row.complaint_no}: ${values.action_category}`,
+        body: `No one is named for this action yet, so it falls to ${dept}.`,
+        link: `/risansi/complaints/${id}`, subject: `${row.complaint_no} needs ${values.action_category}`,
+      });
+    }
+  }
+  if (!Object.keys(changed).length) return { ok: true };
 
   const keys = Object.keys(changed);
   await risansiPool.query(
@@ -218,8 +329,105 @@ export async function saveComplaintPage(id: number, pageId: number, input: Recor
   await recordAudit({ action: 'update', entityType: 'complaint', entityId: id, entityLabel: row.complaint_no,
     summary: `${page.title}: ${keys.filter(k => k !== 'severity').join(', ')}${changed.severity ? ` · severity ${changed.severity}` : ''}`,
     metadata: changed, actorEmail: user.email });
+
+  // Severe / Immediate Response, the moment it becomes true. Told once, on the
+  // crossing, so re-saving page 3 does not page the department again.
+  if (page.id === 3 && isImmediateResponse(values as Parameters<typeof isImmediateResponse>[0])
+      && !isImmediateResponse(cur as Parameters<typeof isImmediateResponse>[0])) {
+    await notifySevere(id, row, values, user.email ?? '');
+  }
+  // Page 2 is where the pump and the order get identified, which is the work of
+  // starting on a complaint — so an Open complaint moves itself on.
+  await advanceAfterPageSave(page.id, id, row, user, values);
+
   revalidatePath(`/risansi/complaints/${id}`); revalidatePath('/risansi/complaints');
   return { ok: true };
+}
+
+/**
+ * The status a saved page drags the complaint to, applied.
+ *
+ * Guarded on the status it read, so two people saving page 2 at once log one
+ * move and not two; the status line is written and the stage log entry with it,
+ * in one transaction, because a status without its log entry is a complaint
+ * whose lifecycle has a hole in it. A failure here is logged and swallowed: the
+ * page's own save already succeeded and reporting it as failed would have the
+ * user type the page again.
+ */
+/**
+ * Who should take an action on, from the Admin map.
+ *
+ * 'client_rep' reads the client's primary_rep_id rather than the rep stamped on
+ * the complaint: a visit belongs to whoever owns the account now, which is not
+ * always whoever happened to raise the complaint months ago.
+ *
+ * An action nobody has mapped returns nothing at all, and the field stays empty
+ * for a human — a wrong owner is worse than no owner, because it looks answered.
+ */
+async function resolveActionAssignee(
+  action: string, clientId: number | null,
+): Promise<{ userId: number | null; department: string | null }> {
+  const { rows } = await risansiPool.query<{ assignee_kind: string; user_id: number | null; department: string | null }>(
+    `SELECT assignee_kind, user_id, department FROM complaint_action_assignment WHERE action = $1`, [action]);
+  const m = rows[0];
+  if (!m) return { userId: null, department: null };
+  if (m.assignee_kind === 'user') return { userId: m.user_id, department: null };
+  if (m.assignee_kind === 'department') return { userId: null, department: m.department };
+  if (m.assignee_kind === 'client_rep' && clientId != null) {
+    const { rows: c } = await risansiPool.query<{ primary_rep_id: number | null }>(
+      `SELECT primary_rep_id FROM clients WHERE id = $1`, [clientId]);
+    return { userId: c[0]?.primary_rep_id ?? null, department: null };
+  }
+  return { userId: null, department: null };
+}
+
+async function advanceAfterPageSave(pageId: number, id: number, row: AccessRow, user: CurrentUser, values: ComplaintValues): Promise<void> {
+  const to = statusAfterSavingPage(pageId, row.status);
+  if (!to) return;
+  const holder = holderFor(to, values);
+  const conn = await risansiPool.connect();
+  try {
+    await conn.query('BEGIN');
+    const { rowCount } = await conn.query(
+      'UPDATE complaints SET status = $2, updated_at = now() WHERE id = $1 AND status = $3', [id, to, row.status]);
+    if (!rowCount) { await conn.query('ROLLBACK'); return; }
+    await conn.query(
+      `INSERT INTO complaint_stage_log (complaint_id, from_status, to_status, holder_department, holder_user_id, note, actor_email)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [id, row.status, to, holder.department, holder.userId, 'Order & pump details saved.', user.email]);
+    await conn.query('COMMIT');
+  } catch (e) {
+    await conn.query('ROLLBACK').catch(() => {});
+    console.error('[complaints] page-2 auto-advance failed', e);
+    return;
+  } finally { conn.release(); }
+  await recordAudit({ action: 'status', entityType: 'complaint', entityId: id, entityLabel: row.complaint_no,
+    summary: `${row.status} → ${to} — order & pump details saved`, actorEmail: user.email });
+}
+
+/**
+ * One Yes among Safety, Shutdown, Penalty or Repeat and the complaint needs
+ * looking at today, so the people who would act on it are told rather than
+ * finding out on their next visit to the list. The department that owns the
+ * category gets it, and the Complaint Team always, because they hold the
+ * complaint whoever else is investigating it.
+ */
+async function notifySevere(id: number, row: AccessRow, values: ComplaintValues, actorEmail: string): Promise<void> {
+  const reasons = IMMEDIATE_RISK_FIELDS.filter(f => values[f.key] === true).map(f => f.label);
+  const card = {
+    kind: 'complaint_severe',
+    title: `Severe · ${row.complaint_no} needs an immediate response`,
+    body: `${reasons.join(', ') || 'Immediate response'}\n${String(values.details ?? '').slice(0, 200)}`,
+    link: `/risansi/complaints/${id}`,
+    subject: `Immediate response: complaint ${row.complaint_no}`,
+  };
+  const departments = new Set<string>([routingOwner(values as Parameters<typeof routingOwner>[0]), 'Complaint Team']);
+  for (const d of departments) await notifyDepartment(d, actorEmail, card);
+  const people = [row.rep_user_id, row.reported_by_user, row.investigation_assigned_to, row.action_assigned_to]
+    .filter((x): x is number => x != null);
+  if (people.length) {
+    await pushInApp([...new Set(people)], { ...card, section: 'Complaints', actor: actorEmail, entityType: 'complaint', entityId: String(id) }).catch(() => {});
+  }
 }
 
 /** Same client, same pump model or serial, same defect category, within twelve months. */
@@ -353,29 +561,136 @@ export async function deleteComplaint(id: number): Promise<SaveResult> {
 
 // ── Lookups ────────────────────────────────────────────────────────────────
 
-/** The installed base, by EC number or pump serial — fills page 2, every field still editable. */
+/**
+ * The installed base, by SO number, EC number or pump serial — fills page 2,
+ * every field still editable.
+ *
+ * SO is matched as well as EC and serial because the document asks that typing
+ * an SO recommend the EC number and EC date that went out against it, and the
+ * three are the same row of `client_pumps`. `ec_date` and `so_date` come back
+ * cast to text: they are `date` columns, and a Date serialised to a client
+ * component loses a day in IST.
+ */
 export async function lookupPump(query: string, clientId?: number | null): Promise<Result<{
-  so_no: string | null; ec_no: string | null; pump_serial_no: string | null; pump_model: string | null;
-  liquid: string | null; head_pressure: string | null; quantity: number | null; client_name: string | null; matches: number;
+  so_no: string | null; so_date: string | null; ec_no: string | null; ec_date: string | null;
+  pump_serial_no: string | null; pump_model: string | null;
+  liquid: string | null; head_pressure: string | null; capacity: string | null;
+  quantity: number | null; client_name: string | null; matches: number;
 } | null>> {
   const q = (query ?? '').trim();
   if (q.length < 3) return { ok: true, data: null };
   const { rows } = await risansiPool.query<{
-    so_number: string | null; ec_number: string | null; pump_sl_no: string | null; pump_model_plate: string | null;
-    liquid: string | null; head: string | null; quantity: number | null; client_name: string | null;
+    so_number: string | null; so_date: string | null; ec_number: string | null; ec_date: string | null;
+    pump_sl_no: string | null; pump_model_plate: string | null;
+    liquid: string | null; head: string | null; capacity: string | null; quantity: number | null; client_name: string | null;
   }>(
-    `SELECT p.so_number, p.ec_number, p.pump_sl_no, p.pump_model_plate, p.liquid, p.head, p.quantity, c.legal_name AS client_name
+    `SELECT p.so_number, p.so_date::text AS so_date, p.ec_number, p.ec_date::text AS ec_date,
+            p.pump_sl_no, p.pump_model_plate, p.liquid, p.head, p.capacity, p.quantity, c.legal_name AS client_name
        FROM client_pumps p LEFT JOIN clients c ON c.id = p.client_id
-      WHERE (upper(btrim(p.ec_number)) = upper($1) OR upper(btrim(p.pump_sl_no)) = upper($1))
+      WHERE (upper(btrim(p.ec_number)) = upper($1) OR upper(btrim(p.pump_sl_no)) = upper($1)
+             OR upper(btrim(p.so_number)) = upper($1))
         ${clientId ? 'AND p.client_id = $2' : ''}
       ORDER BY (p.client_id = $2) DESC NULLS LAST, p.id DESC LIMIT 5`,
     [q, clientId ?? null]);
   if (!rows.length) return { ok: true, data: null };
   const r = rows[0];
   return { ok: true, data: {
-    so_no: r.so_number, ec_no: r.ec_number, pump_serial_no: r.pump_sl_no, pump_model: r.pump_model_plate,
-    liquid: r.liquid, head_pressure: r.head, quantity: r.quantity, client_name: r.client_name, matches: rows.length,
+    so_no: r.so_number, so_date: r.so_date, ec_no: r.ec_number, ec_date: r.ec_date,
+    pump_serial_no: r.pump_sl_no, pump_model: r.pump_model_plate,
+    liquid: r.liquid, head_pressure: r.head, capacity: r.capacity,
+    quantity: r.quantity, client_name: r.client_name, matches: rows.length,
   } };
+}
+
+/**
+ * Every pump this client has had from us, for the SO / EC / serial suggestion
+ * lists on page 2.
+ *
+ * The document asks for SO, EC and serial to be picked from a list rather than
+ * typed blind, and for an SO to recommend its EC number and date. One read of
+ * the client's rows answers all of it: the form builds three suggestion lists
+ * out of it and keeps the SO → EC pairing to hand.
+ *
+ * There is no Order Type (Pump / Spare) column on `client_pumps` — nothing in
+ * the installed base records it — so that half of the document's request cannot
+ * be answered from here.
+ */
+export interface ClientPumpOption {
+  so_number: string | null; so_date: string | null; ec_number: string | null; ec_date: string | null;
+  pump_sl_no: string | null; pump_model_plate: string | null;
+  liquid: string | null; head: string | null; capacity: string | null; quantity: number | null;
+}
+
+export async function listClientPumps(clientId: number): Promise<Result<ClientPumpOption[]>> {
+  const user = await getCurrentUser();
+  if (!user.email) return fail('Sign in again.');
+  const cid = Number(clientId);
+  if (!Number.isInteger(cid) || cid <= 0) return { ok: true, data: [] };
+  const may = hasRole(user.role, 'admin') || user.role === 'staff' || user.departments.length > 0
+    || await canViewClient(user, cid);
+  if (!may) return fail('That client is not one you work.');
+  const { rows } = await risansiPool.query<ClientPumpOption>(
+    `SELECT so_number, so_date::text AS so_date, ec_number, ec_date::text AS ec_date,
+            pump_sl_no, pump_model_plate, liquid, head, capacity, quantity
+       FROM client_pumps
+      WHERE client_id = $1
+      ORDER BY COALESCE(ec_date, so_date) DESC NULLS LAST, id DESC
+      LIMIT 500`, [cid]);
+  return { ok: true, data: rows };
+}
+
+// ── Linking a repeat to its original ──────────────────────────────────────
+
+/** Enough of another complaint to recognise it in a picker. */
+export interface ComplaintBrief {
+  id: number; complaint_no: string; client_name: string | null; client_code: string | null;
+  complaint_date: string | null; status: string; category: string | null;
+}
+
+/**
+ * Complaints this person can see, by number or by client, for the Repeat Of
+ * picker on page 8.
+ *
+ * A repeat is logged as its own complaint and pointed at the first one
+ * (decision 4), which needs a way to find the first one. Scoped by
+ * `complaintVisibilitySql`, so the picker never offers a complaint whose page
+ * the same person would be refused.
+ */
+export async function searchComplaintsToLink(query: string, excludeId?: number | null): Promise<Result<ComplaintBrief[]>> {
+  const user = await getCurrentUser();
+  if (!user.email) return fail('Sign in again.');
+  const q = (query ?? '').trim().slice(0, 100);
+  const vis = complaintVisibilitySql(user, 'cm');
+  const { rows } = await risansiPool.query<ComplaintBrief>(
+    `SELECT cm.id, cm.complaint_no, cl.legal_name AS client_name, cl.code AS client_code,
+            COALESCE(cm.complaint_date, cm.created_at::date)::text AS complaint_date,
+            cm.status, COALESCE(cm.complaint_category, cm.defect_category) AS category
+       FROM complaints cm
+       LEFT JOIN clients cl ON cl.id = cm.client_id
+      WHERE ($2::int IS NULL OR cm.id <> $2::int)
+        ${vis ? `AND (${vis})` : ''}
+        AND ($1 = '' OR cm.complaint_no ILIKE '%' || $1 || '%'
+             OR cl.legal_name ILIKE '%' || $1 || '%' OR cl.code ILIKE '%' || $1 || '%')
+      ORDER BY cm.id DESC
+      LIMIT 25`, [q, excludeId ?? null]);
+  return { ok: true, data: rows };
+}
+
+/** One complaint by id, so a stored link shows its number instead of "#412". */
+export async function complaintBriefById(id: number): Promise<Result<ComplaintBrief | null>> {
+  const user = await getCurrentUser();
+  if (!user.email) return fail('Sign in again.');
+  const cid = Number(id);
+  if (!Number.isInteger(cid) || cid <= 0) return { ok: true, data: null };
+  const vis = complaintVisibilitySql(user, 'cm');
+  const { rows } = await risansiPool.query<ComplaintBrief>(
+    `SELECT cm.id, cm.complaint_no, cl.legal_name AS client_name, cl.code AS client_code,
+            COALESCE(cm.complaint_date, cm.created_at::date)::text AS complaint_date,
+            cm.status, COALESCE(cm.complaint_category, cm.defect_category) AS category
+       FROM complaints cm
+       LEFT JOIN clients cl ON cl.id = cm.client_id
+      WHERE cm.id = $1 ${vis ? `AND (${vis})` : ''}`, [cid]);
+  return { ok: true, data: rows[0] ?? null };
 }
 
 // ── Notifying a department ─────────────────────────────────────────────────
@@ -395,12 +710,141 @@ async function notifyDepartment(department: string, actorEmail: string, card: { 
   } catch (e) { console.error('[complaints] department notification failed', e); }
 }
 
-// A plain read for the forms; kept here so the client never queries lookups itself.
+// A plain read for the forms; kept here so the client never queries lookups
+// itself. `parent_value IS NULL` is the whole point of the filter: without it
+// `part_name` comes back with Shaft in it twice, once under External and once
+// under Child Parts of Joints, and the flat map has no way to say which.
 export async function listComplaintLookups(): Promise<Record<string, string[]>> {
   const { rows } = await risansiPool.query<{ kind: string; value: string }>(
-    'SELECT kind, value FROM complaint_lookups WHERE is_active ORDER BY kind, sort_order, value');
+    'SELECT kind, value FROM complaint_lookups WHERE is_active AND parent_value IS NULL ORDER BY kind, sort_order, value');
   const out: Record<string, string[]> = {};
   for (const r of rows) (out[r.kind] ??= []).push(r.value);
   return out;
+}
+
+/** The cascading half of the same table: `{ kind: { parent: [values] } }`. */
+export async function listComplaintCascades(): Promise<Record<string, Record<string, string[]>>> {
+  const { rows } = await risansiPool.query<{ kind: string; parent_value: string; value: string }>(
+    `SELECT kind, parent_value, value FROM complaint_lookups
+      WHERE is_active AND parent_value IS NOT NULL
+      ORDER BY kind, parent_value, sort_order, value`);
+  const out: Record<string, Record<string, string[]>> = {};
+  for (const r of rows) ((out[r.kind] ??= {})[r.parent_value] ??= []).push(r.value);
+  return out;
+}
+
+// ── The parts a complaint is about ────────────────────────────────────────
+
+/**
+ * One row of the parts editor as the form posts it.
+ *
+ * Everything optional and everything a string, because the control is a
+ * spreadsheet-shaped thing the user fills in whatever order suits the complaint
+ * in front of them, and a half-filled row is a normal intermediate state rather
+ * than an error. Rows with nothing in them at all are dropped on save.
+ */
+export interface ComplaintPartInput {
+  part_type?: string | null; part_name?: string | null; quantity?: string | number | null; moc?: string | null;
+  vendor_name?: string | null; mfg_date?: string | null; part_code?: string | null;
+  ec_no?: string | null; ec_date?: string | null;
+  liquid?: string | null; head?: string | null; capacity?: string | null;
+}
+
+const PART_TEXT_COLS = ['part_type', 'part_name', 'moc', 'vendor_name', 'part_code', 'ec_no', 'liquid', 'head', 'capacity'] as const;
+const PART_DATE_COLS = ['mfg_date', 'ec_date'] as const;
+
+const partText = (v: unknown) => { const s = String(v ?? '').trim(); return s ? s.slice(0, 200) : null; };
+const partDate = (v: unknown) => { const s = String(v ?? '').slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null; };
+const partQty = (v: unknown) => {
+  if (v == null || String(v).trim() === '') return null;
+  const n = Number(String(v).replace(/[,\s]/g, ''));
+  return Number.isFinite(n) && n >= 0 ? n : null;
+};
+
+/**
+ * Replace the parts on a complaint with the rows the editor is holding.
+ *
+ * Delete-then-insert rather than a diff, in one transaction. The editor is a
+ * list the user reorders and deletes from freely, and matching posted rows back
+ * to stored ids to work out which three changed buys nothing here — the rows
+ * carry no history of their own and nothing points at them. What it does buy is
+ * that the saved list is exactly the list on screen, which is the one promise
+ * a repeating-row control has to keep.
+ *
+ * Who may edit: page 2's rule, because this is page 2's content. Saving page 2
+ * content moves an Open complaint to Under Investigation, same as saving the
+ * fields does — "once Form 2 is filled and saved" does not distinguish.
+ */
+export async function saveComplaintParts(complaintId: number, rows: ComplaintPartInput[]): Promise<SaveResult> {
+  const id = Number(complaintId);
+  if (!Number.isInteger(id)) return fail('No such complaint.');
+  const page = pageById(2)!;
+  const a = await loadAccess(id);
+  if (!a || !a.canSee) return fail('This complaint is not one you can see.');
+  const { user, row } = a;
+  if (!canEditPage(editor(user), { ...row, worksClient: a.worksClient }, page)) {
+    return fail(row.schema_version < 2
+      ? 'This is a legacy complaint, shown as it was recorded. Its parts cannot be edited.'
+      : row.status === 'Closed'
+        ? 'This complaint is closed. Reopen it from Closure & Review if there is more to do.'
+        : `Part details are edited by ${page.owner}. Ask the Complaint Team.`);
+  }
+  const list = Array.isArray(rows) ? rows : [];
+  if (list.length > 200) return fail('That is more than 200 parts on one complaint. Split it, or raise a second complaint.');
+
+  // Cleaned, then the empty ones dropped: an editor always has a blank row at
+  // the bottom waiting to be filled, and saving must not store it.
+  const clean = list.map(r => {
+    const out: Record<string, unknown> = {};
+    for (const k of PART_TEXT_COLS) out[k] = partText(r[k]);
+    for (const k of PART_DATE_COLS) out[k] = partDate(r[k]);
+    out.quantity = partQty(r.quantity);
+    return out;
+  }).filter(r => Object.values(r).some(v => v != null));
+
+  // Part Type off its own list; Part Name off the slice under that type, so
+  // Shaft-under-External cannot be filed as Shaft-under-Joint. A type with
+  // nothing seeded under it takes whatever was typed — the Add On case.
+  const types = await lookupValues('part_type', null);
+  const namesByType = new Map<string, Set<string>>();
+  for (const [i, r] of clean.entries()) {
+    const t = r.part_type as string | null;
+    if (t && types.size && !types.has(t)) return fail(`Row ${i + 1}: "${t}" is not a part type.`);
+    const n = r.part_name as string | null;
+    if (!n || !t) continue;
+    if (!namesByType.has(t)) namesByType.set(t, await lookupValues('part_name', t));
+    const allowed = namesByType.get(t)!;
+    if (allowed.size && !allowed.has(n)) return fail(`Row ${i + 1}: "${n}" is not a part under ${t}.`);
+  }
+
+  const conn = await risansiPool.connect();
+  try {
+    await conn.query('BEGIN');
+    await conn.query('DELETE FROM complaint_parts WHERE complaint_id = $1', [id]);
+    for (const [i, r] of clean.entries()) {
+      await conn.query(
+        `INSERT INTO complaint_parts (complaint_id, sort_order, part_type, part_name, quantity, moc,
+                                      vendor_name, mfg_date, part_code, ec_no, ec_date, liquid, head, capacity)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+        [id, i, r.part_type, r.part_name, r.quantity, r.moc, r.vendor_name, r.mfg_date,
+         r.part_code, r.ec_no, r.ec_date, r.liquid, r.head, r.capacity]);
+    }
+    await conn.query('UPDATE complaints SET updated_at = now() WHERE id = $1', [id]);
+    await conn.query('COMMIT');
+  } catch (e) {
+    await conn.query('ROLLBACK').catch(() => {});
+    console.error('[saveComplaintParts]', e);
+    return fail('The part details could not be saved — please try again.');
+  } finally { conn.release(); }
+
+  await recordAudit({ action: 'update', entityType: 'complaint', entityId: id, entityLabel: row.complaint_no,
+    summary: `Part details: ${clean.length} part${clean.length === 1 ? '' : 's'}${clean.length ? ` — ${clean.map(r => r.part_name ?? r.part_type ?? r.liquid ?? '?').join(', ').slice(0, 160)}` : ''}`,
+    actorEmail: user.email });
+
+  const { rows: [cur] } = await risansiPool.query<ComplaintValues>('SELECT * FROM complaints WHERE id = $1', [id]);
+  await advanceAfterPageSave(2, id, row, user, cur ?? {});
+
+  revalidatePath(`/risansi/complaints/${id}`); revalidatePath('/risansi/complaints');
+  return { ok: true };
 }
 

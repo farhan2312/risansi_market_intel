@@ -42,7 +42,11 @@ check('one answer only, No → S4 (partially answered counts)', F.severityOf({ r
 
 console.log('\nGates:');
 const full = {
-  complaint_date: '2026-09-13', channel: 'Email', complaint_type: 'Technical', defect_category: 'Leakage', defect_reason: 'Leakage from gland',
+  complaint_date: '2026-09-13', channel: 'Email', complaint_category: 'Performance',
+  // complaint_type and defect_category are no longer asked for, but a complaint
+  // filed before the category existed still carries them, and routingOwner has
+  // to keep working for those. Left in the fixture on purpose.
+  complaint_type: 'Technical', defect_category: 'Leakage', defect_reason: 'Leakage from gland',
   responsible_department: 'QC & Production', details: 'x', contact_person: 'y',
   so_no: 'SO1', ec_no: 'EC1', pump_serial_no: 'SN1', pump_model: 'M1',
   ...no, risk_safety: false, risk_shutdown: false, risk_pump_failure: false, risk_major_perf: false, risk_repeat_failure: false,
@@ -53,7 +57,7 @@ check('Open → Under Investigation with pages 1–3 complete: no gate', F.gateF
 check('Open → Under Investigation with no pump serial: not held',
   F.gateFor('Open', 'Under Investigation', { values: { ...full, pump_serial_no: '' }, severity: 'S2', hasCapaDocument: false }), []);
 check('Open → Under Investigation with no pump model: named',
-  F.gateFor('Open', 'Under Investigation', { values: { ...full, pump_model: '' }, severity: 'S2', hasCapaDocument: false }), ['Order & Pump: Pump model no.']);
+  F.gateFor('Open', 'Under Investigation', { values: { ...full, pump_model: '' }, severity: 'S2', hasCapaDocument: false }), ['Order & Pump: Model as per name plate']);
 check('Open → Under Investigation with risk unanswered: asks for the risk page',
   F.gateFor('Open', 'Under Investigation', { values: full, severity: null, hasCapaDocument: false }),
   ['Risk & Criticality: answer the risk questions so the severity is known']);
@@ -74,9 +78,12 @@ check('S3 Resolved → Closed needs no CAPA document',
 check('Closed blocked while a returnable is In Transit',
   F.gateFor('Resolved', 'Closed', { values: { ...resolved, material_returnable: true, returnable_status: 'In Transit' }, severity: 'S3', hasCapaDocument: false }),
   ['Returnable material is still In Transit']);
-check('Customer Confirmation Pending → Resolved needs the customer\'s yes',
+// The customer's yes is no longer a gate - the Complaint Team closes manually.
+// Inverted rather than deleted, so anyone reinstating the gate is told it went
+// on purpose and not by accident.
+check('Customer Confirmation Pending to Resolved no longer waits on the customer',
   F.gateFor('Customer Confirmation Pending', 'Resolved', { values: { ...resolved, customer_confirmed: null }, severity: 'S3', hasCapaDocument: false }),
-  ['Corrective Action: customer confirmed the fix']);
+  []);
 check('Replacement Pending needs a replacement action category',
   F.gateFor('Action Pending', 'Replacement Pending', { values: { ...resolved, action_category: 'Repair', action_assigned_to: 5, target_completion_date: '2026-10-01' }, severity: 'S3', hasCapaDocument: false }),
   ['Corrective Action: the action category must be a replacement']);
@@ -130,6 +137,82 @@ const by = F.dwellByHolder(d);
 check('QC · RK held it longest, and time after Resolved counts for nobody', by.map(x => `${x.key}:${Math.round(x.days)}`), ['QC · RK:7', 'Complaint Team:2', 'Customer:2']);
 const open = F.dwells(log.slice(0, 2), '2026-09-13T00:00:00Z');
 check('an open complaint\'s last stretch is current, 10 days and counting', [open[1].current, Math.round(open[1].days)], [true, 10]);
+
+
+// ── The rules the October rebuild added ────────────────────────────────────
+// Each replaced something the dashboard review found wrong, so they are pinned
+// here rather than left to be rediscovered the same way.
+
+console.log('\nHeadline status (five names over the eight sub-stages):');
+check('Under Investigation reads as Open',         F.headlineStatus('Under Investigation'), 'Open');
+check('Replacement Pending reads as Action Taken', F.headlineStatus('Replacement Pending'), 'Action Taken');
+check('Feedback is its own headline',              F.headlineStatus('Feedback'), 'Feedback');
+check('a legacy status still lands somewhere',     F.headlineStatus('Awaiting Client'), 'Action Taken');
+check('an unknown status is not dropped',          F.headlineStatus('Nonsense'), 'Open');
+// Four, not three: the legacy 'Awaiting Client' lands here too, which is what
+// lets an old complaint and a new one appear under the same tile.
+check('Action Taken covers its sub-stages and the legacy one',
+  F.statusesUnderHeadline('Action Taken').sort(),
+  ['Action Pending', 'Awaiting Client', 'Customer Confirmation Pending', 'Replacement Pending']);
+check('Feedback is NOT open - the fix has landed', F.isOpenStatus('Feedback'), false);
+check('Action Pending is still open',              F.isOpenStatus('Action Pending'), true);
+
+console.log('\nImmediate response (a flag, not a severity grade):');
+const noRisk = { risk_safety: false, risk_shutdown: false, risk_penalty: false, risk_repeat_failure: false };
+check('all four no',                   F.isImmediateResponse(noRisk), false);
+check('any one yes is immediate',      F.isImmediateResponse({ ...noRisk, risk_shutdown: true }), true);
+check('a grading answer alone is not', F.isImmediateResponse({ ...noRisk, risk_qty_over_5: true }), false);
+check('severity is undisturbed by it', F.severityOf({ ...noRisk, risk_qty_over_5: true }), 'S3');
+
+console.log('\nOverdue (days since raised, per severity - not the target date):');
+const SLA = { S1: 2, S2: 7, S3: 15, S4: 30 };
+const od = (status, severity, raised) => F.overdueFor({ status, severity, complaint_date: raised }, SLA, '2026-10-07');
+check('S1 open 3 days: overdue',       od('Open', 'S1', '2026-10-04').overdue, true);
+check('S1 open 1 day: not yet',        od('Open', 'S1', '2026-10-06').overdue, false);
+check('S3 open 3 days: well inside',   od('Open', 'S3', '2026-10-04').overdue, false);
+check('overdue at Open is no-action',  od('Open', 'S1', '2026-09-01').kind, 'no-action');
+check('overdue after action is acted', od('Action Pending', 'S1', '2026-09-01').kind, 'acted');
+check('a closed complaint is never overdue', od('Closed', 'S1', '2020-01-01').overdue, false);
+check('Feedback is never overdue either',    od('Feedback', 'S1', '2020-01-01').overdue, false);
+// The 34-open-but-1-overdue bug: the old rule could only fire once a target
+// date had been typed on page 5, so everything earlier than that was invisible.
+check('an ungraded complaint is held to S4, not ignored', od('Open', null, '2020-01-01').overdue, true);
+
+console.log('\nCost impact (the commercial flag, not the risk question):');
+check('free replacement forces it', F.costImpactForced({ action_category: 'Free Replacement' }), true);
+check('replace material forces it', F.costImpactForced({ action_category: 'Replace Material' }), true);
+check('a visit does not',           F.costImpactForced({ action_category: 'Visit Planned' }), false);
+check('an FR value forces it',      F.costImpactForced({ fr_material_value: 1200 }), true);
+check('risk_cost_impact is a different question', F.costImpactForced({ risk_cost_impact: true }), false);
+
+console.log('\nRouting (category decides; Type still answers for older rows):');
+check('Performance goes to QC',        F.routingOwner({ complaint_category: 'Performance' }), 'QC');
+check('Damage goes to QC',             F.routingOwner({ complaint_category: 'Damage' }), 'QC');
+check('Supply Related stays in-house', F.routingOwner({ complaint_category: 'Supply Related' }), 'Complaint Team');
+check('a pre-category row routes on its Type', F.routingOwner({ complaint_type: 'Technical' }), 'QC');
+check('nothing known: Complaint Team', F.routingOwner({}), 'Complaint Team');
+
+console.log('\nResponsible department, derived from the root cause:');
+check('Wrong EC is the Quotation Team', F.responsibleDepartmentFor('Human Error', 'Wrong EC'), 'Quotation Team');
+check('Design is the Drawing Team',     F.responsibleDepartmentFor('Design', null), 'Drawing Team');
+// Null, not a guess: the Design and Process sub-lists are still pending, and a
+// default here would read as a finding rather than as an absence.
+check('an unknown sub stays unanswered', F.responsibleDepartmentFor('Human Error', 'Something else'), null);
+
+console.log('\nCascading options:');
+const casc = { complaint_subcategory: { 'Supply Related': ['Excess', 'Short'], 'Damage': ['Joint'] } };
+const subField = { name: 'complaint_subcategory', label: 'Sub-category', type: 'select', lookup: 'complaint_subcategory', parentField: 'complaint_category' };
+check('options follow the parent',            F.optionsFor(subField, { complaint_category: 'Supply Related' }, {}, casc), ['Excess', 'Short']);
+check('a different parent, a different list', F.optionsFor(subField, { complaint_category: 'Damage' }, {}, casc), ['Joint']);
+check('no parent answered yet: nothing',      F.optionsFor(subField, {}, {}, casc), []);
+// Client Related has no sub-list seeded yet, so this must be empty rather than
+// falling back to every sub-category there is.
+check('a parent with nothing under it',       F.optionsFor(subField, { complaint_category: 'Client Related' }, {}, casc), []);
+
+console.log('\nSaving page 2 moves an open complaint on:');
+check('page 2 on an Open complaint',          F.statusAfterSavingPage(2, 'Open'), 'Under Investigation');
+check('page 2 later in the flow does nothing', F.statusAfterSavingPage(2, 'Action Pending'), null);
+check('another page does nothing',            F.statusAfterSavingPage(1, 'Open'), null);
 
 console.log(bad ? `\n${bad} FAILURE(S)` : '\nevery rule behaves');
 process.exit(bad ? 1 : 0);

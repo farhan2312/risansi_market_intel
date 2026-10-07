@@ -6,9 +6,19 @@ import { canEditPage, pageById } from '@/lib/risansi-complaint-flow';
 
 export const runtime = 'nodejs';
 
+// A complaint arrives as a photo or a clip of the pump running far more often
+// than as a document, and video was refused until now — a TSM filming a leak on
+// a phone got "unsupported file type" at the moment the evidence was in hand.
+// quicktime is what an iPhone records, 3gpp what a cheaper Android does.
 const MAX_BYTES = 20_000_000;
+// Video gets its own ceiling. These are stored as bytea in Postgres, so the
+// limit is about what the row and the pool can carry, not about the format: a
+// few seconds of phone video clears 20 MB easily, and a whole site walkthrough
+// does not belong in a complaint record either way.
+const MAX_VIDEO_BYTES = 60_000_000;
 const CATEGORIES = new Set(['complaint', 'photo', 'capa', 'customer', 'other']);
-const ALLOWED = /^(image\/(jpeg|png|webp|heic|heif)|application\/pdf|application\/vnd\.(ms-excel|openxmlformats-officedocument\.(spreadsheetml\.sheet|wordprocessingml\.document))|application\/msword|text\/plain|message\/rfc822)$/;
+const IS_VIDEO = /^video\//;
+const ALLOWED = /^(image\/(jpeg|png|webp|heic|heif)|video\/(mp4|quicktime|webm|3gpp|x-matroska|x-msvideo)|application\/pdf|application\/vnd\.(ms-excel|openxmlformats-officedocument\.(spreadsheetml\.sheet|wordprocessingml\.document))|application\/msword|text\/plain|message\/rfc822)$/;
 
 // Upload one file to a complaint: multipart with `file`, `category`, optional `caption`.
 //
@@ -45,10 +55,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (!may) return NextResponse.json({ error: `Only somebody who can edit ${page.title} can attach files here.` }, { status: 403 });
 
     const mime = file.type || 'application/octet-stream';
-    if (!ALLOWED.test(mime)) return NextResponse.json({ error: `Unsupported file type (${mime}). PDF, images, Word, Excel or text.` }, { status: 415 });
+    if (!ALLOWED.test(mime)) return NextResponse.json({ error: `Unsupported file type (${mime}). Images, video, PDF, Word, Excel or text.` }, { status: 415 });
     const buf = Buffer.from(await file.arrayBuffer());
     if (!buf.length) return NextResponse.json({ error: 'Empty file' }, { status: 400 });
-    if (buf.length > MAX_BYTES) return NextResponse.json({ error: 'File too large (max 20 MB)' }, { status: 413 });
+    const cap = IS_VIDEO.test(mime) ? MAX_VIDEO_BYTES : MAX_BYTES;
+    if (buf.length > cap) {
+      return NextResponse.json(
+        { error: `File too large (max ${Math.round(cap / 1_000_000)} MB${IS_VIDEO.test(mime) ? ' for video' : ''})` },
+        { status: 413 },
+      );
+    }
 
     const { rows } = await risansiPool.query(
       `INSERT INTO complaint_attachments (complaint_id, category, file_name, mime_type, byte_size, bytes, caption, uploaded_by)

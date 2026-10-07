@@ -40,13 +40,29 @@ export default async function ComplaintsPage({ searchParams }: { searchParams: P
     for (const [id, name] of pairs) if (id != null && name) m.set(id, name);
     return [...m].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
   };
+  // The lookup tables say what MAY be chosen; these say what is actually on a
+  // complaint. A dropdown built from the lookups would offer five categories
+  // where four are in use and show an empty table for the fifth.
   const options: FilterOptions = {
-    types: uniq(base.map(r => r.complaint_type)),
-    categories: uniq(base.map(r => r.defect_category)),
+    categories: uniq(base.map(r => r.complaint_category)),
+    subcategories: uniq(base.map(r => r.complaint_subcategory)),
+    // Only the historical rows the 2 Oct mapping could not read onto a new
+    // category. A row with both is reachable through Category instead, so
+    // offering its old wording as well would be two routes to the same rows.
+    legacyCategories: uniq(base.filter(r => !r.complaint_category).map(r => r.defect_category)),
     responsibles: uniq(base.map(r => r.responsible_department)),
     rootCauses: uniq(base.map(r => r.root_cause_category)),
-    partTypes: uniq(base.map(r => r.part_type)),
-    partNames: uniq(base.map(r => r.part_name)),
+    rootCauseSubs: uniq(base.map(r => r.root_cause_sub)),
+    // Part type / name / MOC come from complaint_parts where page 2 has filled
+    // it in, and from the old single-part columns on the historical rows.
+    partTypes: uniq([...base.map(r => r.part_type), ...base.flatMap(r => r.parts.map(p => p.part_type))]),
+    partNames: uniq([...base.map(r => r.part_name), ...base.flatMap(r => r.parts.map(p => p.part_name))]),
+    mocs: uniq(base.flatMap(r => r.parts.map(p => p.moc))),
+    industries: uniq(base.map(r => r.industry)),
+    clientTypes: uniq(base.map(r => r.client_type)),
+    actions: uniq(base.map(r => r.action_category)),
+    modelVersions: uniq(base.map(r => r.model_version)),
+    modelSeries: uniq(base.map(r => r.model_series)),
     reps: people(base.map(r => [r.rep_user_id, r.rep_name])),
     holders: people(base.map(r => [r.holder_user_id, r.holder_name])),
     // Same order as the by-client chart — most complaints first — so the
@@ -80,7 +96,7 @@ export default async function ComplaintsPage({ searchParams }: { searchParams: P
           <div>
             <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg)' }}>Complaints</div>
             <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 3 }}>
-              {rows.length} shown · {s.open} open · {s.overdue} overdue{Object.keys(filters).length ? ` · ${Object.keys(filters).length} filter${Object.keys(filters).length === 1 ? '' : 's'} on` : ''}
+              {rows.length} shown · {s.open} open · {s.overdue} overdue ({s.overdueNoAction} with no action){s.severeOpen ? ` · ${s.severeOpen} severe` : ''}{Object.keys(filters).length ? ` · ${Object.keys(filters).length} filter${Object.keys(filters).length === 1 ? '' : 's'} on` : ''}
             </div>
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>

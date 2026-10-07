@@ -2,8 +2,8 @@ import type { CSSProperties } from 'react';
 import Link from 'next/link';
 import { ChartPanel, StageKpi, NoData } from '@/components/risansi/StageCharts';
 import { StatusChart } from './StatusChart';
-import { SEVERITY_TONE, STATE_LABEL, type Severity } from '@/lib/risansi-complaint-flow';
-import type { ComplaintSummary, Bar, HolderBar, ClientBar } from '@/lib/risansi-complaint-stats';
+import { SEVERITY_TONE, type Severity } from '@/lib/risansi-complaint-flow';
+import type { ComplaintSummary, Bar, CategoryBar, DrillNode, HolderBar, ClientBar } from '@/lib/risansi-complaint-stats';
 
 // The dashboard above the complaints list.
 //
@@ -11,6 +11,12 @@ import type { ComplaintSummary, Bar, HolderBar, ClientBar } from '@/lib/risansi-
 // list's own filters, so clicking "QC" under Who holds them narrows the table
 // to what QC is sitting on, the way the stage dashboards work. The page owns
 // the URL and passes hrefFor; a chosen bar stays lit and the rest step back.
+//
+// Every tile here says how it was worked out, because the review's finding was
+// not that a number was missing but that two numbers could not both be true.
+// "Overdue" in particular now explains its own rule in its subtitle: it is age
+// since raised against the severity's threshold, and the old target-date rule
+// that produced one overdue complaint out of thirty-four is gone.
 
 const fmtDays = (d: number | null | undefined) => (d == null ? '—' : d < 1 ? '<1d' : `${d.toFixed(d >= 10 ? 0 : 1)}d`);
 const pct = (x: number | null) => (x == null ? '—' : `${Math.round(x * 100)}%`);
@@ -28,47 +34,56 @@ export function ComplaintStats({ s, href, sel }: {
     <div style={{ marginBottom: 14 }}>
       {/* r-grid-4: two tiles per row on a phone rather than eight in a column. */}
       <div className="r-grid-4" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 12 }}>
-        <StageKpi label="Open" value={String(s.open)} sub={`of ${s.total} · ${s.closed} closed${s.legacy ? ` · ${s.legacy} legacy` : ''}`} />
-        <StageKpi label="Overdue" value={String(s.overdue)} sub={s.overdue ? 'past their target completion date' : 'nothing past its target'}
-          color={s.overdue ? 'var(--neg)' : undefined} alert={s.overdue > 0} />
-        <StageKpi label="Avg age of open" value={fmtDays(s.avgOpenAge)} sub={s.oldestOpen != null ? `oldest ${s.oldestOpen}d` : undefined}
+        <Tile label="Open" value={String(s.open)}
+          sub={`of ${s.total} · ${s.trulyClosed} closed · ${s.resolvedAwaitingClose} awaiting closure${s.awaitingFeedback ? ` · ${s.awaitingFeedback} out for feedback` : ''}`} />
+        {/* Two tiles, not one, because they are chased by different people: the
+            first is nobody's work yet, the second is late despite somebody's. */}
+        <Tile label="Overdue · no action" value={String(s.overdueNoAction)}
+          sub="still Open or Under Investigation, past its severity's days"
+          href={href('overdue', 'no-action')} on={sel.overdue === 'no-action'}
+          color={s.overdueNoAction ? 'var(--neg)' : undefined} alert={s.overdueNoAction > 0} />
+        <Tile label="Overdue · acted" value={String(s.overdueActed)}
+          sub="an action is recorded and it is late anyway"
+          href={href('overdue', 'acted')} on={sel.overdue === 'acted'}
+          color={s.overdueActed ? 'var(--warn, #B45309)' : undefined} />
+        <Tile label="Severe" value={String(s.severeOpen)}
+          sub={`open · ${s.severe} ever · safety, shutdown, penalty or repeat`}
+          href={href('severe', '1')} on={sel.severe === '1'}
+          color={s.severeOpen ? 'var(--neg)' : undefined} alert={s.severeOpen > 0} />
+        <Tile label="Avg age of open" value={fmtDays(s.avgOpenAge)} sub={s.oldestOpen != null ? `oldest ${s.oldestOpen}d · days since raised` : 'days since raised'}
           color={s.avgOpenAge != null && s.avgOpenAge > 30 ? 'var(--warn, #B45309)' : undefined} />
-        <StageKpi label="Avg time to close" value={fmtDays(s.avgTimeToClose)}
-          sub={s.closedCount ? `median ${fmtDays(s.medianTimeToClose)} · ${s.closedCount} closed` : 'nothing closed yet'} />
-        <StageKpi label="Last 30 days" value={`${s.raised30} / ${s.closed30}`}
-          sub={`raised / closed · ${net > 0 ? `backlog +${net}` : net < 0 ? `backlog ${net}` : 'backlog flat'}`}
+        <Tile label="Avg time to close" value={fmtDays(s.avgTimeToClose)}
+          sub={s.closedCount
+            ? `median ${fmtDays(s.medianTimeToClose)} over ${s.closedCount} closed · ${fmtDays(s.avgTimeToResolve)} to resolve`
+            : 'nothing closed yet'} />
+        <Tile label="Last 30 days" value={`${s.raised30} / ${s.closed30}`}
+          sub={`raised / closed · ${net > 0 ? `the backlog grew by ${net}` : net < 0 ? `the backlog shrank by ${-net}` : 'the backlog held'} · ${s.open} open in all`}
           color={net > 0 ? 'var(--warn, #B45309)' : net < 0 ? 'var(--pos)' : undefined} />
-        <StageKpi label="Awaiting closure" value={String(s.resolvedAwaitingClose)} sub="resolved, not yet closed" />
-        <StageKpi label="Repeat complaints" value={pct(s.repeatRate)}
-          sub={s.repeatRate == null ? 'flagged at closure' : `${s.repeatCount} repeat${s.repeatCount === 1 ? '' : 's'} · ${s.reopened} reopened`}
+        <Tile label="Repeat · linked" value={String(s.linkedCount)}
+          sub={s.repeatRate == null ? 'flagged at closure, or linked to an original' : `${pct(s.repeatRate)} of rated · ${s.reopened} reopened`}
+          href={href('linked', '1')} on={sel.linked === '1'}
           color={s.repeatRate != null && s.repeatRate >= 0.2 ? 'var(--neg)' : undefined} />
-        <StageKpi label="Workflow" value={String(s.workflow)} sub={`on the new flow · ${s.legacy} legacy read-only`} />
       </div>
 
       <div className="stage-grid-4">
         <StatusChart
-          anySelected={!!sel.state || !!sel.status}
-          noteSummary="Untouched, in hand, and done — the same three the toggle above the list uses. Click a bar to filter."
-          noteStages="Count in each stage now, and the average days a complaint spends there. Click a stage to filter."
-          summary={[
-            { key: 'open', label: STATE_LABEL.open, count: s.purelyOpen, overdue: s.purelyOpenOverdue,
-              href: href('state', 'open'), on: sel.state === 'open',
-              note: 'nobody has started' },
-            { key: 'partial', label: STATE_LABEL.partial, count: s.partiallyOpen, overdue: s.partiallyOpenOverdue,
-              href: href('state', 'partial'), on: sel.state === 'partial',
-              note: s.partiallyOpenOverdue ? `${s.partiallyOpenOverdue} overdue` : 'in hand' },
-            { key: 'closed', label: STATE_LABEL.closed, count: s.closed, done: true,
-              href: href('state', 'closed'), on: sel.state === 'closed',
-              note: s.resolvedAwaitingClose ? `${s.resolvedAwaitingClose} awaiting closure` : 'all closed out' },
-          ]}
+          anySelected={!!sel.headline || !!sel.status || !!sel.state}
+          noteSummary="The five names the business uses, over the eight sub-stages. Red part is overdue. Click to filter."
+          noteStages="Count in each sub-stage now, and the average days a complaint spends there. Click a stage to filter."
+          summary={s.byHeadline.map(h => ({
+            key: h.key, label: h.label, count: h.count, overdue: h.overdue,
+            done: h.key === 'Resolved' || h.key === 'Closed' || h.key === 'Feedback',
+            href: href('headline', h.key), on: sel.headline === h.key,
+            note: h.stages.length > 1 ? `${h.stages.length} stages` : (h.stages[0] ?? undefined),
+          }))}
           stages={s.funnel.map(x => ({
             key: x.status, label: x.status, count: x.count,
-            done: x.status === 'Resolved' || x.status === 'Closed',
+            done: x.status === 'Resolved' || x.status === 'Closed' || x.status === 'Feedback',
             href: href('status', x.status), on: sel.status === x.status,
             note: x.stretches ? fmtDays(x.avgDays) : undefined,
           }))}
         />
-        <ChartPanel title="Open by severity" note="Computed from the risk page. Red part is overdue. Click to filter.">
+        <ChartPanel title="Open by severity" sub="and the days each gets" note="The S-grade from the risk page, which is also what sets the overdue threshold. Red part is overdue. Click to filter.">
           <Bars rows={s.bySeverity.filter(b => b.count || b.key !== 'none')} href={v => href('sev', v)} selected={sel.sev}
             tone={b => (b.key === 'none' ? 'var(--fg-3)' : SEVERITY_TONE[b.key as Severity])} empty="No open complaints on the workflow." />
         </ChartPanel>
@@ -81,38 +96,50 @@ export function ComplaintStats({ s, href, sel }: {
       </div>
 
       <div className="stage-grid-4">
-        <ChartPanel title="Responsible department" sub="who caused it" note="From the registration page, corrected at investigation. Click to filter.">
+        <div className="stage-span-2">
+          <ChartPanel title="Complaint category" sub="open, and how long closing takes"
+            note="Open count and average days from raised to closed, per category. A category marked old is one the 2 Oct mapping could not read onto a new name without guessing. Click to filter.">
+            <Categories rows={s.byCategory} href={v => href('cat', v)} selected={sel.cat} />
+          </ChartPanel>
+        </div>
+        <ChartPanel title="Sub-category" note="Under the category above. Click to filter.">
+          <Bars rows={s.bySubcategory.slice(0, 10)} href={v => href('subcat', v)} selected={sel.subcat} empty="No sub-category recorded yet." />
+        </ChartPanel>
+        <ChartPanel title="Industry" note="The client's industry. Click to filter.">
+          <Bars rows={s.byIndustry.slice(0, 10)} href={v => href('ind', v)} selected={sel.ind} empty="No industry on file." />
+        </ChartPanel>
+      </div>
+
+      <div className="stage-grid-4">
+        <ChartPanel title="Action taken" note="Page 5's Action Taken, which is also what decides who the task is assigned to. Click to filter.">
+          <Bars rows={s.byAction} href={v => href('action', v)} selected={sel.action} empty="No action recorded yet." />
+        </ChartPanel>
+        <ChartPanel title="CAPA tracking" note="Raised, and where it has got to. Pending means asked for with nothing back. Click to filter.">
+          <Capa s={s} href={href} sel={sel} />
+        </ChartPanel>
+        <ChartPanel title="Responsible department" sub="who caused it" note="Derived from the root cause at investigation. Click to filter.">
           <Bars rows={s.byResponsible} href={v => href('resp', v)} selected={sel.resp} empty="Not recorded yet." />
-        </ChartPanel>
-        <ChartPanel title="Defect category" note="Click to filter.">
-          <Bars rows={s.byCategory.slice(0, 8)} href={v => href('cat', v)} selected={sel.cat} empty="Not recorded yet." />
-        </ChartPanel>
-        <ChartPanel title="Type · open by rep" note="Technical goes to QC; Non-technical stays with the Complaint Team. Then who the open ones belong to.">
-          <Bars rows={s.byType} href={v => href('type', v)} selected={sel.type} empty="Not recorded yet." />
-          {s.byRep.length > 0 && (
-            <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--line-2)' }}>
-              <Bars rows={s.byRep.slice(0, 6)} href={undefined} selected={undefined} empty="" compact />
-            </div>
-          )}
         </ChartPanel>
         <ChartPanel title="Raised vs closed" sub="last 12 months" note="Raised by complaint date, closed by the month it was resolved or closed.">
           <PairBars points={s.months} />
         </ChartPanel>
       </div>
 
-      {s.byClient.length > 0 && (
-        <div className="stage-grid-4">
-          <div className="stage-span-3">
-            <ChartPanel title="Clients complaining most" sub={`${s.clientCount} client${s.clientCount === 1 ? '' : 's'}`}
-              note="Every complaint in view, counted by account. Red is overdue. Click a client to see only theirs.">
-              <Clients rows={s.byClient.slice(0, 10)} href={v => href('client', v)} selected={sel.client} />
-            </ChartPanel>
-          </div>
-          <ChartPanel title="How concentrated" note="A handful of accounts usually carry most of the complaints. This says how far that goes.">
-            <Concentration rows={s.byClient} total={s.total} />
+      <div className="stage-grid-4">
+        <div className="stage-span-2">
+          <ChartPanel title="Drill down" sub="category → sub-category → part → MOC"
+            note="The path the review asked for: Damage → Joint → Bush → the MOC on it. Every level is a filter; click along the branch.">
+            <Drill nodes={s.drill} href={href} sel={sel} />
           </ChartPanel>
         </div>
-      )}
+        <ChartPanel title="Clients complaining most" sub={`${s.clientCount} client${s.clientCount === 1 ? '' : 's'}`}
+          note="Every complaint in view, counted by account. Red is overdue. Click a client to see only theirs.">
+          <Clients rows={s.byClient.slice(0, 8)} href={v => href('client', v)} selected={sel.client} />
+        </ChartPanel>
+        <ChartPanel title="How concentrated" note="A handful of accounts usually carry most of the complaints. This says how far that goes.">
+          <Concentration rows={s.byClient} total={s.total} />
+        </ChartPanel>
+      </div>
 
       {s.longestSitting.length > 0 && (
         <div style={{ ...PANEL, padding: '10px 14px', display: 'flex', gap: 14, alignItems: 'baseline', flexWrap: 'wrap', fontSize: 11.5 }}>
@@ -121,6 +148,7 @@ export function ComplaintStats({ s, href, sel }: {
             <Link key={r.id} href={`/risansi/complaints/${r.id}`} style={{ color: 'inherit', textDecoration: 'none' }}
               title={`${r.client_name ?? ''} · ${r.status} · with ${r.holder_name ?? r.holder_department ?? 'Complaint Team'}`}>
               <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg-2)' }}>{r.complaint_no}</span>
+              {r.severe && <span style={{ color: 'var(--neg)', fontWeight: 700 }} title="Severe / Immediate Response"> ⚑</span>}
               <span style={{ color: 'var(--fg-3)' }}> · {r.holder_name ?? r.holder_department}</span>
               <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: r.days_in_status > 7 ? 'var(--neg)' : 'var(--fg)', marginLeft: 4 }}>{fmtDays(r.days_in_status)}</span>
             </Link>
@@ -128,6 +156,19 @@ export function ComplaintStats({ s, href, sel }: {
         </div>
       )}
     </div>
+  );
+}
+
+// ── A KPI tile that can also be a filter ───────────────────────
+
+function Tile({ label, value, sub, color, alert, href, on }: {
+  label: string; value: string; sub?: string; color?: string; alert?: boolean; href?: string; on?: boolean;
+}) {
+  const inner = <StageKpi label={label} value={value} sub={sub} color={color} alert={alert} />;
+  if (!href) return inner;
+  return (
+    <a href={href} style={{ textDecoration: 'none', color: 'inherit', borderRadius: 'var(--radius)', outline: on ? '2px solid var(--accent)' : 'none', outlineOffset: 2, display: 'block' }}
+      title={on ? 'Showing only these — click to clear' : 'Show only these'}>{inner}</a>
   );
 }
 
@@ -159,6 +200,133 @@ function Bars({ rows, href, selected, tone, empty, compact }: {
         return href ? <a key={r.key} href={href(r.key)} style={style} title={`${r.label}: ${r.count}${r.overdue ? ` · ${r.overdue} overdue` : ''}`}>{inner}</a>
           : <div key={r.key} style={style}>{inner}</div>;
       })}
+    </div>
+  );
+}
+
+// ── Category: open count and average time to close, side by side ──
+
+function Categories({ rows, href, selected }: { rows: CategoryBar[]; href: (v: string) => string; selected?: string }) {
+  if (!rows.length) return <NoData msg="No category recorded on any complaint in view." />;
+  const maxCount = Math.max(...rows.map(r => r.count), 1);
+  const maxClose = Math.max(...rows.map(r => r.avgClose ?? 0), 1);
+  const any = !!selected;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+      {rows.map(r => {
+        const on = selected === r.key;
+        return (
+          <a key={r.key} href={href(r.key)} style={{ ...ROW, alignItems: 'flex-start', opacity: any && !on ? 0.4 : 1, outline: on ? '2px solid var(--accent)' : 'none' }}
+            title={`${r.label}: ${r.open} of ${r.count} still open${r.overdue ? `, ${r.overdue} overdue` : ''}${r.avgClose != null ? ` · ${r.closed} closed in ${fmtDays(r.avgClose)} on average` : ' · none closed yet'}`}>
+            <span style={{ ...LBL, flex: '0 1 150px' }}>
+              {r.label}
+              {r.legacy && <span style={{ fontSize: 9, color: 'var(--fg-4)', fontWeight: 700, marginLeft: 4 }} title="The old Defect Category wording — the mapping could not read it onto a new name without guessing">OLD</span>}
+            </span>
+            <div style={{ flex: 1, minWidth: 40, display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <div style={{ height: 10, background: 'var(--bg-sunk)', borderRadius: 3, overflow: 'hidden', display: 'flex' }}>
+                {r.overdue > 0 && <div style={{ width: `${(r.overdue / maxCount) * 100}%`, background: 'var(--neg)' }} />}
+                {r.open - r.overdue > 0 && <div style={{ width: `${((r.open - r.overdue) / maxCount) * 100}%`, background: 'color-mix(in oklab, var(--warn, #B45309) 60%, transparent)' }} />}
+                <div style={{ width: `${((r.count - r.open) / maxCount) * 100}%`, background: 'color-mix(in oklab, var(--pos) 40%, transparent)' }} />
+              </div>
+              <div style={{ height: 5, background: 'var(--bg-sunk)', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{ width: `${((r.avgClose ?? 0) / maxClose) * 100}%`, height: '100%', background: 'color-mix(in oklab, var(--accent) 50%, transparent)' }} />
+              </div>
+            </div>
+            <span style={{ ...NUM, width: 26, color: r.open ? 'var(--warn, #B45309)' : 'var(--fg-4)' }}>{r.open || '·'}</span>
+            <span style={{ ...NUM, width: 40, color: 'var(--fg-2)', fontWeight: 400 }}>{fmtDays(r.avgClose)}</span>
+          </a>
+        );
+      })}
+      <div style={{ display: 'flex', gap: 10, fontSize: 9.5, color: 'var(--fg-3)', marginTop: 2, flexWrap: 'wrap' }}>
+        <span><Swatch c="var(--neg)" /> overdue</span>
+        <span><Swatch c="var(--warn, #B45309)" /> open</span>
+        <span><Swatch c="var(--pos)" /> closed</span>
+        <span><Swatch c="var(--accent)" /> avg days to close</span>
+        <span style={{ marginLeft: 'auto' }}>open · to close</span>
+      </div>
+    </div>
+  );
+}
+
+// ── CAPA: raised, and where each one has got to ────────────────
+
+function Capa({ s, href, sel }: { s: ComplaintSummary; href: (k: string, v: string) => string; sel: Record<string, string | undefined> }) {
+  const lines: [string, string, number, string][] = [
+    ['Raised', 'raised', s.capa.raised, 'A CAPA was asked for'],
+    ['Open · pending', 'pending', s.capa.open, 'Asked for, nothing back yet'],
+    ['Under review', 'review', s.capa.review, 'Came back, complaint still live'],
+    ['Closed', 'closed', s.capa.closed, 'Came back, complaint finished'],
+  ];
+  const max = Math.max(s.capa.raised, 1);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {lines.map(([label, v, n, why]) => {
+        const on = sel.capa === v;
+        return (
+          <a key={v} href={href('capa', v)} title={why}
+            style={{ ...ROW, opacity: sel.capa && !on ? 0.4 : 1, outline: on ? '2px solid var(--accent)' : 'none' }}>
+            <span style={{ ...LBL, flex: '0 1 120px' }}>{label}</span>
+            <div style={{ flex: 1, minWidth: 40, height: 12, background: 'var(--bg-sunk)', borderRadius: 4, overflow: 'hidden' }}>
+              <div style={{ width: `${(n / max) * 100}%`, height: '100%', background: v === 'pending' ? 'var(--neg)' : 'color-mix(in oklab, var(--accent) 60%, transparent)' }} />
+            </div>
+            <span style={NUM}>{n}</span>
+          </a>
+        );
+      })}
+      <div style={{ borderTop: '1px solid var(--line-2)', marginTop: 4, paddingTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <a href={href('pa', 'pending')} title="Live complaints that owe a preventive action — a root cause recorded, a corrective action required, or a CAPA asked for — and have nothing written in either preventive-action field"
+          style={{ ...ROW, opacity: sel.pa && sel.pa !== 'pending' ? 0.4 : 1, outline: sel.pa === 'pending' ? '2px solid var(--accent)' : 'none' }}>
+          <span style={{ ...LBL, flex: 1 }}>Preventive action pending</span>
+          <span style={{ ...NUM, color: s.preventivePending ? 'var(--warn, #B45309)' : 'var(--fg-4)' }}>{s.preventivePending}</span>
+        </a>
+        <a href={href('visit', 'pending')} title="Action Taken is Visit Planned and the complaint has not closed out"
+          style={{ ...ROW, opacity: sel.visit && sel.visit !== 'pending' ? 0.4 : 1, outline: sel.visit === 'pending' ? '2px solid var(--accent)' : 'none' }}>
+          <span style={{ ...LBL, flex: 1 }}>Visit pending</span>
+          <span style={{ ...NUM, color: s.visitPending ? 'var(--warn, #B45309)' : 'var(--fg-4)' }}>{s.visitPending}</span>
+        </a>
+      </div>
+    </div>
+  );
+}
+
+// ── The drill-down, as an indented tree of links ───────────────
+
+function Drill({ nodes, href, sel, depth = 0 }: {
+  nodes: DrillNode[]; href: (k: string, v: string) => string; sel: Record<string, string | undefined>; depth?: number;
+}) {
+  if (!nodes.length) {
+    return depth === 0
+      ? <NoData msg="No category on any complaint in view. The part and MOC levels read complaint_parts, which page 2 fills in." />
+      : null;
+  }
+  const max = Math.max(...nodes.map(n => n.count), 1);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {nodes.map(n => {
+        const on = sel[n.filter] === n.value;
+        return (
+          <div key={`${n.filter}:${n.value}`}>
+            <a href={href(n.filter, n.value)}
+              title={`${n.label}: ${n.count} complaint${n.count === 1 ? '' : 's'}${n.open ? `, ${n.open} open` : ''}`}
+              style={{ ...ROW, paddingLeft: depth * 14, opacity: sel[n.filter] && !on ? 0.45 : 1, outline: on ? '2px solid var(--accent)' : 'none' }}>
+              <span style={{ ...LBL, flex: '0 1 160px', fontWeight: depth === 0 ? 600 : 400, color: depth === 0 ? 'var(--fg)' : 'var(--fg-2)' }}>
+                {depth > 0 && <span style={{ color: 'var(--fg-4)', marginRight: 4 }}>└</span>}{n.label}
+              </span>
+              <div style={{ flex: 1, minWidth: 30, height: depth === 0 ? 11 : 7, background: 'var(--bg-sunk)', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{ width: `${(n.count / max) * 100}%`, height: '100%', background: `color-mix(in oklab, var(--accent) ${60 - depth * 12}%, transparent)` }} />
+              </div>
+              <span style={{ ...NUM, width: 28, fontSize: depth === 0 ? 11 : 10.5 }}>{n.count}</span>
+              <span style={{ ...NUM, width: 26, fontSize: 10.5, color: n.open ? 'var(--warn, #B45309)' : 'var(--fg-4)' }}>{n.open || '·'}</span>
+            </a>
+            {n.children.length > 0 && <Drill nodes={n.children} href={href} sel={sel} depth={depth + 1} />}
+          </div>
+        );
+      })}
+      {depth === 0 && (
+        <div style={{ display: 'flex', fontSize: 9.5, color: 'var(--fg-3)', marginTop: 2 }}>
+          <span style={{ marginLeft: 'auto' }}>total · open</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -201,7 +369,7 @@ function Clients({ rows, href, selected }: { rows: ClientBar[]; href: (v: string
 // How much of the total sits with the worst few accounts. One client with ten
 // complaints is a different problem from ten clients with one each.
 function Concentration({ rows, total }: { rows: ClientBar[]; total: number }) {
-  if (!total) return <NoData msg="Nothing to count." />;
+  if (!total || !rows.length) return <NoData msg="Nothing to count." />;
   const share = (n: number) => rows.slice(0, n).reduce((a, r) => a + r.count, 0);
   const repeatClients = rows.filter(r => r.count > 1).length;
   const lines: [string, string][] = [
