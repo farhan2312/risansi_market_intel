@@ -56,12 +56,17 @@ export function ClientComplaints({ complaints, clientId }: { complaints: ClientC
   const overdue = open.filter(c => c.overdue).length;
   const noAction = open.filter(c => c.overdue_kind === 'no-action').length;
   const s1s2 = open.filter(c => c.severity === 'S1' || c.severity === 'S2').length;
+  // Two senses of "this client's complaint": the ones about their pumps, and —
+  // when they are an OEM — the ones they raised on somebody else's. Counted
+  // apart, because a header reading "14 complaints" would otherwise suggest
+  // fourteen failures on their own plant.
+  const raised = complaints.filter(c => c.oem_client_id === clientId && c.client_id !== clientId).length;
   return (
     <div data-tabgroup="activity" style={PANEL}>
       <div style={PANEL_H}>
         <span style={PANEL_TITLE}>Complaints</span>
         <span style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
-          {complaints.length} total{open.length ? ` · ${open.length} open` : ''}
+          {complaints.length - raised} about them{raised ? ` · ${raised} raised by them` : ''}{open.length ? ` · ${open.length} open` : ''}
           {overdue ? ` · ${overdue} overdue${noAction ? ` (${noAction} untouched)` : ''}` : ''}
           {s1s2 ? ` · ${s1s2} S1/S2` : ''}
         </span>
@@ -77,6 +82,8 @@ export function ClientComplaints({ complaints, clientId }: { complaints: ClientC
           {complaints.map((c, i) => {
             const isOpen = isOpenStatus(c.status);
             const legacy = c.schema_version < 2;
+            // Came through this client as the OEM, about somebody else's pump.
+            const byThem = c.oem_client_id === clientId && c.client_id !== clientId;
             const head = subject(c);
             return (
               <Link key={c.id} href={`/risansi/complaints/${c.id}`} className="c360-cmp-row"
@@ -87,6 +94,7 @@ export function ClientComplaints({ complaints, clientId }: { complaints: ClientC
                     {head ? <b style={{ fontWeight: 600 }}>{head} — </b> : null}{c.details}
                   </span>
                   <span style={{ display: 'block', fontSize: 10.5, color: 'var(--fg-3)', marginTop: 2 }}>
+                    {byThem && <b style={{ color: 'var(--accent)', fontWeight: 600 }}>they raised this on {c.client_name ?? 'another client'}’s pump · </b>}
                     raised {day(c.complaint_date ?? c.created_at)}
                     {isOpen && !legacy && <> · with <b style={{ color: 'var(--fg-2)', fontWeight: 600 }}>{c.holder_name ?? c.holder_department ?? 'Complaint Team'}</b> for <b style={{ color: c.days_in_status > 7 ? 'var(--neg)' : 'var(--fg-2)', fontWeight: 600 }}>{fmtDays(c.days_in_status)}</b></>}
                     {!isOpen && <> · {c.status.toLowerCase()} after {fmtDays(c.age_days)}</>}

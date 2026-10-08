@@ -134,8 +134,13 @@ export async function createComplaintV2(input: { client_id: number; values: Reco
   if (!user.email) return fail('Sign in again.');
   const clientId = Number(input.client_id);
   if (!Number.isInteger(clientId)) return fail('Pick a client.');
-  const mayRaise = hasRole(user.role, 'admin') || user.departments.includes('Complaint Team') || await canViewClient(user, clientId);
-  if (!mayRaise) return fail('You can raise a complaint only for a client you work. Ask the Complaint Team to register this one.');
+  // Anyone signed in may lodge. A complaint arrives wherever the phone rings —
+  // Marketing, a rep standing in someone else's mill, whoever picked up — and
+  // the old rule, which allowed it only for a client you personally work, meant
+  // the person holding the complaint often could not record it. Lodging asks
+  // for almost nothing and commits nothing: the Complaint Team registers it
+  // properly afterwards, and a wrongly filed one costs a correction, which is
+  // cheaper than a complaint nobody wrote down.
 
   const page1 = pageById(1)!, page2 = pageById(2)!;
   const values: ComplaintValues = {};
@@ -143,13 +148,28 @@ export async function createComplaintV2(input: { client_id: number; values: Reco
     const v = coerce(f, input.values[f.name]);
     if (v !== undefined) values[f.name] = v;
   }
-  const missing = page1.fields.filter(f => f.required && (values[f.name] == null || values[f.name] === '')).map(f => f.label);
-  if (missing.length) return fail(`Fill in: ${missing.join(', ')}.`);
+  // Lodging is not registering. The page-1 answers — source, category,
+  // description — are what the Complaint Team fills in once they have looked at
+  // it, so demanding them here is demanding an analysis from whoever answered
+  // the phone. They are still required: gateFor holds the complaint at Open
+  // until Registration is complete, which is the right place for that wall.
+  //
+  // What a complaint cannot be without is a client, and, when it came through
+  // an OEM, both ends of that — who raised it and whose pump it is.
+  if (String(values.client_type ?? '') === 'OEM' && !values.oem_client_id) {
+    return fail('Name the OEM the complaint came through.');
+  }
+  // Dated today unless somebody says otherwise. A lodged complaint with no date
+  // would age from its created_at anyway; writing it down makes that visible
+  // and leaves Registration free to correct it to the day the client rang.
+  if (values.complaint_date == null || values.complaint_date === '') {
+    values.complaint_date = new Date().toISOString().slice(0, 10);
+  }
   // A cascading answer is checked against the slice under its parent, not the
   // whole kind: Vibration is a real sub-category and still wrong under Supply
   // Related. A parent with nothing seeded under it accepts what was typed.
   for (const f of page1.fields) {
-    if (f.type !== 'select' || values[f.name] == null) continue;
+    if (f.type !== 'select' || values[f.name] == null || values[f.name] === '') continue;
     const allowed = await allowedFor(f, values);
     if (allowed && !allowed.has(String(values[f.name]))) {
       return fail(`${f.label}: "${values[f.name]}" is not on the list${f.parentField ? ` for ${String(values[f.parentField] ?? 'that choice')}` : ''}.`);

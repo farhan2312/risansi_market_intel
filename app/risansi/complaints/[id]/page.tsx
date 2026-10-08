@@ -158,6 +158,10 @@ export default async function ComplaintPage({ params, searchParams }: {
   // complaint was still registered; this says which ones to attach again.
   const failedFiles = (typeof sp.files === 'string' ? sp.files : '').slice(0, 600)
     .split('|').map(s => s.trim().slice(0, 120)).filter(Boolean).slice(0, 10);
+  // Arrived straight from the lodge window. The number is the thing the person
+  // lodging needs back, and the next ask — register it — is not obvious from a
+  // page that looks like a form they have already filled in.
+  const justLodged = typeof sp.lodged === 'string' && sp.lodged.trim() === c.complaint_no;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -247,6 +251,15 @@ export default async function ComplaintPage({ params, searchParams }: {
             </div>
             {page.id === 1 && (
               <div style={{ marginBottom: 14 }}>
+                {justLodged && (
+                  <div style={{ padding: '10px 13px', borderRadius: 6, fontSize: 12.5, lineHeight: 1.5, marginBottom: 10,
+                                background: 'var(--pos-soft)', border: '1px solid var(--pos)', color: 'var(--pos-strong)' }}>
+                    Lodged as <b style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{c.complaint_no}</b>.
+                    It is on the record and anyone can find it now. Fill in the source, category and
+                    description below once you have looked at it — until then it shows as <b>NEW</b> on
+                    the complaints list.
+                  </div>
+                )}
                 {failedFiles.length > 0 && (
                   <div style={{ padding: '9px 12px', borderRadius: 6, fontSize: 12, lineHeight: 1.5, marginBottom: 10,
                                 background: 'var(--warn-soft)', border: '1px solid var(--warn)', color: 'var(--warn-strong, var(--warn))' }}>

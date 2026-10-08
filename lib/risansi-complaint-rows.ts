@@ -39,6 +39,9 @@ export interface ComplaintPartRow {
 export interface ComplaintListRow {
   id: number; complaint_no: string; legacy_ref: string | null;
   client_id: number | null; client_name: string | null; client_code: string | null;
+  /** The OEM it came through, when it did. Lets a record tell a complaint
+   *  about this client apart from one this client raised. */
+  oem_client_id: number | null; oem_client_name: string | null;
   /** The client's industry, for the industry-wise view. Null where no client is on the complaint. */
   industry: string | null;
   status: string; schema_version: number; severity: Severity | null;
@@ -73,6 +76,13 @@ export interface ComplaintListRow {
   overdue_days: number | null; overdue_threshold: number | null;
   /** Severe / Immediate Response: any one of Safety, Shutdown, Penalty, Repeat answered Yes. */
   severe: boolean;
+  /**
+   * Lodged but not yet registered: it has a number and a client and nothing
+   * else. The lodge window asks for almost nothing on purpose, so these have to
+   * be findable — otherwise a complaint somebody phoned in sits among the open
+   * ones looking like it has been dealt with.
+   */
+  awaiting_registration: boolean;
   repeat_complaint: boolean | null; reopen_count: number;
   /** The original this one repeats (decision 4 / page 8). */
   linked_complaint_id: number | null; linked_complaint_no: string | null;
@@ -128,6 +138,7 @@ export interface ComplaintFilters {
   visit?: string;
   /** '1' — Severe / Immediate Response. */
   severe?: string;
+  unregistered?: string;   // '1' — lodged, Registration not filled in yet
   /** '1' — flagged a repeat, or linked to an earlier complaint. */
   linked?: string;
   /** Model version code, e.g. V06. Free text on the column, so matched exactly. */
@@ -149,7 +160,7 @@ export interface ComplaintFilters {
 export const FILTER_KEYS: (keyof ComplaintFilters)[] = [
   'state', 'headline', 'status', 'sev', 'dept', 'holder', 'cat', 'subcat', 'dcat', 'resp', 'rep', 'era', 'q',
   'overdue', 'from', 'to', 'rcc', 'rcs', 'ptype', 'pname', 'moc', 'client', 'ind', 'ctype', 'action',
-  'capa', 'pa', 'visit', 'severe', 'linked', 'mver', 'mseries',
+  'capa', 'pa', 'visit', 'severe', 'unregistered', 'linked', 'mver', 'mseries',
 ];
 
 /*
@@ -268,7 +279,20 @@ function defaultOrder(rows: ComplaintListRow[]): ComplaintListRow[] {
     || b.id - a.id);
 }
 
-export async function loadComplaintRows(user: CurrentUser, opts: { clientId?: number; filters?: ComplaintFilters; sort?: ComplaintSort | null } = {}): Promise<ComplaintListRow[]> {
+export async function loadComplaintRows(user: CurrentUser, opts: {
+  clientId?: number;
+  /**
+   * Also return complaints this client RAISED on somebody else's pump, which
+   * only happens when they are an OEM. A complaint that comes through an OEM
+   * belongs to the mill — that is where the pump, the visit history and the
+   * responsible rep are — but it is still the OEM's complaint to ask about, and
+   * their own record would otherwise show nothing at all. Opt-in, so the
+   * Complaints page's own client filter still means one thing.
+   */
+  includeRaisedAsOem?: boolean;
+  filters?: ComplaintFilters;
+  sort?: ComplaintSort | null;
+} = {}): Promise<ComplaintListRow[]> {
   const f = opts.filters ?? {};
   const conds: string[] = [];
   const outer: string[] = [];   // on the lateral holder row, so after the subquery
@@ -278,7 +302,15 @@ export async function loadComplaintRows(user: CurrentUser, opts: { clientId?: nu
 
   const vis = complaintVisibilitySql(user, 'c');
   if (vis) conds.push(`(${vis})`);
-  if (opts.clientId != null) add('c.client_id = ?', opts.clientId);
+  if (opts.clientId != null) {
+    if (opts.includeRaisedAsOem) {
+      params.push(opts.clientId);
+      const i = params.length;
+      conds.push(`(c.client_id = $${i} OR c.oem_client_id = $${i})`);
+    } else {
+      add('c.client_id = ?', opts.clientId);
+    }
+  }
 
   // How far along. Built from statusesFor, so the rows, the stage dropdown and
   // the chart can never disagree about what "partially open" contains.
@@ -356,11 +388,12 @@ export async function loadComplaintRows(user: CurrentUser, opts: { clientId?: nu
 
   const [thresholds, result] = await Promise.all([
     loadSlaThresholds(),
-    risansiPool.query<Omit<ComplaintListRow, 'headline' | 'overdue' | 'overdue_kind' | 'overdue_days' | 'overdue_threshold' | 'severe' | 'capa_state' | 'category_any'> & {
+    risansiPool.query<Omit<ComplaintListRow, 'headline' | 'overdue' | 'overdue_kind' | 'overdue_days' | 'overdue_threshold' | 'severe' | 'capa_state' | 'category_any' | 'awaiting_registration'> & {
       risk_safety: boolean | null; risk_shutdown: boolean | null; risk_penalty: boolean | null; risk_repeat_failure: boolean | null;
     }>(`
     SELECT * FROM (
       SELECT c.id, c.complaint_no, c.legacy_ref, c.client_id, cl.legal_name AS client_name, cl.code AS client_code,
+             c.oem_client_id, oem.legal_name AS oem_client_name,
              cl.industry,
              c.status, c.schema_version, c.severity,
              c.complaint_category, c.complaint_subcategory,
@@ -396,6 +429,7 @@ export async function loadComplaintRows(user: CurrentUser, opts: { clientId?: nu
                          FROM complaint_attachments a WHERE a.complaint_id = c.id AND a.category = 'customer'), '[]'::json) AS customer_files
         FROM complaints c
         LEFT JOIN clients cl ON cl.id = c.client_id
+        LEFT JOIN clients oem ON oem.id = c.oem_client_id
         LEFT JOIN complaints lk ON lk.id = c.linked_complaint_id
         LEFT JOIN users ur ON ur.id = COALESCE(cl.primary_rep_id, c.rep_user_id)
         LEFT JOIN LATERAL (
@@ -422,6 +456,12 @@ export async function loadComplaintRows(user: CurrentUser, opts: { clientId?: nu
       category_any: r.complaint_category ?? r.defect_category,
       overdue: o.overdue, overdue_kind: o.kind, overdue_days: o.days, overdue_threshold: o.threshold,
       severe: isImmediateResponse(r),
+      // Source and description are the two answers Registration cannot do
+      // without and lodging never collects. Category is deliberately not part
+      // of this: 188 historical complaints have no category and were plainly
+      // registered, so including it would flag them all.
+      awaiting_registration: isOpenStatus(r.status)
+        && (!String(r.channel ?? '').trim() || !String(r.details ?? '').trim()),
       capa_state: capaStateOf(r),
       parts: Array.isArray(r.parts) ? r.parts : [],
       customer_files: Array.isArray(r.customer_files) ? r.customer_files : [],
@@ -429,6 +469,7 @@ export async function loadComplaintRows(user: CurrentUser, opts: { clientId?: nu
   });
 
   // The filters that read a computed column have to run here, after it exists.
+  if (f.unregistered === '1') rows = rows.filter(r => r.awaiting_registration);
   if (f.overdue === '1') rows = rows.filter(r => r.overdue);
   else if (f.overdue === 'no-action') rows = rows.filter(r => r.overdue_kind === 'no-action');
   else if (f.overdue === 'acted') rows = rows.filter(r => r.overdue_kind === 'acted');

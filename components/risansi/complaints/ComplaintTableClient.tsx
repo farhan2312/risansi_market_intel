@@ -355,6 +355,14 @@ function renderCell(col: Col, r: ComplaintListRow, clientFrozen: boolean): React
                 hidden - decision 12 asks for a list flag, and a flag that can
                 be scrolled away is not one. */}
             {r.severe && <span style={{ marginLeft: 5, fontSize: 10, color: 'var(--neg)', fontWeight: 700 }} title="Severe / Immediate Response: safety, shutdown, penalty or repeat answered Yes">⚑</span>}
+            {/* Rides on the number for the same reason the severe flag does:
+                it stays visible however the columns are scrolled or hidden. */}
+            {r.awaiting_registration && (
+              <span
+                style={{ marginLeft: 5, fontSize: 9, fontWeight: 700, color: 'var(--warn)', border: '1px solid var(--warn)', borderRadius: 4, padding: '0 3px', verticalAlign: 'middle' }}
+                title="Lodged but not registered — it has a number and a client, and the source, category and description are still to be filled in"
+              >NEW</span>
+            )}
             {legacy && <span style={{ marginLeft: 5, fontSize: 9, color: 'var(--fg-4)', fontWeight: 700 }}>LEGACY</span>}
             {r.reopen_count > 0 && <span style={{ marginLeft: 5, fontSize: 9, color: 'var(--warn, #B45309)', fontWeight: 700 }}>↩{r.reopen_count}</span>}
           </div>

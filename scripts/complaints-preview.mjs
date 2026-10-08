@@ -314,7 +314,7 @@ const detailHtml = renderToStaticMarkup(React.createElement(React.Fragment, null
 
 // ── Raise, and the Client 360 panel ──
 const { rows: clients } = await pool.query(`SELECT id::int AS id, code, legal_name AS name FROM clients WHERE deleted_at IS NULL ORDER BY legal_name LIMIT 300`);
-const newHtml = renderToStaticMarkup(React.createElement(NewComplaintForm, { clients, preselect: c.client_id, lookups, cascades, users, oems }));
+const newHtml = renderToStaticMarkup(React.createElement(NewComplaintForm, { clients, preselect: c.client_id }));
 const c360Rows = await loadComplaintRows(admin, { clientId: c.client_id });
 const c360Html = renderToStaticMarkup(React.createElement('div', { style: { maxWidth: 640 } }, React.createElement(ClientComplaints, { complaints: c360Rows, clientId: c.client_id })));
 

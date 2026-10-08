@@ -416,7 +416,11 @@ export default async function ClientProfilePage({
 
     // 9. Complaints for this client — every one, with who holds it now, from
     //    the same loader as the Complaints page (the page is client-access gated)
-    q<ComplaintListRow[]>(() => loadComplaintRows(currentUser, { clientId: Number(client.id) }), []),
+    //    includeRaisedAsOem: an OEM's own record would otherwise be empty. A
+    //    complaint that came through them belongs to the mill with the pump,
+    //    but it is still theirs to ask about, so it shows here marked as one
+    //    they raised rather than one about them.
+    q<ComplaintListRow[]>(() => loadComplaintRows(currentUser, { clientId: Number(client.id), includeRaisedAsOem: true }), []),
 
     // 10. (was: users to escalate complaints to — the module owns that now)
     Promise.resolve(null),
