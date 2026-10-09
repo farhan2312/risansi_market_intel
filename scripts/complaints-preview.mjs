@@ -224,6 +224,20 @@ console.log('\nOverdue thresholds:');
 {
   const thresholds = await loadSlaThresholds();
   check('every severity has a threshold', flow.SEVERITIES.every(sv => Number.isInteger(thresholds[sv]) && thresholds[sv] > 0));
+
+  // A complaint can be lodged with almost nothing, so any column that is NOT
+  // NULL and has no default has to be one the lodge step actually supplies —
+  // which is complaint_no and nothing else. `details` was NOT NULL when the
+  // lodge window shipped, and every attempt to lodge failed on it with a
+  // message that named neither the column nor the cause. Adding a NOT NULL
+  // column here breaks lodging the same way, silently, so it is checked.
+  const { rows: mustFill } = await pool.query(`
+    SELECT column_name FROM information_schema.columns
+     WHERE table_name = 'complaints' AND is_nullable = 'NO' AND column_default IS NULL
+     ORDER BY column_name`);
+  const unexpected = mustFill.map(r => r.column_name).filter(n => n !== 'complaint_no');
+  check(`nothing beyond complaint_no is required at lodge time${unexpected.length ? ` — ${unexpected.join(', ')} would block it` : ''}`,
+    unexpected.length === 0);
   const order = flow.SEVERITIES.map(sv => thresholds[sv]);
   check(`S1 ${order[0]}d ≤ S2 ${order[1]}d ≤ S3 ${order[2]}d ≤ S4 ${order[3]}d`, order.every((d, i) => i === 0 || d >= order[i - 1]));
   // The same rule the row loader applied, re-run here against the raw dates.

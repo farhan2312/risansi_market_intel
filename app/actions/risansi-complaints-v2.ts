@@ -197,8 +197,12 @@ export async function createComplaintV2(input: { client_id: number; values: Reco
       break;
     } catch (e) {
       if (attempt === 3 || !(e instanceof Error) || !/complaints_complaint_no_key|duplicate key/i.test(e.message)) {
+        // The real reason is redacted from the reply on purpose, but telling
+        // somebody to try again is only honest when trying again might work.
+        // A constraint the form cannot satisfy fails identically every time,
+        // and the first report of this one was a screenshot of a user retrying.
         console.error('[createComplaintV2]', e);
-        return fail('The complaint could not be saved — please try again.');
+        return fail('The complaint could not be saved. If it fails again, report a bug rather than retrying — the reason is in the server log and somebody has to look at it.');
       }
     }
   }
