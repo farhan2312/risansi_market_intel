@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
-import { saveComplaintPage, lookupPump, listClientPumps, type ClientPumpOption } from '@/app/actions/risansi-complaints-v2';
+import { saveComplaintPage, lookupPump, listClientPumps, addLookupFromForm, type ClientPumpOption } from '@/app/actions/risansi-complaints-v2';
 import {
   isFieldShown, missingOnPage, severityOf, optionsFor, cascadeParent, costImpactForced, costImpactReason,
-  responsibleDepartmentFor, PAGES,
+  responsibleDepartmentFor, PAGES, ADD_ON_LOOKUP_KINDS,
   SEVERITY_LABEL, SEVERITY_REQUIRES, SEVERITY_TONE, RISK_FIELDS,
   type ComplaintPage, type ComplaintField, type ComplaintValues, type CascadingLookups, type Severity,
 } from '@/lib/risansi-complaint-flow';
@@ -220,7 +220,7 @@ export function ComplaintPageForm({ complaintId, clientId, page, initial, lookup
                 <Field f={f} value={values[f.name]} onChange={v => set(f.name, v)} disabled={!canEdit || pending}
                   lookups={lookups} cascades={cascades} values={values} users={users} oems={oems}
                   suggestions={page.id === 2 ? suggestions[f.name] : undefined}
-                  complaintId={complaintId}
+                  complaintId={complaintId} pageId={page.id}
                   onLookup={page.id === 2 && f.fromPump && (f.name === 'ec_no' || f.name === 'pump_serial_no' || f.name === 'so_no') ? () => lookup(String(values[f.name] ?? '')) : undefined}
                   looking={looking} />
               )}
@@ -256,7 +256,89 @@ export function ComplaintPageForm({ complaintId, clientId, page, initial, lookup
   );
 }
 
-export function Field({ f, value, onChange, disabled, lookups, cascades, values, users, oems = [], onLookup, looking, suggestions, complaintId }: {
+/**
+ * A dropdown you can add to without leaving the complaint.
+ *
+ * The value is saved to the list straight away rather than held until the page
+ * is saved: a sub-category typed here and then abandoned would otherwise be
+ * lost, and the next person would type it slightly differently. It is marked
+ * as added by the team, so a re-seed of the standard lists never overwrites it.
+ */
+function AddableSelect({ value, opts, onChange, complaintId, pageId, kind, parentValue }: {
+  value: string;
+  opts: string[];
+  onChange: (v: unknown) => void;
+  complaintId: number;
+  pageId: number;
+  kind: string;
+  parentValue: string | null;
+}) {
+  const router = useRouter();
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, start] = useTransition();
+  // Values added in this sitting, so the new one is selectable before the
+  // server's list has been fetched again.
+  const [extra, setExtra] = useState<string[]>([]);
+
+  const all = [...opts, ...extra.filter(e => !opts.includes(e))];
+  const has = !value || all.includes(value);
+
+  const save = () => {
+    const v = draft.trim();
+    if (!v) { setErr('Type the value first.'); return; }
+    setErr(null);
+    start(async () => {
+      const res = await addLookupFromForm({ complaintId, pageId, kind, value: v, parentValue });
+      if (!res.ok) { setErr(res.error); return; }
+      setExtra(cur => [...cur, res.data.value]);
+      onChange(res.data.value);
+      setAdding(false);
+      setDraft('');
+      router.refresh();
+    });
+  };
+
+  if (adding) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <input
+            autoFocus value={draft} onChange={e => setDraft(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); save(); }
+                              if (e.key === 'Escape') { setAdding(false); setErr(null); } }}
+            placeholder="New value" disabled={busy} style={{ ...INPUT, flex: 1 }}
+          />
+          <button type="button" onClick={save} disabled={busy} style={ADD_OK}>{busy ? '…' : 'Add'}</button>
+          <button type="button" onClick={() => { setAdding(false); setErr(null); }} disabled={busy} style={ADD_X}>Cancel</button>
+        </div>
+        {err && <span style={{ fontSize: 10.5, color: 'var(--neg)' }}>{err}</span>}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', gap: 6 }}>
+      <select value={value} onChange={e => onChange(e.target.value)} style={{ ...INPUT, flex: 1 }}>
+        <option value="">—</option>
+        {!has && <option value={value}>{value} (not on the list)</option>}
+        {all.map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+      <button type="button" onClick={() => setAdding(true)} title="Add a value to this list" style={ADD_BTN}>+ Add</button>
+    </div>
+  );
+}
+
+const ADD_BTN: CSSProperties = {
+  padding: '0 9px', fontSize: 11.5, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+  whiteSpace: 'nowrap', border: '1px solid var(--line-strong)', borderRadius: 6,
+  background: 'var(--bg-paper)', color: 'var(--fg-2)',
+};
+const ADD_OK: CSSProperties = { ...ADD_BTN, borderColor: 'var(--accent)', color: 'var(--accent)' };
+const ADD_X: CSSProperties = { ...ADD_BTN, color: 'var(--fg-3)' };
+
+export function Field({ f, value, onChange, disabled, lookups, cascades, values, users, oems = [], onLookup, looking, suggestions, complaintId, pageId }: {
   f: ComplaintField; value: unknown; onChange: (v: unknown) => void; disabled: boolean;
   lookups: Record<string, string[]>; cascades?: CascadingLookups;
   /** The page's answers so far — what a cascading select reads its parent from. */
@@ -266,6 +348,8 @@ export function Field({ f, value, onChange, disabled, lookups, cascades, values,
   suggestions?: string[];
   /** The complaint being edited, so a 'complaint' picker never offers it to itself. */
   complaintId?: number | null;
+  /** Which page, so adding to a list can be checked against who may edit it. */
+  pageId?: number;
 }) {
   const s = value == null ? '' : String(value);
   const answers = values ?? {};
@@ -362,6 +446,18 @@ export function Field({ f, value, onChange, disabled, lookups, cascades, values,
         return (
           <input value={s} onChange={e => onChange(e.target.value)} disabled={disabled} style={INPUT}
             placeholder="Nothing on the list yet — type it in" />
+        );
+      }
+      // A list the form may extend gets the "+ Add On" the requirement asks for,
+      // so somebody with the complaint in front of them is not stopped by a
+      // dropdown that is missing the one word they need.
+      if (!disabled && complaintId && pageId && ADD_ON_LOOKUP_KINDS.includes(f.lookup ?? '')) {
+        return (
+          <AddableSelect
+            value={s} opts={opts} onChange={onChange}
+            complaintId={complaintId} pageId={pageId}
+            kind={f.lookup as string} parentValue={f.parentField ? cascadeParent(f, answers) : null}
+          />
         );
       }
       const has = !s || opts.includes(s);

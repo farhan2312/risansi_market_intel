@@ -41,6 +41,7 @@ export const saveComplaintPage = ok, moveComplaint = ok, deleteComplaintAttachme
   listClientPumps = async () => ({ ok: true, data: [] }),
   searchComplaintsToLink = async () => ({ ok: true, data: [] }),
   complaintBriefById = async () => ({ ok: true, data: null }),
+  addLookupFromForm = async () => ({ ok: true, data: { value: '' } }),
   listComplaintLookups = async () => ({});`);
 
 const rewrite = (src) => src

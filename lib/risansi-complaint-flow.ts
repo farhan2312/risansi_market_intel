@@ -348,6 +348,24 @@ export type CascadingLookups = Record<string, CascadingLookup>;
  * `parentField` off the field; Admin needs this instead, because it edits the
  * lookup table itself and has no form field to read.
  */
+/**
+ * The lists somebody filling the form may add to on the spot.
+ *
+ * The requirement asks for "+ Add On" against the source, the sub-categories,
+ * EC made by and the part names, and it is asking for a reason: these are
+ * lists nobody can finish in advance. A complaint arriving by a route not on
+ * the list, or about a part nobody has filed before, must not stop at the
+ * dropdown and wait for an admin — the person with the complaint in front of
+ * them is the one who knows the value.
+ *
+ * Deliberately not every list. Category, status and action drive routing,
+ * gates and the dashboard, so a new one of those is a decision about how the
+ * module works rather than a word somebody is missing, and it stays in Admin.
+ */
+export const ADD_ON_LOOKUP_KINDS: readonly string[] = [
+  'source', 'complaint_subcategory', 'ec_made_by', 'part_name', 'root_cause_sub',
+];
+
 export const CASCADING_LOOKUP_KINDS: Record<string, string> = {
   complaint_subcategory: 'complaint_category',
   part_name: 'part_type',
@@ -463,7 +481,7 @@ export const PAGES: ComplaintPage[] = [
       // work was over, which is the one moment they tell nobody anything. The
       // columns stay; the assignment still governs who may edit this page.
       { name: 'root_cause_category', label: 'Root cause category', type: 'select', lookup: 'root_cause_category', required: true, hint: 'Human Error, Design or Process.' },
-      { name: 'root_cause_sub', label: 'Root cause', type: 'select', lookup: 'root_cause_sub', parentField: 'root_cause_category', hint: 'The list follows the category. Only the Human Error causes are seeded so far; the rest come from the Complaint team.' },
+      { name: 'root_cause_sub', label: 'Root cause sub-cause', type: 'select', lookup: 'root_cause_sub', parentField: 'root_cause_category', hint: 'The list follows the category. Only the Human Error causes are seeded so far; the rest come from the Complaint team.' },
       { name: 'root_cause', label: 'Complaint root cause', type: 'long', required: true, hint: 'In words: what actually happened, beyond the two answers above.' },
       { name: 'internal_remarks', label: 'Internal discussion / analysis remarks', type: 'long' },
       { name: 'corrective_action_required', label: 'Corrective action', type: 'bool', hint: 'Yes opens page 5.' },
@@ -498,8 +516,12 @@ export const PAGES: ComplaintPage[] = [
       { name: 'challan_no', label: 'Challan no.', type: 'text', showWhen: { field: 'action_category', equals: [...FR_ACTIONS] } },
       { name: 'challan_date', label: 'Challan date', type: 'date', showWhen: { field: 'action_category', equals: [...FR_ACTIONS] } },
       { name: 'target_dispatch_date', label: 'Target dispatch date', type: 'date', showWhen: { field: 'action_category', equals: [...FR_ACTIONS] } },
-      { name: 'challan_value', label: 'Challan value (₹)', type: 'money', showWhen: { field: 'action_category', equals: [...FR_ACTIONS] } },
-      { name: 'fr_freight', label: 'FR freight charges (₹)', type: 'money', showWhen: { field: 'action_category', equals: [...FR_ACTIONS] } },
+      // challan_value and fr_freight used to sit here and are deliberately gone.
+      // The requirement asks a free replacement for Transportation (Yes/No +
+      // value) and Material (Yes/No + value), which is the same two figures
+      // asked better — a form that asks for freight twice gets two answers and
+      // believes the wrong one. Their columns are kept and were empty on every
+      // complaint, so nothing was lost in retiring them.
       // The FR challan's two halves, each a Yes/No and a figure. Transport and
       // material were being added together into one challan value, which left
       // no way to answer what free replacements cost us in freight alone.

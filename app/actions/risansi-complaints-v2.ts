@@ -9,6 +9,7 @@ import { sendNotification } from '@/lib/risansi-email';
 import {
   pageById, STATUSES, NEXT, canEditPage, canMove, gateFor, severityOf, holderFor, isFieldShown,
   cascadeParent, costImpactForced, isImmediateResponse, statusAfterSavingPage,
+  ADD_ON_LOOKUP_KINDS, CASCADING_LOOKUP_KINDS,
   responsibleDepartmentFor, routingOwner, IMMEDIATE_RISK_FIELDS,
   type ComplaintStatus, type ComplaintValues, type ComplaintField,
 } from '@/lib/risansi-complaint-flow';
@@ -755,6 +756,62 @@ export async function listComplaintCascades(): Promise<Record<string, Record<str
   const out: Record<string, Record<string, string[]>> = {};
   for (const r of rows) ((out[r.kind] ??= {})[r.parent_value] ??= []).push(r.value);
   return out;
+}
+
+/**
+ * Add a value to one of the lists the form is allowed to extend.
+ *
+ * The requirement asks for "+ Add On" beside the source, the sub-categories,
+ * EC made by and the part names. The admin screen can already do this, but
+ * that is the wrong moment: the person who knows the value is the one with the
+ * complaint open, and sending them to find an admin is how a complaint ends up
+ * filed under Other.
+ *
+ * Gated on the complaint's own page, not on being an admin: if you may fill in
+ * this page, you may add the word this page is missing. Anything that steers
+ * the module — category, status, action — stays in Admin, which is what
+ * ADD_ON_LOOKUP_KINDS draws the line around.
+ */
+export async function addLookupFromForm(input: {
+  complaintId: number; pageId: number; kind: string; value: string; parentValue?: string | null;
+}): Promise<Result<{ value: string }>> {
+  const kind = String(input?.kind ?? '').trim();
+  if (!ADD_ON_LOOKUP_KINDS.includes(kind)) return fail('That list is managed in Admin.');
+
+  const a = await loadAccess(Number(input?.complaintId));
+  if (!a) return fail('That complaint no longer exists.');
+  const page = pageById(Number(input?.pageId));
+  if (!page) return fail('Unknown page.');
+  const may = hasRole(a.user.role, 'admin')
+    || canEditPage({ id: a.user.id, role: a.user.role, departments: a.user.departments },
+                   { ...a.row, worksClient: a.worksClient }, page);
+  if (!may) return fail(`Only somebody who can edit ${page.title} can add to this list.`);
+
+  const value = String(input?.value ?? '').trim().replace(/\s+/g, ' ');
+  if (!value) return fail('Type the value to add.');
+  if (value.length > 80) return fail(`That is ${value.length} characters — keep a dropdown value under 80.`);
+
+  // A cascading list hangs under a parent, and a value with the wrong parent —
+  // or none — is a value nobody will ever be offered again.
+  const parentKind = CASCADING_LOOKUP_KINDS[kind];
+  const parent = input?.parentValue == null ? '' : String(input.parentValue).trim();
+  if (parentKind && !parent) return fail('Choose the answer above first, so the new value hangs under it.');
+  const parentValue = parentKind ? parent : null;
+
+  try {
+    await risansiPool.query(
+      `INSERT INTO complaint_lookups (kind, value, parent_value, sort_order, is_active, is_user_added)
+       VALUES ($1, $2, $3,
+               COALESCE((SELECT max(sort_order) + 1 FROM complaint_lookups
+                          WHERE kind = $1 AND COALESCE(parent_value,'') = COALESCE($3,'')), 1),
+               TRUE, TRUE)
+       ON CONFLICT (kind, value, (COALESCE(parent_value, ''))) DO UPDATE SET is_active = TRUE`,
+      [kind, value, parentValue]);
+  } catch (e) {
+    console.error('[addLookupFromForm]', e);
+    return fail('That value could not be added.');
+  }
+  return { ok: true, data: { value } };
 }
 
 // ── The parts a complaint is about ────────────────────────────────────────
