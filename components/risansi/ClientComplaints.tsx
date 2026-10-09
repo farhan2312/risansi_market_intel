@@ -55,7 +55,7 @@ export function ClientComplaints({ complaints, clientId }: { complaints: ClientC
   const open = complaints.filter(c => isOpenStatus(c.status));
   const overdue = open.filter(c => c.overdue).length;
   const noAction = open.filter(c => c.overdue_kind === 'no-action').length;
-  const s1s2 = open.filter(c => c.severity === 'S1' || c.severity === 'S2').length;
+  const critical = open.filter(c => c.severity === 'High').length;
   // Two senses of "this client's complaint": the ones about their pumps, and —
   // when they are an OEM — the ones they raised on somebody else's. Counted
   // apart, because a header reading "14 complaints" would otherwise suggest
@@ -68,7 +68,7 @@ export function ClientComplaints({ complaints, clientId }: { complaints: ClientC
         <span style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
           {complaints.length - raised} about them{raised ? ` · ${raised} raised by them` : ''}{open.length ? ` · ${open.length} open` : ''}
           {overdue ? ` · ${overdue} overdue${noAction ? ` (${noAction} untouched)` : ''}` : ''}
-          {s1s2 ? ` · ${s1s2} S1/S2` : ''}
+          {critical ? ` · ${critical} high criticality` : ''}
         </span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
           {complaints.length > 0 && <Link href={`/risansi/complaints?q=${encodeURIComponent(complaints[0].client_code ?? '')}`} style={{ fontSize: 11.5, color: 'var(--accent)', textDecoration: 'none', alignSelf: 'center' }}>All in module →</Link>}

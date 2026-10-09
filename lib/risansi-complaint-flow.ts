@@ -214,11 +214,16 @@ export function responsibleDepartmentFor(rootCauseCategory?: string | null, root
 // ── Severity ───────────────────────────────────────────────────────────────
 
 /**
- * Worst first. Declared as a sequence rather than read off the key order of
- * SEVERITY_TONE below, which is a colour map: reordering that for readability
- * would silently reorder every table sorted by severity.
+ * Two levels, worst first.
+ *
+ * This was S1-S4 off a truth table of eleven questions. The Complaint Team
+ * asked for four questions and two outcomes, and the grading questions went
+ * with the grades: four Yes/No answers can say "this is bad" and not much
+ * more, which is what High and Low now mean. The seven dropped questions keep
+ * their columns and their recorded answers, so why a complaint used to read S2
+ * is still legible; they are simply no longer asked.
  */
-export const SEVERITIES = ['S1', 'S2', 'S3', 'S4'] as const;
+export const SEVERITIES = ['High', 'Low'] as const;
 export type Severity = typeof SEVERITIES[number];
 
 export interface RiskAnswers {
@@ -229,88 +234,52 @@ export interface RiskAnswers {
 }
 
 /**
- * Which block of page 3 a question belongs to.
+ * The four questions criticality is decided by. Every one of them is required:
+ * with only four, an unanswered one is the difference between High and Low
+ * rather than a detail.
  *
- * - `immediate` — the four the document asks for by name: Safety, Customer
- *   Shutdown, Contractual Penalty, Repeat. One Yes among them and the
- *   complaint is Severe / Immediate Response, which is a flag everybody acting
- *   on the complaint sees, separate from its S-level.
- * - `grading`   — the rest, which exist to tell S2 from S3 from S4.
+ * Repeat is `risk_repeat_failure` — the same complaint coming back — and not
+ * `risk_repeat_mistake`, which was the internal variant and is one of the
+ * seven no longer asked.
  */
-export type RiskGroup = 'immediate' | 'grading';
-
-/**
- * The eleven questions, the Immediate Response four first, with the level each
- * forces and the block it belongs to.
- *
- * The document asks to "remove rest all the criticality set options", but
- * decision 5 overrode that after the walkthrough: four Yes/No answers can say
- * "this is bad" and nothing more, and the S-grade is what drives the closure
- * requirements (CAPA for S1/S2, remarks alone for S4), the SLA threshold and
- * the severity columns on every existing complaint. Dropping the grading
- * questions would have flattened all of that into Severe / not-severe. So the
- * eleven all survive; the four are now a named block rather than the first
- * four rows of a long list.
- */
-export const RISK_FIELDS: { key: keyof RiskAnswers; label: string; level: Severity; required: boolean; group: RiskGroup }[] = [
-  { key: 'risk_safety',         label: 'Safety risk',                                   level: 'S1', required: true,  group: 'immediate' },
-  { key: 'risk_shutdown',       label: 'Customer shutdown',                             level: 'S1', required: true,  group: 'immediate' },
-  { key: 'risk_penalty',        label: 'Contractual penalty',                           level: 'S1', required: false, group: 'immediate' },
-  // The document's fourth immediate question is "Repeat". Repeat Failure is
-  // that question — the same complaint coming back — while Repeat Mistake is
-  // the internal variant and stays with the grading questions. The level is
-  // left at S2: a repeat is not automatically as grave as a shutdown, and the
-  // immediate flag below is what the document actually wanted out of it.
-  { key: 'risk_repeat_failure', label: 'Repeat',                                        level: 'S2', required: true,  group: 'immediate' },
-  { key: 'risk_pump_failure',   label: 'Pump failure',                                  level: 'S1', required: true,  group: 'grading' },
-  { key: 'risk_major_perf',     label: 'Major performance issue',                       level: 'S2', required: true,  group: 'grading' },
-  { key: 'risk_head_mismatch',  label: 'Head / pressure mismatch',                      level: 'S2', required: false, group: 'grading' },
-  { key: 'risk_repeat_mistake', label: 'Repeat mistake',                                level: 'S2', required: false, group: 'grading' },
-  // Grouped with Repeat Mistake in the sheet's truth table → S2. Decided 12 Sep.
-  // Not the commercial Cost Impact of page 5: this one only grades severity.
-  { key: 'risk_cost_impact',    label: 'Cost impact / manpower above ₹5,000',           level: 'S2', required: false, group: 'grading' },
-  { key: 'risk_workable',       label: 'Workable issue / leakage / dimensional correction', level: 'S3', required: false, group: 'grading' },
-  { key: 'risk_qty_over_5',     label: 'Quantity above 5 nos.',                         level: 'S3', required: false, group: 'grading' },
+export const RISK_FIELDS: { key: keyof RiskAnswers; label: string; required: boolean }[] = [
+  { key: 'risk_safety',         label: 'Safety risk',          required: true },
+  { key: 'risk_shutdown',       label: 'Customer shutdown',    required: true },
+  { key: 'risk_penalty',        label: 'Contractual penalty',  required: true },
+  { key: 'risk_repeat_failure', label: 'Repeat',               required: true },
 ];
 
-/** The Immediate Response four, in the order page 3 asks them. */
-export const IMMEDIATE_RISK_FIELDS = RISK_FIELDS.filter(f => f.group === 'immediate');
+/** All four of them, now that there is no second block to tell them from. */
+export const IMMEDIATE_RISK_FIELDS = RISK_FIELDS;
 
 /**
- * Severe / Immediate Response: any one of Safety, Shutdown, Penalty or Repeat
- * answered Yes.
+ * High criticality: any one of the four answered Yes.
  *
- * Deliberately not the same thing as S1. The S-grade decides what the
- * complaint owes before it can close; this decides whether it needs looking at
- * today, and it earns the list flag, the dashboard tile and the notification
- * of decision 12. A repeat complaint at S2 is not critical by the grading
- * matrix and still wants someone's attention this morning.
+ * This used to be a flag separate from the S-grade, because a complaint could
+ * want attention today without being critical by the grading matrix. With two
+ * levels they are the same statement, so this is kept as the name the list
+ * flag, the dashboard tile and the notification already call it rather than
+ * made into a second way of asking the same question.
  */
 export const isImmediateResponse = (a: RiskAnswers): boolean =>
-  IMMEDIATE_RISK_FIELDS.some(f => a[f.key] === true);
+  RISK_FIELDS.some(f => a[f.key] === true);
 
-/** Highest level with any Yes wins; no Yes at all is S4. Null when nothing has been answered yet. */
+/** High if any of the four is Yes, Low if they were answered and none was, null until then. */
 export function severityOf(a: RiskAnswers): Severity | null {
-  const answered = RISK_FIELDS.some(f => a[f.key] != null);
-  if (!answered) return null;
-  for (const lvl of ['S1', 'S2', 'S3'] as const) {
-    if (RISK_FIELDS.some(f => f.level === lvl && a[f.key] === true)) return lvl;
-  }
-  return 'S4';
+  if (RISK_FIELDS.some(f => a[f.key] === true)) return 'High';
+  return RISK_FIELDS.some(f => a[f.key] != null) ? 'Low' : null;
 }
 
 export const SEVERITY_LABEL: Record<Severity, string> = {
-  S1: 'S1 · Critical', S2: 'S2 · High', S3: 'S3 · Medium', S4: 'S4 · Low',
+  High: 'High criticality', Low: 'Low criticality',
 };
-/** The Mandatory column of the sheet's matrix, in words. */
+/** What each level owes before it can be closed. */
 export const SEVERITY_REQUIRES: Record<Severity, string> = {
-  S1: 'Immediate action recorded within the day, an investigation, and a CAPA document before closure.',
-  S2: 'An investigation and a CAPA document before closure.',
-  S3: 'A corrective action. The investigation may be skipped.',
-  S4: 'Remarks are sufficient.',
+  High: 'An investigation, a root cause, and a CAPA document before closure.',
+  Low: 'A corrective action, or remarks saying what was done.',
 };
 export const SEVERITY_TONE: Record<Severity, string> = {
-  S1: 'var(--neg)', S2: 'var(--warn, #B45309)', S3: 'var(--accent)', S4: 'var(--fg-3)',
+  High: 'var(--neg)', Low: 'var(--fg-3)',
 };
 
 // ── Pages and fields ───────────────────────────────────────────────────────
@@ -468,12 +437,19 @@ export const PAGES: ComplaintPage[] = [
     fields: [
       ...RISK_FIELDS.map(f => ({
         name: f.key as string, label: f.label, type: 'bool' as FieldType, required: f.required,
-        hint: f.group === 'immediate' ? 'Immediate Response: one Yes here and the complaint is flagged severe.' : undefined,
+        hint: 'One Yes here makes the complaint High criticality.',
       })),
+      { name: 'capa_needed', label: 'CAPA required', type: 'bool', hint: 'Does this need a corrective and preventive action raised? Yes routes it to the departments below.' },
       // Several may be ticked, and that is the point: a BOI failure is QC's to
       // investigate and Purchase's to take up with the vendor, and making one
       // of them the single owner is how the other one stops reading it.
-      { name: 'capa_departments', label: 'CAPA with', type: 'multi', options: ['QC', 'Purchase', 'Quotation Team', 'Billing Team', 'Complaint Team'], hint: 'Every department the CAPA belongs to. Not one owner.' },
+      //
+      // QC and Purchase only, as asked. They are also the two that can actually
+      // be reached — Quotation and Billing have no members in user_departments,
+      // so a CAPA sent there would have notified nobody.
+      { name: 'capa_departments', label: 'CAPA with', type: 'multi', options: ['QC', 'Purchase'],
+        showWhen: { field: 'capa_needed', equals: [true] },
+        hint: 'Every department the CAPA belongs to. Not one owner.' },
       { name: 'warning_letter', label: 'Warning letter', type: 'yesno4', hint: 'Kept out of the severity score.' },
     ],
   },
@@ -812,8 +788,8 @@ export function gateFor(from: string, to: ComplaintStatus, ctx: GateContext): st
     else need.push(...missing(3));
   }
   // Skipping the investigation is allowed only when the severity allows it.
-  if (from === 'Open' && to !== 'Under Investigation' && (sev === 'S1' || sev === 'S2')) {
-    need.push(`Severity ${sev} requires an investigation before anything else`);
+  if (from === 'Open' && to !== 'Under Investigation' && sev === 'High') {
+    need.push('A High criticality complaint is investigated before anything else');
   }
   if (to === 'Action Pending' || to === 'Replacement Pending') {
     if (from !== 'Open') need.push(...missing(5).filter(m => !/completion date$/i.test(m) || /Target/.test(m)));
@@ -828,16 +804,19 @@ export function gateFor(from: string, to: ComplaintStatus, ctx: GateContext): st
     // The customer-confirmation gate is gone with the field (decision 7): the
     // Complaint Team decides when a complaint is resolved. What is still asked
     // for is evidence proportionate to the severity.
-    if (sev === 'S1' || sev === 'S2') {
+    if (sev === 'High') {
       if (!v.root_cause) need.push('Investigation: root cause');
       if (!v.root_cause_category) need.push('Investigation: root cause category');
     }
-    if (sev === 'S3' && !v.action_against) need.push('Corrective Action: action against complaint');
-    if (sev === 'S4' && !v.status_remarks && !v.action_against) need.push('Remarks for complaint status');
+    // Low still owes an account of what was done — either the corrective
+    // action or remarks. Two levels is not the same as one of them being free.
+    if (sev === 'Low' && !v.action_against && !v.status_remarks) {
+      need.push('Corrective Action: action against complaint, or remarks for complaint status');
+    }
   }
   if (to === 'Closed') {
     need.push(...missing(8));
-    if ((sev === 'S1' || sev === 'S2') && !ctx.hasCapaDocument) need.push('CAPA document attached (page 6)');
+    if (sev === 'High' && !ctx.hasCapaDocument) need.push('CAPA document attached (page 6)');
     if (v.material_returnable === true && v.returnable_status && !['Received', 'Closed'].includes(String(v.returnable_status))) {
       need.push(`Returnable material is still ${v.returnable_status}`);
     }
@@ -889,7 +868,7 @@ export function holderFor(status: string, c: ComplaintValues): Holder {
  * provisional ones from decision 2 and exist as a fallback for a caller that
  * has no row for a severity, not as the answer.
  */
-export const PROVISIONAL_SLA_DAYS: Record<Severity, number> = { S1: 2, S2: 7, S3: 15, S4: 30 };
+export const PROVISIONAL_SLA_DAYS: Record<Severity, number> = { High: 2, Low: 7 };
 
 export type SlaThresholds = Partial<Record<Severity, number>>;
 
@@ -953,7 +932,9 @@ export function overdueFor(
   now: string | Date,
 ): Overdue {
   const days = daysSinceRaised(c.raised_at ?? c.complaint_date ?? c.created_at, now);
-  const sev = (SEVERITIES as readonly string[]).includes(String(c.severity)) ? (c.severity as Severity) : 'S4';
+  // An ungraded complaint is held to the Low threshold: being late should be
+  // a fact about age, not a side effect of a blank page 3.
+  const sev = (SEVERITIES as readonly string[]).includes(String(c.severity)) ? (c.severity as Severity) : 'Low';
   const threshold = thresholds[sev] ?? null;
   if (!isOpenStatus(c.status) || days == null || threshold == null) {
     return { overdue: false, days, threshold, kind: 'ok' };

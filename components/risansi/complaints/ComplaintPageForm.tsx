@@ -208,7 +208,8 @@ export function ComplaintPageForm({ complaintId, clientId, page, initial, lookup
               <label style={LBL}>
                 {f.label}{f.required && <span style={{ color: 'var(--neg)', marginLeft: 3 }}>*</span>}
                 {locked && <span style={{ ...SEV, color: 'var(--fg-3)' }} aria-label="set automatically">🔒</span>}
-                {page.id === 3 && (() => { const r = RISK_FIELDS.find(x => x.key === f.name); return r ? <span style={{ ...SEV, color: SEVERITY_TONE[r.level] }}>{r.level}</span> : null; })()}
+                {/* Each of the four forces High on its own now, so the old
+                    per-question S-level badge has nothing left to say. */}
               </label>
               {locked ? (
                 <div style={{ ...INPUT, display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg-elev)', color: 'var(--fg-2)' }}>

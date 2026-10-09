@@ -315,7 +315,7 @@ export async function GET(request: Request) {
   const overdueCount = rows.filter(r => r.overdue).length;
   const sub = ws.getCell('C2');
   sub.value = `${rows.length} row${rows.length === 1 ? '' : 's'} · ${rows.filter(r => isOpenStatus(r.status)).length} open · ${overdueCount} overdue `
-    + `(S1 ${thresholds.S1 ?? '—'}d / S2 ${thresholds.S2 ?? '—'}d / S3 ${thresholds.S3 ?? '—'}d / S4 ${thresholds.S4 ?? '—'}d) · `
+    + `(High ${thresholds.High ?? '—'}d / Low ${thresholds.Low ?? '—'}d) · `
     + `${applied.length ? applied.join(' · ') : 'no filters'} · ${stamp}`;
   sub.font = { size: 10, color: { argb: GREY } };
 

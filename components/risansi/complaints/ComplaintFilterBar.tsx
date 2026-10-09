@@ -3,7 +3,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  DEPARTMENTS_LIST, SEVERITY_LABEL, HEADLINE_STATUSES, statusesFor, statusesUnderHeadline,
+  DEPARTMENTS_LIST, SEVERITY_LABEL, SEVERITIES, HEADLINE_STATUSES, statusesFor, statusesUnderHeadline,
   STATE_LABEL, type HeadlineStatus,
 } from '@/lib/risansi-complaint-flow';
 
@@ -101,7 +101,7 @@ export function ComplaintFilterBar({ value, options, basePath }: {
             joined />
         </div>
         <Sel label="Severity" v={value.sev} onChange={v => set({ sev: v })}
-          opts={[...(['S1', 'S2', 'S3', 'S4'] as const).map(s => [s, SEVERITY_LABEL[s]] as [string, string]), ['none', 'Not yet rated']]} />
+          opts={[...SEVERITIES.map(s => [s, SEVERITY_LABEL[s]] as [string, string]), ['none', 'Not yet rated']]} />
         <Sel label="Category" v={value.cat} onChange={v => set({ cat: v, subcat: undefined })} opts={options.categories.map(t => [t, t])} />
         <Sel label="Sub-category" v={value.subcat} onChange={v => set({ subcat: v })} opts={options.subcategories.map(t => [t, t])} />
         <Sel label="Industry" v={value.ind} onChange={v => set({ ind: v })} opts={options.industries.map(t => [t, t])} />

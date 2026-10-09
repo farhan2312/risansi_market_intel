@@ -28,17 +28,23 @@ const check = (label, got, want) => {
   console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${label.padEnd(66)} ${JSON.stringify(got)}${ok ? '' : `  (want ${JSON.stringify(want)})`}`);
 };
 
-console.log('Severity — the sheet\'s truth table, then the gaps it left:');
-const no = Object.fromEntries(F.RISK_FIELDS.map(f => [f.key, false]));
-check('nothing answered → no severity yet', F.severityOf({}), null);
-check('all No → S4', F.severityOf(no), 'S4');
-check('workable only → S3', F.severityOf({ ...no, risk_workable: true }), 'S3');
-check('major performance only → S2', F.severityOf({ ...no, risk_major_perf: true }), 'S2');
-check('safety + major performance → S1', F.severityOf({ ...no, risk_safety: true, risk_major_perf: true }), 'S1');
-check('cost impact alone → S2 (decided 12 Sep)', F.severityOf({ ...no, risk_cost_impact: true }), 'S2');
-check('quantity > 5 alone → S3', F.severityOf({ ...no, risk_qty_over_5: true }), 'S3');
-check('repeat mistake + workable → S2, the higher wins', F.severityOf({ ...no, risk_repeat_mistake: true, risk_workable: true }), 'S2');
-check('one answer only, No → S4 (partially answered counts)', F.severityOf({ risk_safety: false }), 'S4');
+console.log('Criticality - four questions, two answers:');
+const no = { risk_safety: false, risk_shutdown: false, risk_penalty: false, risk_repeat_failure: false };
+check('nothing answered yet: no criticality',   F.severityOf({}), null);
+check('all four No: Low',                       F.severityOf(no), 'Low');
+check('safety risk: High',                      F.severityOf({ ...no, risk_safety: true }), 'High');
+check('customer shutdown: High',                F.severityOf({ ...no, risk_shutdown: true }), 'High');
+check('contractual penalty: High',              F.severityOf({ ...no, risk_penalty: true }), 'High');
+check('repeat: High',                           F.severityOf({ ...no, risk_repeat_failure: true }), 'High');
+check('partly answered, none Yes: Low',         F.severityOf({ risk_safety: false }), 'Low');
+// The seven retired questions keep their columns so an old grade is still
+// legible, but they must no longer move the answer.
+check('a retired question cannot raise it',     F.severityOf({ ...no, risk_major_perf: true, risk_qty_over_5: true }), 'Low');
+check('only four questions are asked',          F.RISK_FIELDS.length, 4);
+check('all four are required',                  F.RISK_FIELDS.every(f => f.required), true);
+// High and immediate response are the same statement now, deliberately.
+check('High and immediate response agree',      F.isImmediateResponse({ ...no, risk_shutdown: true }), true);
+check('Low is not an immediate response',       F.isImmediateResponse(no), false);
 
 console.log('\nGates:');
 const full = {
@@ -51,41 +57,41 @@ const full = {
   so_no: 'SO1', ec_no: 'EC1', pump_serial_no: 'SN1', pump_model: 'M1',
   ...no, risk_safety: false, risk_shutdown: false, risk_pump_failure: false, risk_major_perf: false, risk_repeat_failure: false,
 };
-check('Open → Under Investigation with pages 1–3 complete: no gate', F.gateFor('Open', 'Under Investigation', { values: full, severity: 'S2', hasCapaDocument: false }), []);
+check('Open → Under Investigation with pages 1–3 complete: no gate', F.gateFor('Open', 'Under Investigation', { values: full, severity: 'Low', hasCapaDocument: false }), []);
 // The serial is not always on the pump or the paperwork (decided 18 Sep), so
 // its absence holds nothing back; a missing pump model still does.
 check('Open → Under Investigation with no pump serial: not held',
-  F.gateFor('Open', 'Under Investigation', { values: { ...full, pump_serial_no: '' }, severity: 'S2', hasCapaDocument: false }), []);
+  F.gateFor('Open', 'Under Investigation', { values: { ...full, pump_serial_no: '' }, severity: 'Low', hasCapaDocument: false }), []);
 check('Open → Under Investigation with no pump model: named',
-  F.gateFor('Open', 'Under Investigation', { values: { ...full, pump_model: '' }, severity: 'S2', hasCapaDocument: false }), ['Order & Pump: Model as per name plate']);
+  F.gateFor('Open', 'Under Investigation', { values: { ...full, pump_model: '' }, severity: 'Low', hasCapaDocument: false }), ['Order & Pump: Model as per name plate']);
 check('Open → Under Investigation with risk unanswered: asks for the risk page',
   F.gateFor('Open', 'Under Investigation', { values: full, severity: null, hasCapaDocument: false }),
   ['Risk & Criticality: answer the risk questions so the severity is known']);
-check('S1 may not skip the investigation',
-  F.gateFor('Open', 'Action Pending', { values: full, severity: 'S1', hasCapaDocument: false }).some(m => /requires an investigation/.test(m)), true);
-check('S4 may go Open → Resolved with remarks',
-  F.gateFor('Open', 'Resolved', { values: { ...full, status_remarks: 'sorted on the phone' }, severity: 'S4', hasCapaDocument: false }), []);
-check('S4 Open → Resolved without remarks: asks for them',
-  F.gateFor('Open', 'Resolved', { values: full, severity: 'S4', hasCapaDocument: false }), ['Remarks for complaint status']);
+check('High criticality may not skip the investigation',
+  F.gateFor('Open', 'Action Pending', { values: full, severity: 'High', hasCapaDocument: false }).some(m => /investigated before anything else/.test(m)), true);
+check('Low may go Open → Resolved with remarks',
+  F.gateFor('Open', 'Resolved', { values: { ...full, status_remarks: 'sorted on the phone' }, severity: 'Low', hasCapaDocument: false }), []);
+check('Low Open → Resolved with neither action nor remarks: asks for one',
+  F.gateFor('Open', 'Resolved', { values: full, severity: 'Low', hasCapaDocument: false }), ['Corrective Action: action against complaint, or remarks for complaint status']);
 const resolved = { ...full, root_cause: 'r', root_cause_category: 'Material', action_against: 'a', customer_confirmed: true,
   closure_summary: 's', customer_satisfied: true };
-check('S2 Resolved → Closed without a CAPA document: refused',
-  F.gateFor('Resolved', 'Closed', { values: resolved, severity: 'S2', hasCapaDocument: false }), ['CAPA document attached (page 6)']);
-check('S2 Resolved → Closed with a CAPA document: allowed',
-  F.gateFor('Resolved', 'Closed', { values: resolved, severity: 'S2', hasCapaDocument: true }), []);
-check('S3 Resolved → Closed needs no CAPA document',
-  F.gateFor('Resolved', 'Closed', { values: resolved, severity: 'S3', hasCapaDocument: false }), []);
+check('High Resolved → Closed without a CAPA document: refused',
+  F.gateFor('Resolved', 'Closed', { values: resolved, severity: 'High', hasCapaDocument: false }), ['CAPA document attached (page 6)']);
+check('High Resolved → Closed with a CAPA document: allowed',
+  F.gateFor('Resolved', 'Closed', { values: resolved, severity: 'High', hasCapaDocument: true }), []);
+check('Low Resolved → Closed needs no CAPA document',
+  F.gateFor('Resolved', 'Closed', { values: resolved, severity: 'Low', hasCapaDocument: false }), []);
 check('Closed blocked while a returnable is In Transit',
-  F.gateFor('Resolved', 'Closed', { values: { ...resolved, material_returnable: true, returnable_status: 'In Transit' }, severity: 'S3', hasCapaDocument: false }),
+  F.gateFor('Resolved', 'Closed', { values: { ...resolved, material_returnable: true, returnable_status: 'In Transit' }, severity: 'Low', hasCapaDocument: false }),
   ['Returnable material is still In Transit']);
 // The customer's yes is no longer a gate - the Complaint Team closes manually.
 // Inverted rather than deleted, so anyone reinstating the gate is told it went
 // on purpose and not by accident.
 check('Customer Confirmation Pending to Resolved no longer waits on the customer',
-  F.gateFor('Customer Confirmation Pending', 'Resolved', { values: { ...resolved, customer_confirmed: null }, severity: 'S3', hasCapaDocument: false }),
+  F.gateFor('Customer Confirmation Pending', 'Resolved', { values: { ...resolved, customer_confirmed: null }, severity: 'Low', hasCapaDocument: false }),
   []);
 check('Replacement Pending needs a replacement action category',
-  F.gateFor('Action Pending', 'Replacement Pending', { values: { ...resolved, action_category: 'Repair', action_assigned_to: 5, target_completion_date: '2026-10-01' }, severity: 'S3', hasCapaDocument: false }),
+  F.gateFor('Action Pending', 'Replacement Pending', { values: { ...resolved, action_category: 'Repair', action_assigned_to: 5, target_completion_date: '2026-10-01' }, severity: 'Low', hasCapaDocument: false }),
   ['Corrective Action: the action category must be a replacement']);
 check('Reopen: Closed → Under Investigation is a legal move', F.NEXT.Closed.includes('Under Investigation'), true);
 check('every status has somewhere to go', F.STATUSES.every(s => F.NEXT[s].length > 0), true);
@@ -162,21 +168,21 @@ const noRisk = { risk_safety: false, risk_shutdown: false, risk_penalty: false, 
 check('all four no',                   F.isImmediateResponse(noRisk), false);
 check('any one yes is immediate',      F.isImmediateResponse({ ...noRisk, risk_shutdown: true }), true);
 check('a grading answer alone is not', F.isImmediateResponse({ ...noRisk, risk_qty_over_5: true }), false);
-check('severity is undisturbed by it', F.severityOf({ ...noRisk, risk_qty_over_5: true }), 'S3');
+check('a retired question cannot grade it', F.severityOf({ ...noRisk, risk_qty_over_5: true }), 'Low');
 
 console.log('\nOverdue (days since raised, per severity - not the target date):');
-const SLA = { S1: 2, S2: 7, S3: 15, S4: 30 };
+const SLA = { High: 2, Low: 7 };
 const od = (status, severity, raised) => F.overdueFor({ status, severity, complaint_date: raised }, SLA, '2026-10-07');
-check('S1 open 3 days: overdue',       od('Open', 'S1', '2026-10-04').overdue, true);
-check('S1 open 1 day: not yet',        od('Open', 'S1', '2026-10-06').overdue, false);
-check('S3 open 3 days: well inside',   od('Open', 'S3', '2026-10-04').overdue, false);
-check('overdue at Open is no-action',  od('Open', 'S1', '2026-09-01').kind, 'no-action');
-check('overdue after action is acted', od('Action Pending', 'S1', '2026-09-01').kind, 'acted');
-check('a closed complaint is never overdue', od('Closed', 'S1', '2020-01-01').overdue, false);
-check('Feedback is never overdue either',    od('Feedback', 'S1', '2020-01-01').overdue, false);
+check('High open 3 days: overdue',     od('Open', 'High', '2026-10-04').overdue, true);
+check('High open 1 day: not yet',      od('Open', 'High', '2026-10-06').overdue, false);
+check('Low open 3 days: well inside',  od('Open', 'Low', '2026-10-04').overdue, false);
+check('overdue at Open is no-action',  od('Open', 'High', '2026-09-01').kind, 'no-action');
+check('overdue after action is acted', od('Action Pending', 'High', '2026-09-01').kind, 'acted');
+check('a closed complaint is never overdue', od('Closed', 'High', '2020-01-01').overdue, false);
+check('Feedback is never overdue either',    od('Feedback', 'High', '2020-01-01').overdue, false);
 // The 34-open-but-1-overdue bug: the old rule could only fire once a target
 // date had been typed on page 5, so everything earlier than that was invisible.
-check('an ungraded complaint is held to S4, not ignored', od('Open', null, '2020-01-01').overdue, true);
+check('an ungraded complaint is held to Low, not ignored', od('Open', null, '2020-01-01').overdue, true);
 
 console.log('\nCost impact (the commercial flag, not the risk question):');
 check('free replacement forces it', F.costImpactForced({ action_category: 'Free Replacement' }), true);

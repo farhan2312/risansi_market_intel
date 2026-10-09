@@ -124,8 +124,8 @@ export interface ComplaintSummary {
   openByAge: { label: string; count: number }[];
 }
 
-const SEV_ORDER: (Severity | 'none')[] = ['S1', 'S2', 'S3', 'S4', 'none'];
-const SEV_LABEL: Record<string, string> = { S1: 'S1 Critical', S2: 'S2 Major', S3: 'S3 Moderate', S4: 'S4 Minor', none: 'Not yet rated' };
+const SEV_ORDER: (Severity | 'none')[] = ['High', 'Low', 'none'];
+const SEV_LABEL: Record<string, string> = { High: 'High criticality', Low: 'Low criticality', none: 'Not yet rated' };
 
 const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 const median = (xs: number[]) => { if (!xs.length) return null; const s = [...xs].sort((a, b) => a - b); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
