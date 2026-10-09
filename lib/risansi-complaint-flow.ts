@@ -468,7 +468,6 @@ export const PAGES: ComplaintPage[] = [
       { name: 'capa_departments', label: 'CAPA with', type: 'multi', options: ['QC', 'Purchase'],
         showWhen: { field: 'capa_needed', equals: [true] },
         hint: 'Every department the CAPA belongs to. Not one owner.' },
-      { name: 'warning_letter', label: 'Warning letter', type: 'yesno4', hint: 'Kept out of the severity score.' },
     ],
   },
   {
@@ -585,6 +584,12 @@ export const PAGES: ComplaintPage[] = [
     fields: [
       { name: 'closure_summary', label: 'Final resolution summary', type: 'long', required: true },
       { name: 'customer_satisfied', label: 'Customer satisfied', type: 'bool', required: true },
+      // Moved off page 3. It was never part of the criticality score — a
+      // warning letter is what the customer did about the complaint, not how
+      // grave the complaint is — and once criticality became four questions it
+      // was the only thing left on that page that answered a different one.
+      // It belongs with the closing account of how the customer was left.
+      { name: 'warning_letter', label: 'Warning letter', type: 'yesno4', hint: 'Did the customer issue one over this complaint?' },
       { name: 'repeat_complaint', label: 'Repeat complaint', type: 'bool', hint: 'Set automatically from the same client, model and category within twelve months; correct it if you know better.' },
       // A repeat is logged as its own complaint and pointed at the first one.
       // Re-opening the original would have hidden the second occurrence inside
