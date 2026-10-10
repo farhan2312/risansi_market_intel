@@ -142,6 +142,9 @@ function useAutoSave(visitId: string) {
   // True when a previous session left unsynced field changes in localStorage
   // (e.g. the rep lost signal in the field before the 5s auto-save fired).
   const [hasDraft, setHasDraft] = useState(false);
+  // Why it failed, when the server said. "Save failed" on its own leaves a rep
+  // retyping into a report that is closed for editing and will refuse again.
+  const [saveError, setSaveError] = useState('');
   const saveTimer  = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pending    = useRef<Record<string, unknown>>({});
 
@@ -162,7 +165,9 @@ function useAutoSave(visitId: string) {
     saveTimer.current = setTimeout(async () => {
       setSaveState('saving');
       try {
-        await saveVisitField(visitId, pending.current);
+        const res = await saveVisitField(visitId, pending.current);
+        if (!res.ok) { setSaveError(res.error); setSaveState('error'); return; }
+        setSaveError('');
         pending.current = {};
         try { localStorage.removeItem(draftKey); } catch { /* ignore */ }
         setHasDraft(false);
@@ -181,7 +186,9 @@ function useAutoSave(visitId: string) {
       const obj = raw ? JSON.parse(raw) : null;
       if (!obj || Object.keys(obj).length === 0) { setHasDraft(false); return; }
       setSaveState('saving');
-      await saveVisitField(visitId, obj);
+      const res = await saveVisitField(visitId, obj);
+      if (!res.ok) { setSaveError(res.error); setSaveState('error'); return; }
+      setSaveError('');
       try { localStorage.removeItem(draftKey); } catch { /* ignore */ }
       setHasDraft(false);
       setSaveState('saved');
@@ -191,7 +198,7 @@ function useAutoSave(visitId: string) {
     }
   }, [visitId, draftKey]);
 
-  return { saveState, queueSave, hasDraft, syncDraft };
+  return { saveState, saveError, queueSave, hasDraft, syncDraft };
 }
 
 // ── Main Component ─────────────────────────────────────────────
@@ -202,7 +209,10 @@ export function VisitReportForm({
   isSubmitted, canEditVisit, canReopen, closedDate, daysLeft, isSugar: initialIsSugar,
   industries,
 }: Props) {
-  const { saveState, queueSave, hasDraft, syncDraft } = useAutoSave(visit.id);
+  const { saveState, saveError, queueSave, hasDraft, syncDraft } = useAutoSave(visit.id);
+  // One place for a refusal from the buttons on this form — equipment, check-in,
+  // the client profile. Shown beside the save indicator rather than as an alert.
+  const [actionError, setActionError] = useState('');
   const router = useRouter();
 
   // Closing an action point asks what was done, the same as everywhere else.
@@ -210,10 +220,7 @@ export function VisitReportForm({
   const handleCompleteTask = async (taskId: number, status: 'open' | 'completed', title = '', existingNote: string | null = null) => {
     if (status === 'completed') { setResolvingTask({ id: taskId, title, existingNote }); return; }
     const res = await updateTaskStatus(taskId, 'open');
-    // No error surface on this row, and inventing one here would mean a new
-    // banner in a 2,000-line form. An alert is blunt but it is seen, which is
-    // the entire point of the refusal being returned rather than thrown.
-    if (!res.ok) { alert(res.error); return; }
+    if (!res.ok) { setActionError(res.error); return; }
     router.refresh();
   };
   const handleDeleteTask = async (taskId: number) => {
@@ -270,7 +277,9 @@ export function VisitReportForm({
     }
     if (Object.keys(changed).length === 0) return;
     try {
-      await saveClientProfileFromVisit(visit.id, changed);
+      const res = await saveClientProfileFromVisit(visit.id, changed);
+      if (!res.ok) { setActionError(res.error); return; }
+      setActionError('');
       setCtError(false); setCtSaved(true);
       window.setTimeout(() => setCtSaved(false), 1500);
     } catch (e) {
@@ -449,9 +458,15 @@ export function VisitReportForm({
             color: saveState === 'saved' ? 'var(--pos)' : saveState === 'error' ? 'var(--neg)' : 'var(--fg-3)', transition: 'color 300ms' }}>
             {saveState === 'saving' && '⟳ Saving…'}
             {saveState === 'saved'  && '✓ Saved'}
-            {saveState === 'error'  && '⚠ Save failed'}
+            {saveState === 'error'  && (saveError || '⚠ Save failed')}
           </span>
         </div>
+        {actionError && (
+          <div style={{ margin: '0 0 10px', padding: '9px 12px', borderRadius: 6, fontSize: 12.5, lineHeight: 1.5,
+                        background: 'var(--neg-soft)', border: '1px solid var(--neg)', color: 'var(--neg-strong)' }}>
+            {actionError}
+          </div>
+        )}
       </div>
 
       {/* Draft recovery — unsynced changes survived a closed tab / dropped signal. */}
@@ -842,7 +857,9 @@ export function VisitReportForm({
                         onClick={async () => {
                           if (typeof window !== 'undefined' && !window.confirm('Delete this equipment entry? This cannot be undone.')) return;
                           if (editingEqId === Number(e.id)) { setShowEqForm(false); setEditingEqId(null); }
-                          await deleteEquipment(Number(e.id), visit.id);
+                          const res = await deleteEquipment(Number(e.id), visit.id);
+    if (!res.ok) { setActionError(res.error); return; }
+    setActionError('');
                         }}
                         className="r-tap"
                         style={{ fontSize: 11, color: 'var(--neg)', background: 'none', border: '1px solid var(--neg)', borderRadius: 5, padding: '3px 12px', cursor: 'pointer', fontFamily: 'inherit' }}
@@ -1060,9 +1077,13 @@ export function VisitReportForm({
                     competitor_activity_type: str(newEq.competitor_activity_type),
                   };
                   if (editingEqId != null) {
-                    await updateEquipment(editingEqId, visit.id, eqPayload);
+                    const res = await updateEquipment(editingEqId, visit.id, eqPayload);
+      if (!res.ok) { setActionError(res.error); return; }
+      setActionError('');
                   } else {
-                    await addEquipment(visit.id, visit.client_id, eqPayload);
+                    const res = await addEquipment(visit.id, visit.client_id, eqPayload);
+      if (!res.ok) { setActionError(res.error); return; }
+      setActionError('');
                   }
                   setShowEqForm(false);
                   setEditingEqId(null);
@@ -1539,7 +1560,11 @@ function CheckInButton({ visitId, onDone }: { visitId: string; onDone: () => voi
     manual: boolean, manualNote: string | null,
   ) => {
     try {
-      await checkInVisit({ visitId, lat, lng, accuracy, manual, manualNote: manualNote ?? undefined });
+      const res = await checkInVisit({ visitId, lat, lng, accuracy, manual, manualNote: manualNote ?? undefined });
+      // This button has its own error line; the form-level banner is for the
+      // controls that do not.
+      if (!res.ok) { setError(res.error); setLoading(false); return; }
+      setError('');
       onDone();
     } catch (err: unknown) {
       console.error('Check-in error:', err);
@@ -1865,6 +1890,9 @@ function ExpansionOpportunityForm({ visitId, clientId, clientName, repId, isClos
     existingOpp?.value_cr ? String(Math.round(parseFloat(String(existingOpp.value_cr)) * 10_000_000)) : '',
   );
   const [probabilityCode, setProbabilityCode] = useState(existingOpp?.probability_code ?? '');
+  // This section saves itself as it is typed, so a refusal has no button to
+  // report against — it gets a line of its own under the fields.
+  const [expansionError, setExpansionError] = useState('');
   const [etaText, setEtaText]           = useState(existingOpp?.eta_text ?? '');
   const [quoteRef, setQuoteRef]         = useState(existingOpp?.quote_ref ?? '');
   const [notes, setNotes]               = useState(existingOpp?.notes ?? '');
@@ -1892,7 +1920,11 @@ function ExpansionOpportunityForm({ visitId, clientId, clientName, repId, isClos
       tsmExternal:      tsmMode === 'external' ? (tsmExternal.trim() || null) : null,
       tsmExternalEmail: tsmMode === 'external' ? (tsmExternalEmail.trim() || null) : null,
     };
-    saveTimer.current = setTimeout(() => { saveExpansionOpportunity(snapshot).catch(() => {}); }, 900);
+    saveTimer.current = setTimeout(() => {
+      saveExpansionOpportunity(snapshot)
+        .then(res => setExpansionError(res.ok ? '' : res.error))
+        .catch(() => setExpansionError('This could not be saved. Check the connection and try again.'));
+    }, 900);
     return () => clearTimeout(saveTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasExpansion, product, productType, stage, valueInr, probabilityCode, etaText, quoteRef, notes, tsmMode, tsmUserId, tsmExternal, tsmExternalEmail]);
@@ -1917,6 +1949,13 @@ function ExpansionOpportunityForm({ visitId, clientId, clientName, repId, isClos
           <button type="button" disabled={isClosed} onClick={() => setHasExpansion(false)} style={toggleStyle(!hasExpansion)}>No</button>
         </div>
       </div>
+
+      {expansionError && (
+        <div style={{ margin: '0 0 10px', padding: '8px 12px', borderRadius: 6, fontSize: 12, lineHeight: 1.5,
+                      background: 'var(--neg-soft)', border: '1px solid var(--neg)', color: 'var(--neg-strong)' }}>
+          {expansionError}
+        </div>
+      )}
 
       {hasExpansion && (
         <div style={{ padding: 16, background: 'var(--bg-elev)', borderRadius: 8, border: '1px solid var(--accent-line)', display: 'flex', flexDirection: 'column', gap: 14 }}>

@@ -5,7 +5,7 @@ import { getCurrentUser } from '@/lib/risansi-auth';
 import { canManageExhibition, canViewExhibition, closeReadiness } from '@/app/actions/risansi-exhibitions';
 import { ExhibitionDetail } from '@/components/risansi/ExhibitionDetail';
 import type {
-  ExhibitionFull, TeamMember, ApprovalRow, MeetingRow, ExpenseRow, ReviewRow,
+  ExhibitionFull, TeamMember, ApprovalRow, MeetingContactRow, ExpenseRow, ReviewRow,
 } from '@/components/risansi/ExhibitionDetail';
 import type { ReviewMeeting } from '@/components/risansi/ExhibitionReview';
 import type { UserOpt } from '@/components/risansi/ExhibitionsClient';
@@ -27,7 +27,7 @@ export default async function ExhibitionDetailPage({ params }: { params: Promise
   // "forbidden" that confirms it does.
   if (!(await canViewExhibition(id))) notFound();
 
-  const [exhibition, team, meetings, approvals, expenses, review, users, canManage, blockers] = await Promise.all([
+  const [exhibition, team, meetings, meetingContacts, approvals, expenses, review, users, canManage, blockers] = await Promise.all([
     q<ExhibitionFull | null>(async () => {
       const { rows } = await risansiPool.query<ExhibitionFull>(`
         SELECT e.id, e.name, e.organizer, e.website, e.venue, e.city, e.state, e.country,
@@ -91,6 +91,26 @@ export default async function ExhibitionDetailPage({ params }: { params: Promise
       return rows;
     }, []),
 
+    // Everybody met, grouped by meeting (migration 0120). Its own query with
+    // its own fallback on purpose: folded into the meetings query above, one
+    // failure would empty the meeting list itself, and a meeting with no
+    // contacts still reads perfectly well off its own four columns.
+    q<Map<number, MeetingContactRow[]>>(async () => {
+      const { rows } = await risansiPool.query<MeetingContactRow & { meeting_id: number }>(
+        `SELECT c.id, c.meeting_id, c.name, c.designation, c.phone, c.email
+           FROM exhibition_meeting_contacts c
+           JOIN exhibition_meetings m ON m.id = c.meeting_id
+          WHERE m.exhibition_id = $1
+          ORDER BY c.meeting_id, c.sort_order, c.id`, [id]);
+      const byMeeting = new Map<number, MeetingContactRow[]>();
+      for (const r of rows) {
+        const list = byMeeting.get(r.meeting_id) ?? [];
+        list.push({ id: r.id, name: r.name, designation: r.designation, phone: r.phone, email: r.email });
+        byMeeting.set(r.meeting_id, list);
+      }
+      return byMeeting;
+    }, new Map()),
+
     // Scoped to this one exhibition, so its team and approver can see the trail
     // without being handed the sysadmin-only Audit Log page (which also carries
     // logins, usage and ownership changes). The module-wide feed lives there.
@@ -143,6 +163,9 @@ export default async function ExhibitionDetailPage({ params }: { params: Promise
 
   if (!exhibition) notFound();
 
+  const meetingsWithContacts: ReviewMeeting[] =
+    meetings.map(m => ({ ...m, contacts: meetingContacts.get(m.id) ?? [] }));
+
   const isOwner = me.role === 'sysadmin' ||
     (exhibition.created_by != null && me.id != null && Number(exhibition.created_by) === Number(me.id));
 
@@ -156,7 +179,7 @@ export default async function ExhibitionDetailPage({ params }: { params: Promise
       <ExhibitionDetail
         exhibition={exhibition}
         team={team}
-        meetings={meetings}
+        meetings={meetingsWithContacts}
         approvals={approvals}
         expenses={expenses}
         review={review}

@@ -15,10 +15,10 @@ import {
   saveExhibitionReview, advanceExhibition,
 } from '@/app/actions/risansi-exhibitions';
 import { BusinessCards, uploadCards } from './BusinessCards';
+import { MAX_INVOICE_BYTES, INVOICE_ACCEPT } from '@/lib/risansi-exhibition-files';
 import {
-  MAX_INVOICE_BYTES, INVOICE_ACCEPT, CAMERA_ACCEPT,
-} from '@/lib/risansi-exhibition-files';
-import { ExhibitionReviewWorkbench, type ReviewMeeting } from './ExhibitionReview';
+  ExhibitionReviewWorkbench, MeetingLeadDialog, type ReviewMeeting,
+} from './ExhibitionReview';
 import { useCloseGuard, useDialogFocus, CloseX, CloseConfirm, KeepOpenHint } from './FormCloseGuard';
 import type { UserOpt } from './ExhibitionsClient';
 import { useTableSort, SortTH } from './SortTH';
@@ -46,6 +46,15 @@ export interface TeamMember {
   days?: string[];
 }
 export interface ApprovalRow { id: number; decision: string; actor_name: string | null; comments: string | null; created_at: string }
+/**
+ * One person met at a meeting (migration 0120). Row 0 is mirrored into the
+ * contact_person / designation / phone / email columns below, which the
+ * exhibition export and convertMeetingToLead still read.
+ */
+export interface MeetingContactRow {
+  id: number; name: string;
+  designation: string | null; phone: string | null; email: string | null;
+}
 export interface MeetingRow {
   id: number; client_id: number | null; company_name: string;
   contact_person: string | null; designation: string | null; phone: string | null;
@@ -56,6 +65,12 @@ export interface MeetingRow {
   high_potential?: boolean;
   met_by: number | null; met_by_name: string | null; met_on: string | null;
   client_code: string | null; client_legal_name: string | null; client_status: string | null;
+  /** Everybody met, in entry order. Empty for a meeting saved before 0120 with
+   *  no contact at all; otherwise the first row mirrors the columns above. */
+  contacts?: MeetingContactRow[];
+  /** Set once this meeting has been turned into a Prospective-Lead client. */
+  lead_client_id?: number | null;
+  lead_client_code?: string | null;
 }
 export interface ExpenseRow {
   id: number; category: string; description: string | null; vendor: string | null;
@@ -183,7 +198,8 @@ export function ExhibitionDetail(props: {
               attendFrom={ex.attend_from ?? ex.start_date}
               attendTo={ex.attend_to ?? ex.end_date ?? ex.start_date}
             />}
-      {activeTab === 'meetings'  && <MeetingsTab exhibitionId={ex.id} meetings={meetings} canManage={canEdit} />}
+      {activeTab === 'meetings'  && <MeetingsTab exhibitionId={ex.id} meetings={meetings}
+              users={users} canManage={canEdit} canConvert={isOwner && !isClosed} />}
       {activeTab === 'expenses'  && <ExpensesTab exhibitionId={ex.id} expenses={expenses} totals={totals} canManage={canEdit} />}
       {activeTab === 'review' && (
         <div style={{ display: 'grid', gap: 22 }}>
@@ -616,11 +632,43 @@ function TeamTab({ exhibitionId, team, users, canManage, attendFrom, attendTo }:
 
 // ── Meetings — the client lookup lives here ──────────────────────
 
-function MeetingsTab({ exhibitionId, meetings, canManage }: {
-  exhibitionId: number; meetings: MeetingRow[]; canManage: boolean;
+/**
+ * Everything the company's name, the people met, the city or the notes contain.
+ * One haystack per meeting so a search for "medan boiler" does not have to
+ * decide which field it is looking in.
+ */
+function meetingHaystack(m: MeetingRow): string {
+  return [
+    m.company_name, m.client_legal_name, m.client_code, m.city,
+    m.contact_person, m.designation, m.phone, m.email,
+    ...(m.contacts ?? []).flatMap(c => [c.name, c.designation, c.phone, c.email]),
+    m.discussion, m.requirement, m.outcome, m.next_action, m.interest, m.met_by_name,
+  ].filter(Boolean).join(' \u0001 ').toLowerCase();
+}
+
+function MeetingsTab({ exhibitionId, meetings, users, canManage, canConvert }: {
+  exhibitionId: number; meetings: MeetingRow[]; users: UserOpt[];
+  canManage: boolean;
+  /** Converting writes a client, so it is the reviewer's call — the same rule
+   *  the action enforces (assertOwner), mirrored here so the button only shows
+   *  to somebody it would work for. */
+  canConvert: boolean;
 }) {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<MeetingRow | null>(null);
+  const [converting, setConverting] = useState<MeetingRow | null>(null);
+
+  // Plain component state, not useSearchBox: that hook exists for a box whose
+  // value also lives in the URL, and the race it fixes is the debounced
+  // navigation echoing an older value back. Every meeting for this exhibition
+  // is already on the page, so this filters what is in hand — no navigation, no
+  // round trip, nothing to echo.
+  const [query, setQuery] = useState('');
+  const needle = query.trim().toLowerCase();
+  const shown = useMemo(
+    () => (needle === '' ? meetings : meetings.filter(m => meetingHaystack(m).includes(needle))),
+    [meetings, needle],
+  );
 
   return (
     <div>
@@ -657,15 +705,53 @@ function MeetingsTab({ exhibitionId, meetings, canManage }: {
           onDone={() => { setAdding(false); setEditing(null); }}
         />
       )}
+      {/* Keyed on the meeting for the same reason: the lead form seeds its
+          fields once, at mount. */}
+      {converting && (
+        <MeetingLeadDialog
+          key={`lead-${converting.id}`}
+          exhibitionId={exhibitionId}
+          meeting={converting}
+          users={users}
+          onDone={() => setConverting(null)}
+        />
+      )}
+
+      {/* A show the size of PALMEX Medan is thirty-four cards. Finding the one
+          company somebody is asking about by scrolling is not finding it. */}
+      {meetings.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative', flex: '1 1 260px', maxWidth: 420 }}>
+            <input type="search" value={query} onChange={e => setQuery(e.target.value)}
+              aria-label="Search meetings"
+              placeholder="Search company, contact, city or what was discussed…"
+              style={{ ...INPUT, paddingLeft: 32 }} />
+            <span aria-hidden="true" style={{
+              position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)',
+              fontSize: 13, color: 'var(--fg-3)', pointerEvents: 'none',
+            }}>⌕</span>
+          </div>
+          <span style={{ fontSize: 12, color: 'var(--fg-3)' }}>
+            {needle === ''
+              ? `${meetings.length} meeting${meetings.length === 1 ? '' : 's'}`
+              : `${shown.length} of ${meetings.length}`}
+          </span>
+          {needle !== '' && (
+            <button onClick={() => setQuery('')} style={LINK_BTN}>clear</button>
+          )}
+        </div>
+      )}
 
       {meetings.length === 0 ? (
         <div style={PANEL}><Blank>No meetings captured yet.</Blank></div>
+      ) : shown.length === 0 ? (
+        <div style={PANEL}><Blank>No meeting matches “{query.trim()}”.</Blank></div>
       ) : (
         <div style={{ display: 'grid', gap: 10 }}>
           {/* The whole list stays put while a meeting is being edited — the
               dialog sits over it, so there is nothing to mistake for a
               duplicate entry, and closing it leaves the page where it was. */}
-          {meetings.map(m => (
+          {shown.map(m => (
             <div key={m.id} style={{ ...PANEL, padding: 14 }}>
               <div className="exh-meeting-head" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                 <div style={{ minWidth: 0 }}>
@@ -683,10 +769,31 @@ function MeetingsTab({ exhibitionId, meetings, canManage }: {
                     )}
                     {m.high_potential && <Pill tone="warn">⭐ High potential</Pill>}
                     {m.interest && <Pill>{m.interest}</Pill>}
+                    {m.lead_client_id != null && (
+                      <a href={`/risansi/clients/${m.lead_client_id}`} style={{ ...FLAG_KNOWN, textDecoration: 'none' }}>
+                        ✓ Lead{m.lead_client_code ? ` · ${m.lead_client_code}` : ''}
+                      </a>
+                    )}
                   </div>
-                  <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 4 }}>
-                    {[m.contact_person, m.designation, m.city, m.phone, m.email].filter(Boolean).join(' · ') || '—'}
-                  </div>
+                  {/* Every person met, one line each. A stand meeting is often
+                      two or three people and the second and third used to end
+                      up in the discussion notes, or nowhere. */}
+                  {(m.contacts?.length ?? 0) > 0 ? (
+                    <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 4, display: 'grid', gap: 2 }}>
+                      {m.contacts!.map(c => (
+                        <div key={c.id}>
+                          <span style={{ color: 'var(--fg-2)' }}>{c.name}</span>
+                          {[c.designation, c.phone, c.email].filter(Boolean).length > 0
+                            && ` · ${[c.designation, c.phone, c.email].filter(Boolean).join(' · ')}`}
+                        </div>
+                      ))}
+                      {m.city && <div>{m.city}</div>}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 4 }}>
+                      {[m.contact_person, m.designation, m.city, m.phone, m.email].filter(Boolean).join(' · ') || '—'}
+                    </div>
+                  )}
                 </div>
                 <div className="exh-meeting-meta" style={{ textAlign: 'right', fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>
                   <div>{m.met_on ?? ''}</div>
@@ -711,10 +818,25 @@ function MeetingsTab({ exhibitionId, meetings, canManage }: {
                   {m.follow_up_date && <span style={{ color: 'var(--fg-3)' }}> · due {m.follow_up_date}</span>}
                 </div>
               )}
-              {canManage && (
-                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                  <button onClick={() => { setAdding(false); setEditing(m); }} style={LINK_BTN}>Edit</button>
-                  <DeleteMeeting exhibitionId={exhibitionId} meetingId={m.id} />
+              {(canManage || canConvert) && (
+                <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
+                  {canManage && (
+                    <button onClick={() => { setAdding(false); setEditing(m); }} style={LINK_BTN}>Edit</button>
+                  )}
+                  {canManage && <DeleteMeeting exhibitionId={exhibitionId} meetingId={m.id} />}
+                  {/* Here, beside Edit and Delete, rather than only in the
+                      post-event review. The review is where a marked company is
+                      decided at the end of the event; a rep who has just
+                      captured a company that is plainly a lead should not have
+                      to wait for the event to finish to say so. Offered only
+                      when there is no client and no lead yet — the two cases
+                      the action refuses. */}
+                  {canConvert && m.client_id == null && m.lead_client_id == null && (
+                    <button onClick={() => setConverting(m)} style={LINK_BTN}
+                      title="Create a Prospective-Lead client from this meeting">
+                      → Prospective Lead
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -743,6 +865,109 @@ function DeleteMeeting({ exhibitionId, meetingId }: { exhibitionId: number; meet
   );
 }
 
+// ── The people met at one meeting ────────────────────────────────
+
+type ContactDraft = { name: string; designation: string; phone: string; email: string };
+
+/** Matches MAX_MEETING_CONTACTS in the action, and the Client Master's own
+ *  limit, so a meeting can never hold more people than the client it becomes. */
+const MAX_MEETING_CONTACTS = 10;
+const EMPTY_CONTACT: ContactDraft = { name: '', designation: '', phone: '', email: '' };
+
+/**
+ * The rows the dialog opens with.
+ *
+ * Whoever is already recorded, in entry order. A meeting saved before migration
+ * 0120 whose rows have not been backfilled falls back to the four single
+ * columns, so nothing opens emptier than it was. Always at least one row —
+ * typing a name should not need a button press first.
+ */
+function seedContacts(m: MeetingRow | null): ContactDraft[] {
+  const rows = (m?.contacts ?? []).map(c => ({
+    name: c.name ?? '', designation: c.designation ?? '',
+    phone: c.phone ?? '', email: c.email ?? '',
+  }));
+  if (rows.length) return rows;
+  if (m?.contact_person || m?.designation || m?.phone || m?.email) {
+    return [{
+      name: m.contact_person ?? '', designation: m.designation ?? '',
+      phone: m.phone ?? '', email: m.email ?? '',
+    }];
+  }
+  return [{ ...EMPTY_CONTACT }];
+}
+
+/**
+ * Add a person, remove a person. A stand meeting is normally two or three — the
+ * engineer who asked the question, the manager who decides, whoever handed over
+ * the card — and one field for all of them meant the rest went into the
+ * discussion notes or nowhere.
+ *
+ * The FIRST row is the primary: it is what the meeting's own contact columns are
+ * set to (the export reads them), and it is the contact marked primary on the
+ * client if this meeting becomes a lead. Said on screen, because the order of
+ * the rows is otherwise invisible.
+ */
+function ContactRows({ contacts, onChange }: {
+  contacts: ContactDraft[]; onChange: (next: ContactDraft[]) => void;
+}) {
+  const patch = (i: number, p: Partial<ContactDraft>) =>
+    onChange(contacts.map((c, n) => (n === i ? { ...c, ...p } : c)));
+  const full = contacts.length >= MAX_MEETING_CONTACTS;
+
+  return (
+    <div>
+      <label style={LABEL}>People met{contacts.length > 1 ? ` · ${contacts.length}` : ''}</label>
+      <div style={{ display: 'grid', gap: 10 }}>
+        {contacts.map((c, i) => (
+          <div key={i} style={{
+            border: '1px solid var(--line)', borderRadius: 8, padding: 10, background: 'var(--bg-elev)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 7 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em',
+                             textTransform: 'uppercase', color: 'var(--fg-3)' }}>
+                {i === 0 ? 'Contact 1 · main' : `Contact ${i + 1}`}
+              </span>
+              {contacts.length > 1 && (
+                <button type="button" style={{ ...LINK_BTN, marginLeft: 'auto' }}
+                  title={`Remove ${c.name || `contact ${i + 1}`}`}
+                  onClick={() => onChange(contacts.filter((_, n) => n !== i))}>
+                  remove
+                </button>
+              )}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(155px, 1fr))', gap: 10 }}>
+              <input value={c.name} onChange={e => patch(i, { name: e.target.value })}
+                placeholder="Name" aria-label={`Contact ${i + 1} name`} style={INPUT} />
+              <input value={c.designation} onChange={e => patch(i, { designation: e.target.value })}
+                placeholder="Designation" aria-label={`Contact ${i + 1} designation`} style={INPUT} />
+              <input value={c.phone} onChange={e => patch(i, { phone: e.target.value })}
+                placeholder="Phone" inputMode="tel" aria-label={`Contact ${i + 1} phone`} style={INPUT} />
+              <input value={c.email} onChange={e => patch(i, { email: e.target.value })}
+                placeholder="Email" type="email" aria-label={`Contact ${i + 1} email`} style={INPUT} />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
+        <button type="button" onClick={() => onChange([...contacts, { ...EMPTY_CONTACT }])}
+          disabled={full} title={full ? `${MAX_MEETING_CONTACTS} people is the limit` : undefined}
+          style={{ ...BTN_GHOST, padding: '6px 12px', fontSize: 12.5, opacity: full ? 0.5 : 1,
+                   cursor: full ? 'not-allowed' : 'pointer' }}>
+          + Add another person
+        </button>
+        <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>
+          The first one is the meeting&rsquo;s main contact, and the primary contact if this
+          company becomes a lead. A row with no name is dropped.
+        </span>
+      </div>
+      {/* Read by saveExhibitionMeeting, which writes the rows and mirrors the
+          first into the meeting's own contact columns. */}
+      <input type="hidden" name="contacts_json" value={JSON.stringify(contacts)} />
+    </div>
+  );
+}
+
 /**
  * One meeting, in a dialog of its own.
  *
@@ -765,6 +990,9 @@ function MeetingDialog({ exhibitionId, meeting, onDone }: {
   const router = useRouter();
   // Cards photographed before this meeting has an id, flushed on save.
   const [pendingCards, setPendingCards] = useState<File[]>([]);
+  // Seeded once, at mount — the dialog is keyed per row (see the call site), so
+  // a second company gets a second component rather than these rows.
+  const [contacts, setContacts] = useState<ContactDraft[]>(() => seedContacts(meeting));
   const [company, setCompany] = useState(meeting?.company_name ?? '');
   const [clientId, setClientId] = useState<number | null>(meeting?.client_id ?? null);
   const [matched, setMatched] = useState<{ code: string | null; legal_name: string; city: string | null } | null>(
@@ -937,14 +1165,9 @@ function MeetingDialog({ exhibitionId, meeting, onDone }: {
             )}
           </div>
 
-          <Two>
-            <F label="Contact person"><input name="contact_person" defaultValue={meeting?.contact_person ?? ''} style={INPUT} /></F>
-            <F label="Designation"><input name="designation" defaultValue={meeting?.designation ?? ''} style={INPUT} /></F>
-          </Two>
-          <Two>
-            <F label="Phone"><input name="phone" defaultValue={meeting?.phone ?? ''} style={INPUT} /></F>
-            <F label="Email"><input name="email" type="email" defaultValue={meeting?.email ?? ''} style={INPUT} /></F>
-          </Two>
+          <ContactRows contacts={contacts}
+            onChange={next => { setContacts(next); setDirty(true); }} />
+
           <Two>
             <F label="City"><input name="city" defaultValue={meeting?.city ?? ''} style={INPUT} /></F>
             <F label="Met on"><input name="met_on" type="date" defaultValue={meeting?.met_on ?? ''} style={INPUT} /></F>
@@ -1369,10 +1592,10 @@ function ReviewSummaryStrip({ meetings, totals, review }: {
  * Three ways in, because the same form is used at a stand and at a desk:
  *   Take photo  — capture="environment" opens the rear camera straight away on a
  *                 phone. Ignored by desktop browsers, which fall back to a picker.
- *   Gallery     — image/* with no capture attribute, so a phone offers the photo
- *                 library (and files); the natural choice for a shot taken earlier.
- *   Browse      — the full accept list including PDF, for a desk with the emailed
- *                 invoice on disk.
+ *   Gallery     — no capture attribute, so a phone offers the photo library (and
+ *                 files); the natural choice for a shot taken earlier.
+ *   Browse      — the same list from a desk, where the emailed invoice is a PDF
+ *                 on disk.
  *
  * The chosen file is held in component state and submitted with the rest of the
  * form, so the expense row and its invoice are written in one transaction.
@@ -1412,10 +1635,19 @@ function InvoicePicker({ value, onChange, required, existingName }: {
         Invoice / bill {required && <span style={{ color: 'var(--neg)' }}>*</span>}
       </label>
 
-      {/* Hidden inputs, one per entry point. */}
-      <input ref={cameraRef} type="file" accept={CAMERA_ACCEPT} capture="environment"
+      {/* Hidden inputs, one per entry point.
+
+          All three advertise INVOICE_ACCEPT, not image/*. These two said image/*
+          and the photo was then refused on arrival: an iPhone shoots HEIC, and
+          an input that advertises "any image" is taken at its word and sends
+          one, while checkInvoice accepts PDF, JPG and PNG only. Naming the
+          types is what makes iOS transcode to JPEG before it uploads. The same
+          fix as the business-card camera — see the comment in BusinessCards.tsx.
+          The picker and the validator have to agree, which is the whole reason
+          INVOICE_ACCEPT is a shared constant. */}
+      <input ref={cameraRef} type="file" accept={INVOICE_ACCEPT} capture="environment"
         style={{ display: 'none' }} onChange={e => take(e.target.files?.[0])} />
-      <input ref={galleryRef} type="file" accept={CAMERA_ACCEPT}
+      <input ref={galleryRef} type="file" accept={INVOICE_ACCEPT}
         style={{ display: 'none' }} onChange={e => take(e.target.files?.[0])} />
       <input ref={browseRef} type="file" accept={INVOICE_ACCEPT}
         style={{ display: 'none' }} onChange={e => take(e.target.files?.[0])} />

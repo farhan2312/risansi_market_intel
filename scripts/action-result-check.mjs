@@ -130,15 +130,14 @@ for (const file of files) {
 // in an action that does not return a result.
 
 const THROWS_ITS_REFUSAL = new Set([
-  'addEquipment', 'addOpportunityRemark', 'addTask', 'advanceExhibition', 'checkInVisit',
-  'convertMeetingToLead', 'createExhibition', 'createOpportunity', 'createTour',
-  'decideExhibition', 'deleteClientComment', 'deleteEquipment', 'deleteExhibition',
-  'deleteUpload', 'deleteVisitPlan', 'reassignOpportunityClient', 'reopenExhibition',
-  'resetUserPassword', 'saveClientProfileFromVisit', 'saveExhibitionExpense',
-  'saveExhibitionReview', 'saveExpansionOpportunity', 'saveVisitField', 'setAnnualTarget',
-  'setExhibitionTeam', 'setUsdRate', 'skipMeetingLead', 'submitForApproval',
-  'submitOpportunity', 'updateClientComment', 'updateClientTier', 'updateEquipment',
-  'updateExhibition', 'updateMeetingCompany', 'updateVisitPlan',
+  'addOpportunityRemark', 'addTask', 'advanceExhibition',
+  'createExhibition', 'createOpportunity', 'createTour', 'decideExhibition',
+  'deleteClientComment', 'deleteExhibition', 'deleteUpload', 'deleteVisitPlan',
+  'reassignOpportunityClient', 'reopenExhibition', 'resetUserPassword',
+  'saveExhibitionExpense', 'saveExhibitionReview', 'setAnnualTarget', 'setExhibitionTeam',
+  'setUsdRate', 'skipMeetingLead', 'submitForApproval', 'submitOpportunity',
+  'updateClientComment', 'updateClientTier', 'updateExhibition', 'updateMeetingCompany',
+  'updateVisitPlan',
 ]);
 
 const throwers = new Map();                      // name -> the sentences it throws

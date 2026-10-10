@@ -493,6 +493,63 @@ export async function setExhibitionTeam(
 // The id is a number here because exhibition_meetings.id is.
 export type CreateResult = { ok: true; id: number } | { ok: false; error: string };
 
+/** How many people one stand meeting may record. Matched to the Client Master's
+ *  own contact limit, so a meeting can never carry more people across to a lead
+ *  than the client form would accept back. */
+const MAX_MEETING_CONTACTS = 10;
+
+export type MeetingContact = {
+  name: string; designation: string | null; phone: string | null; email: string | null;
+};
+
+/**
+ * Everybody met at one meeting, in the order they were entered.
+ *
+ * A stand meeting is normally two or three people — the engineer who asked the
+ * question, the manager who decides, whoever handed over the card — and until
+ * now only the first of them had anywhere to go. They arrive as `contacts_json`;
+ * the four single fields are still read as a fallback so anything posting the
+ * old shape keeps working.
+ *
+ * The FIRST row is what the contact_person / designation / phone / email columns
+ * on exhibition_meetings are set to. Those columns stay because the exhibition
+ * export and convertMeetingToLead both read them, and they have to keep showing
+ * the person who would have been there before.
+ */
+function meetingContacts(fd: FormData): MeetingContact[] {
+  const trim = (v: unknown): string | null => {
+    const s = typeof v === 'string' ? v.trim() : '';
+    return s === '' ? null : s;
+  };
+  let rows: MeetingContact[] = [];
+  const raw = fd.get('contacts_json');
+  if (typeof raw === 'string' && raw.trim() !== '') {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        rows = parsed.map(entry => {
+          const o = (entry ?? {}) as Record<string, unknown>;
+          return {
+            name: trim(o.name) ?? '',
+            designation: trim(o.designation),
+            phone: trim(o.phone),
+            email: trim(o.email),
+          };
+        });
+      }
+    } catch { rows = []; }      // malformed payload: fall through to the single fields
+  }
+  if (rows.length === 0) {
+    rows = [{
+      name: trim(fd.get('contact_person')) ?? '',
+      designation: trim(fd.get('designation')),
+      phone: trim(fd.get('phone')), email: trim(fd.get('email')),
+    }];
+  }
+  // A nameless row is an empty one somebody added and never filled in.
+  return rows.filter(r => r.name !== '').slice(0, MAX_MEETING_CONTACTS);
+}
+
 export async function saveExhibitionMeeting(
   exhibitionId: number, fd: FormData, meetingId?: number,
 ): Promise<CreateResult> {
@@ -518,9 +575,14 @@ export async function saveExhibitionMeeting(
     clientId = rows[0]?.id ?? null;
   }
 
+  // The people met. The first of them is mirrored into the four columns that
+  // were the whole contact until migration 0120 gave them a table of their own.
+  const contacts = meetingContacts(fd);
+  const first = contacts[0] ?? null;
+
   const vals = [
-    exhibitionId, clientId, company, str(fd, 'contact_person'), str(fd, 'designation'),
-    str(fd, 'phone'), str(fd, 'email'), str(fd, 'city'), str(fd, 'discussion'),
+    exhibitionId, clientId, company, first?.name ?? null, first?.designation ?? null,
+    first?.phone ?? null, first?.email ?? null, str(fd, 'city'), str(fd, 'discussion'),
     str(fd, 'requirement'), str(fd, 'outcome'), str(fd, 'next_action'),
     str(fd, 'follow_up_date'), str(fd, 'interest'), inr(fd, 'potential_value_inr'),
     fd.get('high_potential') === '1',
@@ -531,34 +593,59 @@ export async function saveExhibitionMeeting(
   // it belongs to exists.
   let savedId = meetingId ?? 0;
 
-  if (meetingId) {
-    await risansiPool.query(
-      `UPDATE exhibition_meetings SET
-         client_id=$2, company_name=$3, contact_person=$4, designation=$5, phone=$6,
-         email=$7, city=$8, discussion=$9, requirement=$10, outcome=$11,
-         next_action=$12, follow_up_date=$13, interest=$14, potential_value_inr=$15,
-         high_potential=$16, updated_at=NOW()
-       WHERE id=$17 AND exhibition_id=$1`,
-      [...vals, meetingId],
-    );
-  } else {
-    const ins = await risansiPool.query<{ id: number }>(
-      `INSERT INTO exhibition_meetings
-         (exhibition_id, client_id, company_name, contact_person, designation, phone,
-          email, city, discussion, requirement, outcome, next_action, follow_up_date,
-          interest, potential_value_inr, high_potential, met_by, met_by_name, met_on)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
-               (SELECT name FROM users WHERE id=$17), COALESCE($18::date, CURRENT_DATE))
-       RETURNING id`,
-      [...vals, user.id, str(fd, 'met_on')],
-    );
-    savedId = ins.rows[0].id;
-  }
+  // One transaction: the meeting and its contact rows land together, so the
+  // mirrored first-contact columns can never disagree with the rows.
+  const db = await risansiPool.connect();
+  try {
+    await db.query('BEGIN');
+    if (meetingId) {
+      await db.query(
+        `UPDATE exhibition_meetings SET
+           client_id=$2, company_name=$3, contact_person=$4, designation=$5, phone=$6,
+           email=$7, city=$8, discussion=$9, requirement=$10, outcome=$11,
+           next_action=$12, follow_up_date=$13, interest=$14, potential_value_inr=$15,
+           high_potential=$16, updated_at=NOW()
+         WHERE id=$17 AND exhibition_id=$1`,
+        [...vals, meetingId],
+      );
+    } else {
+      const ins = await db.query<{ id: number }>(
+        `INSERT INTO exhibition_meetings
+           (exhibition_id, client_id, company_name, contact_person, designation, phone,
+            email, city, discussion, requirement, outcome, next_action, follow_up_date,
+            interest, potential_value_inr, high_potential, met_by, met_by_name, met_on)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
+                 (SELECT name FROM users WHERE id=$17), COALESCE($18::date, CURRENT_DATE))
+         RETURNING id`,
+        [...vals, user.id, str(fd, 'met_on')],
+      );
+      savedId = ins.rows[0].id;
+    }
+
+    // Rewritten whole rather than diffed. The form has no stable id to diff
+    // against — a row can be inserted above another, renamed and removed in one
+    // edit — and a meeting holds a handful of people, not a table's worth.
+    if (savedId) {
+      await db.query('DELETE FROM exhibition_meeting_contacts WHERE meeting_id = $1', [savedId]);
+      for (const [i, c] of contacts.entries()) {
+        await db.query(
+          `INSERT INTO exhibition_meeting_contacts
+             (meeting_id, sort_order, name, designation, phone, email)
+           VALUES ($1,$2,$3,$4,$5,$6)`,
+          [savedId, i, c.name, c.designation, c.phone, c.email],
+        );
+      }
+    }
+    await db.query('COMMIT');
+  } catch (e) { await db.query('ROLLBACK'); throw e; }
+  finally { db.release(); }
 
   await recordAudit({
     action: meetingId ? 'exhibition_meeting_updated' : 'exhibition_meeting_added',
     entityType: 'exhibition', entityId: String(exhibitionId),
-    summary: `${meetingId ? 'updated' : 'captured'} meeting with ${company}${clientId ? ' (existing client)' : ''}`,
+    summary: `${meetingId ? 'updated' : 'captured'} meeting with ${company}`
+      + `${clientId ? ' (existing client)' : ''}`
+      + `${contacts.length > 1 ? ` · ${contacts.length} contacts` : ''}`,
     actorEmail: user.email,
   }).catch(() => {});
   touch(exhibitionId);
@@ -1044,10 +1131,21 @@ export async function meetingLeadPrefill(exhibitionId: number, meetingId: number
  *
  * The form is the Client Master's own, so everything it enforces about a client
  * record holds here too; the LEAD_ code is generated from the name the same way.
+ *
+ * Refusals come back as `{ ok: false }` rather than being thrown. Thrown, Next
+ * redacts the message in production — which is how "this company is already a
+ * client" reached somebody as "an error occurred", twice, before they gave up.
  */
-export async function convertMeetingToLead(exhibitionId: number, meetingId: number, fd: FormData): Promise<void> {
+export async function convertMeetingToLead(
+  exhibitionId: number, meetingId: number, fd: FormData,
+): Promise<SaveResult> {
   const user = await requireUser();
-  await assertOwner(exhibitionId, user);           // the reviewer, or a sysadmin
+  const ex = await assertOwner(exhibitionId, user);   // the reviewer, or a sysadmin
+  // Closed means closed, including for the one write this module makes outside
+  // its own tables. Returned rather than thrown, like every other refusal here.
+  if (ex.status === 'Closed') {
+    return { ok: false, error: 'This exhibition is closed. A sysadmin has to reopen it before a lead can be created from it.' };
+  }
 
   const { rows: mRows } = await risansiPool.query<{
     company_name: string; client_id: number | null; lead_client_id: number | null;
@@ -1060,12 +1158,16 @@ export async function convertMeetingToLead(exhibitionId: number, meetingId: numb
        FROM exhibition_meetings m JOIN exhibitions e ON e.id = m.exhibition_id
       WHERE m.id = $1 AND m.exhibition_id = $2`, [meetingId, exhibitionId]);
   const meeting = mRows[0];
-  if (!meeting) throw new Error('Meeting not found.');
-  if (meeting.client_id != null) throw new Error('This company is already a client — raise an opportunity on the account instead.');
-  if (meeting.lead_client_id != null) throw new Error('A lead has already been created from this meeting.');
+  if (!meeting) return { ok: false, error: 'Meeting not found.' };
+  if (meeting.client_id != null) {
+    return { ok: false, error: 'This company is already a client — raise an opportunity on the account instead.' };
+  }
+  if (meeting.lead_client_id != null) {
+    return { ok: false, error: 'A lead has already been created from this meeting.' };
+  }
 
   const legalName = normalizeClientName((fd.get('legal_name') as string | null) ?? meeting.company_name);
-  if (!legalName) throw new Error('Company name is required.');
+  if (!legalName) return { ok: false, error: 'Company name is required.' };
 
   const { rows: taken } = await risansiPool.query<{ code: string }>("SELECT code FROM clients WHERE code LIKE 'LEAD\\_%'");
   const used = new Set(taken.map(r => r.code));
@@ -1087,14 +1189,71 @@ export async function convertMeetingToLead(exhibitionId: number, meetingId: numb
      text('client_type'), repId, Number(text('tour_id')) || null, user.email]);
   const clientId = cRows[0].id;
 
-  // The person met at the stand, as the client's first contact.
-  const contactName = text('contact_person') ?? meeting.contact_person;
-  if (contactName) {
+  // Everybody met at the stand, as the client's contacts, in the order they
+  // were entered — the first one primary. Before migration 0120 a meeting held
+  // one person and the second and third were lost in the discussion notes; the
+  // whole point of carrying them here is that they are not lost again.
+  let met: MeetingContact[] = [];
+  try {
+    const { rows } = await risansiPool.query<MeetingContact>(
+      `SELECT name, designation, phone, email FROM exhibition_meeting_contacts
+        WHERE meeting_id = $1 ORDER BY sort_order, id`, [meetingId]);
+    met = rows;
+  } catch { met = []; }     // nothing recorded for this meeting
+  // The form's own contact fields override the first row field by field: the
+  // reviewer may have corrected a name read off a card, or filled in the email
+  // that was missing from it. A blank field changes nothing.
+  const edited = {
+    name: text('contact_person'), designation: text('designation'),
+    phone: text('phone'), email: text('email'),
+  };
+  if (met.length === 0) {
+    const name = edited.name ?? meeting.contact_person;
+    if (name) {
+      met = [{
+        name,
+        designation: edited.designation ?? meeting.designation,
+        phone: edited.phone ?? meeting.phone,
+        email: edited.email ?? meeting.email,
+      }];
+    }
+  } else {
+    met[0] = {
+      name: edited.name ?? met[0].name,
+      designation: edited.designation ?? met[0].designation,
+      phone: edited.phone ?? met[0].phone,
+      email: edited.email ?? met[0].email,
+    };
+  }
+  // Anyone the lead form itself added. The Client Master's drawer carries its
+  // own contact rows, and dropping what somebody typed into them would be the
+  // same loss this whole change is about. Matched on name so a row seeded from
+  // the meeting is not written twice.
+  const extra = fd.get('contacts_json');
+  if (typeof extra === 'string' && extra.trim() !== '') {
+    try {
+      const parsed: unknown = JSON.parse(extra);
+      if (Array.isArray(parsed)) {
+        const seen = new Set(met.map(p => p.name.trim().toUpperCase()));
+        for (const entry of parsed) {
+          const o = (entry ?? {}) as Record<string, unknown>;
+          const pick = (v: unknown) => { const s = typeof v === 'string' ? v.trim() : ''; return s === '' ? null : s; };
+          const name = pick(o.name);
+          if (!name || seen.has(name.toUpperCase())) continue;
+          seen.add(name.toUpperCase());
+          met.push({ name, designation: pick(o.designation), phone: pick(o.phone), email: pick(o.email) });
+        }
+      }
+    } catch { /* a malformed payload adds nobody */ }
+  }
+
+  for (const [i, person] of met.entries()) {
+    if (!person.name) continue;
     await risansiPool.query(
       `INSERT INTO contacts (client_id, name, designation, phone, email, is_primary, added_by, created_at)
-       VALUES ($1,$2,$3,$4,$5,TRUE,$6,NOW())`,
-      [clientId, contactName, text('designation') ?? meeting.designation,
-       text('phone') ?? meeting.phone, text('email') ?? meeting.email, user.email]).catch(() => {});
+       VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())`,
+      [clientId, person.name, person.designation, person.phone, person.email, i === 0, user.email],
+    ).catch(() => {});
   }
 
   // The requirement discussed, as a Suspect: nothing has been quoted, and the
@@ -1121,12 +1280,15 @@ export async function convertMeetingToLead(exhibitionId: number, meetingId: numb
   await recordAudit({
     action: 'exhibition_lead_created', entityType: 'client', entityId: String(clientId),
     entityLabel: `${code} · ${legalName}`,
-    summary: `Lead created from ${meeting.exhibition_name}: ${legalName}${potential ? ` · potential ₹${potential.toLocaleString('en-IN')}` : ''}`,
+    summary: `Lead created from ${meeting.exhibition_name}: ${legalName}`
+      + `${potential ? ` · potential ₹${potential.toLocaleString('en-IN')}` : ''}`
+      + `${met.length > 1 ? ` · ${met.length} contacts` : ''}`,
     actorEmail: user.email,
   }).catch(() => {});
   touch(exhibitionId);
   revalidatePath('/risansi/clients');
   revalidatePath('/risansi/pipeline');
+  return { ok: true };
 }
 
 /** Set a marked meeting aside, with the reason on the record. */

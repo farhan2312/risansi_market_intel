@@ -148,7 +148,14 @@ export function PotentialLeads({ exhibitionId, meetings, editable }: {
             phone: creating.phone,
             email: creating.email,
           }}
-          submit={async fd => { await convertMeetingToLead(exhibitionId, creating.id, fd); }}
+          // The action returns its refusals now. Re-thrown here rather than
+          // passed on, because the drawer's own catch is what prints a message
+          // under its Create button — and a refusal raised on this side of the
+          // boundary reaches it intact instead of being redacted.
+          submit={async fd => {
+            const res = await convertMeetingToLead(exhibitionId, creating.id, fd);
+            if (!res.ok) throw new Error(res.error);
+          }}
           onClose={() => { setCreating(null); router.refresh(); }}
         />
       )}

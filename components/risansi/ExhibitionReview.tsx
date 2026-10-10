@@ -4,15 +4,19 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { fmtInr, fmtInrFull, INTEREST_LEVELS, type ExhibitionStatus } from '@/lib/risansi-exhibition-fields';
 import {
-  updateMeetingCompany, setMeetingFollowUp,
+  updateMeetingCompany, setMeetingFollowUp, convertMeetingToLead,
   reviewExhibitionExpenses, closeExhibition, reopenExhibition, saveExhibitionReview,
   type FollowUpType,
 } from '@/app/actions/risansi-exhibitions';
-import type { MeetingRow, ExpenseRow, ReviewRow } from './ExhibitionDetail';
+import type { MeetingRow, MeetingContactRow, ExpenseRow, ReviewRow } from './ExhibitionDetail';
 import { PotentialLeads } from './PotentialLeads';
 import type { UserOpt } from './ExhibitionsClient';
 import { useTableSort, SortTH } from './SortTH';
 import type { SortableColumn } from '@/lib/risansi-table-sort';
+import { CLIENT_TYPES } from '@/lib/risansi-client-types';
+import { INDIAN_STATES } from '@/lib/risansi-geo';
+import { countryGroupsWith } from '@/lib/risansi-geo-regions';
+import { useCloseGuard, useDialogFocus, CloseX, CloseConfirm, KeepOpenHint } from './FormCloseGuard';
 
 /**
  * The post-event review, worked meeting by meeting.
@@ -38,11 +42,26 @@ export interface ReviewMeeting extends MeetingRow {
   lead_skipped_reason: string | null;
 }
 
-const DISPOSITIONS: { value: FollowUpType; label: string; needsClient: boolean; hint: string }[] = [
+/**
+ * What the review can decide about a meeting.
+ *
+ * Four of these are follow_up_type values the meeting row stores. 'Lead' is not
+ * one of them: converting writes a client, its contacts and an opportunity
+ * through convertMeetingToLead, and leaves follow_up_type alone — so it is a
+ * UI-level choice in the same dropdown rather than a fifth value the column
+ * would have to accept.
+ */
+export type Disposition = FollowUpType | 'Lead';
+
+const DISPOSITIONS: { value: Disposition; label: string; needsClient: boolean; hint: string }[] = [
   { value: 'None',        label: 'No follow-up needed', needsClient: false, hint: 'Closes this meeting off with no further work.' },
   { value: 'Visit',       label: 'Schedule a visit',    needsClient: true,  hint: 'Creates a planned visit in the Field calendar.' },
   { value: 'Action',      label: 'Assign an action',    needsClient: false, hint: 'Creates a task in their Action Registry.' },
   { value: 'Opportunity', label: 'Raise an opportunity', needsClient: true, hint: 'Creates a Suspect-stage opportunity in the pipeline.' },
+  // needsClient is false on purpose: the whole point is that there is no client
+  // yet. It is the one disposition that refuses a company already on the books.
+  { value: 'Lead',        label: 'Convert to Prospective Lead', needsClient: false,
+    hint: 'Creates a Prospective-Lead client with an auto LEAD_ code, every contact met, and a Suspect opportunity for the potential value.' },
 ];
 
 /**
@@ -181,14 +200,19 @@ function MeetingReviewRow({ exhibitionId, meeting: m, users, editable }: {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr]   = useState('');
-  const [type, setType] = useState<FollowUpType>(m.follow_up_type ?? 'None');
+  const [type, setType] = useState<Disposition>(m.follow_up_type ?? 'None');
   const [owner, setOwner] = useState<string>(m.follow_up_owner_id ? String(m.follow_up_owner_id) : '');
   const [due, setDue]   = useState(m.follow_up_date ?? '');
   const [note, setNote] = useState(m.follow_up_note ?? '');
   const [value, setValue] = useState(m.potential_value_inr != null ? String(m.potential_value_inr) : '');
+  const [leadDraft, setLeadDraft] = useState<LeadDraft>(() => newLeadDraft(m));
 
   const def = DISPOSITIONS.find(d => d.value === type)!;
   const blockedNoClient = def.needsClient && m.client_id == null;
+  // Converting is the one disposition refused for a company already on the
+  // books, and the reason is said here rather than only on the failed save.
+  const leadBlocked = type === 'Lead' ? leadBlockedReason(m) : null;
+  const isLead = type === 'Lead';
 
   // The fields above are seeded once, at mount, and this row stays mounted for
   // as long as the table does — so after a save, a refresh, or somebody else
@@ -203,11 +227,31 @@ function MeetingReviewRow({ exhibitionId, meeting: m, users, editable }: {
     setDue(m.follow_up_date ?? '');
     setNote(m.follow_up_note ?? '');
     setValue(m.potential_value_inr != null ? String(m.potential_value_inr) : '');
+    setLeadDraft(newLeadDraft(m));
     setErr('');
     setOpen(true);
   }
 
   async function save() {
+    // Converting is not a follow_up_type, so it takes its own route: the client
+    // form's fields, and the action that writes a client, its contacts and an
+    // opportunity rather than a row on the meeting.
+    if (type === 'Lead') {
+      const problem = leadBlocked ?? leadDraftProblem(leadDraft);
+      if (problem) { setErr(problem); return; }
+      setBusy(true); setErr('');
+      try {
+        const res = await convertMeetingToLead(exhibitionId, m.id, leadFormData(leadDraft));
+        if (!res.ok) { setErr(res.error); return; }
+        setOpen(false); router.refresh();
+      } catch (e) {
+        const raw = e instanceof Error ? e.message : '';
+        const redacted = !raw || /unexpected response|Server Components render/i.test(raw)
+          || Boolean((e as { digest?: string })?.digest);
+        setErr(redacted ? 'Could not create the lead.' : raw);
+      } finally { setBusy(false); }
+      return;
+    }
     setBusy(true); setErr('');
     try {
       const res = await setMeetingFollowUp(exhibitionId, m.id, {
@@ -245,6 +289,13 @@ function MeetingReviewRow({ exhibitionId, meeting: m, users, editable }: {
         <td data-label="Result" style={TD}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             {result && <span style={DONE_PILL}>{result}</span>}
+            {/* A lead is a separate fact from the follow-up — a meeting can have
+                both — so it gets its own pill rather than replacing the other. */}
+            {m.lead_client_id != null && (
+              <a href={`/risansi/clients/${m.lead_client_id}`} style={{ ...KNOWN_PILL, textDecoration: 'none' }}>
+                ✓ Lead{m.lead_client_code ? ` · ${m.lead_client_code}` : ''}
+              </a>
+            )}
             {editable && (
               <button onClick={() => (open ? setOpen(false) : openEditor())} style={LINK_BTN}>
                 {open ? 'Close' : m.follow_up_type ? 'Change' : 'Decide'}
@@ -271,7 +322,11 @@ function MeetingReviewRow({ exhibitionId, meeting: m, users, editable }: {
                   </select>
                   <p style={HINT}>{def.hint}</p>
                 </div>
-                {type !== 'None' && (
+                {/* Converting picks its owner inside the client fields below —
+                    a lead's primary rep is an attribute of the client, not an
+                    assignment — so this select would be a second one for the
+                    same question. */}
+                {type !== 'None' && !isLead && (
                   <div>
                     <label style={LABEL}>Assign to</label>
                     <select value={owner} onChange={e => setOwner(e.target.value)} style={INPUT}>
@@ -281,6 +336,16 @@ function MeetingReviewRow({ exhibitionId, meeting: m, users, editable }: {
                   </div>
                 )}
               </div>
+
+              {isLead && (
+                <>
+                  {leadBlocked && <div style={{ ...ERR, marginTop: 10 }}>{leadBlocked}</div>}
+                  {!leadBlocked && (
+                    <LeadFields draft={leadDraft} users={users} contacts={m.contacts ?? []}
+                      onChange={p => setLeadDraft(d => ({ ...d, ...p }))} />
+                  )}
+                </>
+              )}
 
               {(type === 'Visit' || type === 'Action') && (
                 <div className="exh-2col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
@@ -319,13 +384,23 @@ function MeetingReviewRow({ exhibitionId, meeting: m, users, editable }: {
               )}
               {err && <div style={{ ...ERR, marginTop: 10 }}>{err}</div>}
 
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
-                <button onClick={() => setOpen(false)} style={BTN_GHOST}>Cancel</button>
-                <button onClick={save} disabled={busy || blockedNoClient || (type !== 'None' && !owner)}
-                  style={{ ...BTN_PRIMARY, opacity: busy || blockedNoClient || (type !== 'None' && !owner) ? 0.55 : 1 }}>
-                  {busy ? 'Saving…' : 'Save follow-up'}
-                </button>
-              </div>
+              {(() => {
+                // Converting asks for an owner inside the client fields, where
+                // blank is a valid answer, so the "pick who" rule is not its rule.
+                const stop = isLead
+                  ? !!leadBlocked
+                  : blockedNoClient || (type !== 'None' && !owner);
+                return (
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
+                    <button onClick={() => setOpen(false)} style={BTN_GHOST}>Cancel</button>
+                    <button onClick={save} disabled={busy || stop}
+                      style={{ ...BTN_PRIMARY, opacity: busy || stop ? 0.55 : 1 }}>
+                      {busy ? (isLead ? 'Creating…' : 'Saving…')
+                        : isLead ? 'Create Prospective Lead' : 'Save follow-up'}
+                    </button>
+                  </div>
+                );
+              })()}
             </div>
           </td>
         </tr>
@@ -727,6 +802,371 @@ function ClosedBanner({ closedAt, closedByName, exhibitionId, isSysadmin }: {
           <button onClick={() => setOpen(true)} style={{ ...LINK_BTN, marginLeft: 8 }}>Reopen</button>
         )
       )}
+    </div>
+  );
+}
+
+// ── A meeting becomes a Prospective Lead ─────────────────────────
+//
+// The company met at the stand is not on the books. Converting creates a
+// Prospective-Lead client with an auto-generated LEAD_ code, carries every
+// person met across as a contact (the first primary), and opens a Suspect
+// opportunity for the potential value the rep wrote down. convertMeetingToLead
+// does all of that; what follows is the form it reads.
+//
+// Which fields: the ones the Client Master's own create form enforces — legal
+// name, industry, client type — plus the location it offers and the primary
+// rep, because a client with nobody owning it is visible to admins only and
+// waits in Reps & Managers → Unassigned until somebody notices. There is
+// deliberately no ERP code field: a Prospective-Lead's code is generated from
+// the name, which is the whole difference between a lead and a client.
+
+/** What the lead form holds. Serialised straight into the action's FormData. */
+export interface LeadDraft {
+  legal_name: string; industry: string; client_type: string;
+  market_type: string; is_sugar: boolean;
+  country: string; state: string; city: string; address: string; google_maps_url: string;
+  primary_rep_id: string; tour_id: string;
+  contact_person: string; designation: string; phone: string; email: string;
+}
+
+/** The meeting, as much of it as the lead form needs. */
+export interface LeadSource {
+  id: number; company_name: string; city: string | null;
+  contact_person: string | null; designation: string | null;
+  phone: string | null; email: string | null;
+  met_by?: number | null;
+  client_id: number | null; client_legal_name: string | null;
+  lead_client_id?: number | null;
+  contacts?: MeetingContactRow[];
+}
+
+const MARKET_TYPES = ['Domestic', 'Export'];
+
+// The same words the Client Master ticks "Sugar" from. Its list also spells out
+// the two compound industries ("Sugar + Distillery"), which these three already
+// match on substring, so the behaviour is identical.
+const SUGAR_WORDS = ['SUGAR', 'DISTILLERY', 'JAGGERY'];
+const looksSugar = (industry: string) =>
+  SUGAR_WORDS.some(w => industry.toUpperCase().includes(w));
+
+export function newLeadDraft(m: LeadSource): LeadDraft {
+  const first = m.contacts?.[0];
+  return {
+    legal_name: m.company_name ?? '',
+    industry: '', client_type: '',
+    market_type: 'Domestic', is_sugar: false,
+    country: 'India', state: '', city: m.city ?? '', address: '', google_maps_url: '',
+    // Whoever took the meeting is the obvious owner of what it becomes. The
+    // action falls back to them anyway if this is left blank.
+    primary_rep_id: m.met_by != null ? String(m.met_by) : '',
+    tour_id: '',
+    contact_person: first?.name ?? m.contact_person ?? '',
+    designation: first?.designation ?? m.designation ?? '',
+    phone: first?.phone ?? m.phone ?? '',
+    email: first?.email ?? m.email ?? '',
+  };
+}
+
+export function leadFormData(d: LeadDraft): FormData {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(d)) fd.set(k, typeof v === 'boolean' ? String(v) : v);
+  return fd;
+}
+
+/**
+ * Why this draft cannot be saved yet, in the words the Client Master would use.
+ * Checked here so a missing industry is a sentence next to the field rather
+ * than a round trip, and checked again by the client form's own constraints
+ * when the row lands.
+ */
+export function leadDraftProblem(d: LeadDraft): string | null {
+  if (!d.legal_name.trim())  return 'Company name is required.';
+  if (!d.industry.trim())    return 'Pick the industry — the Client Master requires one on every client.';
+  if (!d.client_type.trim()) return 'Pick the client type — the Client Master requires one on every client.';
+  return null;
+}
+
+/** Already on the books, so there is nothing to create. Said here as well as by
+ *  the action, so the reason is on screen before the button is pressed. */
+export function leadBlockedReason(m: LeadSource): string | null {
+  if (m.client_id != null) {
+    return `${m.client_legal_name ?? m.company_name} is already a client — raise an opportunity on the account instead.`;
+  }
+  if (m.lead_client_id != null) return 'A lead has already been created from this meeting.';
+  return null;
+}
+
+/**
+ * The client fields, revealed in whatever form is asking for them — the
+ * disposition editor in the review table, or the dialog the Meetings tab opens.
+ * Controlled from the caller's draft so either one can serialise it the same way.
+ */
+export function LeadFields({ draft, onChange, users, contacts }: {
+  draft: LeadDraft;
+  onChange: (patch: Partial<LeadDraft>) => void;
+  users: UserOpt[];
+  contacts: MeetingContactRow[];
+}) {
+  const [industries, setIndustries] = useState<string[]>([]);
+  const [tours, setTours] = useState<Array<{ id: string; name: string; zone: string | null }>>([]);
+
+  // Fetched when the fields are revealed, not with the table — thirty-four
+  // meeting rows must not mean thirty-four requests for the same two lists.
+  useEffect(() => {
+    fetch('/api/risansi/industries').then(r => r.json())
+      .then(d => setIndustries(Array.isArray(d) ? d : [])).catch(() => {});
+  }, []);
+  useEffect(() => {
+    fetch('/api/risansi/tours').then(r => r.json())
+      .then(d => setTours(Array.isArray(d) ? d : [])).catch(() => {});
+  }, []);
+
+  // Reps and managers own accounts. Whoever took the meeting stays in the list
+  // even if they are neither, so the pre-filled owner is visible rather than
+  // looking like a blank select that nonetheless posts somebody.
+  const owners = users.filter(u =>
+    u.role === 'rep' || u.role === 'manager' || String(u.id) === draft.primary_rep_id);
+  const industryOpts = draft.industry && !industries.includes(draft.industry)
+    ? [draft.industry, ...industries] : industries;
+  const rest = contacts.slice(1).filter(c => c.name);
+
+  return (
+    <div style={{ display: 'grid', gap: 12, marginTop: 12, padding: 12, borderRadius: 8,
+                  background: 'var(--bg-paper)', border: '1px solid var(--line-strong)' }}>
+      <div style={{ fontSize: 11.5, color: 'var(--fg-2)' }}>
+        A new <b>Prospective-Lead</b> client. Its code is generated from the name — no ERP
+        code is needed, and one can be given later when they become a client.
+      </div>
+
+      <div className="exh-2col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <Fld label="Company legal name *">
+          <input value={draft.legal_name} onChange={e => onChange({ legal_name: e.target.value })}
+            style={INPUT} aria-label="Company legal name" />
+        </Fld>
+        <Fld label="Primary rep — owns the account"
+          hint={draft.primary_rep_id ? undefined : 'Left blank, whoever took the meeting gets it.'}>
+          <select value={draft.primary_rep_id} onChange={e => onChange({ primary_rep_id: e.target.value })} style={INPUT}>
+            <option value="">— Whoever took the meeting —</option>
+            {owners.map(u => (
+              <option key={u.id} value={String(u.id)}>{u.name}{u.role === 'manager' ? ' · manager' : ''}</option>
+            ))}
+          </select>
+        </Fld>
+      </div>
+
+      <div className="exh-2col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <Fld label="Industry *">
+          <select value={draft.industry} style={INPUT}
+            onChange={e => onChange({ industry: e.target.value, is_sugar: looksSugar(e.target.value) })}>
+            <option value="">— Select industry —</option>
+            {industryOpts.map(i => <option key={i} value={i}>{i}</option>)}
+          </select>
+        </Fld>
+        <Fld label="Client type *">
+          <select value={draft.client_type} onChange={e => onChange({ client_type: e.target.value })} style={INPUT}>
+            <option value="">— Select type —</option>
+            {CLIENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </Fld>
+      </div>
+
+      <div className="exh-2col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <Fld label="Market">
+          <select value={draft.market_type} onChange={e => onChange({ market_type: e.target.value })} style={INPUT}>
+            {MARKET_TYPES.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </Fld>
+        <Fld label="Sugar / Non-Sugar" hint="Set from the industry; change it if that is wrong.">
+          <div style={{ display: 'flex', gap: 6 }}>
+            {([['Sugar', true], ['Non-Sugar', false]] as const).map(([label, on]) => {
+              const picked = draft.is_sugar === on;
+              return (
+                <button key={label} type="button" onClick={() => onChange({ is_sugar: on })}
+                  aria-pressed={picked}
+                  style={{
+                    flex: 1, padding: '8px 10px', fontSize: 13, fontFamily: 'inherit', cursor: 'pointer',
+                    borderRadius: 6, fontWeight: picked ? 600 : 500,
+                    border: `1px solid ${picked ? 'var(--accent)' : 'var(--line-strong)'}`,
+                    background: picked ? 'var(--accent-soft)' : 'var(--bg-paper)',
+                    color: picked ? 'var(--title)' : 'var(--fg-2)',
+                  }}>{label}</button>
+              );
+            })}
+          </div>
+        </Fld>
+      </div>
+
+      <div className="exh-2col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <Fld label="Country">
+          <select value={draft.country} onChange={e => onChange({ country: e.target.value, state: '' })} style={INPUT}>
+            {countryGroupsWith(draft.country).map(g => (
+              <optgroup key={g.region} label={g.region}>
+                {g.countries.map(c => <option key={c} value={c}>{c}</option>)}
+              </optgroup>
+            ))}
+          </select>
+        </Fld>
+        <Fld label="State">
+          {draft.country === 'India' ? (
+            <select value={draft.state} onChange={e => onChange({ state: e.target.value })} style={INPUT}>
+              <option value="">— Select state —</option>
+              {INDIAN_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          ) : (
+            <input value={draft.state} onChange={e => onChange({ state: e.target.value })}
+              placeholder="State / region" style={INPUT} aria-label="State or region" />
+          )}
+        </Fld>
+      </div>
+
+      <div className="exh-2col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <Fld label="City">
+          <input value={draft.city} onChange={e => onChange({ city: e.target.value })} style={INPUT} aria-label="City" />
+        </Fld>
+        <Fld label="Tour">
+          <select value={draft.tour_id} onChange={e => onChange({ tour_id: e.target.value })} style={INPUT}>
+            <option value="">— No tour —</option>
+            {tours.map(t => <option key={t.id} value={t.id}>{t.name}{t.zone ? ` · ${t.zone}` : ''}</option>)}
+          </select>
+        </Fld>
+      </div>
+
+      <Fld label="Address">
+        <textarea rows={2} value={draft.address} onChange={e => onChange({ address: e.target.value })}
+          style={{ ...INPUT, resize: 'vertical' }} aria-label="Address" />
+      </Fld>
+      <Fld label="Google Maps URL">
+        <input value={draft.google_maps_url} onChange={e => onChange({ google_maps_url: e.target.value })}
+          placeholder="https://maps.google.com/…" style={INPUT} aria-label="Google Maps URL" />
+      </Fld>
+
+      <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10 }}>
+        <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+          Primary contact
+        </div>
+        <div className="exh-2col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Fld label="Name">
+            <input value={draft.contact_person} onChange={e => onChange({ contact_person: e.target.value })}
+              style={INPUT} aria-label="Contact name" />
+          </Fld>
+          <Fld label="Designation">
+            <input value={draft.designation} onChange={e => onChange({ designation: e.target.value })}
+              style={INPUT} aria-label="Contact designation" />
+          </Fld>
+        </div>
+        <div className="exh-2col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
+          <Fld label="Phone">
+            <input value={draft.phone} onChange={e => onChange({ phone: e.target.value })}
+              style={INPUT} aria-label="Contact phone" />
+          </Fld>
+          <Fld label="Email">
+            <input value={draft.email} onChange={e => onChange({ email: e.target.value })}
+              style={INPUT} aria-label="Contact email" />
+          </Fld>
+        </div>
+        {rest.length > 0 && (
+          <p style={{ ...HINT, marginTop: 8 }}>
+            {rest.length === 1 ? 'One more person' : `${rest.length} more people`} met at this
+            meeting {rest.length === 1 ? 'comes' : 'come'} across too
+            — {rest.map(c => c.name).join(', ')}.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The same conversion, as a dialog, for the Meetings tab.
+ *
+ * The review is where a marked company is decided, but a rep who has just
+ * captured a meeting wants the lead there and then rather than after the event
+ * closes — so the Meetings tab offers it on the row, and this is what opens.
+ * Closing follows the house rule: the backdrop does not throw away typing, and
+ * the × asks first.
+ */
+export function MeetingLeadDialog({ exhibitionId, meeting, users, onDone }: {
+  exhibitionId: number; meeting: LeadSource; users: UserOpt[]; onDone: () => void;
+}) {
+  const router = useRouter();
+  const [draft, setDraft] = useState<LeadDraft>(() => newLeadDraft(meeting));
+  const [dirty, setDirty] = useState(false);
+  const [busy, setBusy]   = useState(false);
+  const [err, setErr]     = useState('');
+  const panel = useRef<HTMLDivElement | null>(null);
+  const guard = useCloseGuard({ dirty, onClose: onDone, enabled: !busy });
+  useDialogFocus(panel);
+
+  const blocked = leadBlockedReason(meeting);
+  const patch = (p: Partial<LeadDraft>) => { setDraft(d => ({ ...d, ...p })); setDirty(true); };
+
+  async function save() {
+    const problem = blocked ?? leadDraftProblem(draft);
+    if (problem) { setErr(problem); return; }
+    setBusy(true); setErr('');
+    try {
+      const res = await convertMeetingToLead(exhibitionId, meeting.id, leadFormData(draft));
+      if (!res.ok) { setErr(res.error); setBusy(false); return; }
+      router.refresh(); onDone();
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : '';
+      const redacted = !raw || /unexpected response|Server Components render/i.test(raw)
+        || Boolean((e as { digest?: string })?.digest);
+      setErr(redacted ? 'Could not create the lead. You may not be the person running this exhibition.' : raw);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div onClick={guard.onBackdropClick}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 430, background: 'rgba(10,22,40,0.45)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+      }}>
+      <div className="risansi-modal" ref={panel} tabIndex={-1} role="dialog" aria-modal="true"
+        aria-label={`Convert ${meeting.company_name} to a Prospective Lead`}
+        style={{
+          width: 760, maxWidth: '100%', maxHeight: '92vh', overflowY: 'auto',
+          background: 'var(--bg-paper)', color: 'var(--fg)', borderRadius: 12,
+          boxShadow: '0 24px 64px rgba(10,61,143,0.25)', outline: 'none',
+        }}>
+        <div style={{
+          padding: '14px 18px', background: 'var(--accent-soft)', color: 'var(--title)',
+          borderBottom: '1px solid var(--accent-line)', position: 'sticky', top: 0, zIndex: 1,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, overflowWrap: 'anywhere' }}>
+                {meeting.company_name} → Prospective Lead
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--fg-2)', marginTop: 3 }}>
+                Creates the client, its contacts and a Suspect opportunity.
+              </div>
+            </div>
+            <CloseX onClick={guard.requestClose} title="Close this form" />
+          </div>
+          {guard.asking && (
+            <CloseConfirm
+              message="Close without creating the lead? What you typed here will be lost."
+              onConfirm={guard.confirmClose} onCancel={guard.keepEditing} />
+          )}
+          {guard.hint && !guard.asking && <KeepOpenHint />}
+        </div>
+
+        <div style={{ padding: 18 }}>
+          {blocked && <div style={{ ...ERR, marginBottom: 12 }}>{blocked}</div>}
+          <LeadFields draft={draft} onChange={patch} users={users} contacts={meeting.contacts ?? []} />
+          {err && <div style={{ ...ERR, marginTop: 12 }}>{err}</div>}
+          <div className="exh-actions" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
+            <button type="button" onClick={guard.requestClose} style={BTN_GHOST}>Cancel</button>
+            <button type="button" onClick={save} disabled={busy || !!blocked}
+              style={{ ...BTN_PRIMARY, opacity: busy || blocked ? 0.55 : 1 }}>
+              {busy ? 'Creating…' : 'Create Prospective Lead'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
