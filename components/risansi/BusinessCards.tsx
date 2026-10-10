@@ -142,8 +142,16 @@ export function BusinessCards({ meetingId, pending, onPendingChange, canEdit = t
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           {/* capture="environment" opens the rear camera straight away on a
               phone. On a desktop browser it is ignored and this behaves as a
-              second file picker, so the button is honest either way. */}
-          <input ref={camRef} type="file" accept="image/*" capture="environment"
+              second file picker, so the button is honest either way.
+
+              CARD_ACCEPT, not image/*. This said image/* and the photo was
+              then refused on arrival: an iPhone shoots HEIC, and a camera
+              input that advertises "any image" is taken at its word and sends
+              one, while the validator accepts JPG and PNG only. Naming the two
+              types is what makes iOS transcode to JPEG before it uploads. The
+              picker and the validator have to agree, which is the whole reason
+              CARD_ACCEPT is a shared constant. */}
+          <input ref={camRef} type="file" accept={CARD_ACCEPT} capture="environment"
             multiple onChange={take} style={{ display: 'none' }} />
           <input ref={fileRef} type="file" accept={CARD_ACCEPT}
             multiple onChange={take} style={{ display: 'none' }} />

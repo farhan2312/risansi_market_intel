@@ -73,9 +73,13 @@ export function checkCardPhoto(fileName: string, declaredMime: string, size: num
     k.mime.test(declaredMime) &&
     k.magic.every((b, i) => head[i] === b));
 
-  return kind
-    ? { ok: true, mime: kind.out }
-    : { ok: false, error: 'Take or attach a JPG or PNG photo of the card.' };
+  if (kind) return { ok: true, mime: kind.out };
+  // Name the likely cause. A phone photo refused with a bare "JPG or PNG"
+  // reads as the app being broken, because the person did take a photo.
+  const heic = /\.(heic|heif)$/i.test(fileName) || /hei[cf]/i.test(declaredMime);
+  return { ok: false, error: heic
+    ? 'That photo is in Apple’s HEIC format, which the portal cannot display. In the iPhone Settings, under Camera → Formats, choose "Most Compatible" — then retake it, or pick an existing JPG from the gallery.'
+    : 'Take or attach a JPG or PNG photo of the card.' };
 }
 
 /** Cards come from a camera or the gallery, so the picker advertises images. */
