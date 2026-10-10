@@ -31,8 +31,23 @@ export interface ComplaintPartRow {
 }
 
 /** The lookup parent whose children are a joint's parts. */
-const JOINT_CHILDREN = 'Child Parts of Joints';
 const JOINT = 'Joint';
+
+/**
+ * What a joint is made of, for the "+ child parts" button.
+ *
+ * A constant rather than a lookup list. These were a part type of their own
+ * until the Complaint Team pointed out that a Bush is not a different kind of
+ * part from a joint, it is a part of one; they are part NAMES under Joint now.
+ * The button needs to know which of Joint's names are the children rather than
+ * the four assemblies, and that is a fact about how a joint is built, not a
+ * list anybody revises. A twelfth is added through Add On under Joint and
+ * picked from the dropdown like any other name.
+ */
+const JOINT_CHILDREN = [
+  'Bush', 'Protector', 'Shaft', 'Shaft Head', 'Rotor Head', 'Connecting Rod',
+  'Sleeve', 'Pin', 'Dowel Pin', 'Threaded Pin', 'Head Pin',
+] as const;
 
 type ColKind = 'text' | 'select' | 'qty' | 'date';
 interface Col {
@@ -127,12 +142,17 @@ export function ComplaintPartsEditor({ complaintId, category, initial, lookups, 
    * being recorded, so one click lays the whole child set out, carrying the
    * joint's EC down with it — the children came out on the same EC.
    */
-  const children = cascades?.part_name?.[JOINT_CHILDREN] ?? [];
+  const children = JOINT_CHILDREN as readonly string[];
   const addJointChildren = (i: number) => {
     const from = rows[i];
-    const already = new Set(rows.filter(r => r.part_type === JOINT_CHILDREN && (r.ec_no ?? '') === (from.ec_no ?? '')).map(r => r.part_name));
+    // Rows are typed Joint, like the assembly they came from. Older rows may
+    // still carry the retired type, so both count as "already there" and the
+    // button does not add an eleventh Bush beside the one that exists.
+    const already = new Set(rows
+      .filter(r => (r.part_type === JOINT || r.part_type === 'Child Parts of Joints') && (r.ec_no ?? '') === (from.ec_no ?? ''))
+      .map(r => r.part_name));
     const fresh = children.filter(c => !already.has(c)).map(c => ({
-      ...BLANK, part_type: JOINT_CHILDREN, part_name: c, ec_no: from.ec_no, ec_date: from.ec_date,
+      ...BLANK, part_type: JOINT, part_name: c, ec_no: from.ec_no, ec_date: from.ec_date,
     }));
     if (!fresh.length) { setMsg({ ok: true, text: 'Every child part of this joint is already on the list.' }); return; }
     setRows(cur => [...cur.slice(0, i + 1), ...fresh, ...cur.slice(i + 1)]);

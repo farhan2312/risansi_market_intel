@@ -39,8 +39,8 @@ export default async function NewComplaintPage({ searchParams }: { searchParams:
           <h1 style={{ fontSize: 22, fontWeight: 600, margin: '5px 0 3px' }}>Lodge a complaint</h1>
           <p style={{ fontSize: 12.5, color: 'var(--fg-3)', margin: '0 0 16px', maxWidth: 720, lineHeight: 1.5 }}>
             Just enough to get it on the record: who it is about, and anything that came with it.
-            A complaint number is generated straight away. The source, category and description are
-            filled in on the Registration page afterwards, by whoever looks at it first.
+            A complaint number is generated straight away. The source and category are filled in on
+            the Registration page afterwards, where the description stays editable too.
           </p>
           {clients.length ? (
             <NewComplaintForm clients={clients} preselect={preselect} />

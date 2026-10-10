@@ -50,6 +50,7 @@ export function NewComplaintForm({ clients, preselect }: {
   const [fromId, setFromId] = useState<number | ''>(
     preselect && clients.some(c => c.id === preselect) ? preselect : '');
   const [endId, setEndId] = useState<number | ''>('');
+  const [details, setDetails] = useState('');
   const [staged, setStaged] = useState<{ key: string; file: File }[]>([]);
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -61,6 +62,7 @@ export function NewComplaintForm({ clients, preselect }: {
     ? (isOem ? 'Name the OEM the complaint came from.' : 'Pick the client.')
     : isOem && !endId ? 'Name the end client whose pump it is.'
     : isOem && endId === fromId ? 'The OEM and the end client cannot be the same account.'
+    : !details.trim() ? 'Say what the complaint is about.'
     : null;
 
   const submit = () => {
@@ -72,6 +74,7 @@ export function NewComplaintForm({ clients, preselect }: {
         values: {
           client_type: clientType,
           oem_client_id: isOem ? Number(fromId) : null,
+          details: details.trim(),
         },
       });
       if (!res.ok) { setMsg({ ok: false, text: res.error }); return; }
@@ -137,6 +140,26 @@ export function NewComplaintForm({ clients, preselect }: {
 
       <section style={PANEL}>
         <div style={HEAD}>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>What happened</span>
+          <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>in the words it was reported in</span>
+        </div>
+        <div style={{ padding: '14px 16px' }}>
+          <textarea
+            value={details}
+            onChange={e => setDetails(e.target.value)}
+            rows={4}
+            placeholder="What the customer reported — the pump, the symptom, what they said."
+            style={{ ...INPUT, height: 'auto', resize: 'vertical', lineHeight: 1.5 }}
+          />
+          <div style={{ fontSize: 10.5, color: 'var(--fg-3)', marginTop: 6, lineHeight: 1.45 }}>
+            Write it as it was told to you. It stays editable on the Registration page, so a fuller
+            account can replace this once somebody has looked at the complaint.
+          </div>
+        </div>
+      </section>
+
+      <section style={PANEL}>
+        <div style={HEAD}>
           <span style={{ fontSize: 13, fontWeight: 600 }}>Photos, video & documents</span>
           <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>attached as soon as the number is generated</span>
           {staged.length > 0 && <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>{staged.length}</span>}
@@ -181,7 +204,7 @@ export function NewComplaintForm({ clients, preselect }: {
         <span style={{ fontSize: 11, color: blocker ? 'var(--warn, #B45309)' : 'var(--fg-3)' }}>
           {blocker ?? (staged.length
             ? `${staged.length} file${staged.length === 1 ? '' : 's'} will be attached. The number comes back straight away.`
-            : 'A number is generated straight away. Source, category and description are filled in on the next screen.')}
+            : 'A number is generated straight away. The source and category are filled in on the next screen.')}
         </span>
       </div>
     </div>

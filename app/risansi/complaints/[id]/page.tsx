@@ -255,9 +255,9 @@ export default async function ComplaintPage({ params, searchParams }: {
                   <div style={{ padding: '10px 13px', borderRadius: 6, fontSize: 12.5, lineHeight: 1.5, marginBottom: 10,
                                 background: 'var(--pos-soft)', border: '1px solid var(--pos)', color: 'var(--pos-strong)' }}>
                     Lodged as <b style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{c.complaint_no}</b>.
-                    It is on the record and anyone can find it now. Fill in the source, category and
-                    description below once you have looked at it — until then it shows as <b>NEW</b> on
-                    the complaints list.
+                    It is on the record and anyone can find it now. Fill in the source and category below
+                    once you have looked at it, and correct the description if it needs more — until
+                    then it shows as <b>NEW</b> on the complaints list.
                   </div>
                 )}
                 {failedFiles.length > 0 && (
