@@ -179,4 +179,4 @@ const PANEL: CSSProperties = { background: 'var(--bg-paper)', border: '1px solid
 const LINK: CSSProperties = { color: 'var(--brand-blue, #1A5CB8)', textDecoration: 'none', fontWeight: 600 };
 const INPUT: CSSProperties = { width: 240, maxWidth: '100%', padding: '7px 10px', fontSize: 12.5, fontFamily: 'inherit', border: '1px solid var(--line-strong)', borderRadius: 6, background: 'var(--bg-paper)', color: 'var(--fg)', boxSizing: 'border-box' };
 const GHOST: CSSProperties = { padding: '6px 11px', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', border: '1px solid var(--line-strong)', borderRadius: 6, background: 'var(--bg-paper)', color: 'var(--fg-2)', cursor: 'pointer' };
-const PRIMARY: CSSProperties = { padding: '6px 12px', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', border: 'none', borderRadius: 6, background: '#0A3D8F', color: '#fff', cursor: 'pointer' };
+const PRIMARY: CSSProperties = { padding: '6px 12px', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', border: 'none', borderRadius: 6, background: 'var(--accent-fill)', color: 'var(--on-accent)', cursor: 'pointer' };

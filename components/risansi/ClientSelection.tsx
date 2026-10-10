@@ -127,7 +127,7 @@ export function SelectClientBox({ code }: { code: string }) {
       checked={sel.ready ? sel.has(code) : false}
       onChange={() => sel.toggle(code)}
       aria-label={`Select ${code}`}
-      style={{ width: 14, height: 14, accentColor: '#0A3D8F', cursor: 'pointer', verticalAlign: 'middle' }}
+      style={{ width: 14, height: 14, accentColor: 'var(--title)', cursor: 'pointer', verticalAlign: 'middle' }}
     />
   );
 }
@@ -145,7 +145,7 @@ export function SelectPageBox({ codes }: { codes: string[] }) {
       ref={el => { if (el) el.indeterminate = sel.ready && some; }}
       onChange={() => (on ? sel.clearPage(codes) : sel.selectPage(codes))}
       aria-label="Select every client on this page"
-      style={{ width: 14, height: 14, accentColor: '#0A3D8F', cursor: 'pointer', verticalAlign: 'middle' }}
+      style={{ width: 14, height: 14, accentColor: 'var(--title)', cursor: 'pointer', verticalAlign: 'middle' }}
     />
   );
 }

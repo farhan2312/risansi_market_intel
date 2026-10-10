@@ -23,7 +23,7 @@ export interface ActionItem {
   from_visit: boolean;
 }
 
-const PRIORITY_COLOR: Record<string, string> = { High: '#DC2626', Medium: '#B45309', Low: '#64748B' };
+const PRIORITY_COLOR: Record<string, string> = { High: 'var(--neg)', Medium: 'var(--warn-strong)', Low: '#64748B' };
 
 // The Client 360 "Activity Register": every action item logged for this client
 // (via a visit or added directly here), plus a New Activity button that opens

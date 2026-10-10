@@ -45,6 +45,15 @@ export const BUG_TYPE_LABELS: Record<BugType, string> = {
   bug: 'Bug', feature: 'Feature',
 };
 
+/**
+ * Literals on purpose, not tokens awaiting conversion.
+ *
+ * These are filled pill backgrounds carrying a white label. A token such as
+ * --neg or --purple lightens in dark mode, which would drop the label to around
+ * 2.8:1; held at these values white stays at 5.7:1 in both themes. They read a
+ * little flat against the dark page (2.75:1) and that is the trade — a quiet
+ * pill rather than an unreadable one. Do not "fix" these into --neg / --purple.
+ */
 export const BUG_TYPE_COLORS: Record<BugType, string> = {
   bug: '#C81E1E', feature: '#7C3AED',
 };

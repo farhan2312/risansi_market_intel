@@ -113,7 +113,7 @@ const TITLE: CSSProperties = {
 };
 const SUB: CSSProperties = { fontSize: 11, color: 'var(--fg-3)' };
 const EDIT: CSSProperties = {
-  marginLeft: 'auto', background: 'none', border: 'none', color: '#1A5CB8',
+  marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--brand-blue)',
   cursor: 'pointer', fontSize: 11, fontWeight: 600, fontFamily: 'inherit', textDecoration: 'underline',
 };
 const PANEL: CSSProperties = {
@@ -124,6 +124,6 @@ const ACTIVE: CSSProperties = {
 };
 const WARN: CSSProperties = {
   fontSize: 11.5, lineHeight: 1.5, marginBottom: 8, padding: '7px 10px', borderRadius: 6,
-  color: 'var(--warn-strong, #92400E)', background: 'var(--warn-soft, #FEF3C7)',
-  border: '1px solid var(--warn, #F59E0B)',
+  color: 'var(--warn-strong)', background: 'var(--warn-soft)',
+  border: '1px solid var(--warn)',
 };

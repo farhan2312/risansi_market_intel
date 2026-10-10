@@ -9,11 +9,11 @@ export interface TagProps {
 }
 
 const KIND_STYLES: Record<TagKind, CSSProperties> = {
-  pos:    { background: '#D1FAE5', color: '#065F46', borderColor: 'rgba(5,150,105,0.20)' },
-  neg:    { background: '#FEE2E2', color: '#9B1C1C', borderColor: 'rgba(220,38,38,0.20)' },
-  warn:   { background: '#FEF3C7', color: '#92400E', borderColor: 'rgba(217,119,6,0.25)' },
-  info:   { background: '#DBEAFE', color: '#1E40AF', borderColor: 'rgba(37,99,235,0.20)' },
-  accent: { background: 'rgba(26,92,184,0.10)', color: '#1A5CB8', borderColor: 'rgba(26,92,184,0.22)' },
+  pos:    { background: 'var(--pos-soft)', color: 'var(--pos-strong)', borderColor: 'rgba(5,150,105,0.20)' },
+  neg:    { background: 'var(--neg-soft)', color: 'var(--neg-strong)', borderColor: 'rgba(220,38,38,0.20)' },
+  warn:   { background: 'var(--warn-soft)', color: 'var(--warn-strong)', borderColor: 'rgba(217,119,6,0.25)' },
+  info:   { background: 'var(--info-soft)', color: 'var(--info-strong)', borderColor: 'rgba(37,99,235,0.20)' },
+  accent: { background: 'rgba(26,92,184,0.10)', color: 'var(--brand-blue)', borderColor: 'rgba(26,92,184,0.22)' },
 };
 
 const BASE: CSSProperties = {

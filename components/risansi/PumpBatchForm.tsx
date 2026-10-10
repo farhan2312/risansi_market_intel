@@ -243,10 +243,10 @@ function Field({ label, value, onChange, ph }: { label: string; value: string; o
 
 const LBL: CSSProperties = { fontSize: 10, fontWeight: 600, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block' };
 const INP: CSSProperties = { width: '100%', marginTop: 3, padding: '7px 9px', fontSize: 13, fontFamily: 'inherit', background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', borderRadius: 6, color: 'var(--fg)', outline: 'none', boxSizing: 'border-box' };
-const EDIT_CARD: CSSProperties = { border: '1px solid var(--accent-line, #BBD)', background: 'var(--bg-elev)', borderRadius: 8, padding: 12, marginBottom: 10 };
-const XBTN: CSSProperties = { flexShrink: 0, width: 26, height: 32, marginBottom: 1, fontSize: 16, lineHeight: 1, background: 'none', border: '1px solid var(--line-strong)', color: 'var(--neg, #DC2626)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' };
-const BTN_PRIMARY: CSSProperties = { padding: '7px 14px', fontSize: 12, fontWeight: 600, background: '#0A3D8F', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' };
+const EDIT_CARD: CSSProperties = { border: '1px solid var(--accent-line)', background: 'var(--bg-elev)', borderRadius: 8, padding: 12, marginBottom: 10 };
+const XBTN: CSSProperties = { flexShrink: 0, width: 26, height: 32, marginBottom: 1, fontSize: 16, lineHeight: 1, background: 'none', border: '1px solid var(--line-strong)', color: 'var(--neg)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' };
+const BTN_PRIMARY: CSSProperties = { padding: '7px 14px', fontSize: 12, fontWeight: 600, background: 'var(--accent-fill)', color: 'var(--on-accent)', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' };
 const BTN_GHOST: CSSProperties = { padding: '7px 13px', fontSize: 12, fontWeight: 500, background: 'var(--bg-paper)', color: 'var(--fg-2)', border: '1px solid var(--line-strong)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' };
-const ERR: CSSProperties = { padding: '7px 11px', background: '#FEE2E2', border: '1px solid rgba(220,38,38,0.2)', borderRadius: 6, fontSize: 12, color: '#9B1C1C', marginTop: 10 };
+const ERR: CSSProperties = { padding: '7px 11px', background: 'var(--neg-soft)', border: '1px solid rgba(220,38,38,0.2)', borderRadius: 6, fontSize: 12, color: 'var(--neg-strong)', marginTop: 10 };
 const NOTE: CSSProperties = { padding: '7px 11px', background: 'var(--bg-sunk)', border: '1px solid var(--line)', borderRadius: 6, fontSize: 11.5, color: 'var(--fg-2)', marginTop: 10, lineHeight: 1.5 };
-const WARN: CSSProperties = { padding: '7px 11px', background: 'var(--warn-soft, #FEF3C7)', border: '1px solid var(--warn, #F59E0B)', borderRadius: 6, fontSize: 11.5, color: 'var(--warn-strong, #92400E)', marginTop: 9 };
+const WARN: CSSProperties = { padding: '7px 11px', background: 'var(--warn-soft)', border: '1px solid var(--warn)', borderRadius: 6, fontSize: 11.5, color: 'var(--warn-strong)', marginTop: 9 };

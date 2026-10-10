@@ -80,7 +80,7 @@ export default async function OutstandingAdminPage() {
             </div>
           </div>
           <a href="/outstanding_upload_template.xlsx" download
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', background: '#0A3D8F', color: '#fff', borderRadius: 7, textDecoration: 'none', fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', flexShrink: 0 }}>
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', background: 'var(--accent-fill)', color: 'var(--on-accent)', borderRadius: 7, textDecoration: 'none', fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', flexShrink: 0 }}>
             ⬇ Download Template
           </a>
         </div>

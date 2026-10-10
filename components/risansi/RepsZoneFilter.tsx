@@ -42,7 +42,7 @@ export function RepsZoneFilter({ reps }: { reps: RepData[] }) {
           style={{
             fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 10,
             border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-            background: !activeZone ? '#0A3D8F' : 'var(--bg-elev)',
+            background: !activeZone ? 'var(--title)' : 'var(--bg-elev)',
             color: !activeZone ? 'white' : 'var(--fg-3)',
           }}
         >

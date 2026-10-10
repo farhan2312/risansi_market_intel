@@ -35,8 +35,8 @@ export function MobileTabs({ children }: { children: ReactNode }) {
               style={{
                 flex: 1, minHeight: 40, borderRadius: 8, fontSize: 13, fontWeight: 600,
                 fontFamily: 'inherit', cursor: 'pointer',
-                border: `1px solid ${active ? '#1A5CB8' : 'var(--line-strong)'}`,
-                background: active ? '#1A5CB8' : 'var(--bg-paper)',
+                border: `1px solid ${active ? 'var(--brand-blue)' : 'var(--line-strong)'}`,
+                background: active ? 'var(--brand-blue)' : 'var(--bg-paper)',
                 color: active ? '#fff' : 'var(--fg-2)',
               }}
             >

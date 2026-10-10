@@ -349,7 +349,7 @@ function renderCell(col: Col, r: ComplaintListRow, clientFrozen: boolean): React
       return (
         <td key={col.id} className="cmp-fz-no" style={{ ...TD, ...freezeNo(!clientFrozen) }}>
           <div style={NO_BOX}>
-            <Link href={`/risansi/complaints/${r.id}`} style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--brand-blue, #1A5CB8)', textDecoration: 'none', fontWeight: 600 }}>{r.complaint_no}</Link>
+            <Link href={`/risansi/complaints/${r.id}`} style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--brand-blue)', textDecoration: 'none', fontWeight: 600 }}>{r.complaint_no}</Link>
             {/* Severe rides on the number, not only on its own column, so it is
                 visible even when that column is scrolled out of sight or
                 hidden - decision 12 asks for a list flag, and a flag that can
@@ -364,7 +364,7 @@ function renderCell(col: Col, r: ComplaintListRow, clientFrozen: boolean): React
               >NEW</span>
             )}
             {legacy && <span style={{ marginLeft: 5, fontSize: 9, color: 'var(--fg-4)', fontWeight: 700 }}>LEGACY</span>}
-            {r.reopen_count > 0 && <span style={{ marginLeft: 5, fontSize: 9, color: 'var(--warn, #B45309)', fontWeight: 700 }}>↩{r.reopen_count}</span>}
+            {r.reopen_count > 0 && <span style={{ marginLeft: 5, fontSize: 9, color: 'var(--warn)', fontWeight: 700 }}>↩{r.reopen_count}</span>}
           </div>
         </td>
       );
@@ -393,7 +393,7 @@ function renderCell(col: Col, r: ComplaintListRow, clientFrozen: boolean): React
       return (
         <td key={col.id} style={{ ...TD, fontSize: 11 }}>
           {r.severe
-            ? <span style={{ ...PILL, background: 'var(--neg)' }} title="Safety, shutdown, penalty or repeat answered Yes on page 3">Severe</span>
+            ? <span style={{ ...PILL, background: 'var(--neg-fill)' }} title="Safety, shutdown, penalty or repeat answered Yes on page 3">Severe</span>
             : <span style={{ color: 'var(--fg-4)' }}>·</span>}
         </td>
       );
@@ -424,7 +424,7 @@ function renderCell(col: Col, r: ComplaintListRow, clientFrozen: boolean): React
       return (
         <td key={col.id} style={{ ...TD, fontSize: 11.5 }}>
           {r.action_category ?? <span style={{ color: 'var(--fg-4)' }}>—</span>}
-          {r.cost_impact ? <div style={{ fontSize: 10, color: 'var(--warn, #B45309)', fontWeight: 600 }} title="Cost impact: yes">cost impact</div> : null}
+          {r.cost_impact ? <div style={{ fontSize: 10, color: 'var(--warn)', fontWeight: 600 }} title="Cost impact: yes">cost impact</div> : null}
         </td>
       );
     case 'capa':
@@ -440,15 +440,15 @@ function renderCell(col: Col, r: ComplaintListRow, clientFrozen: boolean): React
       return (
         <td key={col.id} style={{ ...TD, fontSize: 11, fontFamily: 'var(--font-mono)' }}>
           {r.linked_complaint_id && r.linked_complaint_no
-            ? <Link href={`/risansi/complaints/${r.linked_complaint_id}`} style={{ color: 'var(--brand-blue, #1A5CB8)', textDecoration: 'none' }} title="The original this one repeats">↻ {r.linked_complaint_no}</Link>
+            ? <Link href={`/risansi/complaints/${r.linked_complaint_id}`} style={{ color: 'var(--brand-blue)', textDecoration: 'none' }} title="The original this one repeats">↻ {r.linked_complaint_no}</Link>
             : r.repeat_complaint
-              ? <span style={{ color: 'var(--warn, #B45309)', fontFamily: 'inherit' }} title="Flagged a repeat at closure with no original linked">Repeat</span>
+              ? <span style={{ color: 'var(--warn)', fontFamily: 'inherit' }} title="Flagged a repeat at closure with no original linked">Repeat</span>
               : <span style={{ color: 'var(--fg-4)' }}>—</span>}
         </td>
       );
     case 'late':
       return (
-        <td key={col.id} style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: r.overdue ? 700 : 400, color: r.overdue ? (r.overdue_kind === 'no-action' ? 'var(--neg)' : 'var(--warn, #B45309)') : 'var(--fg-4)' }}
+        <td key={col.id} style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: r.overdue ? 700 : 400, color: r.overdue ? (r.overdue_kind === 'no-action' ? 'var(--neg)' : 'var(--warn)') : 'var(--fg-4)' }}
           title={r.overdue_days != null && r.overdue_threshold != null
             ? `${r.overdue_days} days since raised, against ${r.overdue_threshold} allowed for ${r.severity ?? 'an ungraded complaint (S4)'}${r.overdue ? ` - overdue with ${r.overdue_kind === 'no-action' ? 'no action taken' : 'an action taken'}` : ''}`
             : 'No raise date, so no age to measure'}>
@@ -471,7 +471,7 @@ function renderCell(col: Col, r: ComplaintListRow, clientFrozen: boolean): React
       return (
         <td key={col.id} style={{ ...TD, fontSize: 11 }}>
           {r.free_replacement
-            ? <span style={{ ...PILL, background: 'var(--warn, #B45309)' }}>Free</span>
+            ? <span style={{ ...PILL, background: 'var(--warn)' }}>Free</span>
             : freeReplLabel(r)
               ? <span style={{ color: 'var(--fg-3)' }}>{freeReplLabel(r)}</span>
               : <span style={{ color: 'var(--fg-4)' }}>—</span>}
@@ -521,7 +521,7 @@ function renderCell(col: Col, r: ComplaintListRow, clientFrozen: boolean): React
         <td key={col.id} style={{ ...TD, fontSize: 11, maxWidth: 180 }}>
           {r.customer_files.length ? r.customer_files.map(f => (
             <a key={f.id} href={`/api/risansi/complaint-attachment/${f.id}`} target="_blank" rel="noreferrer" title={f.file_name}
-              style={{ display: 'block', color: 'var(--brand-blue, #1A5CB8)', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              style={{ display: 'block', color: 'var(--brand-blue)', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               📎 {f.file_name}
             </a>
           )) : <span style={{ color: 'var(--fg-4)' }}>—</span>}

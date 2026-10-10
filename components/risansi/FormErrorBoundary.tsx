@@ -22,11 +22,11 @@ export class FormErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{ padding: 24, background: '#FDE8E8', border: '1px solid #F87171', borderRadius: 8, margin: '16px 0' }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: '#9B1C1C', marginBottom: 8 }}>
+        <div style={{ padding: 24, background: 'var(--neg-soft)', border: '1px solid var(--neg)', borderRadius: 8, margin: '16px 0' }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--neg-strong)', marginBottom: 8 }}>
             Something went wrong in this section
           </div>
-          <div style={{ fontSize: 12, color: '#9B1C1C', marginBottom: 12 }}>
+          <div style={{ fontSize: 12, color: 'var(--neg-strong)', marginBottom: 12 }}>
             {this.state.error}
           </div>
           <button

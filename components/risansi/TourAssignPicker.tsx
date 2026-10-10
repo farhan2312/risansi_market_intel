@@ -68,7 +68,7 @@ export function TourAssignPicker({ clientId, onAssigned }: {
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
                 <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--fg)' }}>{t.name}</span>
                 {t.zone && <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>· {t.zone}</span>}
-                {busyId === t.id && <span style={{ fontSize: 11, color: '#0A3D8F', marginLeft: 'auto' }}>Assigning…</span>}
+                {busyId === t.id && <span style={{ fontSize: 11, color: 'var(--title)', marginLeft: 'auto' }}>Assigning…</span>}
               </div>
               {t.rep && (
                 <div style={META}>
@@ -89,4 +89,4 @@ const LIST: CSSProperties = { marginTop: 6, border: '1px solid var(--line-strong
 const ROW: CSSProperties = { display: 'block', width: '100%', textAlign: 'left', padding: '9px 12px', border: 'none', borderBottom: '1px solid var(--line)', background: 'transparent', cursor: 'pointer', fontFamily: 'inherit' };
 const META: CSSProperties = { marginTop: 4, fontSize: 11, color: 'var(--fg-2)' };
 const BLABEL: CSSProperties = { fontSize: 9, fontWeight: 700, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginRight: 5 };
-const ERR: CSSProperties = { marginTop: 6, padding: '7px 10px', background: '#FEE2E2', border: '1px solid rgba(220,38,38,0.2)', borderRadius: 6, fontSize: 12, color: '#9B1C1C' };
+const ERR: CSSProperties = { marginTop: 6, padding: '7px 10px', background: 'var(--neg-soft)', border: '1px solid rgba(220,38,38,0.2)', borderRadius: 6, fontSize: 12, color: 'var(--neg-strong)' };

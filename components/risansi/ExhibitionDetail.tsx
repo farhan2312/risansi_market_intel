@@ -639,9 +639,9 @@ function TeamTab({ exhibitionId, team, users, canManage, attendFrom, attendTo }:
                           style={{
                             padding: '2px 7px', borderRadius: 999, fontSize: 10.5, cursor: 'pointer',
                             fontFamily: 'inherit', whiteSpace: 'nowrap',
-                            border: `1px solid ${on ? '#0A3D8F' : 'var(--line-strong)'}`,
-                            background: on ? '#0A3D8F' : 'var(--bg-paper)',
-                            color: on ? '#fff' : 'var(--fg-2)',
+                            border: `1px solid ${on ? 'var(--accent-fill)' : 'var(--line-strong)'}`,
+                            background: on ? 'var(--accent-fill)' : 'var(--bg-paper)',
+                            color: on ? 'var(--on-accent)' : 'var(--fg-2)',
                           }}>
                           {dayLabel(day)}
                         </button>
@@ -1116,7 +1116,7 @@ function MeetingDialog({ exhibitionId, meeting, onDone }: {
         }}>
         {/* Sticky: the × stays in reach however far down the field list someone
             has scrolled. The Cancel at the foot used to be the only way out. */}
-        <div style={{ padding: '14px 18px', background: '#0A3D8F', color: '#fff', position: 'sticky', top: 0, zIndex: 1 }}>
+        <div style={{ padding: '14px 18px', background: 'var(--accent-fill)', color: 'var(--on-accent)', position: 'sticky', top: 0, zIndex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 700, overflowWrap: 'anywhere' }}>
@@ -1905,9 +1905,9 @@ const TH: CSSProperties = { padding: '9px 12px', textAlign: 'left', fontSize: 10
 const TD: CSSProperties = { padding: '10px 12px', verticalAlign: 'top' };
 const INPUT: CSSProperties = { width: '100%', padding: '8px 10px', border: '1px solid var(--line-strong)', borderRadius: 6, fontSize: 13, background: 'var(--bg-paper)', color: 'var(--fg)', boxSizing: 'border-box', fontFamily: 'inherit' };
 const LABEL: CSSProperties = { fontSize: 11, fontWeight: 600, color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 5 };
-const BTN_PRIMARY: CSSProperties = { padding: '8px 16px', borderRadius: 6, background: '#0A3D8F', color: 'white', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 500, fontFamily: 'inherit' };
+const BTN_PRIMARY: CSSProperties = { padding: '8px 16px', borderRadius: 6, background: 'var(--accent-fill)', color: 'var(--on-accent)', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 500, fontFamily: 'inherit' };
 const BTN_GHOST: CSSProperties = { padding: '8px 16px', borderRadius: 6, border: '1px solid var(--line-strong)', background: 'var(--bg-paper)', color: 'var(--fg-2)', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' };
-const BTN_DANGER: CSSProperties = { padding: '8px 16px', borderRadius: 6, background: 'var(--neg)', color: 'white', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 500, fontFamily: 'inherit' };
+const BTN_DANGER: CSSProperties = { padding: '8px 16px', borderRadius: 6, background: 'var(--neg-fill)', color: 'var(--on-accent)', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 500, fontFamily: 'inherit' };
 const PICK_BTN: CSSProperties = { padding: '8px 14px', borderRadius: 6, border: '1px solid var(--line-strong)', background: 'var(--bg-paper)', color: 'var(--fg-2)', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' };
 const LINK_BTN: CSSProperties = { background: 'none', border: 'none', padding: 0, color: 'var(--accent)', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', textDecoration: 'underline' };
 const ERR: CSSProperties = { padding: '8px 12px', background: 'var(--neg-soft)', border: '1px solid var(--neg)', borderLeft: '3px solid var(--neg)', borderRadius: 5, color: 'var(--neg-strong)', fontSize: 12 };

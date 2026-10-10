@@ -115,7 +115,7 @@ export default async function RevenueAdminPage() {
               download
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8,
-                padding: '10px 20px', background: '#0A3D8F', color: 'white',
+                padding: '10px 20px', background: 'var(--accent-fill)', color: 'var(--on-accent)',
                 borderRadius: 7, textDecoration: 'none',
                 fontSize: 13, fontWeight: 500,
                 whiteSpace: 'nowrap', flexShrink: 0,

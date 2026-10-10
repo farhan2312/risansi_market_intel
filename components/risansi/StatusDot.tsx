@@ -6,10 +6,10 @@ export interface StatusDotProps {
 
 const DOT_COLOR: Record<StatusKind, string> = {
   active:   'var(--pos)',
-  inactive: 'var(--fg-4, #b7b1a3)',
+  inactive: 'var(--fg-4)',
   prospect: 'var(--info)',
-  lead:     '#7C3AED',   // violet — raw lead
-  client:   '#B45309',   // amber  — prospective client (enquiry in hand)
+  lead:     'var(--purple)',   // violet — raw lead
+  client:   'var(--warn)',   // amber  — prospective client (enquiry in hand)
   closed:   'var(--neg)',
 };
 

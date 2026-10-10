@@ -136,7 +136,7 @@ export function RevenueTopClients({ clients }: { clients: RevenueClientRow[] }) 
                           <span style={{
                             fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 10,
                             background: c.tier === 'Key' ? 'rgba(10,61,143,0.10)' : 'var(--bg-sunk)',
-                            color: c.tier === 'Key' ? '#0A3D8F' : 'var(--fg-3)',
+                            color: c.tier === 'Key' ? 'var(--title)' : 'var(--fg-3)',
                           }}>
                             {c.tier}
                           </span>

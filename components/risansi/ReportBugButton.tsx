@@ -293,5 +293,5 @@ const BTN_GHOST: CSSProperties = {
 };
 const BTN_PRIMARY: CSSProperties = {
   padding: '7px 16px', fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
-  background: '#0A3D8F', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer',
+  background: 'var(--accent-fill)', color: 'var(--on-accent)', border: 'none', borderRadius: 6, cursor: 'pointer',
 };

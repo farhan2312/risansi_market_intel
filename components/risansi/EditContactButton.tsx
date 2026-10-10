@@ -40,7 +40,7 @@ export function EditContactButton({ contact, clientId }: { contact: ContactShape
           fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 3,
           transition: 'all 150ms', marginTop: 6, fontFamily: 'inherit',
         }}
-        onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-elev)'; e.currentTarget.style.color = '#1A5CB8'; }}
+        onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-elev)'; e.currentTarget.style.color = 'var(--brand-blue)'; }}
         onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--fg-3)'; }}
       >
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -125,12 +125,12 @@ export function EditContactButton({ contact, clientId }: { contact: ContactShape
           </div>
 
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 12, color: 'var(--fg-2)' }}>
-            <input type="checkbox" checked={isPrimary} onChange={e => setIsPrimary(e.target.checked)} style={{ width: 14, height: 14, accentColor: '#1A5CB8' }} />
+            <input type="checkbox" checked={isPrimary} onChange={e => setIsPrimary(e.target.checked)} style={{ width: 14, height: 14, accentColor: 'var(--brand-blue)' }} />
             Primary contact
           </label>
 
           {error && (
-            <div style={{ padding: '8px 12px', background: '#FDE8E8', border: '1px solid #F87171', borderLeft: '3px solid #E02424', borderRadius: 5, color: '#9B1C1C', fontSize: 12 }}>
+            <div style={{ padding: '8px 12px', background: 'var(--neg-soft)', border: '1px solid var(--neg)', borderLeft: '3px solid var(--neg)', borderRadius: 5, color: '#9B1C1C', fontSize: 12 }}>
               {error}
             </div>
           )}
@@ -139,7 +139,7 @@ export function EditContactButton({ contact, clientId }: { contact: ContactShape
             {delConfirm ? (
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                 <span style={{ fontSize: 11, color: 'var(--neg)' }}>Delete?</span>
-                <button type="button" onClick={handleDelete} disabled={loading} style={{ padding: '5px 10px', borderRadius: 5, background: '#E02424', color: 'white', border: 'none', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit' }}>
+                <button type="button" onClick={handleDelete} disabled={loading} style={{ padding: '5px 10px', borderRadius: 5, background: 'var(--neg-fill)', color: 'var(--on-accent)', border: 'none', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit' }}>
                   {loading ? '…' : 'Yes'}
                 </button>
                 <button type="button" onClick={() => setDelConfirm(false)} style={{ padding: '5px 10px', borderRadius: 5, border: '1px solid var(--line-strong)', background: 'white', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit' }}>
@@ -155,7 +155,7 @@ export function EditContactButton({ contact, clientId }: { contact: ContactShape
               <button type="button" onClick={() => setOpen(false)} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid var(--line-strong)', background: 'white', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}>
                 Cancel
               </button>
-              <button type="submit" disabled={loading} style={{ padding: '6px 16px', borderRadius: 6, background: '#0A3D8F', color: 'white', border: 'none', cursor: loading ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 500, fontFamily: 'inherit', opacity: loading ? 0.7 : 1 }}>
+              <button type="submit" disabled={loading} style={{ padding: '6px 16px', borderRadius: 6, background: 'var(--accent-fill)', color: 'var(--on-accent)', border: 'none', cursor: loading ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 500, fontFamily: 'inherit', opacity: loading ? 0.7 : 1 }}>
                 {loading ? 'Saving…' : 'Save'}
               </button>
             </div>

@@ -19,6 +19,6 @@ export function NewOpportunityButton({ usdRate }: { usdRate?: number }) {
 
 const TRIGGER_BTN: CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px',
-  background: '#0A3D8F', color: 'white', border: 'none', borderRadius: 7,
+  background: 'var(--accent-fill)', color: 'var(--on-accent)', border: 'none', borderRadius: 7,
   fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,
 };

@@ -145,9 +145,9 @@ export default async function CoverageMapPage({
         {/* ── A. Stats strip ─────────────────────────────────── */}
         <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
           <StatChip label="Total Active"      value={total}     />
-          <StatChip label="Compliant"         value={compliant} sublabel="< 100 days"        color="#0E9F6E" />
-          <StatChip label="Due Soon"          value={dueSoon}   sublabel="100 – 150 days"    color="#D97706" />
-          <StatChip label="Overdue / Never"   value={overdue}   sublabel="> 150 days or null" color="#E02424" />
+          <StatChip label="Compliant"         value={compliant} sublabel="< 100 days"        color="var(--pos)" />
+          <StatChip label="Due Soon"          value={dueSoon}   sublabel="100 – 150 days"    color="var(--warn)" />
+          <StatChip label="Overdue / Never"   value={overdue}   sublabel="> 150 days or null" color="var(--neg)" />
         </div>
 
         {/* ── B. Map ─────────────────────────────────────────── */}
@@ -191,7 +191,7 @@ export default async function CoverageMapPage({
                 ]}
                 rows={tours.map(t => {
                   const pct = t.client_count > 0 ? (t.compliant / t.client_count) * 100 : 0;
-                  const barColor = pct >= 80 ? '#0E9F6E' : pct >= 50 ? '#D97706' : '#E02424';
+                  const barColor = pct >= 80 ? 'var(--pos)' : pct >= 50 ? 'var(--warn)' : 'var(--neg)';
                   return {
                     id: t.tour,
                     // Coverage sorts on the percentage behind the bar, not on
@@ -210,15 +210,15 @@ export default async function CoverageMapPage({
                         <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)' }}>
                           {t.client_count}
                         </td>
-                        <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', color: '#0E9F6E', fontWeight: 500 }}>
+                        <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', color: 'var(--pos)', fontWeight: 500 }}>
                           {t.compliant}
                         </td>
-                        <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', color: t.overdue > 0 ? '#E02424' : 'var(--fg-3)', fontWeight: t.overdue > 0 ? 600 : 400 }}>
+                        <td style={{ ...TD, textAlign: 'center', fontFamily: 'var(--font-mono)', color: t.overdue > 0 ? 'var(--neg)' : 'var(--fg-3)', fontWeight: t.overdue > 0 ? 600 : 400 }}>
                           {t.overdue}
                         </td>
                         <td style={{ ...TD, minWidth: 150 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <div style={{ flex: 1, height: 5, background: '#DDE6F5', borderRadius: 2, overflow: 'hidden' }}>
+                            <div style={{ flex: 1, height: 5, background: 'var(--accent-soft)', borderRadius: 2, overflow: 'hidden' }}>
                               <div style={{ height: '100%', width: `${pct}%`, background: barColor, borderRadius: 2 }} />
                             </div>
                             <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--fg-3)', minWidth: 34, textAlign: 'right' }}>
@@ -236,7 +236,7 @@ export default async function CoverageMapPage({
           {unassigned > 0 && (
             <div style={{ padding: '10px 16px', borderTop: '1px solid var(--line)', fontSize: 11, color: 'var(--fg-3)' }}>
               {unassigned} client{unassigned !== 1 ? 's have' : ' has'} no tour route assigned.{' '}
-              <a href="/risansi/clients?status=ACTIVE" style={{ color: '#1A5CB8', textDecoration: 'none', fontWeight: 500 }}>
+              <a href="/risansi/clients?status=ACTIVE" style={{ color: 'var(--brand-blue)', textDecoration: 'none', fontWeight: 500 }}>
                 View in Clients →
               </a>
             </div>
@@ -251,20 +251,20 @@ export default async function CoverageMapPage({
 // ── Sub-components ─────────────────────────────────────────────
 
 function StatChip({
-  label, value, sublabel, color = '#0A3D8F',
+  label, value, sublabel, color = 'var(--title)',
 }: {
   label: string; value: number; sublabel?: string; color?: string;
 }) {
   return (
     <div style={{
-      background:   '#fff',
+      background:   'var(--bg-paper)',
       border:       '1px solid var(--line)',
       borderLeft:   `3px solid ${color}`,
       borderRadius: 6,
       padding:      '10px 16px',
       minWidth:     120,
     }}>
-      <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#6B7FA3', marginBottom: 4 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fg-3)', marginBottom: 4 }}>
         {label}
       </div>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700, color, letterSpacing: '-0.02em' }}>
@@ -301,7 +301,7 @@ const PANEL_TITLE: CSSProperties = {
   fontWeight:    700,
   letterSpacing: '0.08em',
   textTransform: 'uppercase',
-  color:         '#0A3D8F',
+  color:         'var(--title)',
 };
 
 const TH: CSSProperties = {
@@ -311,9 +311,9 @@ const TH: CSSProperties = {
   textTransform: 'uppercase',
   letterSpacing: '0.08em',
   fontWeight:    600,
-  color:         '#6B7FA3',
-  background:    '#EBF1FB',
-  borderBottom:  '2px solid #DDE6F5',
+  color:         'var(--fg-3)',
+  background:    'var(--accent-soft)',
+  borderBottom:  '2px solid var(--accent-line)',
   whiteSpace:    'nowrap',
 };
 

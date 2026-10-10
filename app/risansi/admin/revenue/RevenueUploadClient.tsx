@@ -228,7 +228,7 @@ export function RevenueUploadClient({ existingCodes }: { existingCodes: Set<stri
         <div style={{
           padding: '12px 16px', marginBottom: 16,
           background: 'var(--pos-soft)', border: '1px solid rgba(5,150,105,0.25)',
-          borderRadius: 6, fontSize: 13, color: '#065F46',
+          borderRadius: 6, fontSize: 13, color: 'var(--pos-strong)',
         }}>
           ✓ {result.inserted} row{result.inserted !== 1 ? 's' : ''} saved
           {result.skipped > 0 && `, ${result.skipped} skipped (code not found)`}
@@ -239,7 +239,7 @@ export function RevenueUploadClient({ existingCodes }: { existingCodes: Set<stri
         <div style={{
           padding: '10px 14px', marginBottom: 16,
           background: 'var(--neg-soft)', border: '1px solid rgba(220,38,38,0.2)',
-          borderRadius: 6, fontSize: 12, color: '#991B1B',
+          borderRadius: 6, fontSize: 12, color: 'var(--neg-strong)',
         }}>
           {error}
         </div>
@@ -270,8 +270,8 @@ export function RevenueUploadClient({ existingCodes }: { existingCodes: Set<stri
                 disabled={saving || validRows === 0}
                 style={{
                   padding: '6px 16px', fontSize: 12, fontFamily: 'inherit', fontWeight: 500,
-                  background: (saving || validRows === 0) ? '#9CA3AF' : '#1A5CB8',
-                  color: '#fff', border: 'none', borderRadius: 5,
+                  background: (saving || validRows === 0) ? '#9CA3AF' : 'var(--accent-fill)',
+                  color: 'var(--on-accent)', border: 'none', borderRadius: 5,
                   cursor: (saving || validRows === 0) ? 'not-allowed' : 'pointer',
                 }}
               >

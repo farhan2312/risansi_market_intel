@@ -395,7 +395,7 @@ export function VisitReportForm({
           {canReopen && (
             <button type="button" onClick={() => setReopened(true)} style={{
               flexShrink: 0, padding: '7px 16px', borderRadius: 8, fontSize: 12.5, fontWeight: 600,
-              background: '#0A3D8F', color: '#fff', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+              background: 'var(--accent-fill)', color: 'var(--on-accent)', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
             }}>
               Re-open to edit
             </button>
@@ -408,15 +408,15 @@ export function VisitReportForm({
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
           padding: '11px 16px', borderRadius: 12,
-          background: 'var(--accent-soft, #EBF1FB)', border: '1px solid var(--accent-line, #C7D9F5)',
+          background: 'var(--accent-soft)', border: '1px solid var(--accent-line)',
         }}>
-          <div style={{ fontSize: 12.5, color: 'var(--title, #0A3D8F)', minWidth: 0 }}>
+          <div style={{ fontSize: 12.5, color: 'var(--title)', minWidth: 0 }}>
             <b>Re-opened for editing.</b> Changes save automatically and are logged to the client&apos;s activity.
             This report stays Closed{closedDate ? ` (${closedDate})` : ''}.
           </div>
           <button type="button" onClick={() => setReopened(false)} style={{
             flexShrink: 0, padding: '7px 16px', borderRadius: 8, fontSize: 12.5, fontWeight: 600,
-            background: 'var(--bg-paper)', color: 'var(--title, #0A3D8F)', border: '1px solid var(--title, #0A3D8F)', cursor: 'pointer', fontFamily: 'inherit',
+            background: 'var(--bg-paper)', color: 'var(--title)', border: '1px solid var(--title)', cursor: 'pointer', fontFamily: 'inherit',
           }}>
             Done
           </button>
@@ -428,7 +428,7 @@ export function VisitReportForm({
         {/* Dots-only progress track (scales to any number of steps) */}
         <div style={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
           <div style={{ position: 'absolute', left: 8, right: 8, height: 3, background: 'var(--line)', borderRadius: 2 }} />
-          <div style={{ position: 'absolute', left: 8, width: `calc((100% - 16px) * ${LAST > 0 ? step / LAST : 0})`, height: 3, background: '#1A5CB8', borderRadius: 2, transition: 'width 280ms ease' }} />
+          <div style={{ position: 'absolute', left: 8, width: `calc((100% - 16px) * ${LAST > 0 ? step / LAST : 0})`, height: 3, background: 'var(--accent-fill)', borderRadius: 2, transition: 'width 280ms ease' }} />
           {steps.map((s, i) => {
             const active = i === step, done = i < step;
             return (
@@ -437,9 +437,9 @@ export function VisitReportForm({
                 <span style={{
                   width: active ? 26 : 16, height: active ? 26 : 16, borderRadius: '50%', display: 'grid', placeItems: 'center',
                   fontSize: 11, fontWeight: 700, transition: 'all 200ms',
-                  background: active || done ? '#1A5CB8' : 'var(--bg-paper)',
-                  color: '#fff',
-                  border: active || done ? '2px solid #1A5CB8' : '2px solid var(--line-strong)',
+                  background: active || done ? 'var(--accent-fill)' : 'var(--bg-paper)',
+                  color: 'var(--on-accent)',
+                  border: active || done ? '2px solid var(--accent-fill)' : '2px solid var(--line-strong)',
                   boxShadow: active ? '0 0 0 4px var(--accent-soft)' : 'none',
                 }}>{active ? i + 1 : done ? '✓' : ''}</span>
               </button>
@@ -1092,7 +1092,7 @@ export function VisitReportForm({
                   setSupplierOther(false);
                   setNewEq({ pump_type: 'PCP', supplier: '', model: '', qty: '1', application: '', condition: 'Good', condition_remark: '', is_ril: true, reason_for_competitor: '', competitor_activity_type: '', performance_feedback: '', capacity_m3h: '', head_m: '', kw: '', drive_system: '', moc: '' });
                 }}
-                style={{ padding: '7px 14px', background: '#0A3D8F', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}
+                style={{ padding: '7px 14px', background: 'var(--accent-fill)', color: 'var(--on-accent)', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}
               >
                 {editingEqId != null ? 'Update Equipment' : 'Save Equipment'}
               </button>
@@ -1485,8 +1485,8 @@ export function VisitReportForm({
             <button
               type="button" onClick={() => goStep(step + 1)}
               style={{
-                padding: '11px 22px', borderRadius: 9, border: 'none', background: '#1A5CB8',
-                color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
+                padding: '11px 22px', borderRadius: 9, border: 'none', background: 'var(--accent-fill)',
+                color: 'var(--on-accent)', cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
                 boxShadow: '0 2px 8px rgba(26, 92, 184, 0.3)',
               }}
             >
@@ -1501,7 +1501,7 @@ export function VisitReportForm({
             // Already closed, re-opened for correction: no re-submit — just finish.
             <button
               type="button" onClick={() => setReopened(false)}
-              style={{ padding: '11px 22px', borderRadius: 9, border: '1px solid var(--title, #0A3D8F)', background: 'var(--bg-paper)', color: 'var(--title, #0A3D8F)', cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: 'inherit' }}
+              style={{ padding: '11px 22px', borderRadius: 9, border: '1px solid var(--title)', background: 'var(--bg-paper)', color: 'var(--title)', cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: 'inherit' }}
             >
               Done editing
             </button>
@@ -1618,7 +1618,7 @@ function CheckInButton({ visitId, onDone }: { visitId: string; onDone: () => voi
         <button
           onClick={handle} disabled={loading}
           style={{
-            padding: '10px 20px', background: '#0A3D8F', color: 'white',
+            padding: '10px 20px', background: 'var(--accent-fill)', color: 'var(--on-accent)',
             border: 'none', borderRadius: 7, fontSize: 13, fontWeight: 500,
             cursor: loading ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
             opacity: loading ? 0.7 : 1,

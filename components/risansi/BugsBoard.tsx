@@ -406,7 +406,7 @@ function BugDetailModal({ bug, onClose, onMove, onSeverity, onType, onSaveNotes,
               <>
                 <span style={{ fontSize: 12, color: 'var(--neg)', alignSelf: 'center', marginRight: 'auto' }}>Delete this bug permanently?</span>
                 <button type="button" onClick={() => setConfirmDel(false)} style={BTN_GHOST}>Cancel</button>
-                <button type="button" onClick={() => onDelete(bug.id)} style={{ ...BTN_GHOST, color: '#fff', background: 'var(--neg)', border: 'none' }}>Delete</button>
+                <button type="button" onClick={() => onDelete(bug.id)} style={{ ...BTN_GHOST, color: 'var(--on-accent)', background: 'var(--neg-fill)', border: 'none' }}>Delete</button>
               </>
             ) : (
               <button type="button" onClick={() => setConfirmDel(true)} style={{ ...BTN_GHOST, color: 'var(--neg)' }}>Delete bug</button>

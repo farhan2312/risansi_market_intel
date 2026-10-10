@@ -195,7 +195,7 @@ const BADGE: CSSProperties = {
   background: 'rgba(0,0,0,0.55)', color: '#fff', padding: '1px 0',
 };
 const CAM: CSSProperties = {
-  border: 'none', background: '#0A3D8F', color: '#fff', borderRadius: 6,
+  border: 'none', background: 'var(--accent-fill)', color: 'var(--on-accent)', borderRadius: 6,
   fontSize: 12.5, fontWeight: 600, padding: '9px 14px', cursor: 'pointer',
   fontFamily: 'inherit', minHeight: 40,
 };

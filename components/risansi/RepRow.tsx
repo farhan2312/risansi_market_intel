@@ -44,7 +44,7 @@ export function RepRow({ rep }: { rep: RepData }) {
           {rep.visits_last_30d}
         </td>
         <td style={{ ...TD, textAlign: 'center' }}>
-          <span style={{ padding: '2px 7px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: rep.is_active ? '#D1FAE5' : 'var(--bg-sunk)', color: rep.is_active ? '#065F46' : 'var(--fg-3)' }}>
+          <span style={{ padding: '2px 7px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: rep.is_active ? 'var(--pos-soft)' : 'var(--bg-sunk)', color: rep.is_active ? 'var(--pos-strong)' : 'var(--fg-3)' }}>
             {rep.is_active ? 'Active' : 'Inactive'}
           </span>
         </td>
@@ -61,7 +61,7 @@ export function RepRow({ rep }: { rep: RepData }) {
   }
 
   return (
-    <tr style={{ borderBottom: '1px solid var(--line)', background: '#EBF1FB' }}>
+    <tr style={{ borderBottom: '1px solid var(--line)', background: 'var(--accent-soft)' }}>
       <td colSpan={7} style={{ padding: '12px 16px' }}>
         <RepEditForm rep={rep} onCancel={() => setEditing(false)} onSave={() => { setEditing(false); router.refresh(); }} />
       </td>
@@ -120,7 +120,7 @@ function RepEditForm({ rep, onCancel, onSave }: { rep: RepData; onCancel: () => 
           <button type="button" onClick={onCancel} style={{ padding: '6px 10px', borderRadius: 5, border: '1px solid var(--line-strong)', background: 'white', cursor: 'pointer', fontSize: 11, fontFamily: 'inherit' }}>
             Cancel
           </button>
-          <button type="submit" disabled={loading} style={{ padding: '6px 12px', borderRadius: 5, background: '#0A3D8F', color: 'white', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 500, fontFamily: 'inherit', opacity: loading ? 0.7 : 1 }}>
+          <button type="submit" disabled={loading} style={{ padding: '6px 12px', borderRadius: 5, background: 'var(--accent-fill)', color: 'var(--on-accent)', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 500, fontFamily: 'inherit', opacity: loading ? 0.7 : 1 }}>
             {loading ? '…' : 'Save'}
           </button>
         </div>

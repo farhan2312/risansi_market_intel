@@ -153,7 +153,7 @@ export function ClientPumps({ pumps, installedRil, clientName, clientId }: {
                   {p.quantity > 1 && <span style={QTY}>×{p.quantity}</span>}
                   <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
                     <button type="button" onClick={() => { setErr(''); setDraft(toBatch(p, pumps)); }} disabled={busy} style={MINI}>Edit</button>
-                    <button type="button" onClick={() => remove(p.id)} disabled={busy} style={{ ...MINI, color: '#DC2626', borderColor: 'rgba(220,38,38,0.4)' }}>Delete</button>
+                    <button type="button" onClick={() => remove(p.id)} disabled={busy} style={{ ...MINI, color: 'var(--neg)', borderColor: 'rgba(220,38,38,0.4)' }}>Delete</button>
                   </div>
                 </div>
                 {/* Tier 2 — labelled detail */}
@@ -195,14 +195,14 @@ const PANEL_TITLE: CSSProperties = { fontSize: 12, fontWeight: 500 };
 const DISC: CSSProperties = { display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderBottom: '1px solid var(--line)', background: 'var(--bg-elev)', flexWrap: 'wrap' };
 const PILL: CSSProperties = { marginLeft: 'auto', padding: '3px 9px', borderRadius: 999, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' };
 const TONE: Record<string, CSSProperties> = {
-  pos:  { background: '#D1FAE5', color: '#065F46' },
-  neg:  { background: '#FEE2E2', color: '#9B1C1C' },
-  warn: { background: '#FEF3C7', color: '#92400E' },
+  pos:  { background: 'var(--pos-soft)', color: 'var(--pos-strong)' },
+  neg:  { background: 'var(--neg-soft)', color: 'var(--neg-strong)' },
+  warn: { background: 'var(--warn-soft)', color: 'var(--warn-strong)' },
 };
 const SEARCH: CSSProperties = { width: '100%', padding: '7px 10px', fontSize: 12, fontFamily: 'inherit', background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', borderRadius: 6, color: 'var(--fg)', outline: 'none', boxSizing: 'border-box' };
 const CARD: CSSProperties = { border: '1px solid var(--line)', borderRadius: 8, padding: '10px 12px', background: 'var(--bg-elev)' };
-const QTY: CSSProperties = { fontSize: 10.5, fontWeight: 700, color: '#0A3D8F', background: 'var(--accent-soft, #EBF1FB)', padding: '1px 7px', borderRadius: 999 };
+const QTY: CSSProperties = { fontSize: 10.5, fontWeight: 700, color: 'var(--title)', background: 'var(--accent-soft)', padding: '1px 7px', borderRadius: 999 };
 const KV_GRID: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(148px, 1fr))', gap: '8px 14px' };
 const MINI: CSSProperties = { padding: '4px 9px', fontSize: 11, fontWeight: 500, background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', color: 'var(--fg-2)', borderRadius: 5, cursor: 'pointer', fontFamily: 'inherit' };
-const BTN_ADD: CSSProperties = { padding: '5px 11px', fontSize: 12, fontWeight: 600, background: 'var(--accent-soft, #EBF1FB)', color: '#0A3D8F', border: '1px solid var(--accent-line, #BBD)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' };
-const ERR: CSSProperties = { padding: '7px 11px', background: '#FEE2E2', border: '1px solid rgba(220,38,38,0.2)', borderRadius: 6, fontSize: 12, color: '#9B1C1C', margin: '10px 14px 0' };
+const BTN_ADD: CSSProperties = { padding: '5px 11px', fontSize: 12, fontWeight: 600, background: 'var(--accent-soft)', color: 'var(--title)', border: '1px solid var(--accent-line)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' };
+const ERR: CSSProperties = { padding: '7px 11px', background: 'var(--neg-soft)', border: '1px solid rgba(220,38,38,0.2)', borderRadius: 6, fontSize: 12, color: 'var(--neg-strong)', margin: '10px 14px 0' };

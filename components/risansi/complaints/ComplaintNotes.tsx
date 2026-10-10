@@ -66,4 +66,4 @@ export function ComplaintNotes({ complaintId, notes, isAdmin }: { complaintId: n
   );
 }
 
-const BTN: CSSProperties = { padding: '8px 14px', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', borderRadius: 6, cursor: 'pointer', background: '#0A3D8F', color: '#fff', border: '1px solid #0A3D8F', whiteSpace: 'nowrap' };
+const BTN: CSSProperties = { padding: '8px 14px', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', borderRadius: 6, cursor: 'pointer', background: 'var(--accent-fill)', color: 'var(--on-accent)', border: '1px solid var(--accent-fill)', whiteSpace: 'nowrap' };

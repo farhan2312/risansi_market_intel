@@ -75,7 +75,7 @@ export function ConvertLeadButton({ clientId, currentCode, legalName }: {
   );
 }
 
-const BTN: CSSProperties = { padding: '7px 14px', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', background: 'var(--brand-blue)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' };
+const BTN: CSSProperties = { padding: '7px 14px', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', background: 'var(--accent-fill)', color: 'var(--on-accent)', border: 'none', borderRadius: 6, cursor: 'pointer' };
 const BTN_GHOST: CSSProperties = { padding: '7px 14px', fontSize: 13, fontFamily: 'inherit', background: 'none', border: '1px solid var(--line-strong)', color: 'var(--fg-2)', borderRadius: 6, cursor: 'pointer' };
 const OVERLAY: CSSProperties = { position: 'fixed', inset: 0, zIndex: 500, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '12vh 16px 16px' };
 const MODAL: CSSProperties = { width: '100%', maxWidth: 440, background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', borderRadius: 10, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', padding: 20 };

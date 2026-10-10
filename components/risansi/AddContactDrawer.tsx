@@ -214,6 +214,6 @@ const INP: CSSProperties = {
 const SUBMIT_BTN: CSSProperties = {
   width: '100%', padding: '12px 0', fontSize: 14,
   fontFamily: 'inherit', fontWeight: 600,
-  background: '#0A3D8F', color: '#fff',
+  background: 'var(--accent-fill)', color: 'var(--on-accent)',
   border: 'none', borderRadius: 6, letterSpacing: '-0.005em',
 };

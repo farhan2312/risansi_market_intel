@@ -116,5 +116,5 @@ export default async function ComplaintsPage({ searchParams }: { searchParams: P
   );
 }
 
-const PRIMARY: CSSProperties = { display: 'inline-block', padding: '8px 14px', fontSize: 12.5, fontWeight: 600, borderRadius: 6, background: 'var(--neg)', color: '#fff', textDecoration: 'none' };
+const PRIMARY: CSSProperties = { display: 'inline-block', padding: '8px 14px', fontSize: 12.5, fontWeight: 600, borderRadius: 6, background: 'var(--neg-fill)', color: 'var(--on-accent)', textDecoration: 'none' };
 const GHOST: CSSProperties = { display: 'inline-block', padding: '8px 14px', fontSize: 12.5, fontWeight: 600, borderRadius: 6, border: '1px solid var(--line-strong)', background: 'var(--bg-paper)', color: 'var(--fg)', textDecoration: 'none' };

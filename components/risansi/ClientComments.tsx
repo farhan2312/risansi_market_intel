@@ -148,6 +148,6 @@ const PANEL_H: CSSProperties = { padding: '12px 14px', borderBottom: '1px solid 
 const PANEL_TITLE: CSSProperties = { fontSize: 12, fontWeight: 500 };
 const ADD_BTN: CSSProperties = { padding: '5px 11px', fontSize: 12, fontWeight: 600, background: 'var(--accent-soft)', color: 'var(--title)', border: '1px solid var(--accent-line)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' };
 const TA: CSSProperties = { width: '100%', padding: '8px 10px', border: '1px solid var(--line-strong)', borderRadius: 6, fontSize: 13, background: 'var(--bg-sunk)', color: 'var(--fg)', boxSizing: 'border-box', fontFamily: 'inherit', resize: 'vertical', lineHeight: 1.5 };
-const PRIMARY: CSSProperties = { padding: '7px 14px', background: '#0A3D8F', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, fontWeight: 600, fontFamily: 'inherit' };
+const PRIMARY: CSSProperties = { padding: '7px 14px', background: 'var(--accent-fill)', color: 'var(--on-accent)', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, fontWeight: 600, fontFamily: 'inherit' };
 const GHOST: CSSProperties = { padding: '7px 14px', background: 'none', border: '1px solid var(--line-strong)', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, color: 'var(--fg-3)', fontFamily: 'inherit' };
 const LINK_BTN: CSSProperties = { fontSize: 11, background: 'none', border: 'none', color: 'var(--title)', cursor: 'pointer', fontFamily: 'inherit', padding: 0, textDecoration: 'underline' };

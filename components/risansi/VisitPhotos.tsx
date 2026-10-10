@@ -396,5 +396,5 @@ const ACTION_BTN: CSSProperties = {
 };
 
 const PRIMARY_BTN: CSSProperties = {
-  background: '#1A5CB8', color: '#fff', border: '1px solid #1A5CB8',
+  background: 'var(--accent-fill)', color: 'var(--on-accent)', border: '1px solid var(--accent-fill)',
 };

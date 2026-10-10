@@ -97,7 +97,7 @@ export function PurchaseOrderManager({ oppId, canEdit }: {
           </div>
         )}
 
-        {err && <div style={{ fontSize: 12, color: '#9B1C1C' }}>{err}</div>}
+        {err && <div style={{ fontSize: 12, color: 'var(--neg-strong)' }}>{err}</div>}
 
         {canEdit ? (
           <div style={{ borderTop: '1px dashed var(--line-strong)', paddingTop: 10 }}>
@@ -137,5 +137,5 @@ const INP: CSSProperties = {
   width: '100%', padding: '8px 10px', border: '1px solid var(--line-strong)', borderRadius: 6,
   fontSize: 13, background: 'var(--bg-paper)', color: 'var(--fg)', boxSizing: 'border-box', fontFamily: 'inherit',
 };
-const BTN_ADD: CSSProperties = { marginTop: 8, width: '100%', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, padding: '9px 12px', cursor: 'pointer', fontFamily: 'inherit' };
-const REMOVE: CSSProperties = { border: '1px solid var(--line-strong)', background: 'var(--bg-paper)', color: '#9B1C1C', borderRadius: 5, fontSize: 11, fontWeight: 600, padding: '2px 8px', cursor: 'pointer', fontFamily: 'inherit' };
+const BTN_ADD: CSSProperties = { marginTop: 8, width: '100%', background: 'var(--accent-fill)', color: 'var(--on-accent)', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, padding: '9px 12px', cursor: 'pointer', fontFamily: 'inherit' };
+const REMOVE: CSSProperties = { border: '1px solid var(--line-strong)', background: 'var(--bg-paper)', color: 'var(--neg-strong)', borderRadius: 5, fontSize: 11, fontWeight: 600, padding: '2px 8px', cursor: 'pointer', fontFamily: 'inherit' };

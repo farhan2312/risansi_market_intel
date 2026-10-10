@@ -96,11 +96,11 @@ interface StatsRow {
 
 const PURPOSE_COLORS: Record<string, string> = {
   'Routine':                       '#3B82F6',
-  'Quote Follow-up':               '#D97706',
-  'Complaint Resolution':          '#E02424',
-  'New Opportunity':               '#0E9F6E',
-  'Equipment Assessment':          '#7C3AED',
-  'Management Relationship Visit': '#0A3D8F',
+  'Quote Follow-up':               'var(--warn)',
+  'Complaint Resolution':          'var(--neg)',
+  'New Opportunity':               'var(--pos)',
+  'Equipment Assessment':          'var(--purple)',
+  'Management Relationship Visit': 'var(--title)',
 };
 
 const STATUS_BG: Record<string, string> = {
@@ -903,9 +903,9 @@ export default async function FieldActivityPage({
                   padding: '5px 14px', borderRadius: 6, fontSize: 12,
                   fontWeight: feedTab === st.id ? 600 : 400,
                   textDecoration: 'none',
-                  color: feedTab === st.id ? '#0A3D8F' : 'var(--fg-3)',
-                  background: feedTab === st.id ? '#EBF1FB' : 'transparent',
-                  border: `1px solid ${feedTab === st.id ? '#1A5CB8' : 'var(--line)'}`,
+                  color: feedTab === st.id ? 'var(--title)' : 'var(--fg-3)',
+                  background: feedTab === st.id ? 'var(--accent-soft)' : 'transparent',
+                  border: `1px solid ${feedTab === st.id ? 'var(--brand-blue)' : 'var(--line)'}`,
                 }}>
                   {st.label}
                 </a>
@@ -954,7 +954,7 @@ export default async function FieldActivityPage({
                                        client_name: v.legal_name, rep_id: v.rep_id, rep_name: v.rep_name }}
                             />
                           )}
-                          <span style={{ fontSize: 11, fontWeight: 500, color: isClosed ? 'var(--fg-3)' : '#0A3D8F' }}>
+                          <span style={{ fontSize: 11, fontWeight: 500, color: isClosed ? 'var(--fg-3)' : 'var(--title)' }}>
                             {cta}
                           </span>
                         </div>
@@ -1010,8 +1010,8 @@ export default async function FieldActivityPage({
                   {calView === 'week' && (
                     <span style={{
                       ...CHIP,
-                      color: calPct >= 80 ? '#065F46' : calPct >= 50 ? '#92400E' : '#9B1C1C',
-                      background: calPct >= 80 ? '#D1FAE5' : calPct >= 50 ? '#FEF3C7' : '#FEE2E2',
+                      color: calPct >= 80 ? 'var(--pos-strong)' : calPct >= 50 ? 'var(--warn-strong)' : 'var(--neg-strong)',
+                      background: calPct >= 80 ? 'var(--pos-soft)' : calPct >= 50 ? 'var(--warn-soft)' : 'var(--neg-soft)',
                       borderColor: calPct >= 80 ? '#6EE7B7' : calPct >= 50 ? '#FCD34D' : '#FCA5A5',
                     }}>
                       <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{calPct}%</span>
@@ -1063,12 +1063,12 @@ export default async function FieldActivityPage({
                         {weekDays.map(day => (
                           <th key={day.date} style={{
                             padding: '8px 6px', textAlign: 'center',
-                            background: day.isToday ? '#EBF1FB' : 'var(--bg-elev)',
+                            background: day.isToday ? 'var(--accent-soft)' : 'var(--bg-elev)',
                             borderBottom: '2px solid var(--line)',
                             borderRight: '1px solid rgba(0,0,0,0.05)',
                             fontSize: 11,
                             fontWeight: day.isToday ? 700 : 500,
-                            color: day.isToday ? '#1A5CB8' : 'var(--fg-3)',
+                            color: day.isToday ? 'var(--brand-blue)' : 'var(--fg-3)',
                           }}>
                             {day.label}
                           </th>
@@ -1290,7 +1290,7 @@ export default async function FieldActivityPage({
 // ── Sub-components ─────────────────────────────────────────────
 
 function CalendarVisitCard({ visit, compact = false, role }: { visit: CalendarVisit; compact?: boolean; role: string }) {
-  const color = PURPOSE_COLORS[visit.purpose] ?? '#6B7FA3';
+  const color = PURPOSE_COLORS[visit.purpose] ?? 'var(--fg-3)';
   const bg    = STATUS_BG[visit.status] ?? 'var(--bg-elev)';
   const statusColor =
     visit.status === 'completed'  ? 'var(--pos)' :
@@ -1364,7 +1364,7 @@ function InternationalPanel({ clients }: { clients: MapClient[] }) {
         padding: '10px 14px', borderBottom: '1px solid var(--line)',
         display: 'flex', alignItems: 'center', gap: 8,
       }}>
-        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#0A3D8F' }}>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--title)' }}>
           International Clients
         </span>
         <span style={{ fontSize: 12, color: 'var(--fg-3)', marginLeft: 'auto' }}>
@@ -1377,7 +1377,7 @@ function InternationalPanel({ clients }: { clients: MapClient[] }) {
           .map(([region, regionClients]) => (
             <div key={region} style={{ padding: '10px 14px', background: 'var(--bg-paper)' }}>
               <div style={{
-                fontSize: 11, fontWeight: 600, color: '#0A3D8F',
+                fontSize: 11, fontWeight: 600, color: 'var(--title)',
                 textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6,
               }}>
                 {region} ({regionClients.length})
@@ -1387,7 +1387,7 @@ function InternationalPanel({ clients }: { clients: MapClient[] }) {
                   ? Math.floor((now - new Date(c.last_visit_date).getTime()) / 86_400_000)
                   : null;
                 // null OR future date → treat as never visited (red)
-                const dot = days === null || days < 0 ? '#DC2626' : days <= 90 ? '#0E9F6E' : '#D97706';
+                const dot = days === null || days < 0 ? 'var(--neg)' : days <= 90 ? 'var(--pos)' : 'var(--warn)';
                 return (
                   <div key={c.id} style={{ fontSize: 11, color: 'var(--fg-2)', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 5 }}>
                     <div style={{ width: 5, height: 5, borderRadius: '50%', background: dot, flexShrink: 0 }} />

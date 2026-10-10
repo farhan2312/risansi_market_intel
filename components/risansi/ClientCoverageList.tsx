@@ -58,7 +58,7 @@ export function ClientCoverageList({ clients }: { clients: CoverageClient[] }) {
       }}>
         <span style={{
           fontSize: 11, fontWeight: 700, letterSpacing: '0.08em',
-          textTransform: 'uppercase', color: '#0A3D8F',
+          textTransform: 'uppercase', color: 'var(--title)',
         }}>
           All Clients
         </span>
@@ -94,8 +94,8 @@ export function ClientCoverageList({ clients }: { clients: CoverageClient[] }) {
               style={{
                 flex: 1, padding: '7px 2px', border: 'none', background: 'none',
                 fontSize: 11, fontWeight: filter === val ? 600 : 400, cursor: 'pointer',
-                color: filter === val ? '#0A3D8F' : 'var(--fg-3)',
-                borderBottom: filter === val ? '2px solid #0A3D8F' : '2px solid transparent',
+                color: filter === val ? 'var(--title)' : 'var(--fg-3)',
+                borderBottom: filter === val ? '2px solid var(--title)' : '2px solid transparent',
                 fontFamily: 'inherit',
               }}
             >

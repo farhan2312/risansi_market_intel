@@ -613,7 +613,7 @@ export function ClientFormDrawer({ mode, client, existingContacts, allowCodeEdit
                             onClick={() => setCoverReps(v => on ? v.filter(x => x !== u.id) : [...v, u.id])}
                             style={{
                               padding: '3px 9px', borderRadius: 999, fontSize: 11.5, cursor: 'pointer', fontFamily: 'inherit',
-                              border: `1px solid ${on ? '#0A3D8F' : 'var(--line-strong)'}`,
+                              border: `1px solid ${on ? 'var(--title)' : 'var(--line-strong)'}`,
                               background: on ? 'var(--accent-soft, rgba(26,92,184,0.10))' : 'var(--bg-paper)',
                               color: on ? 'var(--title)' : 'var(--fg-2)',
                             }}>
@@ -751,9 +751,9 @@ function Pill({ active, onClick, children }: { active: boolean; onClick: () => v
     <button type="button" onClick={onClick} style={{
       flex: 1, padding: '8px 10px', fontSize: 13, fontFamily: 'inherit',
       fontWeight: active ? 600 : 500, cursor: 'pointer', borderRadius: 6,
-      background: active ? '#0A3D8F' : 'var(--bg-sunk)',
-      color:      active ? '#fff' : 'var(--fg-2)',
-      border: `1px solid ${active ? '#0A3D8F' : 'var(--line-strong)'}`,
+      background: active ? 'var(--accent-fill)' : 'var(--bg-sunk)',
+      color:      active ? 'var(--on-accent)' : 'var(--fg-2)',
+      border: `1px solid ${active ? 'var(--accent-fill)' : 'var(--line-strong)'}`,
     }}>
       {children}
     </button>
@@ -765,7 +765,7 @@ function Pill({ active, onClick, children }: { active: boolean; onClick: () => v
 const PRIMARY_BTN: CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 6,
   padding: '7px 14px', fontSize: 13, fontFamily: 'inherit',
-  fontWeight: 600, background: '#0A3D8F', color: '#fff',
+  fontWeight: 600, background: 'var(--accent-fill)', color: 'var(--on-accent)',
   border: 'none', borderRadius: 6, cursor: 'pointer',
   letterSpacing: '-0.005em', flexShrink: 0,
 };
@@ -831,7 +831,7 @@ const ADD_CONTACT_BTN: CSSProperties = {
 const SUBMIT_BTN: CSSProperties = {
   width: '100%', padding: '12px 0',
   fontSize: 14, fontFamily: 'inherit', fontWeight: 600,
-  background: '#0A3D8F', color: '#fff',
+  background: 'var(--accent-fill)', color: 'var(--on-accent)',
   border: 'none', borderRadius: 6,
   letterSpacing: '-0.005em', marginTop: 4,
 };

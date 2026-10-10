@@ -131,12 +131,12 @@ export default async function ActionRegistryPage({
           <a href={buildHref({ mine: null })} style={{
             padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 500, textDecoration: 'none',
             border: '1px solid var(--line)',
-            background: mine ? '#0A3D8F' : 'var(--bg-elev)', color: mine ? '#fff' : 'var(--fg-3)',
+            background: mine ? 'var(--accent-fill)' : 'var(--bg-elev)', color: mine ? 'var(--on-accent)' : 'var(--fg-3)',
           }}>My actions</a>
           <a href={buildHref({ mine: 'all' })} style={{
             padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 500, textDecoration: 'none',
             border: '1px solid var(--line)',
-            background: !mine ? '#0A3D8F' : 'var(--bg-elev)', color: !mine ? '#fff' : 'var(--fg-3)',
+            background: !mine ? 'var(--accent-fill)' : 'var(--bg-elev)', color: !mine ? 'var(--on-accent)' : 'var(--fg-3)',
           }}>All actions</a>
         </div>
 

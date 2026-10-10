@@ -704,8 +704,8 @@ export default async function ClientProfilePage({
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
               padding: '8px 14px', fontSize: 13, fontWeight: 600,
-              background: '#EBF1FB', color: '#0A3D8F',
-              border: '1px solid #C7D9F5', borderRadius: 6, textDecoration: 'none',
+              background: 'var(--accent-soft)', color: 'var(--title)',
+              border: '1px solid var(--accent-line)', borderRadius: 6, textDecoration: 'none',
             }}
           >
             🖨 Export PDF
@@ -836,7 +836,7 @@ export default async function ClientProfilePage({
                             </td>
                           );
                         })}
-                        <td data-label="Lifetime" style={{ padding: '9px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 11, color: '#0A3D8F' }}>
+                        <td data-label="Lifetime" style={{ padding: '9px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 11, color: 'var(--title)' }}>
                           {lifetimeTotal.toFixed(1)}
                         </td>
                       </tr>
@@ -889,7 +889,7 @@ export default async function ClientProfilePage({
                       </span>
                     )}
                     <a href={`/risansi/visits/${lastSeen.visit_id}`}
-                      style={{ marginLeft: 'auto', color: 'var(--brand-blue, #1A5CB8)', textDecoration: 'none' }}>
+                      style={{ marginLeft: 'auto', color: 'var(--brand-blue)', textDecoration: 'none' }}>
                       {lastSeen.visit_date ? new Date(lastSeen.visit_date + 'T00:00:00Z').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }) : 'the visit'} · {lastSeen.rep_name} →
                     </a>
                   </div>
@@ -930,7 +930,7 @@ export default async function ClientProfilePage({
                         .filter(m => m.units > 0)
                         .map(m => {
                           const pct = sec.total > 0 ? (m.units / sec.total) * 100 : 0;
-                          const color = m.isRil ? '#1A5CB8' : '#94A3B8';
+                          const color = m.isRil ? 'var(--brand-blue)' : '#94A3B8';
                           return (
                             <div key={m.name} style={{ marginBottom: 8 }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 3 }}>
@@ -1179,8 +1179,8 @@ export default async function ClientProfilePage({
                             style={{
                               flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4,
                               padding: '4px 9px', fontSize: 11, fontWeight: 600,
-                              background: '#EBF1FB', color: '#0A3D8F',
-                              border: '1px solid #C7D9F5', borderRadius: 6, textDecoration: 'none',
+                              background: 'var(--accent-soft)', color: 'var(--title)',
+                              border: '1px solid var(--accent-line)', borderRadius: 6, textDecoration: 'none',
                             }}
                           >
                             📄 PDF
@@ -1271,8 +1271,8 @@ export default async function ClientProfilePage({
                       {/* Avatar */}
                       <div style={{
                         width: 36, height: 36, borderRadius: 8, flexShrink: 0,
-                        background: c.is_primary ? '#0A3D8F' : 'var(--bg-sunk)',
-                        color: c.is_primary ? '#fff' : 'var(--fg-2)',
+                        background: c.is_primary ? 'var(--accent-fill)' : 'var(--bg-sunk)',
+                        color: c.is_primary ? 'var(--on-accent)' : 'var(--fg-2)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-mono)',
                       }}>
@@ -1288,7 +1288,7 @@ export default async function ClientProfilePage({
                             <span style={{
                               fontSize: 10, fontWeight: 600,
                               background: 'rgba(26,92,184,0.08)',
-                              color: '#1A5CB8',
+                              color: 'var(--brand-blue)',
                               border: '1px solid rgba(26,92,184,0.2)',
                               borderRadius: 10, padding: '1px 7px',
                               textTransform: 'uppercase', letterSpacing: '0.06em',
@@ -1704,7 +1704,7 @@ function RevenueChart({
         const total = pump + spare;
         return (
           <g key={fyKey}>
-            {sh > 0 && <rect x={x} y={height - ph - sh} width={bw} height={sh} rx={1.5} fill="#00A3C4" />}
+            {sh > 0 && <rect x={x} y={height - ph - sh} width={bw} height={sh} rx={1.5} fill="var(--brand-cyan)" />}
             {ph > 0 && <rect x={x} y={height - ph} width={bw} height={ph} rx={1.5} fill="var(--accent)" />}
             {total > 0 && (
               <text x={x + bw / 2} y={height - ph - sh - 3} textAnchor="middle" fontSize="9" fill="var(--fg-2)" fontFamily="var(--font-mono)">
@@ -1722,7 +1722,7 @@ function RevenueChart({
       <g transform={`translate(${padL}, ${height + 22})`}>
         <rect width="8" height="8" rx="1" fill="var(--accent)" />
         <text x="12" y="8" fontSize="11" fill="var(--fg-2)" fontFamily="var(--font-mono)">Pump</text>
-        <rect x="50" width="8" height="8" rx="1" fill="#00A3C4" />
+        <rect x="50" width="8" height="8" rx="1" fill="var(--brand-cyan)" />
         <text x="62" y="8" fontSize="11" fill="var(--fg-2)" fontFamily="var(--font-mono)">Spare</text>
       </g>
     </svg>
@@ -1765,7 +1765,7 @@ const RIL_STAT_SUB: CSSProperties = { fontSize: 10, color: 'var(--fg-3)', margin
 
 
 const CONTACT_LINK: CSSProperties = {
-  fontSize: 12, color: '#1A5CB8',
+  fontSize: 12, color: 'var(--brand-blue)',
   textDecoration: 'none', display: 'flex',
   alignItems: 'center', gap: 4,
 };
@@ -1780,6 +1780,6 @@ const LOC_VAL: CSSProperties = { fontSize: 13, color: 'var(--fg)' };
 const MAPS_BTN: CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
   padding: '8px 12px', fontSize: 12, fontWeight: 500,
-  background: '#EBF1FB', color: '#0A3D8F', border: '1px solid #C7D9F5',
+  background: 'var(--accent-soft)', color: 'var(--title)', border: '1px solid var(--accent-line)',
   borderRadius: 6, textDecoration: 'none',
 };

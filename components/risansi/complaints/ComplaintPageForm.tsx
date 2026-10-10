@@ -245,7 +245,7 @@ export function ComplaintPageForm({ complaintId, clientId, page, initial, lookup
           <button type="button" onClick={save} disabled={pending} style={{ ...PRIMARY, opacity: pending ? 0.6 : 1 }}>
             {pending ? 'Saving…' : `Save ${page.title}`}
           </button>
-          <span style={{ fontSize: 11, color: missing.length ? 'var(--warn, #B45309)' : 'var(--fg-3)' }}>
+          <span style={{ fontSize: 11, color: missing.length ? 'var(--warn)' : 'var(--fg-3)' }}>
             {missing.length ? `Still needed before this page counts as complete: ${missing.join(', ')}` : 'Every required field on this page is filled.'}
           </span>
         </div>
@@ -522,10 +522,10 @@ const CHOICE: CSSProperties = {
   padding: '7px 12px', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', borderRadius: 6, cursor: 'pointer',
   background: 'var(--bg-paper)', color: 'var(--fg-2)', border: '1px solid var(--line-strong)',
 };
-const CHOICE_ON: CSSProperties = { background: '#0A3D8F', color: '#fff', borderColor: '#0A3D8F' };
+const CHOICE_ON: CSSProperties = { background: 'var(--accent-fill)', color: 'var(--on-accent)', borderColor: 'var(--accent-fill)' };
 // A chosen Yes is navy like any other choice; a chosen No is grey. Yes is not
 // "bad" everywhere — "customer confirmed the fix" is a good Yes.
 const CHOICE_YES: CSSProperties = CHOICE_ON;
 const CHOICE_NO: CSSProperties = { background: 'var(--fg-3)', color: '#fff', borderColor: 'var(--fg-3)' };
-export const PRIMARY: CSSProperties = { border: 'none', background: '#0A3D8F', color: '#fff', borderRadius: 6, fontSize: 13, fontWeight: 600, padding: '9px 18px', cursor: 'pointer', fontFamily: 'inherit' };
+export const PRIMARY: CSSProperties = { border: 'none', background: 'var(--accent-fill)', color: 'var(--on-accent)', borderRadius: 6, fontSize: 13, fontWeight: 600, padding: '9px 18px', cursor: 'pointer', fontFamily: 'inherit' };
 export const GHOST: CSSProperties = { border: '1px solid var(--line-strong)', background: 'var(--bg-paper)', color: 'var(--fg)', borderRadius: 6, fontSize: 12, fontWeight: 600, padding: '7px 12px', cursor: 'pointer', fontFamily: 'inherit' };

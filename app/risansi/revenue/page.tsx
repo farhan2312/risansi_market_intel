@@ -373,7 +373,7 @@ export default async function RevenuePage({
                 {([['30', 'Monthly'], ['15', '15-day']] as const).map(([g, l]) => {
                   const on = (g === '15') === fortnight;
                   return <a key={g} href={buildUrl({ gran: g === '15' ? '15' : null, month: null })} title={g === '15' ? 'Each recorded fortnight (1–15, 16–end); months uploaded whole stay whole' : 'Whole months; fortnights add up into their month'}
-                    style={{ padding: '6px 12px', fontSize: 12, fontWeight: on ? 600 : 400, textDecoration: 'none', background: on ? 'var(--accent)' : 'var(--bg-paper)', color: on ? '#fff' : 'var(--fg-2)' }}>{l}</a>;
+                    style={{ padding: '6px 12px', fontSize: 12, fontWeight: on ? 600 : 400, textDecoration: 'none', background: on ? 'var(--accent-fill)' : 'var(--bg-paper)', color: on ? 'var(--on-accent)' : 'var(--fg-2)' }}>{l}</a>;
                 })}
               </div>
               <a href={buildUrl({ month: null })} style={tile(!monthSel)}>All</a>
@@ -415,8 +415,8 @@ export default async function RevenuePage({
                 <div style={{ padding: '16px 18px' }}>
                   {yoy.some(y => y.total > 0) ? <YoYChart rows={yoy} curFyStart={selectedFy} /> : <Empty>No historical data</Empty>}
                   <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginTop: 8, fontSize: 11, color: 'var(--fg-3)' }}>
-                    <span><span style={{ display: 'inline-block', width: 8, height: 8, background: '#0A3D8F', borderRadius: 2, marginRight: 5 }} />Pump</span>
-                    <span><span style={{ display: 'inline-block', width: 8, height: 8, background: '#00A3C4', borderRadius: 2, marginRight: 5 }} />Spare</span>
+                    <span><span style={{ display: 'inline-block', width: 8, height: 8, background: 'var(--title)', borderRadius: 2, marginRight: 5 }} />Pump</span>
+                    <span><span style={{ display: 'inline-block', width: 8, height: 8, background: 'var(--brand-cyan)', borderRadius: 2, marginRight: 5 }} />Spare</span>
                   </div>
                 </div>
               </div>
@@ -427,7 +427,7 @@ export default async function RevenuePage({
                   {summary.total > 0 ? (
                     <>
                       <Donut
-                        data={[{ pct: pumpPct, color: '#0A3D8F', name: 'Pump' }, { pct: sparePct, color: '#00A3C4', name: 'Spare' }]}
+                        data={[{ pct: pumpPct, color: 'var(--title)', name: 'Pump' }, { pct: sparePct, color: 'var(--brand-cyan)', name: 'Spare' }]}
                         size={150} thick={22}
                         center={<div style={{ textAlign: 'center' }}>
                           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 600, color: 'var(--fg)' }}>{formatRev(summary.total)}</div>
@@ -435,8 +435,8 @@ export default async function RevenuePage({
                         </div>}
                       />
                       <div style={{ display: 'flex', gap: 18, fontSize: 12 }}>
-                        <span><span style={{ display: 'inline-block', width: 8, height: 8, background: '#0A3D8F', borderRadius: 2, marginRight: 5 }} />Pump {pumpPct.toFixed(0)}%</span>
-                        <span><span style={{ display: 'inline-block', width: 8, height: 8, background: '#00A3C4', borderRadius: 2, marginRight: 5 }} />Spare {sparePct.toFixed(0)}%</span>
+                        <span><span style={{ display: 'inline-block', width: 8, height: 8, background: 'var(--title)', borderRadius: 2, marginRight: 5 }} />Pump {pumpPct.toFixed(0)}%</span>
+                        <span><span style={{ display: 'inline-block', width: 8, height: 8, background: 'var(--brand-cyan)', borderRadius: 2, marginRight: 5 }} />Spare {sparePct.toFixed(0)}%</span>
                       </div>
                     </>
                   ) : <Empty>No revenue in this period</Empty>}
@@ -485,7 +485,7 @@ export default async function RevenuePage({
                               <td data-label="Total" style={{ ...TD, minWidth: 130 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                   <div style={{ flex: 1, height: 5, background: 'var(--bg-sunk)', borderRadius: 3, overflow: 'hidden', minWidth: 50 }}>
-                                    <div style={{ width: `${(r.total / maxIndustry) * 100}%`, height: '100%', background: '#1A5CB8', borderRadius: 3 }} />
+                                    <div style={{ width: `${(r.total / maxIndustry) * 100}%`, height: '100%', background: 'var(--brand-blue)', borderRadius: 3 }} />
                                   </div>
                                   <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, minWidth: 56, textAlign: 'right' }}>{formatRev(r.total)}</span>
                                 </div>
@@ -703,9 +703,9 @@ function YoYChart({ rows, curFyStart }: { rows: YoY[]; curFyStart: number }) {
         const cur = r.fyStart === curFyStart;
         return (
           <g key={i}>
-            <rect x={x} y={H - ph} width={barW} height={ph} rx={1.5} fill="#0A3D8F" opacity={cur ? 1 : 0.6} />
-            <rect x={x + barW + pairGap} y={H - sh} width={barW} height={sh} rx={1.5} fill="#00A3C4" opacity={cur ? 1 : 0.6} />
-            <text x={x + groupW / 2} y={H + 14} textAnchor="middle" fontSize="10" fontWeight={cur ? 700 : 400} fill={cur ? '#0A3D8F' : 'var(--fg-3)'} fontFamily="var(--font-mono)">{fyLabel(r.fyStart)}</text>
+            <rect x={x} y={H - ph} width={barW} height={ph} rx={1.5} fill="var(--title)" opacity={cur ? 1 : 0.6} />
+            <rect x={x + barW + pairGap} y={H - sh} width={barW} height={sh} rx={1.5} fill="var(--brand-cyan)" opacity={cur ? 1 : 0.6} />
+            <text x={x + groupW / 2} y={H + 14} textAnchor="middle" fontSize="10" fontWeight={cur ? 700 : 400} fill={cur ? 'var(--title)' : 'var(--fg-3)'} fontFamily="var(--font-mono)">{fyLabel(r.fyStart)}</text>
           </g>
         );
       })}
@@ -736,9 +736,9 @@ function MonthlyTrend({ rows, selected }: { rows: MonthPoint[]; selected: string
         return (
           <g key={r.ym}>
             <title>{`${periodLabel(r.ym, r.half)} · Pump ${formatRev(r.pump)} · Spare ${formatRev(r.spare)} · Total ${formatRev(r.total)}`}</title>
-            <rect x={x} y={H - h} width={bw} height={h} rx={2} fill={sel ? '#D97706' : r.half ? (r.half === 1 ? '#1A5CB8' : '#5B8FD6') : '#1A5CB8'} />
+            <rect x={x} y={H - h} width={bw} height={h} rx={2} fill={sel ? 'var(--warn)' : r.half ? (r.half === 1 ? '#1A5CB8' : '#5B8FD6') : '#1A5CB8'} />
             <text x={x + bw / 2} y={H - h - 3} textAnchor="middle" fontSize="8" fill="var(--fg-2)" fontFamily="var(--font-mono)">{r.total > 0 ? Math.round(r.total / INR_TO_L) : ''}</text>
-            <text x={x + bw / 2} y={H + 14} textAnchor="middle" fontSize="9" fill={sel ? '#D97706' : 'var(--fg-3)'} fontFamily="var(--font-mono)">{r.half ? `${monthLabel(r.ym)} ${r.half === 1 ? '¹' : '²'}` : monthLabel(r.ym)}</text>
+            <text x={x + bw / 2} y={H + 14} textAnchor="middle" fontSize="9" fill={sel ? 'var(--warn)' : 'var(--fg-3)'} fontFamily="var(--font-mono)">{r.half ? `${monthLabel(r.ym)} ${r.half === 1 ? '¹' : '²'}` : monthLabel(r.ym)}</text>
           </g>
         );
       })}
@@ -782,15 +782,15 @@ const CAT_COLORS = ['#0A3D8F', '#1A5CB8', '#00B4D8', '#059669', '#D97706', '#7C3
 function toggle(active: boolean): CSSProperties {
   return {
     padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 500,
-    background: active ? '#0A3D8F' : 'var(--bg-elev)', color: active ? '#fff' : 'var(--fg-3)',
+    background: active ? 'var(--accent-fill)' : 'var(--bg-elev)', color: active ? 'var(--on-accent)' : 'var(--fg-3)',
     textDecoration: 'none', border: '1px solid var(--line)',
   };
 }
 function tile(active: boolean): CSSProperties {
   return {
     padding: '5px 12px', borderRadius: 6, fontSize: 12, fontWeight: active ? 600 : 500,
-    background: active ? '#0A3D8F' : 'var(--bg-paper)', color: active ? '#fff' : 'var(--fg-2)',
-    textDecoration: 'none', border: `1px solid ${active ? '#0A3D8F' : 'var(--line-strong)'}`,
+    background: active ? 'var(--accent-fill)' : 'var(--bg-paper)', color: active ? 'var(--on-accent)' : 'var(--fg-2)',
+    textDecoration: 'none', border: `1px solid ${active ? 'var(--accent-fill)' : 'var(--line-strong)'}`,
     fontFamily: 'var(--font-mono)',
   };
 }

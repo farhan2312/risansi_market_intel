@@ -127,7 +127,7 @@ export function ClientOwnershipButton({ clientId, clientCode, clientName, reps, 
                             <input
                               type="checkbox" checked={on} disabled={pending}
                               onChange={() => setSecondary(s => on ? s.filter(x => x !== r.id) : [...s, r.id])}
-                              style={{ width: 15, height: 15, accentColor: '#0A3D8F' }}
+                              style={{ width: 15, height: 15, accentColor: 'var(--title)' }}
                             />
                             <span style={{ fontSize: 13 }}>{r.name}</span>
                             {r.role === 'manager' && <span style={{ fontSize: 10.5, color: 'var(--fg-3)' }}>manager</span>}
@@ -198,4 +198,4 @@ const BTN: CSSProperties = {
   border: '1px solid var(--line-strong)', background: 'var(--bg-paper)', color: 'var(--fg)',
   borderRadius: 6, fontSize: 13, padding: '8px 16px', cursor: 'pointer', fontFamily: 'inherit',
 };
-const BTN_PRI: CSSProperties = { ...BTN, background: '#0A3D8F', color: '#fff', borderColor: '#0A3D8F', fontWeight: 500 };
+const BTN_PRI: CSSProperties = { ...BTN, background: 'var(--accent-fill)', color: 'var(--on-accent)', borderColor: 'var(--accent-fill)', fontWeight: 500 };

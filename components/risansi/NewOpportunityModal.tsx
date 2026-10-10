@@ -118,7 +118,7 @@ export function NewOpportunityModal(props: NewOpportunityModalProps) {
         {/* Sticky with the header, so there is always a deliberate way out that
             is not a scroll to the bottom — and is not a click on the backdrop,
             which no longer discards a form someone has started filling in. */}
-        <div style={{ padding: '16px 20px', background: '#0A3D8F', color: '#fff', position: 'sticky', top: 0, zIndex: 1 }}>
+        <div style={{ padding: '16px 20px', background: 'var(--accent-fill)', color: 'var(--on-accent)', position: 'sticky', top: 0, zIndex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 700 }}>New Opportunity</div>
@@ -382,11 +382,11 @@ function StagePicker({ value, onChange }: { value: StartStage; onChange: (s: Sta
               style={{
                 textAlign: 'left', padding: '9px 11px', borderRadius: 7, cursor: 'pointer',
                 fontFamily: 'inherit',
-                border: `1px solid ${on ? '#0A3D8F' : 'var(--line-strong)'}`,
-                background: on ? '#EBF1FB' : 'var(--bg-paper)',
+                border: `1px solid ${on ? 'var(--title)' : 'var(--line-strong)'}`,
+                background: on ? 'var(--accent-soft)' : 'var(--bg-paper)',
               }}
             >
-              <div style={{ fontSize: 12.5, fontWeight: 700, color: on ? '#0A3D8F' : 'var(--fg)' }}>{s}</div>
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: on ? 'var(--title)' : 'var(--fg)' }}>{s}</div>
               <div style={{ fontSize: 10.5, color: 'var(--fg-3)', marginTop: 2, lineHeight: 1.35 }}>
                 {START_BLURB[s]}
               </div>
@@ -460,11 +460,11 @@ const GHOST: CSSProperties = {
   borderRadius: 6, fontSize: 13, fontWeight: 600, padding: '9px 16px', cursor: 'pointer', fontFamily: 'inherit',
 };
 const PRIMARY: CSSProperties = {
-  border: 'none', background: '#0A3D8F', color: '#fff', borderRadius: 6,
+  border: 'none', background: 'var(--accent-fill)', color: 'var(--on-accent)', borderRadius: 6,
   fontSize: 13, fontWeight: 600, padding: '9px 18px', cursor: 'pointer', fontFamily: 'inherit',
 };
 const LINK: CSSProperties = {
-  background: 'none', border: 'none', color: '#1A5CB8', cursor: 'pointer',
+  background: 'none', border: 'none', color: 'var(--brand-blue)', cursor: 'pointer',
   fontSize: 11.5, fontWeight: 600, fontFamily: 'inherit', textDecoration: 'underline',
 };
 const ERR: CSSProperties = {

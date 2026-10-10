@@ -32,7 +32,7 @@ const BTN: CSSProperties = {
   border: '1px solid var(--line-strong)', background: 'var(--bg-paper)', color: 'var(--fg)',
   borderRadius: 6, fontSize: 12, fontWeight: 600, padding: '6px 11px', cursor: 'pointer', fontFamily: 'inherit',
 };
-const BTN_PRI: CSSProperties = { ...BTN, background: '#0A3D8F', color: '#fff', borderColor: '#0A3D8F' };
+const BTN_PRI: CSSProperties = { ...BTN, background: 'var(--accent-fill)', color: 'var(--on-accent)', borderColor: 'var(--accent-fill)' };
 const SEL: CSSProperties = {
   padding: '6px 9px', fontSize: 12.5, fontFamily: 'inherit', background: 'var(--bg-sunk)',
   border: '1px solid var(--line-strong)', borderRadius: 6, color: 'var(--fg)',
@@ -148,7 +148,7 @@ export function TeamMatrix({ managers, reps, pairs }: {
                           type="checkbox" checked={on} disabled={pending}
                           onChange={() => toggle(m.id, r.id)}
                           aria-label={`${m.name} manages ${r.name}`}
-                          style={{ width: 16, height: 16, cursor: pending ? 'wait' : 'pointer', accentColor: '#0A3D8F' }}
+                          style={{ width: 16, height: 16, cursor: pending ? 'wait' : 'pointer', accentColor: 'var(--title)' }}
                         />
                       )}
                     </td>
@@ -496,7 +496,7 @@ export function RepClients({ people, selected, clients }: {
         <div style={{ display: 'flex', gap: 4 }}>
           {([['all', `All ${clients.length}`], ['primary', `Owns ${owned}`], ['covering', `Covers ${covers}`]] as const).map(([k, label]) => (
             <button key={k} type="button" onClick={() => setOnly(k)}
-              style={{ ...BTN, ...(only === k ? { background: '#0A3D8F', color: '#fff', borderColor: '#0A3D8F' } : null) }}>
+              style={{ ...BTN, ...(only === k ? { background: 'var(--accent-fill)', color: 'var(--on-accent)', borderColor: 'var(--accent-fill)' } : null) }}>
               {label}
             </button>
           ))}

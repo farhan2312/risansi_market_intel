@@ -134,7 +134,7 @@ export function ExportColumnsButton({ href, count, label }: {
                 <>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer' }}>
                     <input type="checkbox" checked={wantOpps} onChange={() => setWantOpps(v => !v)}
-                      style={{ width: 14, height: 14, accentColor: '#0A3D8F' }} />
+                      style={{ width: 14, height: 14, accentColor: 'var(--title)' }} />
                     <span style={{ fontSize: 12.5 }}>
                       Include the Opportunities sheet
                       <span style={{ color: 'var(--fg-3)' }}> · one row per opportunity</span>
@@ -172,7 +172,7 @@ export function ExportColumnsButton({ href, count, label }: {
                         <label key={col.key} style={ROW}>
                           <input type="checkbox" checked={oppPicked.has(col.key)} disabled={!wantOpps}
                             onChange={() => toggleOpp(col.key)}
-                            style={{ width: 14, height: 14, accentColor: '#0A3D8F', flexShrink: 0 }} />
+                            style={{ width: 14, height: 14, accentColor: 'var(--title)', flexShrink: 0 }} />
                           <span style={{ fontSize: 12.5 }}>{col.label}</span>
                         </label>
                       ))}
@@ -200,7 +200,7 @@ export function ExportColumnsButton({ href, count, label }: {
                         <label key={c.key} style={ROW}>
                           <input
                             type="checkbox" checked={picked.has(c.key)} onChange={() => toggle(c.key)}
-                            style={{ width: 14, height: 14, accentColor: '#0A3D8F', flexShrink: 0 }}
+                            style={{ width: 14, height: 14, accentColor: 'var(--title)', flexShrink: 0 }}
                           />
                           <span style={{ fontSize: 12.5 }}>{c.label}</span>
                         </label>
@@ -233,7 +233,7 @@ const TRIGGER: CSSProperties = {
   fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap',
 };
 const TRIGGER_SEL: CSSProperties = {
-  background: '#0A3D8F', color: '#fff', borderColor: '#0A3D8F', fontWeight: 600,
+  background: 'var(--accent-fill)', color: 'var(--on-accent)', borderColor: 'var(--accent-fill)', fontWeight: 600,
 };
 const SCRIM: CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(10,22,40,0.4)', zIndex: 400 };
 const MODAL: CSSProperties = {
@@ -279,4 +279,4 @@ const BTN: CSSProperties = {
   border: '1px solid var(--line-strong)', background: 'var(--bg-paper)', color: 'var(--fg)',
   borderRadius: 6, fontSize: 13, padding: '8px 16px', cursor: 'pointer', fontFamily: 'inherit',
 };
-const BTN_PRI: CSSProperties = { ...BTN, background: '#0A3D8F', color: '#fff', borderColor: '#0A3D8F', fontWeight: 500 };
+const BTN_PRI: CSSProperties = { ...BTN, background: 'var(--accent-fill)', color: 'var(--on-accent)', borderColor: 'var(--accent-fill)', fontWeight: 500 };

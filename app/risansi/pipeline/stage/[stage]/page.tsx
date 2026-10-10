@@ -338,7 +338,7 @@ export default async function StageDashboardPage({ params, searchParams }: {
                     note="Order in hand is won value with no Sales Order against it — the raise-an-SO to-do list. Click a part to filter.">
                     <StackedBar parts={[
                       { label: 'SO created', value: P('so').soCr, color: 'var(--pos)', sub: `${P('so').withSo} opps` },
-                      { label: 'Awaiting SO', value: P('so').inHandCr, color: 'var(--warn, #F59E0B)', sub: `${P('so').n - P('so').withSo} opps` },
+                      { label: 'Awaiting SO', value: P('so').inHandCr, color: 'var(--warn)', sub: `${P('so').n - P('so').withSo} opps` },
                     ]} hrefFor={hrefFor('so')} selected={sel.so} />
                   </ChartPanel>
                   <ChartPanel title="Won by month" sub="by quote date, last 12">
@@ -472,7 +472,7 @@ export default async function StageDashboardPage({ params, searchParams }: {
 function marketParts(g: { label: string; count: number; value: number }[]) {
   const pick = (l: string) => g.find(x => x.label === l);
   return [
-    { label: 'Domestic',   value: pick('DOMESTIC')?.value ?? 0,   color: '#0A3D8F', sub: `${pick('DOMESTIC')?.count ?? 0} opps` },
+    { label: 'Domestic',   value: pick('DOMESTIC')?.value ?? 0,   color: 'var(--title)', sub: `${pick('DOMESTIC')?.count ?? 0} opps` },
     { label: 'Export',     value: pick('EXPORT')?.value ?? 0,     color: '#c69347', sub: `${pick('EXPORT')?.count ?? 0} opps` },
     { label: 'Unrecorded', value: pick('Unrecorded')?.value ?? 0, color: 'var(--fg-3)' },
   ];
@@ -503,7 +503,7 @@ function renderCell(r: Row, key: string, usdRate: number, inr: (v: number | null
       return (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
           <a href={form} title="Open this quotation — the offer, its line items and its documents"
-            style={{ color: 'var(--brand-blue, #1A5CB8)', textDecoration: 'none', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+            style={{ color: 'var(--brand-blue)', textDecoration: 'none', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
             {r.quote_ref ?? '—'}
           </a>
           {pdf && (
@@ -562,7 +562,7 @@ function renderCell(r: Row, key: string, usdRate: number, inr: (v: number | null
       const base = r.final_cr != null ? Number(r.final_cr) : r.value_cr;
       const covered = base > 0 && r.so_sum_cr >= base;
       return (
-        <span style={{ fontSize: 10.5, fontWeight: 600, color: covered ? 'var(--pos)' : 'var(--warn, #B45309)' }}>
+        <span style={{ fontSize: 10.5, fontWeight: 600, color: covered ? 'var(--pos)' : 'var(--warn)' }}>
           {covered ? 'Closed' : 'Open'}
         </span>
       );
@@ -587,7 +587,7 @@ function renderCell(r: Row, key: string, usdRate: number, inr: (v: number | null
     }
     case 'age_days':
       if (r.age_days == null) return <span style={{ color: 'var(--fg-3)' }}>—</span>;
-      return <span style={{ color: r.age_days > 90 ? 'var(--neg)' : r.age_days > 60 ? 'var(--warn, #B45309)' : 'inherit' }}>{r.age_days}d</span>;
+      return <span style={{ color: r.age_days > 90 ? 'var(--neg)' : r.age_days > 60 ? 'var(--warn)' : 'inherit' }}>{r.age_days}d</span>;
     case 'rev_count':
       return r.rev_count || '—';
     default: {

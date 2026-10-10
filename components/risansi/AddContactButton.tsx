@@ -20,7 +20,7 @@ export function AddContactButton({
         style={{
           display: 'inline-flex', alignItems: 'center', gap: 5,
           padding: '5px 10px',
-          background: '#0A3D8F',
+          background: 'var(--title)',
           color: 'white', border: 'none',
           borderRadius: 6, fontSize: 12,
           fontWeight: 500, fontFamily: 'inherit',

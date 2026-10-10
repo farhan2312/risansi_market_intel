@@ -127,7 +127,7 @@ export function ClientPumpEditor({ clientId, compact = false, onCount }: { clien
               </div>
               <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                 <button type="button" onClick={() => setDraft(toBatch(p, pumps))} disabled={busy} style={MINI}>Edit</button>
-                <button type="button" onClick={() => remove(p.id)} disabled={busy} style={{ ...MINI, color: '#DC2626', borderColor: 'rgba(220,38,38,0.4)' }}>Delete</button>
+                <button type="button" onClick={() => remove(p.id)} disabled={busy} style={{ ...MINI, color: 'var(--neg)', borderColor: 'rgba(220,38,38,0.4)' }}>Delete</button>
               </div>
             </div>
           ))}
@@ -140,5 +140,5 @@ export function ClientPumpEditor({ clientId, compact = false, onCount }: { clien
 
 const ROW: CSSProperties = { display: 'flex', alignItems: 'center', gap: 10, padding: '9px 11px', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--bg-paper)' };
 const MINI: CSSProperties = { padding: '4px 9px', fontSize: 11, fontWeight: 500, background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', color: 'var(--fg-2)', borderRadius: 5, cursor: 'pointer', fontFamily: 'inherit' };
-const BTN_ADD: CSSProperties = { padding: '5px 11px', fontSize: 12, fontWeight: 600, background: 'var(--accent-soft, #EBF1FB)', color: '#0A3D8F', border: '1px solid var(--accent-line, #BBD)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' };
-const ERR: CSSProperties = { padding: '7px 11px', background: '#FEE2E2', border: '1px solid rgba(220,38,38,0.2)', borderRadius: 6, fontSize: 12, color: '#9B1C1C', marginBottom: 10 };
+const BTN_ADD: CSSProperties = { padding: '5px 11px', fontSize: 12, fontWeight: 600, background: 'var(--accent-soft)', color: 'var(--title)', border: '1px solid var(--accent-line)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' };
+const ERR: CSSProperties = { padding: '7px 11px', background: 'var(--neg-soft)', border: '1px solid rgba(220,38,38,0.2)', borderRadius: 6, fontSize: 12, color: 'var(--neg-strong)', marginBottom: 10 };

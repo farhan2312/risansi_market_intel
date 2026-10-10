@@ -28,7 +28,7 @@ export function DeletePumpUploadButton({ logId }: { logId: number }) {
           disabled={loading}
           style={{
             padding: '3px 8px', borderRadius: 4, fontFamily: 'inherit',
-            background: '#E02424', color: 'white',
+            background: 'var(--neg-fill)', color: 'var(--on-accent)',
             border: 'none', cursor: loading ? 'not-allowed' : 'pointer', fontSize: 11,
             opacity: loading ? 0.7 : 1,
           }}
@@ -40,13 +40,13 @@ export function DeletePumpUploadButton({ logId }: { logId: number }) {
           disabled={loading}
           style={{
             padding: '3px 8px', borderRadius: 4, fontFamily: 'inherit',
-            background: 'var(--bg-elev)', border: '1px solid var(--line-strong, #CBD5E1)',
+            background: 'var(--bg-elev)', border: '1px solid var(--line-strong)',
             cursor: 'pointer', fontSize: 11,
           }}
         >
           Cancel
         </button>
-        {error && <span style={{ fontSize: 10.5, color: '#E02424', alignSelf: 'center' }}>{error}</span>}
+        {error && <span style={{ fontSize: 10.5, color: 'var(--neg)', alignSelf: 'center' }}>{error}</span>}
       </div>
     );
   }
@@ -57,7 +57,7 @@ export function DeletePumpUploadButton({ logId }: { logId: number }) {
       style={{
         padding: '3px 8px', borderRadius: 4, fontFamily: 'inherit',
         background: 'transparent', border: '1px solid #F87171',
-        color: '#E02424', cursor: 'pointer', fontSize: 11,
+        color: 'var(--neg)', cursor: 'pointer', fontSize: 11,
       }}
     >
       Delete

@@ -94,7 +94,7 @@ export function LegacyMark({ count, noFile }: { count?: number; noFile?: boolean
           : 'Recorded before quotation uploads existed — opens SharePoint'}
       style={{
         ...CHIP, fontSize: 8.5, padding: '0 3px', opacity: 0.8,
-        color: 'var(--warn-strong, #92400E)', borderColor: 'var(--warn-strong, #92400E)',
+        color: 'var(--warn-strong)', borderColor: 'var(--warn-strong)',
       }}>
       {noFile ? 'no file' : many ? `legacy ×${count}` : 'legacy'}
     </span>
@@ -105,8 +105,8 @@ function Chip({ children, tone }: { children: ReactNode; tone: 'legacy' | 'muted
   return (
     <span style={{
       ...CHIP,
-      color: tone === 'legacy' ? 'var(--warn-strong, #92400E)' : 'var(--fg-3)',
-      borderColor: tone === 'legacy' ? 'var(--warn-strong, #92400E)' : 'var(--line-strong)',
+      color: tone === 'legacy' ? 'var(--warn-strong)' : 'var(--fg-3)',
+      borderColor: tone === 'legacy' ? 'var(--warn-strong)' : 'var(--line-strong)',
       opacity: tone === 'legacy' ? 0.85 : 1,
     }}>
       {children}
@@ -115,7 +115,7 @@ function Chip({ children, tone }: { children: ReactNode; tone: 'legacy' | 'muted
 }
 
 const LINK: CSSProperties = {
-  color: 'var(--brand-blue, #1A5CB8)', textDecoration: 'none', fontWeight: 600,
+  color: 'var(--brand-blue)', textDecoration: 'none', fontWeight: 600,
 };
 const CHIP: CSSProperties = {
   fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase',

@@ -258,7 +258,7 @@ export function OppStageMoveModal({ opp, target, usdRate = 86, onCancel, onDone 
         {/* Sticky, so the × and the draft indicator stay in reach however long
             the stage's field list is. The Cancel at the foot of the form was the
             only way out before, which is a scroll away on every long quotation. */}
-        <div style={{ padding: '16px 20px', background: '#0A3D8F', color: '#fff', position: 'sticky', top: 0, zIndex: 1 }}>
+        <div style={{ padding: '16px 20px', background: 'var(--accent-fill)', color: 'var(--on-accent)', position: 'sticky', top: 0, zIndex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 700 }}>
@@ -382,7 +382,7 @@ const GHOST: CSSProperties = {
   borderRadius: 6, fontSize: 13, fontWeight: 600, padding: '9px 16px', cursor: 'pointer', fontFamily: 'inherit',
 };
 const PRIMARY: CSSProperties = {
-  border: 'none', background: '#0A3D8F', color: '#fff', borderRadius: 6,
+  border: 'none', background: 'var(--accent-fill)', color: 'var(--on-accent)', borderRadius: 6,
   fontSize: 13, fontWeight: 600, padding: '9px 18px', cursor: 'pointer', fontFamily: 'inherit',
 };
 const ERR: CSSProperties = {

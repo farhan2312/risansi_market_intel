@@ -15,13 +15,13 @@ async function q<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
 }
 
 const COMP_COLORS: Record<string, string> = {
-  RIL:           '#1A5CB8',
-  Roto:          '#059669',
+  RIL:           'var(--brand-blue)',
+  Roto:          'var(--pos)',
   Rotomac:       '#14B8A6',
-  Netzsch:       '#7C3AED',
-  Gita:          '#D97706',
+  Netzsch:       'var(--purple)',
+  Gita:          'var(--warn)',
   PSP:           '#0891B2',
-  Tushaco:       '#DC2626',
+  Tushaco:       'var(--neg)',
   Others:        'var(--fg-3)',
 };
 function compColor(name: string) { return COMP_COLORS[name] ?? COMP_COLORS.Others; }
@@ -34,7 +34,7 @@ const MMP_MAKERS: Record<string, string> = {
   elite_mmp: 'Elite', ravalgoan_mmp: 'Ravalgoan', mather_mmp: 'Mather', varun_mmp: 'Varun',
   vs_engg_mmp: 'VS Engg', span_engg_mmp: 'Span Engg', pandey_mmp: 'Pandey', mahalaxmi_mmp: 'Mahalaxmi',
 };
-const MMP_PALETTE = ['#7C3AED', '#D97706', '#0891B2', '#DC2626', '#059669', '#DB2777', '#475569'];
+const MMP_PALETTE = ['var(--purple)', 'var(--warn)', '#0891B2', 'var(--neg)', 'var(--pos)', '#DB2777', '#475569'];
 
 function fmtD(d: string | null): string {
   if (!d) return '—';

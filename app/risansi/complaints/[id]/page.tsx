@@ -178,10 +178,10 @@ export default async function ComplaintPage({ params, searchParams }: {
               <span style={{ fontFamily: 'var(--font-mono)' }}>{c.complaint_no}</span>
               <span style={{ ...PILL, background: STATUS_TONE[c.status] ?? 'var(--fg-3)' }}>{c.status}</span>
               {sev && <span style={{ ...PILL, background: SEVERITY_TONE[sev] }} title={SEVERITY_REQUIRES[sev]}>{SEVERITY_LABEL[sev]}</span>}
-              {severe && <span style={{ ...PILL, background: 'var(--neg)' }} title={`Immediate response: ${severeWhy}`}>Severe</span>}
+              {severe && <span style={{ ...PILL, background: 'var(--neg-fill)' }} title={`Immediate response: ${severeWhy}`}>Severe</span>}
               {legacy && <span style={{ ...PILL, background: 'var(--fg-4)' }}>Legacy</span>}
-              {c.repeat_complaint === true && <span style={{ ...PILL, background: 'var(--warn, #B45309)' }}>Repeat</span>}
-              {(c.reopen_count as number) > 0 && <span style={{ ...PILL, background: 'var(--warn, #B45309)' }}>Reopened ×{String(c.reopen_count)}</span>}
+              {c.repeat_complaint === true && <span style={{ ...PILL, background: 'var(--warn)' }}>Repeat</span>}
+              {(c.reopen_count as number) > 0 && <span style={{ ...PILL, background: 'var(--warn)' }}>Reopened ×{String(c.reopen_count)}</span>}
             </h1>
             <div style={{ fontSize: 13, color: 'var(--fg)' }}>
               {c.client_id ? <Link href={`/risansi/clients/${c.client_id}`} style={{ color: 'var(--fg)', fontWeight: 600, textDecoration: 'none' }}>{c.client_name}</Link> : 'No client'}
@@ -239,7 +239,7 @@ export default async function ComplaintPage({ params, searchParams }: {
                   borderBottom: on ? '2px solid var(--accent)' : '2px solid transparent', marginBottom: -1,
                 }} title={`${p.title} — ${p.owner}`}>
                   <span style={{ fontFamily: 'var(--font-mono)', marginRight: 6, opacity: 0.7 }}>{pageStep(p)}</span>{p.title}
-                  {missing > 0 && <span title={`${missing} required field${missing === 1 ? '' : 's'} still empty`} style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, color: 'var(--warn, #B45309)' }}>●</span>}
+                  {missing > 0 && <span title={`${missing} required field${missing === 1 ? '' : 's'} still empty`} style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, color: 'var(--warn)' }}>●</span>}
                 </Link>
               );
             })}

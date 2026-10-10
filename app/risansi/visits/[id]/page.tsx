@@ -275,8 +275,8 @@ export default async function VisitReportPage({
                   style={{
                     display: 'inline-flex', alignItems: 'center', gap: 6,
                     padding: '8px 14px', fontSize: 13, fontWeight: 600,
-                    background: '#EBF1FB', color: '#0A3D8F',
-                    border: '1px solid #C7D9F5', borderRadius: 6, textDecoration: 'none',
+                    background: 'var(--accent-soft)', color: 'var(--title)',
+                    border: '1px solid var(--accent-line)', borderRadius: 6, textDecoration: 'none',
                   }}
                 >
                   🖨 Export PDF
@@ -306,9 +306,9 @@ export default async function VisitReportPage({
           ) : !isSubmitted && !canEditVisit && (
             <div style={{
               padding: '10px 16px', marginBottom: 16,
-              background: 'var(--warn-soft, #FEF3C7)',
+              background: 'var(--warn-soft)',
               border: '1px solid var(--warn, rgba(217,119,6,0.35))',
-              borderRadius: 8, fontSize: 12, color: 'var(--warn, #92400E)',
+              borderRadius: 8, fontSize: 12, color: 'var(--warn)',
               fontWeight: 500, display: 'flex', alignItems: 'center', gap: 8,
             }}>
               <span aria-hidden>👁</span>
@@ -347,12 +347,12 @@ export default async function VisitReportPage({
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { bg: string; color: string }> = {
     planned:    { bg: '#E0E7FF', color: '#3730A3' },
-    'checked-in': { bg: '#DBEAFE', color: '#1E40AF' },
-    completed:  { bg: '#D1FAE5', color: '#065F46' },
-    missed:     { bg: '#FEE2E2', color: '#991B1B' },
-    cancelled:  { bg: '#F3F4F6', color: '#6B7280' },
+    'checked-in': { bg: 'var(--info-soft)', color: 'var(--info-strong)' },
+    completed:  { bg: 'var(--pos-soft)', color: 'var(--pos-strong)' },
+    missed:     { bg: 'var(--neg-soft)', color: 'var(--neg-strong)' },
+    cancelled:  { bg: 'var(--bg-elev)', color: 'var(--fg-3)' },
   };
-  const s = map[status] ?? { bg: '#F3F4F6', color: '#6B7280' };
+  const s = map[status] ?? { bg: 'var(--bg-elev)', color: 'var(--fg-3)' };
   return (
     <span style={{
       fontSize: 11, padding: '2px 8px', borderRadius: 10,

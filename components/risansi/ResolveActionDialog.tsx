@@ -251,7 +251,7 @@ export function ResolveActionDialog({ action, onCancel, onDone, intent = 'done' 
               disabled={busy || !hist || (!closed && !note.trim() && !dateChanged && !done)}
               style={{
                 ...PRIMARY,
-                background: closed ? 'var(--fg-2)' : done ? 'var(--pos)' : '#0A3D8F',
+                background: closed ? 'var(--fg-2)' : done ? 'var(--pos)' : 'var(--accent-fill)',
                 opacity: busy || !hist || (!closed && !note.trim() && !dateChanged && !done) ? 0.5 : 1,
               }}>
               {busy ? 'Saving…' : verb}
@@ -304,8 +304,8 @@ export function ResolutionNote({ note, compact }: { note?: string | null; compac
   return (
     <div style={{
       marginTop: 5, fontSize: compact ? 11 : 11.5, lineHeight: 1.5, whiteSpace: 'pre-wrap',
-      color: 'var(--fg-2)', background: 'var(--pos-soft, #ECFDF5)',
-      border: '1px solid var(--pos, #A7F3D0)', borderLeft: '3px solid var(--pos, #10B981)',
+      color: 'var(--fg-2)', background: 'var(--pos-soft)',
+      border: '1px solid var(--pos)', borderLeft: '3px solid var(--pos)',
       borderRadius: 5, padding: '6px 9px',
     }}>
       <span style={{ fontWeight: 700, fontSize: 9.5, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--fg-3)' }}>
@@ -321,6 +321,6 @@ const GHOST: CSSProperties = {
   borderRadius: 6, fontSize: 12.5, fontWeight: 600, padding: '8px 14px', cursor: 'pointer', fontFamily: 'inherit',
 };
 const PRIMARY: CSSProperties = {
-  border: 'none', background: '#0A3D8F', color: '#fff',
+  border: 'none', background: 'var(--accent-fill)', color: 'var(--on-accent)',
   borderRadius: 6, fontSize: 12.5, fontWeight: 600, padding: '8px 16px', cursor: 'pointer', fontFamily: 'inherit',
 };

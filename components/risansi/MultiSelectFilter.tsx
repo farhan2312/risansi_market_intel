@@ -110,7 +110,7 @@ export function MultiSelectFilter({ param, label, options, selected }: Props) {
             minWidth:       16,
             height:         16,
             borderRadius:   8,
-            background:     '#0A3D8F',
+            background:     'var(--title)',
             color:          '#fff',
             fontSize:       9,
             fontWeight:     700,

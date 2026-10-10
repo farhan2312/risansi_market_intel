@@ -415,7 +415,7 @@ const LABEL: CSSProperties = {
   letterSpacing: '0.06em', display: 'block', marginBottom: 5,
 };
 const BTN_PRIMARY: CSSProperties = {
-  padding: '8px 16px', borderRadius: 6, background: '#0A3D8F', color: 'white',
+  padding: '8px 16px', borderRadius: 6, background: 'var(--accent-fill)', color: 'var(--on-accent)',
   border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 500, fontFamily: 'inherit',
 };
 const BTN_GHOST: CSSProperties = {

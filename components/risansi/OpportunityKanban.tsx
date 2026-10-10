@@ -30,7 +30,7 @@ const STAGE_COLOR: Record<string, string> = {
   Prospect:    '#5a86c2',
   Quoted:      '#c69347',
   Negotiating: 'var(--accent)',
-  'On Hold':   '#7C3AED',
+  'On Hold':   'var(--purple)',
   Won:         'var(--pos)',
   Lost:        'var(--neg)',
   Dropped:     '#64748B',
@@ -384,7 +384,7 @@ export function OpportunityKanban({ initialOpps, stageTotals, usdRate = 86, filt
                       position: 'relative',
                       background: isWon ? 'var(--won-bg)' : isLost ? 'var(--bg-sunk)' : 'var(--bg-elev)',
                       border: '1px solid var(--line)',
-                      borderLeft: `3px solid ${isWon ? '#0E9F6E' : isLost ? '#9CA3AF' : STAGE_COLOR[opp.stage] ?? 'var(--line)'}`,
+                      borderLeft: `3px solid ${isWon ? 'var(--pos)' : isLost ? '#9CA3AF' : STAGE_COLOR[opp.stage] ?? 'var(--line)'}`,
                       borderRadius: 4, padding: 10, cursor: 'pointer',
                       opacity: dragId === opp.id ? 0.4 : !canEdit ? 0.85 : isLost ? 0.75 : 1,
                     }}
@@ -436,7 +436,7 @@ export function OpportunityKanban({ initialOpps, stageTotals, usdRate = 86, filt
                           <span style={{
                             alignSelf: 'flex-start', fontSize: 9.5, fontWeight: 700, padding: '1px 7px', borderRadius: 999,
                             background: closed ? 'rgba(6,95,70,0.14)' : 'rgba(179,114,10,0.16)',
-                            color: closed ? '#065F46' : '#9a6208',
+                            color: closed ? 'var(--pos-strong)' : '#9a6208',
                           }}>
                             {closed ? 'Closed' : `Open · ₹${(Math.max(0, finalCr - soSum) * 100).toFixed(1)}L in hand`}
                           </span>

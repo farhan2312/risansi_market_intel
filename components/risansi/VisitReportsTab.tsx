@@ -191,7 +191,7 @@ function VisitReportRowItem({ visit }: { visit: VisitReportRow }) {
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
             <a
               href={`/risansi/visits/${visit.id}`}
-              style={{ fontSize: 12, color: BRAND, border: '1px solid rgba(26,92,184,0.3)', borderRadius: 5, padding: '4px 10px', textDecoration: 'none', background: 'var(--accent-soft, #EBF1FB)' }}
+              style={{ fontSize: 12, color: BRAND, border: '1px solid rgba(26,92,184,0.3)', borderRadius: 5, padding: '4px 10px', textDecoration: 'none', background: 'var(--accent-soft)' }}
             >
               Open Full Report →
             </a>

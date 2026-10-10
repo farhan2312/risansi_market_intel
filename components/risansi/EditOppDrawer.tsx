@@ -271,9 +271,9 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
                 <a
                   href={`/risansi/clients/${opp.client_id}`}
                   style={{
-                    fontSize: 11, color: '#1A5CB8', textDecoration: 'none',
+                    fontSize: 11, color: 'var(--brand-blue)', textDecoration: 'none',
                     padding: '2px 7px', border: '1px solid rgba(26,92,184,0.3)',
-                    borderRadius: 4, background: '#EBF1FB',
+                    borderRadius: 4, background: 'var(--accent-soft)',
                     display: 'inline-flex', alignItems: 'center', gap: 4,
                   }}
                 >
@@ -299,9 +299,9 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
               href={`/api/risansi/opportunities/${opp.id}/export`}
               title="Download every detail of this opportunity as Excel"
               style={{
-                fontSize: 11.5, fontWeight: 600, color: '#1A5CB8', textDecoration: 'none',
+                fontSize: 11.5, fontWeight: 600, color: 'var(--brand-blue)', textDecoration: 'none',
                 padding: '5px 10px', border: '1px solid rgba(26,92,184,0.3)',
-                borderRadius: 5, background: '#EBF1FB', whiteSpace: 'nowrap',
+                borderRadius: 5, background: 'var(--accent-soft)', whiteSpace: 'nowrap',
               }}
             >
               ⤓ Export Excel
@@ -328,7 +328,7 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
 
         {/* Auto-created notice */}
         {opp.auto_created && (
-          <div style={{ padding: '8px 20px', background: '#EBF1FB', borderBottom: '1px solid rgba(26,92,184,0.15)', fontSize: 12, color: '#1A5CB8' }}>
+          <div style={{ padding: '8px 20px', background: 'var(--accent-soft)', borderBottom: '1px solid rgba(26,92,184,0.15)', fontSize: 12, color: 'var(--brand-blue)' }}>
             ⚡ Auto-created from visit
             {opp.auto_source === 'expansion_plan' ? ' (expansion plan)'
               : opp.auto_source === 'displacement' ? ' (competitor displacement)' : ''}
@@ -339,9 +339,9 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
         {isLocked && (
           <div style={{
             padding: '10px 16px',
-            background: opp.stage === 'Won' ? '#D1FAE5' : '#FDE8E8',
+            background: opp.stage === 'Won' ? 'var(--pos-soft)' : 'var(--neg-soft)',
             borderBottom: '1px solid var(--line)', fontSize: 12,
-            color: opp.stage === 'Won' ? '#065F46' : '#9B1C1C',
+            color: opp.stage === 'Won' ? 'var(--pos-strong)' : 'var(--neg-strong)',
             display: 'flex', alignItems: 'center', gap: 8,
           }}>
             🔒 This opportunity is {opp.stage} and locked.{opp.stage === 'Won' ? ' The deal is frozen, but you can still record Sales Orders below until they cover the final value.' : ' No further changes can be made.'}
@@ -351,9 +351,9 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
         {/* View-only notice — editable stage, but not the viewer's to edit */}
         {!canEdit && !isLocked && (
           <div style={{
-            padding: '10px 16px', background: 'var(--warn-soft, #FEF3C7)',
+            padding: '10px 16px', background: 'var(--warn-soft)',
             borderBottom: '1px solid var(--line)', fontSize: 12,
-            color: 'var(--warn, #92400E)', fontWeight: 500,
+            color: 'var(--warn)', fontWeight: 500,
             display: 'flex', alignItems: 'center', gap: 8,
           }}>
             👁 View only — this opportunity is on the <strong>{opp.tour_name ?? 'client’s'}</strong> tour. Only reps on that tour (or an admin) can edit it.
@@ -493,7 +493,7 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
             <OppRemarksLog oppId={Number(opp.id)} />
 
             {error && (
-              <div style={{ padding: '8px 12px', background: '#FDE8E8', border: '1px solid #F87171', borderLeft: '3px solid #E02424', borderRadius: 5, color: '#9B1C1C', fontSize: 12 }}>
+              <div style={{ padding: '8px 12px', background: 'var(--neg-soft)', border: '1px solid var(--neg)', borderLeft: '3px solid var(--neg)', borderRadius: 5, color: '#9B1C1C', fontSize: 12 }}>
                 {error}
               </div>
             )}
@@ -504,7 +504,7 @@ export function EditOppDrawer({ opp, onClose, canEdit = true, usdRate = 86 }: {
                 <button type="button" onClick={guard.requestClose} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid var(--line-strong)', background: 'white', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}>
                   Cancel
                 </button>
-                <button type="submit" disabled={loading} style={{ padding: '8px 20px', borderRadius: 6, background: '#0A3D8F', color: 'white', border: 'none', cursor: loading ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 500, fontFamily: 'inherit', opacity: loading ? 0.7 : 1 }}>
+                <button type="submit" disabled={loading} style={{ padding: '8px 20px', borderRadius: 6, background: 'var(--accent-fill)', color: 'var(--on-accent)', border: 'none', cursor: loading ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 500, fontFamily: 'inherit', opacity: loading ? 0.7 : 1 }}>
                   {loading ? 'Saving…' : 'Save Changes'}
                 </button>
               </div>
@@ -645,7 +645,7 @@ function QuotedItemsSection({ items, meta, revisions, usdRate, editOppId, onItem
                 <button type="button" onClick={() => setEditing(false)} disabled={saving}
                   style={{ padding: '7px 12px', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', border: '1px solid var(--line-strong)', borderRadius: 6, background: 'var(--bg-paper)', color: 'var(--fg)', cursor: 'pointer' }}>Cancel</button>
                 <button type="button" onClick={save} disabled={saving}
-                  style={{ padding: '7px 14px', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', border: 'none', borderRadius: 6, background: '#0A3D8F', color: '#fff', cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
+                  style={{ padding: '7px 14px', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', border: 'none', borderRadius: 6, background: 'var(--accent-fill)', color: 'var(--on-accent)', cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
                   {saving ? 'Saving…' : 'Save items'}
                 </button>
               </div>
@@ -657,7 +657,7 @@ function QuotedItemsSection({ items, meta, revisions, usdRate, editOppId, onItem
               <div key={it.id} style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '9px 11px', background: 'var(--bg-elev)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, fontWeight: 600, color: 'var(--fg)', overflowWrap: 'anywhere' }}>{it.pump_model || '—'}</span>
-                  {inr(it.offer_value_inr) && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: '#0A3D8F', flexShrink: 0 }}>{inr(it.offer_value_inr)}</span>}
+                  {inr(it.offer_value_inr) && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: 'var(--title)', flexShrink: 0 }}>{inr(it.offer_value_inr)}</span>}
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 3, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                   {it.pump_qty != null && <span>Qty {it.pump_qty}</span>}
@@ -700,7 +700,7 @@ function DeleteOppButton({ oppId, onDeleted }: { oppId: number; onDeleted: () =>
             }
             catch (e) { setError(e instanceof Error ? e.message : 'Delete failed'); setLoading(false); }
           }}
-          style={{ padding: '5px 10px', borderRadius: 5, background: '#E02424', color: 'white', border: 'none', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit' }}
+          style={{ padding: '5px 10px', borderRadius: 5, background: 'var(--neg-fill)', color: 'var(--on-accent)', border: 'none', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit' }}
         >
           {loading ? '…' : 'Yes, Delete'}
         </button>

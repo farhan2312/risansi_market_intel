@@ -849,16 +849,16 @@ export default async function PipelinePage({
                 "My Opportunities" highlighted over somebody else's board. */}
             <a href="/risansi/pipeline" style={{
               padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 500,
-              background: scopedRepId != null ? '#0A3D8F' : 'var(--bg-elev)',
-              color: scopedRepId != null ? 'white' : 'var(--fg-3)',
+              background: scopedRepId != null ? 'var(--accent-fill)' : 'var(--bg-elev)',
+              color: scopedRepId != null ? 'var(--on-accent)' : 'var(--fg-3)',
               textDecoration: 'none', border: '1px solid var(--line)',
             }}>
               My Opportunities
             </a>
             <a href="/risansi/pipeline?rep=all" style={{
               padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 500,
-              background: showAll ? '#0A3D8F' : 'var(--bg-elev)',
-              color: showAll ? 'white' : 'var(--fg-3)',
+              background: showAll ? 'var(--accent-fill)' : 'var(--bg-elev)',
+              color: showAll ? 'var(--on-accent)' : 'var(--fg-3)',
               textDecoration: 'none', border: '1px solid var(--line)',
             }}>
               All Opportunities

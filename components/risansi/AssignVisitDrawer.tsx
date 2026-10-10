@@ -656,7 +656,7 @@ function Req() {
 const PRIMARY_BTN: CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 6,
   padding: '7px 14px', fontSize: 13, fontFamily: 'inherit',
-  fontWeight: 600, background: '#0A3D8F', color: '#fff',
+  fontWeight: 600, background: 'var(--accent-fill)', color: 'var(--on-accent)',
   border: 'none', borderRadius: 6, cursor: 'pointer',
   letterSpacing: '-0.005em', flexShrink: 0,
 };
@@ -714,7 +714,7 @@ const REC_ITEM: CSSProperties = {
 const SUBMIT_BTN: CSSProperties = {
   width: '100%', padding: '12px 0',
   fontSize: 14, fontFamily: 'inherit', fontWeight: 600,
-  background: '#0A3D8F', color: '#fff',
+  background: 'var(--accent-fill)', color: 'var(--on-accent)',
   border: 'none', borderRadius: 6,
   letterSpacing: '-0.005em', marginTop: 4,
 };

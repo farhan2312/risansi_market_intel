@@ -115,8 +115,8 @@ export function PlannedVisitsExport({ reps }: { reps: ExportRep[] }) {
           {wide && (
             <div style={{
               fontSize: 10.5, lineHeight: 1.5, marginBottom: 10, padding: '7px 9px', borderRadius: 6,
-              color: 'var(--warn-strong, #92400E)', background: 'var(--warn-soft, #FEF3C7)',
-              border: '1px solid var(--warn, #F59E0B)',
+              color: 'var(--warn-strong)', background: 'var(--warn-soft)',
+              border: '1px solid var(--warn)',
             }}>
               That is {spanDays} days. The Excel file includes every visit report,
               equipment record, action and photo entry in the range, so it may take
@@ -140,5 +140,5 @@ const BTN: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 
 const POP: CSSProperties = { position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 100, width: 280, background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', borderRadius: 8, boxShadow: '0 8px 28px rgba(10,22,40,0.16)', padding: 14 };
 const LBL: CSSProperties = { display: 'block', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--fg-3)', marginBottom: 4 };
 const INP: CSSProperties = { width: '100%', padding: '7px 9px', fontSize: 13, fontFamily: 'inherit', background: 'var(--bg-sunk)', border: '1px solid var(--line-strong)', borderRadius: 6, color: 'var(--fg)', outline: 'none', boxSizing: 'border-box' };
-const GEN: CSSProperties = { width: '100%', padding: '8px 0', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', background: '#0A3D8F', color: '#fff', border: 'none', borderRadius: 6 };
+const GEN: CSSProperties = { width: '100%', padding: '8px 0', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', background: 'var(--accent-fill)', color: 'var(--on-accent)', border: 'none', borderRadius: 6 };
 const GEN2: CSSProperties = { width: '100%', marginTop: 7, padding: '7px 0', fontSize: 12.5, fontWeight: 600, fontFamily: 'inherit', background: 'var(--bg-paper)', color: 'var(--fg)', border: '1px solid var(--line-strong)', borderRadius: 6 };

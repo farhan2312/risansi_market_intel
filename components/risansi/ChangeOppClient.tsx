@@ -124,7 +124,7 @@ function ChangeDialog({ oppId, currentCode, currentName, onClose, onDone }: {
           background: 'var(--bg-paper)', color: 'var(--fg)', borderRadius: 12,
           boxShadow: '0 24px 64px rgba(0,0,0,0.35)',
         }}>
-        <div style={{ padding: '14px 18px', background: '#0A3D8F', color: '#fff', position: 'sticky', top: 0, zIndex: 1 }}>
+        <div style={{ padding: '14px 18px', background: 'var(--accent-fill)', color: 'var(--on-accent)', position: 'sticky', top: 0, zIndex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontSize: 14, fontWeight: 700 }}>Change the client on this opportunity</div>
@@ -155,8 +155,8 @@ function ChangeDialog({ oppId, currentCode, currentName, onClose, onDone }: {
           {impact && (impact.orders > 0 || impact.visitId != null) && (
             <div style={{
               fontSize: 11.5, lineHeight: 1.55, padding: '8px 11px', borderRadius: 6,
-              color: 'var(--warn-strong, #92400E)', background: 'var(--warn-soft, #FEF3C7)',
-              border: '1px solid var(--warn, #F59E0B)',
+              color: 'var(--warn-strong)', background: 'var(--warn-soft)',
+              border: '1px solid var(--warn)',
             }}>
               {impact.orders > 0 && (
                 <div>
@@ -184,7 +184,7 @@ function ChangeDialog({ oppId, currentCode, currentName, onClose, onDone }: {
           {picked ? (
             <div style={{
               display: 'flex', alignItems: 'center', gap: 8, padding: '9px 11px', borderRadius: 6,
-              background: 'var(--pos-soft, #ECFDF5)', border: '1px solid var(--pos, #10B981)',
+              background: 'var(--pos-soft)', border: '1px solid var(--pos)',
             }}>
               <div style={{ fontSize: 12.5 }}>
                 <strong>{picked.legal_name}</strong>
@@ -220,7 +220,7 @@ function ChangeDialog({ oppId, currentCode, currentName, onClose, onDone }: {
           )}
 
           {err && <div style={ERRBOX}>{err}</div>}
-          {done && <div style={{ ...ERRBOX, color: 'var(--pos)', background: 'var(--pos-soft, #ECFDF5)', borderColor: 'var(--pos, #10B981)' }}>{done}</div>}
+          {done && <div style={{ ...ERRBOX, color: 'var(--pos)', background: 'var(--pos-soft)', borderColor: 'var(--pos)' }}>{done}</div>}
 
           {!done && (
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -238,7 +238,7 @@ function ChangeDialog({ oppId, currentCode, currentName, onClose, onDone }: {
 }
 
 const LINK: CSSProperties = {
-  background: 'none', border: 'none', color: '#1A5CB8', cursor: 'pointer',
+  background: 'none', border: 'none', color: 'var(--brand-blue)', cursor: 'pointer',
   fontSize: 11.5, fontWeight: 600, fontFamily: 'inherit', padding: 0, textDecoration: 'underline',
 };
 const LBL: CSSProperties = {
@@ -259,6 +259,6 @@ const GHOST: CSSProperties = {
   borderRadius: 6, fontSize: 12.5, fontWeight: 600, padding: '8px 14px', cursor: 'pointer', fontFamily: 'inherit',
 };
 const PRIMARY: CSSProperties = {
-  border: 'none', background: '#0A3D8F', color: '#fff', borderRadius: 6,
+  border: 'none', background: 'var(--accent-fill)', color: 'var(--on-accent)', borderRadius: 6,
   fontSize: 12.5, fontWeight: 600, padding: '8px 16px', cursor: 'pointer', fontFamily: 'inherit',
 };

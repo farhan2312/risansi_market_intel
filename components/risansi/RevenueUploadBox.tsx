@@ -510,7 +510,7 @@ export function RevenueUploadBox() {
           onClick={() => window.location.reload()}
           style={{
             marginTop: 20, padding: '8px 20px', borderRadius: 6, fontFamily: 'inherit',
-            background: 'var(--accent)', color: '#fff',
+            background: 'var(--accent-fill)', color: 'var(--on-accent)',
             border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 500,
           }}
         >

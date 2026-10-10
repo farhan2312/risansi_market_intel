@@ -45,20 +45,20 @@ export function ComplaintStats({ s, href, sel }: {
         <Tile label="Overdue · acted" value={String(s.overdueActed)}
           sub="an action is recorded and it is late anyway"
           href={href('overdue', 'acted')} on={sel.overdue === 'acted'}
-          color={s.overdueActed ? 'var(--warn, #B45309)' : undefined} />
+          color={s.overdueActed ? 'var(--warn)' : undefined} />
         <Tile label="Severe" value={String(s.severeOpen)}
           sub={`open · ${s.severe} ever · safety, shutdown, penalty or repeat`}
           href={href('severe', '1')} on={sel.severe === '1'}
           color={s.severeOpen ? 'var(--neg)' : undefined} alert={s.severeOpen > 0} />
         <Tile label="Avg age of open" value={fmtDays(s.avgOpenAge)} sub={s.oldestOpen != null ? `oldest ${s.oldestOpen}d · days since raised` : 'days since raised'}
-          color={s.avgOpenAge != null && s.avgOpenAge > 30 ? 'var(--warn, #B45309)' : undefined} />
+          color={s.avgOpenAge != null && s.avgOpenAge > 30 ? 'var(--warn)' : undefined} />
         <Tile label="Avg time to close" value={fmtDays(s.avgTimeToClose)}
           sub={s.closedCount
             ? `median ${fmtDays(s.medianTimeToClose)} over ${s.closedCount} closed · ${fmtDays(s.avgTimeToResolve)} to resolve`
             : 'nothing closed yet'} />
         <Tile label="Last 30 days" value={`${s.raised30} / ${s.closed30}`}
           sub={`raised / closed · ${net > 0 ? `the backlog grew by ${net}` : net < 0 ? `the backlog shrank by ${-net}` : 'the backlog held'} · ${s.open} open in all`}
-          color={net > 0 ? 'var(--warn, #B45309)' : net < 0 ? 'var(--pos)' : undefined} />
+          color={net > 0 ? 'var(--warn)' : net < 0 ? 'var(--pos)' : undefined} />
         <Tile label="Repeat · linked" value={String(s.linkedCount)}
           sub={s.repeatRate == null ? 'flagged at closure, or linked to an original' : `${pct(s.repeatRate)} of rated · ${s.reopened} reopened`}
           href={href('linked', '1')} on={sel.linked === '1'}
@@ -225,21 +225,21 @@ function Categories({ rows, href, selected }: { rows: CategoryBar[]; href: (v: s
             <div style={{ flex: 1, minWidth: 40, display: 'flex', flexDirection: 'column', gap: 2 }}>
               <div style={{ height: 10, background: 'var(--bg-sunk)', borderRadius: 3, overflow: 'hidden', display: 'flex' }}>
                 {r.overdue > 0 && <div style={{ width: `${(r.overdue / maxCount) * 100}%`, background: 'var(--neg)' }} />}
-                {r.open - r.overdue > 0 && <div style={{ width: `${((r.open - r.overdue) / maxCount) * 100}%`, background: 'color-mix(in oklab, var(--warn, #B45309) 60%, transparent)' }} />}
+                {r.open - r.overdue > 0 && <div style={{ width: `${((r.open - r.overdue) / maxCount) * 100}%`, background: 'color-mix(in oklab, var(--warn) 60%, transparent)' }} />}
                 <div style={{ width: `${((r.count - r.open) / maxCount) * 100}%`, background: 'color-mix(in oklab, var(--pos) 40%, transparent)' }} />
               </div>
               <div style={{ height: 5, background: 'var(--bg-sunk)', borderRadius: 3, overflow: 'hidden' }}>
                 <div style={{ width: `${((r.avgClose ?? 0) / maxClose) * 100}%`, height: '100%', background: 'color-mix(in oklab, var(--accent) 50%, transparent)' }} />
               </div>
             </div>
-            <span style={{ ...NUM, width: 26, color: r.open ? 'var(--warn, #B45309)' : 'var(--fg-4)' }}>{r.open || '·'}</span>
+            <span style={{ ...NUM, width: 26, color: r.open ? 'var(--warn)' : 'var(--fg-4)' }}>{r.open || '·'}</span>
             <span style={{ ...NUM, width: 40, color: 'var(--fg-2)', fontWeight: 400 }}>{fmtDays(r.avgClose)}</span>
           </a>
         );
       })}
       <div style={{ display: 'flex', gap: 10, fontSize: 9.5, color: 'var(--fg-3)', marginTop: 2, flexWrap: 'wrap' }}>
         <span><Swatch c="var(--neg)" /> overdue</span>
-        <span><Swatch c="var(--warn, #B45309)" /> open</span>
+        <span><Swatch c="var(--warn)" /> open</span>
         <span><Swatch c="var(--pos)" /> closed</span>
         <span><Swatch c="var(--accent)" /> avg days to close</span>
         <span style={{ marginLeft: 'auto' }}>open · to close</span>
@@ -277,12 +277,12 @@ function Capa({ s, href, sel }: { s: ComplaintSummary; href: (k: string, v: stri
         <a href={href('pa', 'pending')} title="Live complaints that owe a preventive action — a root cause recorded, a corrective action required, or a CAPA asked for — and have nothing written in either preventive-action field"
           style={{ ...ROW, opacity: sel.pa && sel.pa !== 'pending' ? 0.4 : 1, outline: sel.pa === 'pending' ? '2px solid var(--accent)' : 'none' }}>
           <span style={{ ...LBL, flex: 1 }}>Preventive action pending</span>
-          <span style={{ ...NUM, color: s.preventivePending ? 'var(--warn, #B45309)' : 'var(--fg-4)' }}>{s.preventivePending}</span>
+          <span style={{ ...NUM, color: s.preventivePending ? 'var(--warn)' : 'var(--fg-4)' }}>{s.preventivePending}</span>
         </a>
         <a href={href('visit', 'pending')} title="Action Taken is Visit Planned and the complaint has not closed out"
           style={{ ...ROW, opacity: sel.visit && sel.visit !== 'pending' ? 0.4 : 1, outline: sel.visit === 'pending' ? '2px solid var(--accent)' : 'none' }}>
           <span style={{ ...LBL, flex: 1 }}>Visit pending</span>
-          <span style={{ ...NUM, color: s.visitPending ? 'var(--warn, #B45309)' : 'var(--fg-4)' }}>{s.visitPending}</span>
+          <span style={{ ...NUM, color: s.visitPending ? 'var(--warn)' : 'var(--fg-4)' }}>{s.visitPending}</span>
         </a>
       </div>
     </div>
@@ -316,7 +316,7 @@ function Drill({ nodes, href, sel, depth = 0 }: {
                 <div style={{ width: `${(n.count / max) * 100}%`, height: '100%', background: `color-mix(in oklab, var(--accent) ${60 - depth * 12}%, transparent)` }} />
               </div>
               <span style={{ ...NUM, width: 28, fontSize: depth === 0 ? 11 : 10.5 }}>{n.count}</span>
-              <span style={{ ...NUM, width: 26, fontSize: 10.5, color: n.open ? 'var(--warn, #B45309)' : 'var(--fg-4)' }}>{n.open || '·'}</span>
+              <span style={{ ...NUM, width: 26, fontSize: 10.5, color: n.open ? 'var(--warn)' : 'var(--fg-4)' }}>{n.open || '·'}</span>
             </a>
             {n.children.length > 0 && <Drill nodes={n.children} href={href} sel={sel} depth={depth + 1} />}
           </div>
@@ -347,18 +347,18 @@ function Clients({ rows, href, selected }: { rows: ClientBar[]; href: (v: string
             <span style={{ ...LBL, flex: '0 1 230px' }}>{r.label}</span>
             <div style={{ flex: 1, minWidth: 40, height: 14, background: 'var(--bg-sunk)', borderRadius: 4, overflow: 'hidden', display: 'flex' }}>
               {r.overdue > 0 && <div style={{ width: `${(r.overdue / max) * 100}%`, background: 'var(--neg)' }} />}
-              {r.open - r.overdue > 0 && <div style={{ width: `${((r.open - r.overdue) / max) * 100}%`, background: 'color-mix(in oklab, var(--warn, #B45309) 60%, transparent)' }} />}
+              {r.open - r.overdue > 0 && <div style={{ width: `${((r.open - r.overdue) / max) * 100}%`, background: 'color-mix(in oklab, var(--warn) 60%, transparent)' }} />}
               <div style={{ width: `${((r.count - r.open) / max) * 100}%`, background: 'color-mix(in oklab, var(--pos) 40%, transparent)' }} />
             </div>
             {r.repeats > 0 && <span style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--neg)' }} title={`${r.repeats} flagged as a repeat of an earlier complaint`}>↻{r.repeats}</span>}
             <span style={NUM}>{r.count}</span>
-            <span style={{ ...NUM, width: 30, fontSize: 10.5, color: r.open ? 'var(--warn, #B45309)' : 'var(--fg-4)' }}>{r.open || '·'}</span>
+            <span style={{ ...NUM, width: 30, fontSize: 10.5, color: r.open ? 'var(--warn)' : 'var(--fg-4)' }}>{r.open || '·'}</span>
           </a>
         );
       })}
       <div style={{ display: 'flex', gap: 12, fontSize: 9.5, color: 'var(--fg-3)', marginTop: 2 }}>
         <span><Swatch c="var(--neg)" /> overdue</span>
-        <span><Swatch c="var(--warn, #B45309)" /> open</span>
+        <span><Swatch c="var(--warn)" /> open</span>
         <span><Swatch c="var(--pos)" /> closed</span>
         <span style={{ marginLeft: 'auto' }}>total · open</span>
       </div>

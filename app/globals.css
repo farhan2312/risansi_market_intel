@@ -80,6 +80,14 @@
   --accent-soft: rgba(74, 143, 232, 0.15);
   --accent-line: rgba(74, 143, 232, 0.30);
   --title:       #4A8FE8;
+  /* A FILLED button, not text. --title and --neg are right for text and
+     borders, and wrong here: white on dark --title (#4A8FE8) measures 3.29:1
+     and on dark --neg (#F87171) 2.77:1, both under AA. #2E6FC4 keeps the label
+     at 5.02:1 and still reads as a button against --bg-paper at 3.15:1.
+     Light --neg already clears AA with white, so --neg-fill does not flip. */
+  --accent-fill: #2E6FC4;
+  --on-accent:   #ffffff;
+  --neg-fill:    #DC2626;
   --won-bg:            rgba(5, 150, 105, 0.15);
   --toggle-sel-bg:     var(--brand-blue);
   --toggle-sel-fg:     #ffffff;
@@ -98,6 +106,11 @@
   --warn-strong: #FCD34D;
   --info:      #60A5FA;
   --info-soft: rgba(96, 165, 250, 0.15);
+  /* The missing member of the family. --pos, --neg and --warn each had a
+     -strong arm for text sitting ON their own soft tint; --info did not, so the
+     one info-toned pill in Tag.tsx kept its #1E40AF hardcoded and would have
+     been blue-800 on a translucent tint here. 7.96:1 on --info-soft. */
+  --info-strong: #93C5FD;
   --purple:    #A78BFA;
   /* 0.10, not the 0.16 the other -soft tokens use. The exhibition block puts
      --purple text directly on this, and at 0.16 the composite over --bg-paper
@@ -310,6 +323,13 @@ body {
      titles stay legible on dark surfaces. */
   --title: #0A3D8F;
 
+  /* Filled-button surface + its label. Light values are what every hardcoded
+     primary button already painted, so this changes nothing here; :root.dark
+     keeps the fill dark enough for the label to stay readable. */
+  --accent-fill: #0A3D8F;
+  --on-accent:   #ffffff;
+  --neg-fill:    #DC2626;
+
   /* Theme-aware component colors — light values here, :root.dark flips them. */
   --won-bg:            #F0FDF4;  /* kanban Won card */
   --toggle-sel-bg:     #EBF1FB;  /* sugar/non-sugar selected pill */
@@ -334,6 +354,7 @@ body {
   --warn-strong: #92400E;
   --info:      #2563EB;
   --info-soft: #DBEAFE;
+  --info-strong: #1E40AF;   /* what Tag.tsx's info pill already used; 7.15:1 on --info-soft */
   --purple:    #7C3AED;
   --purple-soft: #EDE9FE;
 

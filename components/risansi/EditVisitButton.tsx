@@ -198,7 +198,7 @@ const INP: CSSProperties = {
   borderRadius: 6, color: 'var(--fg)', outline: 'none', boxSizing: 'border-box',
 };
 const BTN_PRIMARY: CSSProperties = {
-  padding: '8px 16px', fontSize: 13, fontWeight: 600, background: '#0A3D8F',
+  padding: '8px 16px', fontSize: 13, fontWeight: 600, background: 'var(--title)',
   color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
 };
 const BTN_GHOST: CSSProperties = {
@@ -210,6 +210,6 @@ const BTN_DELETE: CSSProperties = {
   color: 'var(--neg-strong)', border: '1px solid var(--neg)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
 };
 const BTN_DELETE_SOLID: CSSProperties = {
-  padding: '8px 14px', fontSize: 12.5, fontWeight: 600, background: '#DC2626',
+  padding: '8px 14px', fontSize: 12.5, fontWeight: 600, background: 'var(--neg)',
   color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
 };

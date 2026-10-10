@@ -23,8 +23,8 @@ export function SubmitVisitButton({ visitId }: { visitId: string }) {
         {error && (
           <div role="alert" style={{
             maxWidth: 320, textAlign: 'left', padding: '8px 11px', fontSize: 12, lineHeight: 1.45,
-            background: 'var(--neg-soft, #FEE2E2)', border: '1px solid var(--neg)',
-            borderRadius: 6, color: 'var(--neg-strong, #9B1C1C)',
+            background: 'var(--neg-soft)', border: '1px solid var(--neg)',
+            borderRadius: 6, color: 'var(--neg-strong)',
           }}>{error}</div>
         )}
         <div style={{ display: 'flex', gap: 8 }}>
@@ -75,7 +75,7 @@ export function SubmitVisitButton({ visitId }: { visitId: string }) {
       onClick={() => setConfirming(true)}
       style={{
         padding: '8px 18px', borderRadius: 6,
-        background: '#0A3D8F', color: 'white',
+        background: 'var(--accent-fill)', color: 'var(--on-accent)',
         border: 'none', cursor: 'pointer',
         fontSize: 13, fontWeight: 500, fontFamily: 'inherit',
       }}

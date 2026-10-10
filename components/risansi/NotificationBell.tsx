@@ -141,7 +141,7 @@ export function NotificationBell() {
         {unread > 0 && (
           <span style={{
             position: 'absolute', top: 2, right: 2, minWidth: 15, height: 15, padding: '0 4px',
-            borderRadius: 8, background: 'var(--neg)', color: '#fff', fontSize: 9.5, fontWeight: 700,
+            borderRadius: 8, background: 'var(--neg-fill)', color: 'var(--on-accent)', fontSize: 9.5, fontWeight: 700,
             lineHeight: '15px', textAlign: 'center', fontFamily: 'var(--font-mono, monospace)',
             boxShadow: '0 0 0 2px var(--bg-paper)',
           }}>{unread > 99 ? '99+' : unread}</span>

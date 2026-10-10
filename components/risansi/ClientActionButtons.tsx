@@ -87,7 +87,7 @@ export function ClientActionButtons({
           New Opportunity
         </button>
         {canEdit && (
-          <button type="button" onClick={() => setIsEditOpen(true)} style={{ ...BTN, background: '#0A3D8F', color: '#fff', border: '1px solid #0A3D8F' }}>
+          <button type="button" onClick={() => setIsEditOpen(true)} style={{ ...BTN, background: 'var(--accent-fill)', color: 'var(--on-accent)', border: '1px solid var(--accent-fill)' }}>
             Edit Record
           </button>
         )}
@@ -167,8 +167,8 @@ export function PipelineOppBtn() {
 const BTN: CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 5,
   padding: '6px 11px', fontSize: 12, fontFamily: 'inherit',
-  fontWeight: 500, background: 'var(--bg-paper, #fff)',
-  border: '1px solid #CBD5E1', color: 'var(--fg, #0D1B2A)',
+  fontWeight: 500, background: 'var(--bg-paper)',
+  border: '1px solid #CBD5E1', color: 'var(--fg)',
   borderRadius: 5, cursor: 'pointer',
 };
 
@@ -176,14 +176,14 @@ const GHOST_BTN: CSSProperties = {
   display: 'inline-flex', alignItems: 'center',
   padding: '3px 8px', fontSize: 11, fontFamily: 'inherit',
   fontWeight: 500, background: 'transparent',
-  border: '1px solid #CBD5E1', color: '#1A5CB8',
+  border: '1px solid #CBD5E1', color: 'var(--brand-blue)',
   borderRadius: 5, cursor: 'pointer',
 };
 
 const PENCIL_BTN: CSSProperties = {
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
   width: 22, height: 22,
-  background: 'transparent', border: '1px solid var(--line, #CBD5E1)',
-  color: 'var(--fg-3, #6B7FA3)', borderRadius: 4,
+  background: 'transparent', border: '1px solid var(--line)',
+  color: 'var(--fg-3)', borderRadius: 4,
   cursor: 'pointer', fontSize: 12,
 };

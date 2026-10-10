@@ -26,7 +26,7 @@ export function RepsToursTabs({ tabs, defaultValue }: { tabs: TabDef[]; defaultV
   const pillStyle = (value: string): CSSProperties => ({
     fontSize: 13, fontWeight: 600, padding: '6px 16px', borderRadius: 16,
     border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-    background: currentTab === value ? '#0A3D8F' : 'transparent',
+    background: currentTab === value ? 'var(--title)' : 'transparent',
     color: currentTab === value ? 'white' : 'var(--fg-3)', boxShadow: 'none',
   });
 

@@ -61,8 +61,8 @@ const FUNNEL_COLORS: Record<string, string> = {
   Suspect:     '#93C5FD',
   Prospect:    '#3B82F6',
   Quoted:      '#1D4ED8',
-  Negotiating: '#D97706',
-  'On Hold':   '#7C3AED',
+  Negotiating: 'var(--warn)',
+  'On Hold':   'var(--purple)',
 };
 
 // OPEN_STAGES and PIPELINE_STAGES live in lib/risansi-dashboard.ts so the
@@ -311,7 +311,7 @@ export default async function ExecDashboardPage({ searchParams }: {
               <div style={PANEL_H}>
                 <span style={PANEL_TITLE}>My Recent Visits</span>
                 <div style={{ marginLeft: 'auto' }}>
-                  <a href="/risansi/field" style={{ fontSize: 11, color: '#1A5CB8', textDecoration: 'none', fontWeight: 500 }}>View all →</a>
+                  <a href="/risansi/field" style={{ fontSize: 11, color: 'var(--brand-blue)', textDecoration: 'none', fontWeight: 500 }}>View all →</a>
                 </div>
               </div>
               <div>
@@ -367,7 +367,7 @@ export default async function ExecDashboardPage({ searchParams }: {
                       </div>
                       <span style={{
                         fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600,
-                        color: c.days_overdue >= 365 ? 'var(--neg)' : c.days_overdue >= 180 ? '#D97706' : '#B45309',
+                        color: c.days_overdue >= 365 ? 'var(--neg)' : c.days_overdue >= 180 ? 'var(--warn)' : 'var(--warn-strong)',
                       }}>
                         {c.days_overdue >= 999 ? 'Never' : `${c.days_overdue}d`}
                       </span>
@@ -861,7 +861,7 @@ export default async function ExecDashboardPage({ searchParams }: {
                 <MiniBars
                   values={histValues.length ? histValues : [0]}
                   labels={histLabels}
-                  color="#0A3D8F"
+                  color="var(--title)"
                   dimColor="#93C5FD"
                   width={280} height={90}
                 />
@@ -944,7 +944,7 @@ export default async function ExecDashboardPage({ searchParams }: {
           <div style={PANEL}>
             <div style={PANEL_H}>
               <span style={PANEL_TITLE}>Upcoming Visits · Next 7 Days</span>
-              <a href="/risansi/field?tab=calendar" style={{ marginLeft: 'auto', fontSize: 11, color: '#1A5CB8', textDecoration: 'none', fontWeight: 500 }}>
+              <a href="/risansi/field?tab=calendar" style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--brand-blue)', textDecoration: 'none', fontWeight: 500 }}>
                 View calendar →
               </a>
             </div>
@@ -958,7 +958,7 @@ export default async function ExecDashboardPage({ searchParams }: {
                 borderBottom: i < upcomingVisits.length - 1 ? '1px solid var(--line)' : 'none',
                 textDecoration: 'none',
               }}>
-                <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: '#1A5CB8', minWidth: 56 }}>
+                <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--brand-blue)', minWidth: 56 }}>
                   {new Date(v.visit_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -978,7 +978,7 @@ export default async function ExecDashboardPage({ searchParams }: {
           <div style={PANEL}>
             <div style={PANEL_H}>
               <span style={PANEL_TITLE}>⚡ Auto-Created Opportunities</span>
-              <a href="/risansi/pipeline" style={{ marginLeft: 'auto', fontSize: 11, color: '#1A5CB8', textDecoration: 'none', fontWeight: 500 }}>
+              <a href="/risansi/pipeline" style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--brand-blue)', textDecoration: 'none', fontWeight: 500 }}>
                 View pipeline →
               </a>
             </div>
@@ -1003,7 +1003,7 @@ export default async function ExecDashboardPage({ searchParams }: {
                 <div style={{ textAlign: 'right', flexShrink: 0 }}>
                   <span style={{
                     fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 10,
-                    background: '#EBF1FB', color: '#1A5CB8',
+                    background: 'var(--accent-soft)', color: 'var(--brand-blue)',
                   }}>
                     {o.auto_source === 'expansion_plan' ? 'Expansion' : 'Displacement'}
                   </span>
@@ -1104,7 +1104,7 @@ export default async function ExecDashboardPage({ searchParams }: {
           <div style={PANEL}>
             <div style={PANEL_H}>
               <span style={PANEL_TITLE}>Opportunity</span>
-              <a href="/risansi/pipeline" style={{ marginLeft: 'auto', fontSize: 11, color: '#1A5CB8', textDecoration: 'none', fontWeight: 500 }}>
+              <a href="/risansi/pipeline" style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--brand-blue)', textDecoration: 'none', fontWeight: 500 }}>
                 View all →
               </a>
             </div>
@@ -1132,7 +1132,7 @@ export default async function ExecDashboardPage({ searchParams }: {
                   <div style={{ fontSize: 13, color: 'var(--fg-3)', marginBottom: 12 }}>No open opportunities</div>
                   <a
                     href="/risansi/pipeline"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', fontSize: 12, fontWeight: 600, background: '#0A3D8F', color: '#fff', borderRadius: 6, textDecoration: 'none' }}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', fontSize: 12, fontWeight: 600, background: 'var(--accent-fill)', color: 'var(--on-accent)', borderRadius: 6, textDecoration: 'none' }}
                   >
                     + Add Opportunity
                   </a>
@@ -1162,7 +1162,7 @@ export default async function ExecDashboardPage({ searchParams }: {
             <div style={PANEL_H}>
               <span style={PANEL_TITLE}>Top Accounts · YTD Revenue</span>
               <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
-                <a href="/risansi/clients" style={{ fontSize: 11, color: '#1A5CB8', textDecoration: 'none', fontWeight: 500 }}>View all →</a>
+                <a href="/risansi/clients" style={{ fontSize: 11, color: 'var(--brand-blue)', textDecoration: 'none', fontWeight: 500 }}>View all →</a>
               </div>
             </div>
             <div style={{ padding: 0, overflowX: 'auto' }}>
@@ -1220,7 +1220,7 @@ export default async function ExecDashboardPage({ searchParams }: {
             <div style={PANEL_H}>
               <span style={PANEL_TITLE}>Live Field Activity</span>
               <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-                <a href="/risansi/visits" style={{ fontSize: 11, color: '#1A5CB8', textDecoration: 'none', fontWeight: 500 }}>View all →</a>
+                <a href="/risansi/visits" style={{ fontSize: 11, color: 'var(--brand-blue)', textDecoration: 'none', fontWeight: 500 }}>View all →</a>
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--pos)', display: 'inline-block', boxShadow: '0 0 0 3px rgba(5,150,105,0.20)' }} />
                 <span style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>real-time</span>
               </div>
@@ -1231,7 +1231,7 @@ export default async function ExecDashboardPage({ searchParams }: {
                   <div style={{ fontSize: 24, marginBottom: 10 }}>📅</div>
                   <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--fg-2)', marginBottom: 6 }}>No field activity this week</div>
                   <div style={{ fontSize: 11, color: 'var(--fg-3)', marginBottom: 16 }}>Visits will appear here in real-time as reps check in</div>
-                  <a href="/risansi/visits" style={{ fontSize: 11, color: '#1A5CB8', textDecoration: 'none', fontWeight: 500 }}>View visit history →</a>
+                  <a href="/risansi/visits" style={{ fontSize: 11, color: 'var(--brand-blue)', textDecoration: 'none', fontWeight: 500 }}>View visit history →</a>
                 </div>
               )}
               {visits.map((v, i) => {
@@ -1284,12 +1284,12 @@ export default async function ExecDashboardPage({ searchParams }: {
 
 const SEGMENT_COLORS = [
   'var(--accent)',
-  '#D97706',
-  '#059669',
+  'var(--warn)',
+  'var(--pos)',
   '#0891B2',
-  '#7C3AED',
+  'var(--purple)',
   'var(--fg-3)',
-  '#DC2626',
+  'var(--neg)',
   '#6366F1',
 ];
 
@@ -1353,9 +1353,9 @@ const TH: CSSProperties = {
   textTransform: 'uppercase',
   letterSpacing: '0.08em',
   fontWeight:    600,
-  color:         '#6B7FA3',
-  background:    '#EBF1FB',
-  borderBottom:  '2px solid #DDE6F5',
+  color:         'var(--fg-3)',
+  background:    'var(--accent-soft)',
+  borderBottom:  '2px solid var(--accent-line)',
   whiteSpace:    'nowrap',
 };
 
@@ -1386,7 +1386,7 @@ function SmallMetric({ label, value, unit, delta, deltaPos, sub, subHref, spark,
         )}
         <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           {subHref ? (
-            <a href={subHref} style={{ fontSize: 11, color: '#1A5CB8', textDecoration: 'none', fontWeight: 500 }}>{sub}</a>
+            <a href={subHref} style={{ fontSize: 11, color: 'var(--brand-blue)', textDecoration: 'none', fontWeight: 500 }}>{sub}</a>
           ) : (
             <div style={{ fontSize: 11, color: 'var(--fg-3)' }}><Drillable drill={subDrill}>{sub}</Drillable></div>
           )}
@@ -1412,7 +1412,7 @@ function SegmentBar({ label, value, total, color, drill }: {
           {' '}<span style={{ color: 'var(--fg-3)' }}>({pct.toFixed(0)}%)</span>
         </span>
       </div>
-      <div style={{ height: 4, background: '#DDE6F5', borderRadius: 2, overflow: 'hidden' }}>
+      <div style={{ height: 4, background: 'var(--accent-soft)', borderRadius: 2, overflow: 'hidden' }}>
         <div style={{ height: '100%', width: `${pct}%`, background: color, borderRadius: 2 }} />
       </div>
     </div>
@@ -1510,8 +1510,8 @@ function RepNotLinkedWarning() {
   return (
     <div style={{
       padding: '11px 16px', marginBottom: 18,
-      background: '#FEF3C7', border: '1px solid rgba(217,119,6,0.30)',
-      borderRadius: 6, fontSize: 13, color: '#92400E', fontWeight: 500,
+      background: 'var(--warn-soft)', border: '1px solid rgba(217,119,6,0.30)',
+      borderRadius: 6, fontSize: 13, color: 'var(--warn-strong)', fontWeight: 500,
       display: 'flex', gap: 8, alignItems: 'flex-start',
     }}>
       <span aria-hidden style={{ flexShrink: 0 }}>⚠</span>

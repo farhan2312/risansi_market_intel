@@ -366,7 +366,7 @@ export function PumpUploadBox() {
         {result.skippedCodes.length > 0 && (
           <div style={{ marginTop: 8, fontSize: 12, color: 'var(--neg-strong)' }}>Codes not found: {result.skippedCodes.join(', ')}</div>
         )}
-        <button onClick={() => window.location.reload()} style={{ marginTop: 20, padding: '8px 20px', borderRadius: 6, fontFamily: 'inherit', background: 'var(--accent)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
+        <button onClick={() => window.location.reload()} style={{ marginTop: 20, padding: '8px 20px', borderRadius: 6, fontFamily: 'inherit', background: 'var(--accent-fill)', color: 'var(--on-accent)', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
           Upload Another File
         </button>
       </div>

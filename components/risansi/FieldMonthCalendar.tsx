@@ -182,7 +182,7 @@ export function FieldMonthCalendar({
                   color: day.om ? 'var(--fg-3)' : 'var(--fg-2)',
                 }}>
                   {isToday
-                    ? <span style={{ background: '#0A3D8F', color: '#fff', borderRadius: 999, padding: '0 6px' }}>{day.dayNum}</span>
+                    ? <span style={{ background: 'var(--accent-fill)', color: 'var(--on-accent)', borderRadius: 999, padding: '0 6px' }}>{day.dayNum}</span>
                     : day.dayNum}
                 </div>
 
@@ -235,7 +235,7 @@ export function FieldMonthCalendar({
                         }}>
                           <span style={{
                             width: 6, height: 6, borderRadius: 999, flexShrink: 0,
-                            background: purposeColors[v.purpose] ?? '#6B7FA3',
+                            background: purposeColors[v.purpose] ?? 'var(--fg-3)',
                           }} />
                           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.client_name}</span>
                         </div>
@@ -245,7 +245,7 @@ export function FieldMonthCalendar({
                       </Link>
                     ))}
                     {dv.length > cellCap && (
-                      <div style={{ fontSize: 11, fontWeight: 500, color: '#1A5CB8', paddingLeft: 2 }}>+{dv.length - cellCap} more</div>
+                      <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--brand-blue)', paddingLeft: 2 }}>+{dv.length - cellCap} more</div>
                     )}
                   </>
                 )}
@@ -293,7 +293,7 @@ export function FieldMonthCalendar({
           )}
           {legendReps.length > 0 && (
             <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, color: 'var(--fg-3)' }}>
-              <span style={{ width: 6, height: 6, borderRadius: 999, background: '#6B7FA3', flexShrink: 0 }} />
+              <span style={{ width: 6, height: 6, borderRadius: 999, background: 'var(--fg-3)', flexShrink: 0 }} />
               dot = visit purpose
             </span>
           )}

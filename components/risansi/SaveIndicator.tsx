@@ -62,8 +62,8 @@ export function DraftRestoredBanner({ onDismiss, onDiscard, what }: {
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 8, padding: '7px 11px', marginBottom: 10,
-      background: 'var(--accent-soft, #EBF1FB)', border: '1px solid var(--accent-line, #BFDBFE)',
-      borderRadius: 6, fontSize: 11.5, color: 'var(--title, #0A3D8F)', flexWrap: 'wrap',
+      background: 'var(--accent-soft)', border: '1px solid var(--accent-line)',
+      borderRadius: 6, fontSize: 11.5, color: 'var(--title)', flexWrap: 'wrap',
     }}>
       <span>Restored unsaved changes — the {what} you had typed but never saved.</span>
       {onDiscard && (

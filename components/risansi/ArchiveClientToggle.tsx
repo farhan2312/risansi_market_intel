@@ -190,5 +190,5 @@ const BTN: CSSProperties = {
   background: 'var(--bg-paper)', color: 'var(--fg)',
   border: '1px solid var(--line-strong)', borderRadius: 6, cursor: 'pointer',
 };
-const DANGER: CSSProperties = { background: 'var(--neg)', color: '#fff', borderColor: 'var(--neg)' };
-const GO: CSSProperties = { background: 'var(--accent)', color: '#fff', borderColor: 'var(--accent)' };
+const DANGER: CSSProperties = { background: 'var(--neg-fill)', color: 'var(--on-accent)', borderColor: 'var(--neg-fill)' };
+const GO: CSSProperties = { background: 'var(--accent-fill)', color: 'var(--on-accent)', borderColor: 'var(--accent-fill)' };

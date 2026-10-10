@@ -112,10 +112,10 @@ export function CloseConfirm({ message, onConfirm, onCancel, tone = 'light' }: {
     <div role="alertdialog" aria-label="Close this form?" style={{
       display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
       marginTop: 10, padding: '8px 10px', borderRadius: 7,
-      background: onDark ? 'rgba(255,255,255,0.12)' : 'var(--warn-soft, #FEF3C7)',
-      border: `1px solid ${onDark ? 'rgba(255,255,255,0.35)' : 'var(--warn, #F59E0B)'}`,
+      background: onDark ? 'rgba(255,255,255,0.12)' : 'var(--warn-soft)',
+      border: `1px solid ${onDark ? 'rgba(255,255,255,0.35)' : 'var(--warn)'}`,
       fontSize: 11.5, lineHeight: 1.45,
-      color: onDark ? '#fff' : 'var(--warn-strong, #92400E)',
+      color: onDark ? '#fff' : 'var(--warn-strong)',
     }}>
       <span style={{ minWidth: 0 }}>{message}</span>
       <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
@@ -127,7 +127,7 @@ export function CloseConfirm({ message, onConfirm, onCancel, tone = 'light' }: {
         }}>Keep editing</button>
         <button type="button" onClick={onConfirm} style={{
           ...CONFIRM_BTN,
-          background: onDark ? '#fff' : 'var(--warn-strong, #92400E)',
+          background: onDark ? '#fff' : 'var(--warn-strong)',
           border: '1px solid transparent',
           color: onDark ? '#0A3D8F' : 'var(--bg-paper)',
         }}>Close</button>

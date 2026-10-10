@@ -617,9 +617,9 @@ export default async function ClientListPage({
                   title="Visit Coverage"
                   note="Based on each client's last recorded visit. Visited means within the last 90 days — the same definition the Field page and Executive Review use."
                   slices={[
-                    { name: 'Visited (≤90d)', n: s.visited,      color: '#0E9F6E', href: visitHref('visited') },
-                    { name: 'Overdue (90d+)', n: s.overdue,      color: '#D97706', href: visitHref('overdue') },
-                    { name: 'Never visited',  n: s.neverVisited, color: '#E02424', href: visitHref('never') },
+                    { name: 'Visited (≤90d)', n: s.visited,      color: 'var(--pos)', href: visitHref('visited') },
+                    { name: 'Overdue (90d+)', n: s.overdue,      color: 'var(--warn)', href: visitHref('overdue') },
+                    { name: 'Never visited',  n: s.neverVisited, color: 'var(--neg)', href: visitHref('never') },
                   ]} />
               </div>
             </div>
@@ -875,8 +875,8 @@ const PAGE_BTN: CSSProperties = {
 };
 
 const PAGE_ACTIVE: CSSProperties = {
-  background: 'var(--accent)',
-  color:      '#fff',
-  border:     '1px solid var(--accent)',
+  background: 'var(--accent-fill)',
+  color:      'var(--on-accent)',
+  border:     '1px solid var(--accent-fill)',
   fontWeight: 500,
 };

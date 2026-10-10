@@ -366,8 +366,8 @@ export default async function AuditPage({
             href="/api/risansi/reports/user-adoption"
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 7, flexShrink: 0,
-              padding: '9px 15px', borderRadius: 'var(--radius)', border: '1px solid #0A3D8F',
-              background: '#0A3D8F', color: '#fff', fontSize: 12.5, fontWeight: 600,
+              padding: '9px 15px', borderRadius: 'var(--radius)', border: '1px solid var(--accent-fill)',
+              background: 'var(--accent-fill)', color: 'var(--on-accent)', fontSize: 12.5, fontWeight: 600,
               textDecoration: 'none', whiteSpace: 'nowrap',
             }}
             title="Excel workbook: every user's logins, time in the app and records created, all-time and month by month, with charts"
@@ -400,8 +400,8 @@ export default async function AuditPage({
             {PERSON_WINDOWS.map(w => <option key={w.id} value={w.id}>{w.label}</option>)}
           </select>
           <button type="submit" style={{
-            padding: '8px 15px', fontSize: 12.5, fontWeight: 600, background: '#0A3D8F',
-            color: '#fff', border: 'none', borderRadius: 'var(--radius)', cursor: 'pointer', fontFamily: 'inherit',
+            padding: '8px 15px', fontSize: 12.5, fontWeight: 600, background: 'var(--accent-fill)',
+            color: 'var(--on-accent)', border: 'none', borderRadius: 'var(--radius)', cursor: 'pointer', fontFamily: 'inherit',
           }}>
             ⭳ Their metrics vs the team average (PDF)
           </button>
@@ -453,7 +453,7 @@ export default async function AuditPage({
               {ACTIVITY_ACTIONS.map(a => <option key={a} value={a}>{a}</option>)}
             </select>
           )}
-          <button type="submit" style={{ padding: '8px 16px', fontSize: 13, fontWeight: 600, background: '#1A5CB8', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit' }}>Search</button>
+          <button type="submit" style={{ padding: '8px 16px', fontSize: 13, fontWeight: 600, background: 'var(--accent-fill)', color: 'var(--on-accent)', border: 'none', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit' }}>Search</button>
           {(qStr || evt || act) && <Link href={`/risansi/admin/audit?tab=${tab}`} style={{ fontSize: 12, color: 'var(--fg-3)' }}>Clear</Link>}
         </form>
 
@@ -759,8 +759,8 @@ function UsageView({ users, pages, sessions, selUser, win }: {
       {WINDOWS.map(w => (
         <Link key={w.id} href={link({ ...(selUser ? { user: selUser } : {}), win: w.id })} style={{
           padding: '5px 12px', fontSize: 12, fontWeight: 600, borderRadius: 999, textDecoration: 'none',
-          border: `1px solid ${w.id === win ? '#0A3D8F' : 'var(--line-strong)'}`,
-          background: w.id === win ? '#0A3D8F' : 'var(--bg-paper)', color: w.id === win ? '#fff' : 'var(--fg-3)',
+          border: `1px solid ${w.id === win ? 'var(--accent-fill)' : 'var(--line-strong)'}`,
+          background: w.id === win ? 'var(--accent-fill)' : 'var(--bg-paper)', color: w.id === win ? 'var(--on-accent)' : 'var(--fg-3)',
         }}>{w.label}</Link>
       ))}
     </div>
@@ -832,8 +832,8 @@ function UsageView({ users, pages, sessions, selUser, win }: {
 }
 
 const PANEL: CSSProperties = { background: 'var(--bg-paper)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', overflow: 'hidden' };
-const SECTION_H: CSSProperties = { padding: '10px 14px', borderBottom: '1px solid var(--line)', fontSize: 11, fontWeight: 700, color: '#0A3D8F', textTransform: 'uppercase', letterSpacing: '0.07em' };
-const DUR_BADGE: CSSProperties = { padding: '3px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600, background: 'var(--accent-soft, #EBF1FB)', color: '#0A3D8F', fontFamily: 'var(--font-mono)' };
+const SECTION_H: CSSProperties = { padding: '10px 14px', borderBottom: '1px solid var(--line)', fontSize: 11, fontWeight: 700, color: 'var(--title)', textTransform: 'uppercase', letterSpacing: '0.07em' };
+const DUR_BADGE: CSSProperties = { padding: '3px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600, background: 'var(--accent-soft)', color: 'var(--title)', fontFamily: 'var(--font-mono)' };
 const TH: CSSProperties = { padding: '9px 12px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, color: 'var(--fg-3)', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
 // The exhibition feed's own header, lifted out of the JSX so the sortable
 // headers wear exactly the style the plain ones did.
@@ -846,4 +846,4 @@ const MONO: CSSProperties = { ...TD, fontFamily: 'var(--font-mono)', fontSize: 1
 const EMPTY: CSSProperties = { padding: '40px 0', textAlign: 'center', color: 'var(--fg-3)' };
 const SELECT: CSSProperties = { padding: '8px 12px', fontSize: 13, fontFamily: 'inherit', background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', borderRadius: 8, color: 'var(--fg)' };
 const PAGE_BTN: CSSProperties = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 30, height: 28, padding: '0 8px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--bg-paper)', border: '1px solid var(--line-strong)', borderRadius: 5, color: 'var(--fg)', textDecoration: 'none' };
-const PAGE_ACTIVE: CSSProperties = { background: 'var(--accent)', color: '#fff', border: '1px solid var(--accent)', fontWeight: 500 };
+const PAGE_ACTIVE: CSSProperties = { background: 'var(--accent-fill)', color: 'var(--on-accent)', border: '1px solid var(--accent-fill)', fontWeight: 500 };

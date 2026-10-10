@@ -151,8 +151,8 @@ const INP: CSSProperties = {
   color: 'var(--fg)', outline: 'none',
 };
 const BTN: CSSProperties = {
-  padding: '8px 16px', fontSize: 13, fontWeight: 600, background: '#0A3D8F',
-  color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
+  padding: '8px 16px', fontSize: 13, fontWeight: 600, background: 'var(--accent-fill)',
+  color: 'var(--on-accent)', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
 };
 const BTN_GHOST: CSSProperties = {
   padding: '8px 14px', fontSize: 13, fontWeight: 500, background: 'var(--bg-elev)',

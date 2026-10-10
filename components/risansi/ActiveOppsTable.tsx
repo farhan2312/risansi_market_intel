@@ -105,7 +105,7 @@ export function ActiveOppsTable({ opps, usdRate }: { opps: EditableOpp[]; usdRat
                       {opp.stage}
                     </span>
                   </td>
-                  <td data-label="Value" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, color: '#0A3D8F', whiteSpace: 'nowrap' }}>
+                  <td data-label="Value" style={{ ...TD, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--title)', whiteSpace: 'nowrap' }}>
                     {opp.value_cr ? `₹${(opp.value_cr * 100).toFixed(1)}L` : '—'}
                     {opp.value_cr && usdRate ? (
                       <div style={{ fontSize: 10, fontWeight: 400, color: 'var(--fg-3)', marginTop: 1 }}>
@@ -119,7 +119,7 @@ export function ActiveOppsTable({ opps, usdRate }: { opps: EditableOpp[]; usdRat
                       {opp.auto_created && (
                         <span style={{
                           fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 4, marginLeft: 6,
-                          background: '#EBF1FB', color: '#1A5CB8', textTransform: 'uppercase', letterSpacing: '0.05em',
+                          background: 'var(--accent-soft)', color: 'var(--brand-blue)', textTransform: 'uppercase', letterSpacing: '0.05em',
                         }}>⚡ Auto</span>
                       )}
                     </div>

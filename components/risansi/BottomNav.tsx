@@ -225,7 +225,7 @@ const BACKDROP: CSSProperties = { position: 'fixed', inset: 0, background: 'rgba
 const SHEET: CSSProperties = {
   position: 'fixed', left: 0, right: 0, bottom: 0,
   maxHeight: '78vh', overflowY: 'auto',
-  background: '#0A1628', borderTopLeftRadius: 16, borderTopRightRadius: 16,
+  background: 'var(--brand-navy)', borderTopLeftRadius: 16, borderTopRightRadius: 16,
   boxShadow: '0 -12px 40px rgba(0,0,0,0.5)',
   paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))',
 };

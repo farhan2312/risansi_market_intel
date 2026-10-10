@@ -242,7 +242,7 @@ function NavLink({ item, isActive, badge }: {
         {badge != null && (
           <span style={{
             ...BADGE,
-            background: item.isAlert ? '#DC2626' : 'rgba(255,255,255,0.12)',
+            background: item.isAlert ? 'var(--neg-fill)' : 'rgba(255,255,255,0.12)',
           }}>{badge}</span>
         )}
       </div>
@@ -254,7 +254,7 @@ function NavLink({ item, isActive, badge }: {
 
 const ASIDE: CSSProperties = {
   width: 240, flexShrink: 0,
-  background: '#0A1628', color: '#B8C9E8',
+  background: 'var(--brand-navy)', color: '#B8C9E8',
   display: 'flex', flexDirection: 'column',
   padding: 0, paddingBottom: 18,
   borderRight: '1px solid rgba(255,255,255,0.06)',
