@@ -106,6 +106,78 @@ for (const file of files) {
   }
 }
 
+
+// ── The other half: refusals that are still thrown ─────────────────────────
+//
+// An action that THROWS its refusal is worse than one that returns it badly,
+// because the message never arrives at all: Next redacts a thrown
+// server-action message in production, and the user is shown "An error
+// occurred in the Server Components render". That has cost real time three
+// times now — a client that would not save because its code belonged to an
+// archived record, a meeting refused for a blank company name, a business
+// card refused for its format. Each time somebody had written a careful
+// sentence explaining exactly what to do, and the framework ate it.
+//
+// Thirty-six actions still do this. Converting them all at once is a larger
+// change than it is worth today, so this is a ratchet rather than a wall: the
+// known ones are listed and the build fails only when a NEW one appears.
+// Fixing one and deleting its name is always welcome — the check says when a
+// name no longer belongs on the list.
+//
+// Not every throw counts. An auth or lock guard that throws is fine: it is not
+// telling somebody how to fix what they typed, and it reads the same in every
+// action. What is caught is a thrown SENTENCE — eighteen characters or more —
+// in an action that does not return a result.
+
+const THROWS_ITS_REFUSAL = new Set([
+  'addEquipment', 'addOpportunityRemark', 'addTask', 'advanceExhibition', 'checkInVisit',
+  'convertMeetingToLead', 'createExhibition', 'createOpportunity', 'createTour',
+  'decideExhibition', 'deleteClientComment', 'deleteEquipment', 'deleteExhibition',
+  'deleteUpload', 'deleteVisitPlan', 'reassignOpportunityClient', 'reopenExhibition',
+  'resetUserPassword', 'saveClientProfileFromVisit', 'saveExhibitionExpense',
+  'saveExhibitionReview', 'saveExpansionOpportunity', 'saveVisitField', 'setAnnualTarget',
+  'setExhibitionTeam', 'setUsdRate', 'skipMeetingLead', 'submitForApproval',
+  'submitOpportunity', 'updateClientComment', 'updateClientTier', 'updateEquipment',
+  'updateExhibition', 'updateMeetingCompany', 'updateTaskStatus', 'updateVisitPlan',
+]);
+
+const throwers = new Map();                      // name -> the sentences it throws
+for (const file of files) {
+  if (!file.replace(/\\/g, '/').includes('/app/actions/')) continue;
+  const src = fs.readFileSync(file, 'utf8');
+  for (const m of src.matchAll(/export async function (\w+)\s*\(/g)) {
+    let i = m.index + m[0].length, d = 1;
+    while (i < src.length && d > 0) { const c = src[i]; if (c === '(') d++; else if (c === ')') d--; i++; }
+    const ret = (src.slice(i, i + 400).match(/^\s*:\s*([\s\S]*?)\s*\{/) || [])[1] || '';
+    if (RESULT_TYPES.test(ret)) continue;        // this one already returns its refusals
+
+    const start = src.indexOf('{', i);
+    let j = start, depth = 0;
+    do { const c = src[j]; if (c === '{') depth++; else if (c === '}') depth--; j++; } while (j < src.length && depth > 0);
+    const said = [...src.slice(start, j).matchAll(/throw new Error\(\s*(['"`])([^'"`]{18,})\1/g)].map(x => x[2]);
+    if (said.length) throwers.set(m[1], said);
+  }
+}
+
+const newThrowers = [...throwers.keys()].filter(n => !THROWS_ITS_REFUSAL.has(n));
+const nowReturning = [...THROWS_ITS_REFUSAL].filter(n => !throwers.has(n));
+
+console.log(`\n${throwers.size} action(s) still throw a refusal instead of returning it`);
+if (nowReturning.length) {
+  console.log(`  ${nowReturning.length} no longer do — delete from THROWS_ITS_REFUSAL: ${nowReturning.join(', ')}`);
+}
+for (const n of newThrowers) {
+  console.log(`\n  ${n}() throws a message the user will never see:`);
+  for (const t of throwers.get(n).slice(0, 3)) console.log(`      "${t.slice(0, 96)}"`);
+}
+if (newThrowers.length) {
+  console.log('\n  Next redacts a thrown server-action message in production, so this reaches');
+  console.log('  somebody as "An error occurred" and they try the same thing again.');
+  console.log('  Return SaveResult or CreateResult and have the caller read .ok, the way the');
+  console.log('  actions listed at the top of this check already do.');
+  problems += newThrowers.length;
+}
+
 console.log(`\n${checked} call site(s) checked`);
 console.log(problems ? `${problems} ignore a refusal` : 'every call site reads its result');
 process.exit(problems ? 1 : 0);

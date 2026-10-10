@@ -340,6 +340,14 @@
   }
   .risansi-main .exh-actions button { flex: 1; }
 
+  /* The 60px above is the bottom nav, which the form sits above in page flow.
+     Inside a dialog there is no bottom nav — the panel's own edge is the
+     bottom — so the same offset leaves Save floating 60px up with a strip of
+     panel beneath it. The bar still sticks; it just sticks to the right edge. */
+  .risansi-main .risansi-modal .exh-actions {
+    bottom: 0;
+  }
+
   /* Expense table reflows to one card per row: the header is dropped and each
      cell carries its own label, so nothing has to be scrolled sideways. */
   .risansi-main .exh-table thead { display: none; }
