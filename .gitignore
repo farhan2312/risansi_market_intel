@@ -51,3 +51,8 @@ Risansi-Pipeline-*.xlsx
 # 404ed in production.
 /reports/
 public/_preview/
+
+# A vendored copy of the Impeccable design skill, cloned in place. It was
+# committed as a submodule gitlink with no .gitmodules, so a fresh clone left an
+# empty directory and `git submodule update` failed. Ignored rather than tracked.
+.claude/impeccable-main/
