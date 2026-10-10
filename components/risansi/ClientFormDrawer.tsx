@@ -195,14 +195,24 @@ export function ClientFormDrawer({ mode, client, existingContacts, allowCodeEdit
 
     startTransition(async () => {
       try {
+        // These return their refusals rather than throwing them. A thrown
+        // message is redacted in production, which is how "that code belongs
+        // to a client that was archived" reached somebody as "an error
+        // occurred" and they retried the same code.
         if (mode === 'create') {
-          if (submit) await submit(fd); else await addClient(fd);
+          if (submit) { await submit(fd); }
+          else {
+            const res = await addClient(fd);
+            if (!res.ok) { setError(res.error); return; }
+          }
         } else {
-          await updateClient(Number(client.id), fd);
+          const res = await updateClient(Number(client.id), fd);
+          if (!res.ok) { setError(res.error); return; }
         }
         router.refresh();
         close();
       } catch (err) {
+        // Only a genuine fault reaches here now — a refusal came back above.
         setError(err instanceof Error ? err.message : 'Failed to save client');
       }
     });

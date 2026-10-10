@@ -394,6 +394,16 @@ export interface ComplaintPage {
  */
 export const FR_ACTIONS = ['Free Replacement', 'Replace Material', 'Paid Replacement'] as const;
 
+/**
+ * The eight pages, in the order the Complaint Team works them: Investigation
+ * now comes before Risk & Criticality, because the four criticality questions
+ * are easier to answer once somebody has looked at the pump.
+ *
+ * `id` is NOT the position. It is the stable key every gate, edit permission
+ * and status rule is written against, so the two are deliberately separate —
+ * renumbering the ids to match this order would have silently repointed all of
+ * them at the wrong page. `pageStep` gives the number a reader sees.
+ */
 export const PAGES: ComplaintPage[] = [
   {
     id: 1, slug: 'registration', title: 'Registration', owner: 'TSM / Complaint Team',
@@ -421,8 +431,6 @@ export const PAGES: ComplaintPage[] = [
     departments: ['Complaint Team', 'QC'],
     fields: [
       { name: 'so_no', label: 'SO No.', type: 'text', required: true, fromPump: true },
-      { name: 'ec_no', label: 'EC No.', type: 'text', required: true, fromPump: true, hint: 'Looks up the installed base and fills what it knows.' },
-      { name: 'ec_date', label: 'EC date', type: 'date' },
       // A name off a list rather than nine spellings of Amit: EC Made By is
       // what the investigation follows when the EC itself is the root cause.
       { name: 'ec_made_by', label: 'EC made by', type: 'select', lookup: 'ec_made_by' },
@@ -450,6 +458,27 @@ export const PAGES: ComplaintPage[] = [
     ],
   },
   {
+    id: 4, slug: 'investigation', title: 'Investigation & Root Cause', owner: 'QC for a pump problem · Complaint Team otherwise',
+    departments: ['Complaint Team', 'QC'],
+    fields: [
+      // Analysis Required, Investigation Assigned To and the two dates are
+      // gone. Whether an investigation happened is already answered by this
+      // page having a root cause on it, and the dates were filled in once the
+      // work was over, which is the one moment they tell nobody anything. The
+      // columns stay; the assignment still governs who may edit this page.
+      { name: 'root_cause_category', label: 'Root cause category', type: 'select', lookup: 'root_cause_category', required: true, hint: 'Human Error, Design or Process.' },
+      { name: 'root_cause_sub', label: 'Root cause sub-cause', type: 'select', lookup: 'root_cause_sub', parentField: 'root_cause_category', hint: 'The list follows the category. Only the Human Error causes are seeded so far; the rest come from the Complaint team.' },
+      { name: 'root_cause', label: 'Complaint root cause', type: 'long', required: true, hint: 'In words: what actually happened, beyond the two answers above.' },
+      { name: 'internal_remarks', label: 'Internal discussion / analysis remarks', type: 'long' },
+      { name: 'corrective_action_required', label: 'Corrective action', type: 'bool', hint: 'Yes opens page 5.' },
+      // Derived from the root cause by responsibleDepartmentFor, not carried
+      // from registration — registration no longer asks. Still a select, so a
+      // mapping the investigation disagrees with can be overruled by the
+      // person who did the investigating.
+      { name: 'responsible_department', label: 'Responsible department', type: 'select', lookup: 'responsible_department', required: true, hint: 'Filled from the root cause above. Change it if the investigation says otherwise.' },
+    ],
+  },
+  {
     id: 3, slug: 'risk', title: 'Risk & Criticality', owner: 'Complaint Team · QC for a pump problem',
     departments: ['Complaint Team', 'QC'],
     fields: [
@@ -471,28 +500,6 @@ export const PAGES: ComplaintPage[] = [
     ],
   },
   {
-    id: 4, slug: 'investigation', title: 'Investigation & Root Cause', owner: 'QC for a pump problem · Complaint Team otherwise',
-    departments: ['Complaint Team', 'QC'],
-    fields: [
-      // Analysis Required, Investigation Assigned To and the two dates are
-      // gone. Whether an investigation happened is already answered by this
-      // page having a root cause on it, and the dates were filled in once the
-      // work was over, which is the one moment they tell nobody anything. The
-      // columns stay; the assignment still governs who may edit this page.
-      { name: 'root_cause_category', label: 'Root cause category', type: 'select', lookup: 'root_cause_category', required: true, hint: 'Human Error, Design or Process.' },
-      { name: 'root_cause_sub', label: 'Root cause sub-cause', type: 'select', lookup: 'root_cause_sub', parentField: 'root_cause_category', hint: 'The list follows the category. Only the Human Error causes are seeded so far; the rest come from the Complaint team.' },
-      { name: 'root_cause', label: 'Complaint root cause', type: 'long', required: true, hint: 'In words: what actually happened, beyond the two answers above.' },
-      { name: 'internal_remarks', label: 'Internal discussion / analysis remarks', type: 'long' },
-      { name: 'corrective_action_required', label: 'Corrective action', type: 'bool', hint: 'Yes opens page 5.' },
-      { name: 'preventive_action', label: 'Preventive action', type: 'long' },
-      // Derived from the root cause by responsibleDepartmentFor, not carried
-      // from registration — registration no longer asks. Still a select, so a
-      // mapping the investigation disagrees with can be overruled by the
-      // person who did the investigating.
-      { name: 'responsible_department', label: 'Responsible department', type: 'select', lookup: 'responsible_department', required: true, hint: 'Filled from the root cause above. Change it if the investigation says otherwise.' },
-    ],
-  },
-  {
     id: 5, slug: 'action', title: 'Corrective Action & Resolution', owner: 'Complaint Team · the assignee',
     departments: ['Complaint Team', 'QC', 'Quotation Team', 'Billing Team'], repsMayEdit: true,
     fields: [
@@ -502,7 +509,7 @@ export const PAGES: ComplaintPage[] = [
       // answer through the Admin map (complaint_action_assignment), and asking
       // for a name as well meant the page refused to save until someone typed
       // the answer the system already knew. Kept as an override.
-      { name: 'action_assigned_to', label: 'Action assigned to', type: 'user', hint: 'Assigned automatically from the action. Set it only to override.' },
+      { name: 'action_assigned_to', label: 'Action assigned to', type: 'user' },
       { name: 'target_completion_date', label: 'Target completion date', type: 'date', required: true },
       { name: 'actual_completion_date', label: 'Action completion date', type: 'date' },
       // Cost Impact is the commercial question — did this complaint cost us
@@ -607,6 +614,10 @@ export const PAGES: ComplaintPage[] = [
 
 export const pageBySlug = (slug: string) => PAGES.find(p => p.slug === slug) ?? null;
 export const pageById = (id: number) => PAGES.find(p => p.id === id) ?? null;
+
+/** Where a page sits in the run, 1-based — the number a reader sees, not its id. */
+export const pageStep = (page: { id: number }): number =>
+  PAGES.findIndex(p => p.id === page.id) + 1;
 
 /** All field names the workflow writes, for the save action's allowlist. */
 export const ALL_FIELD_NAMES = new Set(PAGES.flatMap(p => p.fields.map(f => f.name)));

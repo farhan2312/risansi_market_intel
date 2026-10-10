@@ -311,29 +311,6 @@ export async function saveComplaintPage(id: number, pageId: number, input: Recor
     const dept = responsibleDepartmentFor(values.root_cause_category as string | null, values.root_cause_sub as string | null);
     if (dept) { values.responsible_department = dept; changed.responsible_department = dept; }
   }
-  // Who picks the action up follows the action itself (decision 10). The map is
-  // complaint_action_assignment, edited in Admin, so a staffing change does not
-  // need a release — which is the whole reason it is a table and not a constant.
-  //
-  // Only when nobody has been named. The requirement says no manual dropdown is
-  // needed, not that a human may not overrule it: a complaint already handed to
-  // someone must not be taken off them because the action was edited.
-  if (page.id === 5 && values.action_category && !values.action_assigned_to && !cur.action_assigned_to) {
-    const assignee = await resolveActionAssignee(String(values.action_category), row.client_id);
-    if (assignee.userId) { values.action_assigned_to = assignee.userId; changed.action_assigned_to = assignee.userId; }
-    else if (assignee.department != null) {
-      const dept = assignee.department;
-      // A department rather than a person: there is no id to write, so the work
-      // is announced to the department instead of sitting in a field. This is
-      // also what happens for the two actions that belong to somebody with no
-      // login yet — better the team sees it than nobody does.
-      await notifyDepartment(dept, user.email ?? '', {
-        kind: 'complaint_action', title: `${row.complaint_no}: ${values.action_category}`,
-        body: `No one is named for this action yet, so it falls to ${dept}.`,
-        link: `/risansi/complaints/${id}`, subject: `${row.complaint_no} needs ${values.action_category}`,
-      });
-    }
-  }
   if (!Object.keys(changed).length) return { ok: true };
 
   const keys = Object.keys(changed);
@@ -379,33 +356,6 @@ export async function saveComplaintPage(id: number, pageId: number, input: Recor
  * page's own save already succeeded and reporting it as failed would have the
  * user type the page again.
  */
-/**
- * Who should take an action on, from the Admin map.
- *
- * 'client_rep' reads the client's primary_rep_id rather than the rep stamped on
- * the complaint: a visit belongs to whoever owns the account now, which is not
- * always whoever happened to raise the complaint months ago.
- *
- * An action nobody has mapped returns nothing at all, and the field stays empty
- * for a human — a wrong owner is worse than no owner, because it looks answered.
- */
-async function resolveActionAssignee(
-  action: string, clientId: number | null,
-): Promise<{ userId: number | null; department: string | null }> {
-  const { rows } = await risansiPool.query<{ assignee_kind: string; user_id: number | null; department: string | null }>(
-    `SELECT assignee_kind, user_id, department FROM complaint_action_assignment WHERE action = $1`, [action]);
-  const m = rows[0];
-  if (!m) return { userId: null, department: null };
-  if (m.assignee_kind === 'user') return { userId: m.user_id, department: null };
-  if (m.assignee_kind === 'department') return { userId: null, department: m.department };
-  if (m.assignee_kind === 'client_rep' && clientId != null) {
-    const { rows: c } = await risansiPool.query<{ primary_rep_id: number | null }>(
-      `SELECT primary_rep_id FROM clients WHERE id = $1`, [clientId]);
-    return { userId: c[0]?.primary_rep_id ?? null, department: null };
-  }
-  return { userId: null, department: null };
-}
-
 async function advanceAfterPageSave(pageId: number, id: number, row: AccessRow, user: CurrentUser, values: ComplaintValues): Promise<void> {
   const to = statusAfterSavingPage(pageId, row.status);
   if (!to) return;

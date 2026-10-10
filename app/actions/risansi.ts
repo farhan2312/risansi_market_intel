@@ -586,10 +586,15 @@ async function saveClientOwnership(clientId: number, formData: FormData, actorEm
   }
 }
 
-export async function updateClient(clientId: number, formData: FormData): Promise<void> {
+/**
+ * Returns its errors rather than throwing them, for the same reason addClient
+ * does: a thrown message is redacted in production and the person editing sees
+ * only that something went wrong.
+ */
+export async function updateClient(clientId: number, formData: FormData): Promise<SaveResult> {
   const session = await getServerSession(authOptions);
   if (!hasRole(session?.user?.role, 'admin')) {
-    throw new Error('Unauthorized');
+    return fail('Only an admin can edit a client.');
   }
   const email = session!.user.email ?? 'system';
 
@@ -618,7 +623,7 @@ export async function updateClient(clientId: number, formData: FormData): Promis
   const newCode = submittedCode || currentCode;
   if (newCode && currentCode && newCode !== currentCode) {
     const dup = await risansiPool.query('SELECT 1 FROM clients WHERE UPPER(code) = $1 AND id <> $2', [newCode, clientId]);
-    if (dup.rows.length > 0) throw new Error(`Client code "${newCode}" is already in use.`);
+    if (dup.rows.length > 0) return fail(`Client code "${newCode}" is already in use.`);
   }
 
   // Coupling: the status must be valid for the (final) code type — a LEAD_ code can
@@ -626,7 +631,7 @@ export async function updateClient(clientId: number, formData: FormData): Promis
   // on every save so a raw code edit (LEAD_ → real) can't leave a lead status behind.
   // The guided path for that transition is convertLeadToClient.
   if (!allowedStatusesForCode(newCode).includes(newStatus as never)) {
-    throw new Error(`"${clientStatusLabel(newStatus)}" isn't a valid status for ${isLeadCode(newCode) ? 'a lead (LEAD_) code — use “Convert to Client” to assign an ERP code first' : 'a real client code'}.`);
+    return fail(`"${clientStatusLabel(newStatus)}" isn't a valid status for ${isLeadCode(newCode) ? 'a lead (LEAD_) code — use “Convert to Client” to assign an ERP code first' : 'a real client code'}.`);
   }
 
   // Update the client, and when the code changes cascade it to the denormalised
@@ -768,6 +773,7 @@ export async function updateClient(clientId: number, formData: FormData): Promis
   revalidatePath(`/risansi/clients/${clientId}`);
   revalidatePath('/risansi/clients');
   revalidatePath('/risansi/admin/clients');
+  return { ok: true };
 }
 
 // ── Client comments (free-form notes on the Client 360) ────────
@@ -2304,16 +2310,25 @@ export async function submitOpportunity(formData: FormData) {
 
 // ── Client: add new client ─────────────────────────────────────
 
-export async function addClient(formData: FormData): Promise<void> {
+/**
+ * Returns its errors rather than throwing them.
+ *
+ * It used to throw, and every message it took the trouble to write was then
+ * swallowed: Next redacts a thrown server-action message in production, so a
+ * user who typed a code that was already taken saw "An error occurred in the
+ * Server Components render" and retried the same code. The messages below are
+ * the point of this function — they have to reach the person typing.
+ */
+export async function addClient(formData: FormData): Promise<SaveResult> {
   const session = await getServerSession(authOptions);
   if (!hasRole(session?.user?.role, 'admin')) {
-    throw new Error('Unauthorized');
+    return fail('Only an admin can add a client.');
   }
   const email = session!.user.email ?? 'system';
 
   // Client names are always stored uppercase, regardless of what was typed.
   const legalName = normalizeClientName((formData.get('legal_name') as string | null) ?? '');
-  if (!legalName) throw new Error('Legal name is required.');
+  if (!legalName) return fail('Legal name is required.');
 
   const isLead    = formData.get('is_lead') === 'true';
   const rawStatus = (formData.get('status') as string | null)?.trim() || 'ACTIVE';
@@ -2332,16 +2347,24 @@ export async function addClient(formData: FormData): Promise<void> {
     // Real client (Prospective-Client or Active): the admin supplies the code,
     // which must NOT be a LEAD_ code — those are reserved for auto-coded leads.
     code = (formData.get('code') as string | null)?.toUpperCase().trim() ?? '';
-    if (!code) throw new Error('Client code is required.');
-    if (isLeadCode(code)) throw new Error('A LEAD_ code is reserved for leads — choose "Prospective-Lead" to auto-generate one, or enter a real ERP client code.');
+    if (!code) return fail('Client code is required.');
+    if (isLeadCode(code)) return fail('A LEAD_ code is reserved for leads — choose "Prospective-Lead" to auto-generate one, or enter a real ERP client code.');
     // Check ALL codes (incl. soft-deleted): the clients.code unique index is not
     // partial, so a soft-deleted code would still collide on INSERT — surface the
     // friendly message rather than a raw constraint violation.
-    const existing = await risansiPool.query<{ id: number }>(
-      'SELECT id FROM clients WHERE UPPER(code) = $1', [code],
+    const existing = await risansiPool.query<{ id: number; legal_name: string; archived: string | null }>(
+      'SELECT id, legal_name, deleted_at::date::text AS archived FROM clients WHERE UPPER(code) = $1', [code],
     );
-    if (existing.rows.length > 0) {
-      throw new Error(`Code ${code} already exists`);
+    const clash = existing.rows[0];
+    if (clash) {
+      // An archived client is the confusing half of this. It is invisible
+      // everywhere in the portal, so the code looks free, and the unique index
+      // is not partial so the insert collides with a row nobody can see. Say
+      // which client it is and where to bring it back, rather than leaving
+      // somebody to try the same code again.
+      return fail(clash.archived
+        ? `Code ${code} belongs to ${clash.legal_name}, which was archived on ${new Date(`${clash.archived}T00:00:00Z`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' })}. It is hidden rather than gone, so the code is still taken — restore it from Admin → Recoverable clients instead of creating a second record, or use a different code.`
+        : `Code ${code} is already in use by ${clash.legal_name}.`);
     }
     // A real code can't hold a lead status; anything unknown falls back to ACTIVE.
     status = (rawStatus !== 'PROSPECTIVE_LEAD' && (CLIENT_STATUSES as readonly string[]).includes(rawStatus))
@@ -2404,6 +2427,7 @@ export async function addClient(formData: FormData): Promise<void> {
   revalidatePath('/risansi/clients');
   revalidatePath('/risansi/admin/clients');
   revalidatePath('/risansi');
+  return { ok: true };
 
   // Any new prospect (Prospective-Lead or Prospective-Client) → tell the tour manager.
   if (isProspectiveStatus(status)) {

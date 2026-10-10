@@ -5,7 +5,7 @@ import { Topbar } from '@/components/risansi';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, canAccessComplaint, canViewClient, hasRole } from '@/lib/risansi-auth';
 import {
-  PAGES, pageBySlug, NEXT, canEditPage, canMove, gateFor, dwells, dwellByHolder, isOpenStatus,
+  PAGES, pageStep, pageBySlug, NEXT, canEditPage, canMove, gateFor, dwells, dwellByHolder, isOpenStatus,
   isImmediateResponse, IMMEDIATE_RISK_FIELDS,
   SEVERITY_LABEL, SEVERITY_TONE, SEVERITY_REQUIRES, STATUS_TONE, missingOnPage,
   type ComplaintStatus, type ComplaintValues, type Severity,
@@ -238,7 +238,7 @@ export default async function ComplaintPage({ params, searchParams }: {
                   color: on ? 'var(--accent)' : 'var(--fg-3)', fontWeight: on ? 600 : 400,
                   borderBottom: on ? '2px solid var(--accent)' : '2px solid transparent', marginBottom: -1,
                 }} title={`${p.title} — ${p.owner}`}>
-                  <span style={{ fontFamily: 'var(--font-mono)', marginRight: 6, opacity: 0.7 }}>{p.id}</span>{p.title}
+                  <span style={{ fontFamily: 'var(--font-mono)', marginRight: 6, opacity: 0.7 }}>{pageStep(p)}</span>{p.title}
                   {missing > 0 && <span title={`${missing} required field${missing === 1 ? '' : 's'} still empty`} style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, color: 'var(--warn, #B45309)' }}>●</span>}
                 </Link>
               );
@@ -246,7 +246,7 @@ export default async function ComplaintPage({ params, searchParams }: {
           </div>
           <div style={{ padding: '14px 16px' }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 12 }}>
-              <span style={{ fontSize: 14, fontWeight: 600 }}>{page.id}. {page.title}</span>
+              <span style={{ fontSize: 14, fontWeight: 600 }}>{pageStep(page)}. {page.title}</span>
               <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>owner: {page.owner}</span>
             </div>
             {page.id === 1 && (
