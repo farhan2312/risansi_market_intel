@@ -195,6 +195,43 @@ One improvement to take while we are here: the sales sign-up form lets the reque
 - **Nothing about the running application changes.** Same domain, same `APP_URL`, same login.
 - Done when: the deployed site is the same application on the same domain and all nine build gates pass.
 
+**Status: done in code, waiting on Vercel.** Branch `phase-1-sales` on
+`risansi-digital`, merge commit `474d978`.
+
+- 680 files, all recorded as `R100` — pure renames, every blob hash identical to
+  `ae51dcc` in the old repo. The code did not change.
+- 610 commits of history joined, not squashed. `git log --follow` and
+  `git blame` both trace through the move.
+- `index.html` and `assets/` untouched at the repo root, so the current static
+  hub still deploys exactly as it does today.
+- Verified from a fresh clone of the branch: `npm ci`, all nine gates, `tsc
+  --noEmit` clean, `npm run build` green.
+- The CI workflow had to move to the repo root as
+  `.github/workflows/sales-ci.yml`, scoped with `paths` to `apps/sales/**`.
+  GitHub only reads `.github/workflows` from the root, so leaving it inside the
+  app would have silently stopped the only automated gate the repo has.
+
+**One thing for Windows developers.** `apps/sales/` adds 11 characters to every
+path, and Turbopack writes some long chunk filenames under `.next/server/chunks/ssr/`.
+A build inside a deep directory now hits the Windows 260-character `MAX_PATH`
+limit and fails with a Turbopack panic rather than a useful message. Clone
+shallow — `C:isansi-digital` rather than somewhere under `Documents\...` — or
+enable long paths (`git config --system core.longpaths true` plus the
+`LongPathsEnabled` registry key). Vercel builds on Linux and is unaffected.
+
+**What has to happen in Vercel, by hand:**
+1. Merge `phase-1-sales` into `main`.
+2. In the existing sales Vercel project, change the Git repository to
+   `risansi-digital` and set **Root Directory** to `apps/sales`.
+3. Leave every environment variable exactly as it is, including `APP_URL`,
+   `NEXTAUTH_SECRET`, the `DB_*` set and `CRON_SECRET`.
+4. Confirm both cron paths still read `/api/cron/daily` and `/api/cron/weekly` —
+   `vercel.json` travelled with the app and is read relative to the root
+   directory, so they should be unchanged.
+5. Keep the `sales.risansi.com` domain on that project.
+6. Deploy, then sign in and click through one page from each area before
+   archiving the old repo.
+
 ### Phase 2 — The hub becomes an application.
 - `apps/hub`: Next app, hub's own domain. Port the static page in as the signed-in landing view.
 - `packages/identity`: token format, cookie, `verifySession()`.
