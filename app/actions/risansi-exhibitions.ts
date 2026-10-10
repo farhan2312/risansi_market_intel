@@ -488,13 +488,23 @@ export async function setExhibitionTeam(
 
 // ── Meetings (the lookup lives here) ─────────────────────────────
 
-export async function saveExhibitionMeeting(exhibitionId: number, fd: FormData, meetingId?: number) {
+// Same shape as risansi.ts CreateResult, and deliberately the same name, so the
+// build check (scripts/action-result-check.mjs) insists the caller reads it.
+// The id is a number here because exhibition_meetings.id is.
+export type CreateResult = { ok: true; id: number } | { ok: false; error: string };
+
+export async function saveExhibitionMeeting(
+  exhibitionId: number, fd: FormData, meetingId?: number,
+): Promise<CreateResult> {
   const user = await requireUser();
   await assertCanManage(exhibitionId);
   await assertUnlocked(exhibitionId);
 
+  // A missing company name is the form being wrong, not the server failing, so
+  // it comes back as a refusal the dialog can print. Thrown, it reached the rep
+  // redacted as "Could not save the meeting."
   const company = str(fd, 'company_name');
-  if (!company) throw new Error('Company name is required.');
+  if (!company) return { ok: false, error: 'Company name is required.' };
 
   // The lookup: a client id only counts if the row really exists and is not
   // deleted. A stale or forged id degrades to NULL — an unlinked meeting — rather
@@ -552,7 +562,7 @@ export async function saveExhibitionMeeting(exhibitionId: number, fd: FormData, 
     actorEmail: user.email,
   }).catch(() => {});
   touch(exhibitionId);
-  return savedId;
+  return { ok: true, id: savedId };
 }
 
 export async function deleteExhibitionMeeting(exhibitionId: number, meetingId: number) {

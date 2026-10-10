@@ -190,6 +190,23 @@ function MeetingReviewRow({ exhibitionId, meeting: m, users, editable }: {
   const def = DISPOSITIONS.find(d => d.value === type)!;
   const blockedNoClient = def.needsClient && m.client_id == null;
 
+  // The fields above are seeded once, at mount, and this row stays mounted for
+  // as long as the table does — so after a save, a refresh, or somebody else
+  // editing the same meeting, they would still hold whatever was last typed
+  // here. Re-seeding on every open means the editor always opens on what the
+  // row actually says. (The same mistake, made across rows instead of across
+  // opens, is what put one company's details in another company's edit form on
+  // the Meetings tab.)
+  function openEditor() {
+    setType(m.follow_up_type ?? 'None');
+    setOwner(m.follow_up_owner_id ? String(m.follow_up_owner_id) : '');
+    setDue(m.follow_up_date ?? '');
+    setNote(m.follow_up_note ?? '');
+    setValue(m.potential_value_inr != null ? String(m.potential_value_inr) : '');
+    setErr('');
+    setOpen(true);
+  }
+
   async function save() {
     setBusy(true); setErr('');
     try {
@@ -229,7 +246,7 @@ function MeetingReviewRow({ exhibitionId, meeting: m, users, editable }: {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             {result && <span style={DONE_PILL}>{result}</span>}
             {editable && (
-              <button onClick={() => setOpen(o => !o)} style={LINK_BTN}>
+              <button onClick={() => (open ? setOpen(false) : openEditor())} style={LINK_BTN}>
                 {open ? 'Close' : m.follow_up_type ? 'Change' : 'Decide'}
               </button>
             )}
@@ -369,7 +386,14 @@ function CompanyCell({ exhibitionId, meeting: m, editable }: {
           {m.client_id != null
             ? <span style={KNOWN_PILL}>✓ {m.client_code ?? 'client'}</span>
             : <span style={NEW_PILL}>not in client master</span>}
-          {editable && <button onClick={() => setEdit(true)} style={LINK_BTN}>rename</button>}
+          {/* Seeded from the row on every open, not once at mount — same reason
+              as the follow-up editor above. */}
+          {editable && (
+            <button style={LINK_BTN} onClick={() => {
+              setName(m.company_name); setClientId(m.client_id); setMatched(m.client_code);
+              setHits([]); setErr(''); setEdit(true);
+            }}>rename</button>
+          )}
         </div>
       </div>
     );

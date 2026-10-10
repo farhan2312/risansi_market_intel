@@ -136,6 +136,60 @@ export function CloseConfirm({ message, onConfirm, onCancel, tone = 'light' }: {
   );
 }
 
+/**
+ * Keyboard containment for a modal, and the way back out.
+ *
+ * Two things a dialog owes a keyboard: Tab must not walk out of it into the page
+ * underneath (which is unreachable by mouse, so tabbing there is a dead end),
+ * and when it closes, focus has to land back on the button that opened it rather
+ * than at the top of the document.
+ *
+ * The opener is read from `document.activeElement` as the dialog mounts — the
+ * Edit button that was just clicked — and refocused on unmount, so no caller has
+ * to pass a ref down. The panel itself takes focus first, which announces the
+ * dialog without opening a phone's keyboard on a field nobody asked for.
+ *
+ * Pass a ref to the panel element and give that element `tabIndex={-1}`.
+ */
+const FOCUSABLE = [
+  'a[href]', 'button:not([disabled])', 'input:not([disabled]):not([type="hidden"])',
+  'select:not([disabled])', 'textarea:not([disabled])', '[tabindex]:not([tabindex="-1"])',
+].join(',');
+
+export function useDialogFocus(panel: React.RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const node = panel.current;
+    if (!node) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    const stops = () => Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE))
+      .filter(el => el.offsetParent !== null);
+
+    node.focus({ preventScroll: true });
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      const list = stops();
+      if (list.length === 0) { e.preventDefault(); node.focus({ preventScroll: true }); return; }
+      const first = list[0], last = list[list.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (!active || !node.contains(active)) { e.preventDefault(); first.focus(); return; }
+      if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+      else if (e.shiftKey && active === first) { e.preventDefault(); last.focus(); }
+    };
+
+    // Captured on the document so a focus that somehow escaped the panel is
+    // still pulled back on the next Tab.
+    document.addEventListener('keydown', onKey, true);
+    return () => {
+      document.removeEventListener('keydown', onKey, true);
+      // The list behind may have re-rendered while the dialog was open; a
+      // detached button cannot take focus, and asking it to is harmless.
+      if (opener && document.contains(opener)) opener.focus({ preventScroll: true });
+    };
+  }, [panel]);
+}
+
 /** Shown for a few seconds after a backdrop click that was deliberately ignored. */
 export function KeepOpenHint({ tone = 'light' }: { tone?: 'light' | 'onDark' }) {
   return (

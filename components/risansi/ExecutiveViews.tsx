@@ -42,18 +42,45 @@ export interface ExecKpi {
  * reader can see which stages were counted rather than take the word for it.
  */
 export interface ExecConversion {
+  /**
+   * The headline target — the one every percentage on this panel divides into.
+   *
+   * It is the reviewed person's own annual target for a rep or a manager, and
+   * the company-wide figure for everybody else. The page decides which (it
+   * knows who is looking); this component only renders what it is handed, and
+   * `targetIsPersonal` says which it got so the wording can follow.
+   */
   targetInr: number;
+  /** Label over the headline figure. */
+  targetLabel: string;
+  /** Where the headline target comes from, under the figure. */
+  targetNote: string;
+  /** True when the headline target belongs to a person rather than the company. */
+  targetIsPersonal: boolean;
+  /**
+   * The second, smaller line inside the same card: the company-wide figure
+   * when the headline is personal, or "not set" when the reviewed person
+   * carries a quota that nobody has filled in. Null when there is nothing to
+   * add — an admin's headline already IS the company figure.
+   *
+   * `valueInr` is rupees so it is formatted by the same fmtCr as the headline
+   * right above it; null renders as "Not set", which is the whole point of the
+   * line in the no-target case and must never come through as ₹0.
+   */
+  targetSub: { label: string; valueInr: number | null; note?: string } | null;
   quotedInr: number;
   orderReceivedInr: number;
   /** Order received ÷ total quoted, as a percentage. Null when nothing was quoted. */
   pct: number | null;
-  /** Order received ÷ annual target, as a percentage. Null when no target is set. */
+  /** Order received ÷ the HEADLINE target, as a percentage. Null when no target is set. */
   achievedPct: number | null;
+  /** Names that denominator out loud, e.g. 'of your annual target'. */
+  achievedLabel: string;
+  /** The panel header's note, which also says which target is in play. */
+  panelNote: string;
   table: ExecTable;
   includes: string;
   excludes: string;
-  /** Where the target comes from, so nobody hunts for a per-rep one. */
-  targetNote: string;
   /** What the fiscal-year window leaves out. Null when it leaves out nothing. */
   outside: ExecOutside | null;
 }
@@ -144,16 +171,44 @@ export function ConversionFigures({ c }: { c: ExecConversion }) {
   const pct = (v: number | null) => (v == null ? '—' : `${v.toFixed(1)}%`);
   // Both bars are drawn against the larger of target and quoted, so the two
   // lengths stay comparable when the pipeline has already outrun the target.
+  // `targetInr` is the headline target, so a rep's bars are now scaled to a
+  // number they can actually reach rather than to the company's whole year.
   const span = Math.max(c.targetInr, c.quotedInr, 1);
-  const bar = (v: number, color: string) => (
-    <div style={{ height: 8, borderRadius: 4, background: 'var(--bg-elev)', overflow: 'hidden' }}>
+  // `markerAt` draws the target as a tick across the bar, so "measured against"
+  // is something the reader can see and not only read in the caption. It sits
+  // at the right-hand edge when the target is the longest thing on the chart.
+  const bar = (v: number, color: string, markerAt?: number) => (
+    <div style={{ position: 'relative', height: 8, borderRadius: 4, background: 'var(--bg-elev)', overflow: 'hidden' }}>
       <div style={{ width: `${Math.min(100, (v / span) * 100)}%`, height: '100%', background: color }} />
+      {markerAt != null && markerAt > 0 && (
+        <div aria-hidden style={{
+          position: 'absolute', top: 0, bottom: 0, left: `${Math.min(100, (markerAt / span) * 100)}%`,
+          width: 2, marginLeft: -2, background: 'var(--fg-2)',
+        }} />
+      )}
     </div>
   );
   return (
     <div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 16, alignItems: 'start' }}>
-        <Figure label="Annual Target" value={fmtCr(c.targetInr)} sub={c.targetNote} />
+        {/* The target card carries two figures when the viewer has one of their
+            own: theirs large, the company's underneath. The company figure is
+            kept in view because it is the number the year is held to — it is
+            just not the bar an individual clears. */}
+        <div>
+          <Figure label={c.targetLabel} value={fmtCr(c.targetInr)} sub={c.targetNote} big={c.targetIsPersonal} />
+          {c.targetSub && (
+            <div style={{ marginTop: 9, paddingTop: 9, borderTop: '1px solid var(--line)' }}>
+              <div style={METRIC_LABEL}>{c.targetSub.label}</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 600,
+                            color: c.targetSub.valueInr == null ? 'var(--fg-3)' : 'var(--fg-2)',
+                            lineHeight: 1.2, marginTop: 3 }}>
+                {c.targetSub.valueInr == null ? 'Not set' : fmtCr(c.targetSub.valueInr)}
+              </div>
+              {c.targetSub.note && <div style={{ fontSize: 10.5, color: 'var(--fg-3)', marginTop: 2 }}>{c.targetSub.note}</div>}
+            </div>
+          )}
+        </div>
         {/* All of it, won and lost included — which is why this is larger than
             the board's Quoted tile, and why Order Received matches its Won. */}
         <Figure label="Total Quoted" value={fmtCr(c.quotedInr)} sub="everything quoted this FY, won and lost included" color="var(--accent)" />
@@ -169,9 +224,13 @@ export function ConversionFigures({ c }: { c: ExecConversion }) {
         <div>
           <div style={BAR_LABEL}>
             <span>Order received</span>
-            <span>{fmtCr(c.orderReceivedInr)}{c.achievedPct == null ? '' : ` · ${c.achievedPct.toFixed(1)}% of the company target`}</span>
+            <span>{fmtCr(c.orderReceivedInr)}{c.achievedPct == null ? '' : ` · ${c.achievedPct.toFixed(1)}% ${c.achievedLabel}`}</span>
           </div>
-          {bar(c.orderReceivedInr, 'var(--pos)')}
+          {bar(c.orderReceivedInr, 'var(--pos)', c.targetInr)}
+          <div style={{ ...BAR_LABEL, marginBottom: 0, marginTop: 4 }}>
+            <span />
+            <span>│ marks {fmtCr(c.targetInr)} — {c.achievedLabel.replace(/^of /, '')}</span>
+          </div>
         </div>
       </div>
       {c.outside && <OutsideWindow o={c.outside} />}
@@ -299,7 +358,7 @@ export function ExecutiveViews({ data, selector, periodLabel, note, tabs }: {
         {/* First of the tables, because it is the question the review is held to
             answer: against the target, how much did we price and how much of it
             came back. */}
-        <MiniTable title="Target & Conversion" note="₹ against the annual target" table={data.conversion.table} full
+        <MiniTable title="Target & Conversion" note={data.conversion.panelNote} table={data.conversion.table} full
           chart={<ConversionFigures c={data.conversion} />}
           footer={
             <p style={{ fontSize: 11, color: 'var(--fg-3)', margin: 0, lineHeight: 1.55, maxWidth: 900 }}>

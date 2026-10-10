@@ -176,6 +176,12 @@ export function UsersManager({ users }: { users: UserRow[] }) {
 
       {(creating || editing) && (
         <UserDrawer
+          // Keyed on the row. Every field inside is seeded with defaultValue,
+          // which React reads once at mount — so without this, opening a
+          // second user would change the prop and leave the first one's
+          // details on screen. The backdrop happens to prevent that today;
+          // the key is what makes it impossible.
+          key={editing ? `user-${editing.id}` : 'user-new'}
           mode={creating ? 'create' : 'edit'}
           user={editing}
           onClose={() => { setCreating(false); setEditing(null); }}

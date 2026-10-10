@@ -134,6 +134,9 @@ export function PotentialLeads({ exhibitionId, meetings, editable }: {
       {/* The Client Master's own form, opened with the meeting in it. */}
       {creating && (
         <ClientFormDrawer
+          // Keyed on the meeting, for the same reason UserDrawer is keyed on
+          // the user: the form seeds ~20 fields with defaultValue at mount.
+          key={`lead-${creating.id}`}
           mode="create"
           title={`New lead — ${creating.company_name}`}
           client={{

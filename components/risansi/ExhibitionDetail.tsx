@@ -19,6 +19,7 @@ import {
   MAX_INVOICE_BYTES, INVOICE_ACCEPT, CAMERA_ACCEPT,
 } from '@/lib/risansi-exhibition-files';
 import { ExhibitionReviewWorkbench, type ReviewMeeting } from './ExhibitionReview';
+import { useCloseGuard, useDialogFocus, CloseX, CloseConfirm, KeepOpenHint } from './FormCloseGuard';
 import type { UserOpt } from './ExhibitionsClient';
 import { useTableSort, SortTH } from './SortTH';
 import type { SortableColumn } from '@/lib/risansi-table-sort';
@@ -623,10 +624,10 @@ function MeetingsTab({ exhibitionId, meetings, canManage }: {
 
   return (
     <div>
-      {!adding && !editing && (canManage || meetings.length > 0) && (
+      {(canManage || meetings.length > 0) && (
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
           {canManage && (
-            <button onClick={() => setAdding(true)} style={BTN_PRIMARY}>
+            <button onClick={() => { setEditing(null); setAdding(true); }} style={BTN_PRIMARY}>
               + Capture meeting
             </button>
           )}
@@ -642,21 +643,29 @@ function MeetingsTab({ exhibitionId, meetings, canManage }: {
           )}
         </div>
       )}
+      {/* Keyed on the row, so the dialog is a NEW component for every company.
+          It used to be one long-lived form fed a changing `meeting` prop: its
+          fields are seeded at mount (useState for the company lookup,
+          defaultValue for the rest), so picking a second company only swapped
+          the prop and left the first company's typing on screen. A key that
+          changes forces the unmount, and the seeding runs again. */}
       {(adding || editing) && (
-        <MeetingForm
+        <MeetingDialog
+          key={editing ? `meeting-${editing.id}` : 'meeting-new'}
           exhibitionId={exhibitionId}
           meeting={editing}
           onDone={() => { setAdding(false); setEditing(null); }}
         />
       )}
 
-      {meetings.length === 0 && !adding ? (
+      {meetings.length === 0 ? (
         <div style={PANEL}><Blank>No meetings captured yet.</Blank></div>
       ) : (
         <div style={{ display: 'grid', gap: 10 }}>
-          {/* The meeting being edited is hidden from the list — its own form is
-              already open above, and showing both read as a duplicate entry. */}
-          {meetings.filter(m => m.id !== editing?.id).map(m => (
+          {/* The whole list stays put while a meeting is being edited — the
+              dialog sits over it, so there is nothing to mistake for a
+              duplicate entry, and closing it leaves the page where it was. */}
+          {meetings.map(m => (
             <div key={m.id} style={{ ...PANEL, padding: 14 }}>
               <div className="exh-meeting-head" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                 <div style={{ minWidth: 0 }}>
@@ -704,7 +713,7 @@ function MeetingsTab({ exhibitionId, meetings, canManage }: {
               )}
               {canManage && (
                 <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                  <button onClick={() => setEditing(m)} style={LINK_BTN}>Edit</button>
+                  <button onClick={() => { setAdding(false); setEditing(m); }} style={LINK_BTN}>Edit</button>
                   <DeleteMeeting exhibitionId={exhibitionId} meetingId={m.id} />
                 </div>
               )}
@@ -734,9 +743,23 @@ function DeleteMeeting({ exhibitionId, meetingId }: { exhibitionId: number; meet
   );
 }
 
-/** Company field with live lookup against the client master. This is the module's
- *  only touch-point with existing data: it reads, flags, and stores the id. */
-function MeetingForm({ exhibitionId, meeting, onDone }: {
+/**
+ * One meeting, in a dialog of its own.
+ *
+ * It is a dialog rather than a panel above the list because a rep working down
+ * the stand's companies clicks Edit on one after another: an inline editor made
+ * that a swap of props on a mounted form, and the fields kept the previous
+ * company. Mounted per row (see the `key` at the call site) and closed on Save,
+ * there is only ever one company's data in it.
+ *
+ * Closing follows the house rule set after a rep lost a long quotation to a
+ * stray click: the backdrop does not close a form with typing in it, and the ×
+ * and Escape ask first.
+ *
+ * Company field has a live lookup against the client master. This is the
+ * module's only touch-point with existing data: it reads, flags, stores the id.
+ */
+function MeetingDialog({ exhibitionId, meeting, onDone }: {
   exhibitionId: number; meeting: MeetingRow | null; onDone: () => void;
 }) {
   const router = useRouter();
@@ -754,6 +777,14 @@ function MeetingForm({ exhibitionId, meeting, onDone }: {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const panel = useRef<HTMLDivElement | null>(null);
+
+  // Set by the form's own input event, so every named field counts without any
+  // of them having to become controlled, plus the two things that change
+  // without a keystroke: a picked client, and a photographed card.
+  const [dirty, setDirty] = useState(false);
+  const guard = useCloseGuard({ dirty, onClose: onDone, enabled: !busy });
+  useDialogFocus(panel);
 
   // Debounced so a typed company name fires one lookup, not one per keystroke.
   useEffect(() => {
@@ -788,22 +819,66 @@ function MeetingForm({ exhibitionId, meeting, onDone }: {
     setMatched({ code: m.code, legal_name: m.legal_name, city: m.city });
     setCompany(m.legal_name);
     setSuggestions([]);
+    setDirty(true);
   }
   function clearMatch() {
-    setClientId(null); setMatched(null); setSuggestions([]);
+    setClientId(null); setMatched(null); setSuggestions([]); setDirty(true);
   }
 
   return (
-    <div style={{ ...PANEL, padding: 18, marginBottom: 16 }}>
-      <form className="exh-form" action={async fd => {
+    <div onClick={guard.onBackdropClick}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 430, background: 'rgba(10,22,40,0.45)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+      }}>
+      <div className="risansi-modal" ref={panel} tabIndex={-1}
+        role="dialog" aria-modal="true"
+        aria-label={meeting ? `Edit meeting with ${meeting.company_name}` : 'Capture meeting'}
+        style={{
+          width: 760, maxWidth: '100%', maxHeight: '92vh', overflowY: 'auto',
+          background: 'var(--bg-paper)', color: 'var(--fg)', borderRadius: 12,
+          boxShadow: '0 24px 64px rgba(10,61,143,0.25)', outline: 'none',
+        }}>
+        {/* Sticky: the × stays in reach however far down the field list someone
+            has scrolled. The Cancel at the foot used to be the only way out. */}
+        <div style={{ padding: '14px 18px', background: '#0A3D8F', color: '#fff', position: 'sticky', top: 0, zIndex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, overflowWrap: 'anywhere' }}>
+                {meeting ? meeting.company_name : 'Capture meeting'}
+              </div>
+              <div style={{ fontSize: 11.5, opacity: 0.9, marginTop: 3 }}>
+                {meeting
+                  ? `Editing this meeting${meeting.met_on ? ` · met ${meeting.met_on}` : ''}`
+                  : 'A company met at the stand, and what was said'}
+              </div>
+            </div>
+            <CloseX onClick={guard.requestClose} tone="onDark" title="Close this form" />
+          </div>
+          {guard.asking && (
+            <CloseConfirm
+              tone="onDark"
+              message="Close without saving? What you typed here will be lost."
+              onConfirm={guard.confirmClose}
+              onCancel={guard.keepEditing}
+            />
+          )}
+          {guard.hint && !guard.asking && <KeepOpenHint tone="onDark" />}
+        </div>
+
+      <form className="exh-form" style={{ padding: 18 }} onInput={() => { if (!dirty) setDirty(true); }} action={async fd => {
         setBusy(true); setErr('');
         try {
-          const savedId = await saveExhibitionMeeting(exhibitionId, fd, meeting?.id);
+          const saved = await saveExhibitionMeeting(exhibitionId, fd, meeting?.id);
+          // A refused save stays in the dialog with its reason, and nothing is
+          // closed or thrown away.
+          if (!saved.ok) { setErr(saved.error); setBusy(false); return; }
+          const savedId = saved.id;
           // Cards photographed before the meeting existed have somewhere to go
           // now. A failure here must not read as "the meeting did not save" —
           // it did; only the photos did not.
           if (pendingCards.length && savedId) {
-            const failed = await uploadCards(Number(savedId), pendingCards);
+            const failed = await uploadCards(savedId, pendingCards);
             if (failed.length) {
               setErr(`Meeting saved, but ${failed.length} business card photo(s) could not be attached. Reopen the meeting to add them.`);
               setBusy(false);
@@ -880,7 +955,7 @@ function MeetingForm({ exhibitionId, meeting, onDone }: {
           <BusinessCards
             meetingId={meeting?.id ?? null}
             pending={pendingCards}
-            onPendingChange={setPendingCards}
+            onPendingChange={files => { setPendingCards(files); setDirty(true); }}
           />
 
           <F label="What was discussed"><textarea name="discussion" rows={2} defaultValue={meeting?.discussion ?? ''} style={{ ...INPUT, resize: 'vertical' }} /></F>
@@ -918,13 +993,16 @@ function MeetingForm({ exhibitionId, meeting, onDone }: {
             <F label="Follow-up by"><input name="follow_up_date" type="date" defaultValue={meeting?.follow_up_date ?? ''} style={INPUT} /></F>
           </Two>
 
+          {/* The refusal belongs with the buttons that caused it, inside the
+              dialog — nothing closes on a failed save. */}
           {err && <div style={ERR}>{err}</div>}
           <div className="exh-actions" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button type="button" onClick={onDone} style={BTN_GHOST}>Cancel</button>
+            <button type="button" onClick={guard.requestClose} style={BTN_GHOST}>Cancel</button>
             <button type="submit" disabled={busy} style={BTN_PRIMARY}>{busy ? 'Saving…' : 'Save meeting'}</button>
           </div>
         </div>
       </form>
+      </div>
     </div>
   );
 }

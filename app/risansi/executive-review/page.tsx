@@ -320,7 +320,14 @@ export default async function ExecutiveReviewPage({ searchParams }: {
       [allowedRepIds])).rows;
   }, []);
 
-  const tsm = (sp.tsm && reps.some(r => r.id === sp.tsm)) ? sp.tsm : (reps[0]?.id ?? '');
+  // Default to the viewer's own review when they are in the roster, not to
+  // whoever is alphabetically first. A manager opening this page is normally
+  // looking at their own book, and landing on a team member meant the target
+  // card — which exists so a rep or manager sees their OWN number — opened on
+  // somebody else's. An admin is not in the roster, so they still land on the
+  // first name as before.
+  const mine = reps.find(r => String(r.id) === String(me.id))?.id;
+  const tsm = (sp.tsm && reps.some(r => r.id === sp.tsm)) ? sp.tsm : (mine ?? reps[0]?.id ?? '');
   const tsmName = reps.find(r => r.id === tsm)?.name ?? '—';
 
   // The review is scoped to one fiscal year (Apr→Mar). It defaults to the
@@ -409,7 +416,7 @@ export default async function ExecutiveReviewPage({ searchParams }: {
     tab === 'projection' ? q(() => loadProjectionOptions(risansiPool, allowedRepIds), null) : Promise.resolve(null),
   ]);
 
-  const [clients, turnover, quotation, offers, attendance, kpiRow, convStages, targetCr, outside, bookSplit] = await Promise.all([
+  const [clients, turnover, quotation, offers, attendance, kpiRow, convStages, targetCr, outside, bookSplit, repTargetCr] = await Promise.all([
     // 1. Clients Summary
     // Every live client by type, split by where it stands. The two prospective
     // statuses are counted apart rather than together: a Prospective-Client has
@@ -528,12 +535,12 @@ export default async function ExecutiveReviewPage({ searchParams }: {
           AND ${inMonths(OPP_WINDOW_DATE)}
         GROUP BY 1`)).rows, []),
 
-    // 8. Annual target, in Crores. One source for the whole portal:
+    // 8. The COMPANY annual target, in Crores. One source for the whole portal:
     //    app_settings.annual_target_cr, the same row the Opportunities dashboard
-    //    and the Settings page read, with the same 32 Cr fallback. There is a
-    //    users.target_cr column but it is null for all 49 users, so there is no
-    //    per-rep target to prefer and inventing one here would be a second
-    //    number nobody maintains.
+    //    and the Settings page read, with the same 32 Cr fallback. Per-rep
+    //    targets now exist too (users.target_cr, migration 0099, edited on the
+    //    same Settings page) and are read separately below — the two numbers are
+    //    deliberately independent, so the company figure is NOT the sum of them.
     q<number>(async () => {
       const { rows } = await risansiPool.query<{ value: string }>(
         `SELECT value FROM app_settings WHERE key = 'annual_target_cr' LIMIT 1`);
@@ -595,6 +602,30 @@ export default async function ExecutiveReviewPage({ searchParams }: {
          (SELECT COALESCE(round(sum(v) FILTER (WHERE NOT owns AND stage='Won')),0) FROM opp)::text AS cov_won,
          (SELECT COALESCE(round(sum(v) FILTER (WHERE owns)),0) FROM rev)::text     AS own_rev,
          (SELECT COALESCE(round(sum(v) FILTER (WHERE NOT owns)),0) FROM rev)::text AS cov_rev`)).rows[0], null),
+
+    // 11. The REVIEWED person's own annual target, in Crores — users.target_cr,
+    //     the exact column setRepTargets writes from Admin → Settings. numeric,
+    //     so it is cast to text in SQL and parsed here rather than arriving as
+    //     pg's string.
+    //
+    //     "Their own" means their own row and nothing else. The Settings list
+    //     gives reps AND managers one row each and holds the sum of all of them
+    //     against the company figure, so a manager's row sits beside their team
+    //     members' rows in that sum — adding a team up here would double-count
+    //     the team inside a total the Settings page already reconciles.
+    //
+    //     null when nobody has set one. Zero is treated the same way on purpose:
+    //     the column permits 0, and a target of nothing is not a bar anybody can
+    //     clear — it is a denominator that makes every percentage infinite.
+    q<number | null>(async () => {
+      if (!tsmId) return null;
+      const { rows } = await risansiPool.query<{ target_cr: string | null }>(
+        `SELECT u.target_cr::text AS target_cr FROM users u WHERE u.id = $1 LIMIT 1`, [tsmId]);
+      const raw = rows[0]?.target_cr;
+      if (raw == null) return null;
+      const v = Number(raw);
+      return Number.isFinite(v) && v > 0 ? v : null;
+    }, null),
   ]);
 
   // ── shape into ExecData ──
@@ -723,7 +754,71 @@ export default async function ExecutiveReviewPage({ searchParams }: {
       drill: [null, { kind: 'outside_window' as const, tsm, key: String(fy) }],
     });
   }
-  const targetInr = targetCr * 10_000_000;
+  // ── Whose target is the headline ────────────────────────────────
+  // The company figure is what this panel has always shown, and against one
+  // rep's order received it is noise: it describes the whole sales team's year,
+  // so a single rep read a percent or two of it however their own year was
+  // going (Amit Srivastava's ₹0.34 Cr was "0.7% of the company target"; against
+  // his own ₹2.5 Cr it is 13.4%, which is the sentence he needs).
+  //
+  // Only reps and managers carry a quota — exactly the set Settings offers a
+  // target to (is_active AND role IN ('rep','manager')); admin, sysadmin and
+  // staff are back-office accounts with target_cr NULL by design. So the
+  // headline goes personal for those two roles and stays company-wide for
+  // everyone else, which is what was asked for.
+  const viewerCarriesQuota = me.role === 'rep' || me.role === 'manager';
+
+  // THE TSM SELECTOR. When the headline is personal it follows the person the
+  // review is ABOUT (the selected TSM), not the person looking.
+  //
+  // The argument for following the viewer is that the card is meant to answer
+  // "how am I doing". The argument for following the subject — which won — is
+  // that every other figure in this panel is already the selected TSM's, so a
+  // percentage built from the viewer's target over the subject's order received
+  // would divide two different people's numbers and print the result as one
+  // person's attainment. A rep can only ever select themselves, so this is
+  // invisible to them; a manager sees their own target on their own review and
+  // the team member's target, named, when they open that team member's review.
+  //
+  // An admin keeps the company figure as the headline whichever TSM is
+  // selected. Same trade-off, decided the other way: an admin sweeps the whole
+  // roster in a sitting and the company year is the one constant they are
+  // measuring everybody against, so a denominator that changes identity under
+  // them on every click would make two reviews incomparable, and the per-rep
+  // split is a click away on the Settings page they came from. If that turns
+  // out to be the wrong default, `viewerCarriesQuota` on the next line is the
+  // one thing to widen: the sub-line already knows how to carry the company
+  // figure underneath a personal headline.
+  const companyTargetInr = targetCr * 10_000_000;
+  const ownTargetInr = repTargetCr != null ? repTargetCr * 10_000_000 : null;
+  const targetIsPersonal = viewerCarriesQuota && ownTargetInr != null;
+  const targetInr = targetIsPersonal ? ownTargetInr! : companyTargetInr;
+
+  // Wording. Second person when the viewer is reading their own review, the
+  // TSM's name when a manager is reading a team member's, so no figure on the
+  // card is ambiguous about whose it is.
+  const companySub = `₹${targetCr} Cr, set in Settings`;
+  const targetLabel = targetIsPersonal ? (isSelfReview ? 'My Annual Target' : 'Annual Target') : 'Annual Target';
+  const targetNote = targetIsPersonal
+    ? `${isSelfReview ? 'your own target' : `${tsmName}'s target`} · set in Settings`
+    : `company-wide · ${companySub}`;
+  // The sub-line inside the same card. Three cases, and the third is the one
+  // that must not read as a target of zero: a rep or manager whose target
+  // nobody has filled in gets the company figure as the headline (so the card
+  // still shows a real number) and a sub-line that says in words that their own
+  // is not set, rather than ₹0 dressed up as a quota.
+  const targetSub = targetIsPersonal
+    ? { label: 'Company-wide target', valueInr: companyTargetInr, note: companySub }
+    : viewerCarriesQuota
+      ? { label: isSelfReview ? 'My annual target' : `${tsmName}'s annual target`, valueInr: null,
+          note: 'no individual target on record · ask a system admin to set one in Settings' }
+      : null;
+  const achievedLabel = targetIsPersonal
+    ? (isSelfReview ? 'of your annual target' : `of ${tsmName}'s annual target`)
+    : 'of the company target';
+  const panelNote = targetIsPersonal
+    ? `₹ against ${isSelfReview ? 'your' : `${tsmName}'s`} annual target`
+    : '₹ against the company target';
 
   // ── Book & Coverage ──
   // Shown when covering is part of this person's job: a manager (they carry a
@@ -761,9 +856,11 @@ export default async function ExecutiveReviewPage({ searchParams }: {
     conversion: {
       targetInr, quotedInr, orderReceivedInr,
       pct: quotedInr > 0 ? (orderReceivedInr / quotedInr) * 100 : null,
+      // Against the HEADLINE target, so the percentage and the figure above it
+      // are about the same person.
       achievedPct: targetInr > 0 ? (orderReceivedInr / targetInr) * 100 : null,
       includes: CONVERSION_INCLUDES, excludes: CONVERSION_EXCLUDES,
-      targetNote: `company-wide · ₹${targetCr} Cr, set in Settings`,
+      targetLabel, targetNote, targetIsPersonal, targetSub, achievedLabel, panelNote,
       table: {
         headers: ['Stage', 'Opportunities', `Offer value (INR)`], rows: convRows, moneyFrom: 1,
         notes: [`on the quoted pipeline, FY ${yy(fy)}${w.toDate ? ' to date' : ''}`, 'sum of offer_value_inr'],
@@ -853,7 +950,11 @@ export default async function ExecutiveReviewPage({ searchParams }: {
   // so the client component cannot offer a year parseFy would then reject.
   const fyOpts = fyChoices(now).map(y => ({ value: String(y), label: `FY ${yy(y)}` }));
 
-  const note = `Live data for ${tsmName}, fiscal year ${yy(fy)} (Apr–Mar)${w.toDate ? ' to date' : ', complete'}. An opportunity belongs to the year its quotation is dated in, or failing that the day its record was made; anything the year does not reach is counted on its own line in Target & Conversion rather than quietly left out. "Order in Hand" is the value of Won opportunities not yet turned into a Sales Order; "Order Received" is the value of Won opportunities dated in the FY. "Revenue" is everything invoiced in the year, whatever status the client holds now — money booked in a year stays booked for it. The Turnover table below counts the ACTIVE book only, because it bands accounts by size, so its total is the smaller of the two by design rather than by accident. "Conversion" divides order received by the quoted pipeline, and that panel says in full what it counts and what it leaves out. Every figure counts the ${accountScope === 'all' ? 'accounts this person owns AND the ones they cover for a colleague, which is what the Opportunities board counts too' : 'accounts this person owns, and leaves out the ones they cover for a colleague'}, which the Accounts control changes${data.bookSplit ? ' — Book & Coverage splits the two, and the value on a covered account still belongs to its owner' : ''}. Turnover columns show each whole fiscal year to date. Clients, Prospective and Active Clients are current-portfolio counts; "Prosp. client" has an ERP code and an enquiry behind it while "Prosp. lead" is only a name so far, and "Unclassified / other" is every client whose type was never set — it is there so the Grand Total is a real total; "Visited" on those two cards means a visit logged within the last 90 days, and every number is clickable through to a filtered client list.`;
+  const note = `Live data for ${tsmName}, fiscal year ${yy(fy)} (Apr–Mar)${w.toDate ? ' to date' : ', complete'}. An opportunity belongs to the year its quotation is dated in, or failing that the day its record was made; anything the year does not reach is counted on its own line in Target & Conversion rather than quietly left out. "Order in Hand" is the value of Won opportunities not yet turned into a Sales Order; "Order Received" is the value of Won opportunities dated in the FY. "Revenue" is everything invoiced in the year, whatever status the client holds now — money booked in a year stays booked for it. The Turnover table below counts the ACTIVE book only, because it bands accounts by size, so its total is the smaller of the two by design rather than by accident. "Conversion" divides order received by the quoted pipeline, and that panel says in full what it counts and what it leaves out. ${targetIsPersonal
+    ? `The annual target shown there is ${isSelfReview ? 'your own' : `${tsmName}'s own`}, set per rep in Settings, and the attainment percentage and the tick on the Order received bar are both measured against it; the company-wide figure is on the smaller line beneath it.`
+    : viewerCarriesQuota
+      ? `No individual annual target is on record for ${isSelfReview ? 'you' : tsmName}, so that panel measures against the company-wide figure and says so; a sysadmin can set a per-rep target in Settings.`
+      : 'The annual target shown there is the company-wide figure, and the attainment percentage is measured against it; per-rep targets are set in Settings and appear on a rep’s or manager’s own review.'} Every figure counts the ${accountScope === 'all' ? 'accounts this person owns AND the ones they cover for a colleague, which is what the Opportunities board counts too' : 'accounts this person owns, and leaves out the ones they cover for a colleague'}, which the Accounts control changes${data.bookSplit ? ' — Book & Coverage splits the two, and the value on a covered account still belongs to its owner' : ''}. Turnover columns show each whole fiscal year to date. Clients, Prospective and Active Clients are current-portfolio counts; "Prosp. client" has an ERP code and an enquiry behind it while "Prosp. lead" is only a name so far, and "Unclassified / other" is every client whose type was never set — it is there so the Grand Total is a real total; "Visited" on those two cards means a visit logged within the last 90 days, and every number is clickable through to a filtered client list.`;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
