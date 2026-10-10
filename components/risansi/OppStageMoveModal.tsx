@@ -216,7 +216,11 @@ export function OppStageMoveModal({ opp, target, usdRate = 86, onCancel, onDone 
       // The remark is its own row, so a failure here must not read as the move
       // having failed — the stage change is already committed at this point.
       if (remark.trim()) {
-        await addOpportunityRemark(oppId, target, remark).catch(() => {});
+        // Deliberately not surfaced: the move has already been committed, so a
+        // refusal here must not read as the move having failed. It is logged
+        // rather than silently dropped.
+        const rr = await addOpportunityRemark(oppId, target, remark).catch(() => null);
+        if (rr && !rr.ok) console.error('[OppStageMoveModal] remark not saved:', rr.error);
       }
       // The move is on record, so the local copy of it has served its purpose.
       // Left behind, it would be offered back the next time this deal was moved.

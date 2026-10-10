@@ -4,6 +4,11 @@ import { revalidatePath } from 'next/cache';
 import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, canViewClient, hasRole, type CurrentUser } from '@/lib/risansi-auth';
 
+// Refusals come back rather than being thrown: a thrown server-action message
+// is redacted in production, so the person who needs to read it cannot.
+export type SaveResult = { ok: true } | { ok: false; error: string };
+const fail = (error: string): SaveResult => ({ ok: false, error });
+
 // A remark recorded each time an opportunity enters a stage.
 //
 // Kept as a log rather than a column because the same opportunity can be parked,
@@ -26,18 +31,19 @@ async function canEdit(user: CurrentUser, repId: number | null, clientId: number
   return false;
 }
 
-export async function addOpportunityRemark(oppId: number, stage: string, remark: string) {
+export async function addOpportunityRemark(oppId: number, stage: string, remark: string): Promise<SaveResult> {
   const user = await getCurrentUser();
   if (!user.email) throw new Error('Unauthorized');
   const text = (remark ?? '').trim();
-  if (!text) return;
+  // An empty remark is not a refusal, there is simply nothing to record.
+  if (!text) return { ok: true };
 
   const { rows } = await risansiPool.query<{ rep_id: number | null; client_id: number | null }>(
     'SELECT rep_id, client_id FROM opportunities WHERE id = $1', [oppId],
   );
-  if (!rows[0]) throw new Error('Opportunity not found.');
+  if (!rows[0]) return fail('Opportunity not found.');
   if (!(await canEdit(user, rows[0].rep_id, rows[0].client_id))) {
-    throw new Error('You do not have permission to edit this opportunity.');
+    return fail('You do not have permission to edit this opportunity.');
   }
 
   await risansiPool.query(
@@ -47,6 +53,7 @@ export async function addOpportunityRemark(oppId: number, stage: string, remark:
   );
 
   revalidatePath('/risansi/pipeline');
+  return { ok: true };
 }
 
 export async function getOpportunityRemarks(oppId: number): Promise<OppRemark[]> {

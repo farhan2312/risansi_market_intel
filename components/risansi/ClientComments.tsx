@@ -39,11 +39,17 @@ export function ClientComments({ comments, me, clientId }: {
   const myEmail = (me.email ?? '').toLowerCase();
   const mine = (c: CommentRow) => !!myEmail && c.author_email.toLowerCase() === myEmail;
 
-  const run = (fn: () => Promise<void>, after: () => void) => {
+  // Takes an action that returns its refusal, and shows it. The catch below is
+  // only for a request that never arrived — a refusal comes back as a value.
+  const run = (fn: () => Promise<{ ok: true } | { ok: false; error: string }>, after: () => void) => {
     setError('');
     start(async () => {
-      try { await fn(); after(); router.refresh(); }
-      catch (e) { setError(e instanceof Error ? e.message : 'Something went wrong'); }
+      try {
+        const res = await fn();
+        if (!res.ok) { setError(res.error); return; }
+        after();
+        router.refresh();
+      } catch (e) { setError(e instanceof Error ? e.message : 'Something went wrong'); }
     });
   };
 

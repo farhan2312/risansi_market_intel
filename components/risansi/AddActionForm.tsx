@@ -59,7 +59,10 @@ export function AddActionForm({ visitId, clientId, reps, defaultRepId, onAdded, 
     }
     setLoading(true); setError('');
     try {
-      await addTask({
+      // addTask returns its refusal rather than throwing it, so the sentence it
+      // wrote survives to production and can be shown as-is. The catch below is
+      // now only for a request that never arrived.
+      const res = await addTask({
         visitId: visitId ?? null,
         clientId,
         title,
@@ -70,20 +73,12 @@ export function AddActionForm({ visitId, clientId, reps, defaultRepId, onAdded, 
         assignedToExternal:      mode === 'external' ? external.trim() : null,
         assignedToExternalEmail: mode === 'external' ? extEmail.trim() : null,
       });
+      if (!res.ok) { setError(res.error); return; }
       reset();
       setOpen(false);
       onAdded();
-    } catch (err) {
-      // Next replaces server-action error text in production with a generic
-      // "unexpected response…" and attaches a digest, so err.message only carries
-      // our own wording in development. Detect that and say something a rep can
-      // act on instead of relaying the placeholder.
-      const raw = err instanceof Error ? err.message : '';
-      const redacted = !raw || /unexpected response/i.test(raw)
-        || Boolean((err as { digest?: string })?.digest);
-      setError(redacted
-        ? 'Could not add the action. If this keeps happening you may not have access to this client — ask an admin to add it to your tour.'
-        : raw);
+    } catch {
+      setError('Could not reach the server. Check your connection and try again.');
     } finally {
       setLoading(false);
     }

@@ -107,7 +107,7 @@ export async function addTask({
   assignedToRep?: number | null;
   assignedToExternal?: string | null;
   assignedToExternalEmail?: string | null;
-}) {
+}): Promise<SaveResult> {
   // Authorise: the caller must be able to see this client (admins/sysadmins always
   // can; reps only for clients they work). This also gates the outbound
   // external-assignee email so it can't be used to send from an arbitrary client.
@@ -137,11 +137,11 @@ export async function addTask({
     // this a denial reaches the rep as an opaque "unexpected response" and leaves
     // no trace anywhere to diagnose it from.
     console.error('[addTask] denied', { user: user.email, role: user.role, clientId, visitId });
-    throw new Error('You do not have access to this client.');
+    return fail('You do not have access to this client.');
   }
   const email = user.email;
 
-  if (!title.trim()) throw new Error('Title is required');
+  if (!title.trim()) return fail('Give the action a title.');
 
   const external      = assignedToExternal?.trim() || null;
   const externalEmail = assignedToExternalEmail?.trim() || null;
@@ -150,13 +150,13 @@ export async function addTask({
   // form is one caller, and an action with nobody on it is invisible in the one
   // list people actually read — their own.
   if (!assignedToRep && !external) {
-    throw new Error('Choose who is doing this — a rep in the system, or a named person outside it.');
+    return fail('Choose who is doing this — a rep in the system, or a named person outside it.');
   }
 
   // An external assignee (not in the system) must come with a valid email.
   if (external && !assignedToRep) {
-    if (!externalEmail) throw new Error('An email is required for a person outside the system.');
-    if (!EMAIL_RE.test(externalEmail)) throw new Error('Please enter a valid email for the external person.');
+    if (!externalEmail) return fail('An email is required for a person outside the system.');
+    if (!EMAIL_RE.test(externalEmail)) return fail('Please enter a valid email for the external person.');
   }
 
   await risansiPool.query(
@@ -196,6 +196,7 @@ export async function addTask({
     dueDate: dueDate || null,
     priority: priority ?? 'Medium',
   });
+  return { ok: true };
 }
 
 /**

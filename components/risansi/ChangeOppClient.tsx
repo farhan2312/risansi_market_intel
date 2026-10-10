@@ -85,6 +85,9 @@ function ChangeDialog({ oppId, currentCode, currentName, onClose, onDone }: {
     setBusy(true); setErr('');
     try {
       const res = await reassignOpportunityClient(oppId, picked.id);
+      // The refusal is the useful half here — "that is already the client on
+      // this opportunity" used to arrive as the generic redacted message below.
+      if (!res.ok) { setErr(res.error); setBusy(false); return; }
       setDone(
         `Moved to ${res.newClientCode ?? ''} ${res.newClientName}.`
         + (res.movedOrders ? ` ${res.movedOrders} order(s) moved with it.` : '')

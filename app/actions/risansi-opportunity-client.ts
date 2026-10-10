@@ -5,6 +5,13 @@ import risansiPool from '@/lib/db-risansi';
 import { getCurrentUser, hasRole } from '@/lib/risansi-auth';
 import { recordAudit } from '@/lib/audit';
 
+// Refusals come back rather than being thrown: a thrown server-action message
+// is redacted in production, so the person who needs to read it cannot.
+export type ReassignResult =
+  | { ok: true; movedOrders: number; clearedVisit: boolean; newClientName: string; newClientCode: string | null }
+  | { ok: false; error: string };
+const fail = (error: string): ReassignResult => ({ ok: false, error });
+
 // Re-pointing an opportunity at the right client.
 //
 // The bulk quote and order-in-hand imports attached some opportunities to the
@@ -58,20 +65,20 @@ export async function getReassignImpact(oppId: number): Promise<ReassignImpact |
   return rows[0] ?? null;
 }
 
-export async function reassignOpportunityClient(oppId: number, newClientId: number) {
+export async function reassignOpportunityClient(oppId: number, newClientId: number): Promise<ReassignResult> {
   const user = await requireSysadmin();
   if (!Number.isInteger(oppId) || !Number.isInteger(newClientId)) throw new Error('Bad request.');
 
   const before = await getReassignImpact(oppId);
-  if (!before) throw new Error('Opportunity not found.');
+  if (!before) return fail('Opportunity not found.');
   if (before.currentClientId === newClientId) {
-    throw new Error('That is already the client on this opportunity.');
+    return fail('That is already the client on this opportunity.');
   }
 
   const { rows: target } = await risansiPool.query<{ id: number; code: string | null; legal_name: string }>(
     'SELECT id, code, legal_name FROM clients WHERE id = $1 AND deleted_at IS NULL', [newClientId],
   );
-  if (!target[0]) throw new Error('That client no longer exists.');
+  if (!target[0]) return fail('That client no longer exists.');
 
   const client = await risansiPool.connect();
   let movedOrders = 0;
@@ -125,6 +132,7 @@ export async function reassignOpportunityClient(oppId: number, newClientId: numb
   revalidatePath(`/risansi/clients/${newClientId}`);
 
   return {
+    ok: true,
     movedOrders,
     clearedVisit,
     newClientName: target[0].legal_name,

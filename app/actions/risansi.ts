@@ -811,36 +811,37 @@ export async function addClientComment(clientId: number, body: string): Promise<
   return { ok: true };
 }
 
-export async function updateClientComment(commentId: number, body: string): Promise<void> {
+export async function updateClientComment(commentId: number, body: string): Promise<SaveResult> {
   const user = await getCurrentUser();
   if (!user.email) redirect('/api/auth/signin');
   if (!Number.isInteger(commentId)) throw new Error('Invalid comment.');
 
   const text = (body ?? '').trim();
-  if (!text) throw new Error('Comment cannot be empty.');
-  if (text.length > 5000) throw new Error('Comment is too long (max 5000 characters).');
+  if (!text) return fail('Comment cannot be empty.');
+  if (text.length > 5000) return fail('Comment is too long (max 5000 characters).');
 
   const { rows } = await risansiPool.query<{ client_id: number; author_email: string }>(
     'SELECT client_id, author_email FROM client_comments WHERE id = $1', [commentId],
   );
   const row = rows[0];
-  if (!row) throw new Error('Comment not found.');
+  if (!row) return fail('Comment not found.');
   // Author-only — enforced here and in the WHERE clause below.
   if (row.author_email.toLowerCase() !== user.email.toLowerCase()) {
-    throw new Error('You can only edit your own comment.');
+    return fail('You can only edit your own comment.');
   }
 
   const res = await risansiPool.query(
     'UPDATE client_comments SET body = $1, updated_at = now() WHERE id = $2 AND lower(author_email) = lower($3)',
     [text, commentId, user.email],
   );
-  if (res.rowCount === 0) throw new Error('Comment not found.');
+  if (res.rowCount === 0) return fail('Comment not found.');
 
   await logActivity('client', String(row.client_id), `Comment edited: "${commentPreview(text)}"`, user.email);
   revalidatePath(`/risansi/clients/${row.client_id}`);
+  return { ok: true };
 }
 
-export async function deleteClientComment(commentId: number): Promise<void> {
+export async function deleteClientComment(commentId: number): Promise<SaveResult> {
   const user = await getCurrentUser();
   if (!user.email) redirect('/api/auth/signin');
   if (!Number.isInteger(commentId)) throw new Error('Invalid comment.');
@@ -849,9 +850,9 @@ export async function deleteClientComment(commentId: number): Promise<void> {
     'SELECT client_id, author_email FROM client_comments WHERE id = $1', [commentId],
   );
   const row = rows[0];
-  if (!row) return; // already gone — treat as success
+  if (!row) return { ok: true }; // already gone — treat as success
   if (row.author_email.toLowerCase() !== user.email.toLowerCase()) {
-    throw new Error('You can only delete your own comment.');
+    return fail('You can only delete your own comment.');
   }
 
   await risansiPool.query(
@@ -861,6 +862,7 @@ export async function deleteClientComment(commentId: number): Promise<void> {
 
   await logActivity('client', String(row.client_id), 'Comment deleted', user.email);
   revalidatePath(`/risansi/clients/${row.client_id}`);
+  return { ok: true };
 }
 
 // ── Client: plan visit ─────────────────────────────────────────

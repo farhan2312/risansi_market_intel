@@ -92,9 +92,25 @@ for (const file of files) {
       // several lines before the `.ok` test can appear, and a correct call site
       // must not be flagged for being well formatted.
       const window = lines.slice(lineNo - 1, lineNo + 12).join('\n');
-      const readsOk = assigned
+      let readsOk = assigned
         ? new RegExp(`${assigned[1]}\\.ok`).test(window)
         : /\.ok\b/.test(window);
+
+      // A call handed to a local helper as a thunk — `run(() => save(x), …)`.
+      // The `.ok` test lives in the helper, not here, so look it up: the helper
+      // has to be declared in this same file and its own body has to read .ok.
+      // Narrow on purpose — it sees through one named wrapper, not a chain, so
+      // it cannot be used to park a refusal behind a function that ignores it.
+      if (!readsOk) {
+        const thunk = line.match(new RegExp(String.raw`\b(\w+)\(\s*(?:async\s*)?\(\)\s*=>\s*` + name + String.raw`\(`));
+        if (thunk && thunk[1] !== name) {
+          const decl = src.search(new RegExp(String.raw`const ` + thunk[1] + String.raw`\s*=|function ` + thunk[1] + String.raw`\b`));
+          if (decl >= 0) {
+            const from = src.slice(0, decl).split('\n').length - 1;
+            readsOk = /\.ok\b/.test(lines.slice(from, from + 20).join('\n'));
+          }
+        }
+      }
 
       if (!readsOk) {
         problems++;
@@ -130,13 +146,13 @@ for (const file of files) {
 // in an action that does not return a result.
 
 const THROWS_ITS_REFUSAL = new Set([
-  'addOpportunityRemark', 'addTask', 'advanceExhibition',
+  'advanceExhibition',
   'createExhibition', 'createOpportunity', 'createTour', 'decideExhibition',
-  'deleteClientComment', 'deleteExhibition', 'deleteUpload', 'deleteVisitPlan',
-  'reassignOpportunityClient', 'reopenExhibition', 'resetUserPassword',
+  'deleteExhibition', 'deleteUpload', 'deleteVisitPlan',
+  'reopenExhibition', 'resetUserPassword',
   'saveExhibitionExpense', 'saveExhibitionReview', 'setAnnualTarget', 'setExhibitionTeam',
   'setUsdRate', 'skipMeetingLead', 'submitForApproval', 'submitOpportunity',
-  'updateClientComment', 'updateClientTier', 'updateExhibition', 'updateMeetingCompany',
+  'updateClientTier', 'updateExhibition', 'updateMeetingCompany',
   'updateVisitPlan',
 ]);
 
