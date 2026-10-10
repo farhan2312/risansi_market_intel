@@ -4,7 +4,7 @@ import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { getManagerAssignableReps, hasRole, getCurrentUser, canViewClient, canWorkClient, whyCannotWorkClient, whyCannotVisitClient, isDepartment, type RisansiRole } from '@/lib/risansi-auth';
+import { getManagerAssignableReps, hasRole, getCurrentUser, canViewClient, whyCannotWorkClient, whyCannotVisitClient, isDepartment, type RisansiRole } from '@/lib/risansi-auth';
 import risansiPool from '@/lib/db-risansi';
 import { recordAudit } from '@/lib/audit';
 import { normalizeClientName, uniqueLeadCode } from '@/lib/risansi-lead-code';
@@ -35,8 +35,7 @@ import { parseMoneyInput, parsePositiveMoney, moneyToCr } from '@/lib/risansi-mo
  * filled just the speed, the motor or gearbox price, the geared-motor detail or
  * the USD offer — the "I added a second item and it didn't save" bug. Every
  * field now counts, so anything typed is kept; only a wholly untouched row is
- * dropped. Shared by createOpportunity and saveQuotedDetails so the two can't
- * drift, and mirrored client-side in NewOpportunityModal.
+ * dropped. Mirrored client-side in NewOpportunityModal so the two can't drift.
  */
 function quotedItemHasData(it: object): boolean {
   const FIELDS = [
@@ -933,108 +932,9 @@ async function notifyVisitPlan(opts: {
 
 // ── Client: create opportunity ─────────────────────────────────
 
-export async function createOpportunity(clientId: string, formData: FormData) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.email) redirect('/api/auth/signin');
-
-  // Only for a client you can see (own tour or a special-access grant).
-  const viewer = await getCurrentUser();
-  if (!(await canViewClient(viewer, Number(clientId)))) throw new Error('You do not have access to this client.');
-
-  const product  = (formData.get('product')  as string | null)?.trim() ?? 'New Opportunity';
-  const stage    = (formData.get('stage')    as string | null)?.trim() ?? 'Suspect';
-  // Won needs a PO number and date, which only the pipeline create/complete flow
-  // captures, so this legacy quick-create cannot mint a Won directly.
-  if (stage === 'Won') throw new Error('Mark an opportunity Won from the Opportunities pipeline, where the PO number and date are captured.');
-  const valueCr  = parseMoneyInput(formData.get('estimated_value'));
-  const prob     = formData.get('probability') ? parseInt(formData.get('probability') as string) : null;
-  const eta      = (formData.get('eta_text') as string | null)?.trim() ||
-                   (formData.get('expected_close') as string | null)?.trim() || null;
-
-  // Rep → locked to self; manager → validated within tours; admin → form value.
-  // Owner is required (no client-primary fallback). See resolveAssignableRepId.
-  const resolvedRepId = await resolveAssignableRepId(
-    session.user,
-    (formData.get('rep_id') as string | null)?.trim() ?? null,
-  );
-
-  const { rows } = await risansiPool.query<{ id: string }>(
-    `INSERT INTO opportunities (
-      client_id, rep_id,
-      product, product_type, stage,
-      value_cr, probability,
-      eta_text, quote_ref, notes,
-      auto_created, created_by,
-      created_at, updated_at
-    ) VALUES (
-      $1, $2, $3, $4, $5,
-      $6, $7, $8, $9, $10,
-      FALSE, $11, NOW(), NOW()
-    ) RETURNING id`,
-    [
-      clientId,
-      resolvedRepId,
-      product,
-      formData.get('product_type') || 'PCP',
-      stage,
-      valueCr,
-      prob,
-      eta,
-      formData.get('quote_ref') || null,
-      formData.get('notes') || null,
-      session.user.email,
-    ],
-  );
-
-  const newId = rows[0]?.id ?? null;
-
-  // Log stage creation
-  if (newId) {
-    try {
-      await risansiPool.query(
-        `INSERT INTO opportunity_stage_log
-           (opportunity_id, from_stage, to_stage, notes, changed_by)
-         VALUES ($1, NULL, $2, 'Created via client page', $3)`,
-        [newId, stage, session.user.email],
-      );
-    } catch (e) { console.error('opportunity_stage_log insert failed:', e); }
-  }
-
-  await logActivity('client', clientId, `created opportunity: ${product} · ${stage}${valueCr ? ` · ₹${valueCr} Cr` : ''}`, session.user.email);
-  revalidatePath(`/risansi/clients/${clientId}`);
-  revalidatePath('/risansi');
-}
 
 // ── Client: update tier ────────────────────────────────────────
 
-export async function updateClientTier(clientId: string, formData: FormData) {
-  const user = await requireSession();
-  // Nothing in the interface calls this any more, but a 'use server' export is
-  // still an endpoint. The tier is part of the client record, which admins edit.
-  if (!hasRole(user.role, 'admin')) throw new Error('Only an admin can change a client tier.');
-
-  const newTier = (formData.get('tier') as string | null)?.trim() ?? null;
-
-  // Fetch current tier for the log message
-  let oldTier: string | null = null;
-  try {
-    const { rows } = await risansiPool.query<{ tier: string | null }>(
-      `SELECT tier FROM clients WHERE id = $1`,
-      [clientId],
-    );
-    oldTier = rows[0]?.tier ?? null;
-  } catch { /* ignore */ }
-
-  await risansiPool.query(
-    `UPDATE clients SET tier = $1, updated_at = NOW() WHERE id = $2`,
-    [newTier || null, clientId],
-  );
-
-  const change = `changed tier: ${oldTier ?? 'none'} → ${newTier ?? 'none'}`;
-  await logActivity('client', clientId, change, user.email!);
-  revalidatePath(`/risansi/clients/${clientId}`);
-  revalidatePath('/risansi/clients');
-}
 
 // Map a client to a tour inline (from the New Opportunity form, when the client
 // isn't on one yet). Ownership then derives from the tour — returns the resolved
@@ -2236,87 +2136,6 @@ export async function checkInNewVisit(data: {
 
 // ── Client: submit new opportunity (from NewOpportunityDrawer) ─
 
-export async function submitOpportunity(formData: FormData) {
-  const user = await requireSession();
-
-  const clientId    = (formData.get('client_id')    as string | null)?.trim() ?? '';
-  const product     = (formData.get('product')       as string | null)?.trim() ?? 'New Opportunity';
-  const productType = (formData.get('product_type')  as string | null)?.trim() ?? 'PCP';
-  const stage       = (formData.get('stage')         as string | null)?.trim() ?? 'Suspect';
-  // Won needs a PO number and date, captured only by the pipeline create/complete flow.
-  if (stage === 'Won') throw new Error('Mark an opportunity Won from the Opportunities pipeline, where the PO number and date are captured.');
-  const valueInr    = parseMoneyInput(formData.get('value_inr')) ?? 0;
-  const valueCr     = valueInr > 0 ? valueInr / 10_000_000 : null;  // Rupees → Crores
-  const probability = parseInt((formData.get('probability') as string | null) ?? '0', 10) || null;
-  const etaText     = (formData.get('eta_text')      as string | null)?.trim() || null;
-  const quoteRef    = (formData.get('quote_ref')     as string | null)?.trim() || null;
-  const notes       = (formData.get('notes')         as string | null)?.trim() || null;
-
-  if (!clientId) throw new Error('Client ID required');
-  // No screen calls this any more, but a 'use server' export is still an
-  // endpoint: the same client scope as createPipelineOpportunity.
-  if (!(await canViewClient(await getCurrentUser(), Number(clientId)))) throw new Error('You do not have access to this client.');
-
-  // Single explicit owner: rep → self; manager → required & within tours;
-  // admin → required. (No client-primary fallback.)
-  const repId = await resolveAssignableRepId(
-    user,
-    (formData.get('rep_id') as string | null)?.trim() ?? null,
-  );
-  // And that person must work the client, as everywhere else.
-  const refusal = await whyCannotVisitClient(repId, Number(clientId));
-  if (refusal) throw new Error(refusal);
-
-  // Try full insert into opportunities table (with all spec columns)
-  let newId: string | null = null;
-  try {
-    const { rows } = await risansiPool.query<{ id: string }>(
-      `INSERT INTO opportunities
-         (client_id, rep_id, product, product_type, stage,
-          value_cr, probability, eta_text, quote_ref, notes,
-          auto_created, created_by, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, FALSE, $11, NOW(), NOW())
-       RETURNING id`,
-      [clientId, repId, product, productType, stage,
-       valueCr, probability, etaText, quoteRef, notes,
-       user.email],
-    );
-    newId = rows[0]?.id ?? null;
-  } catch {
-    // Fallback: minimal insert matching query in client profile page
-    try {
-      const { rows } = await risansiPool.query<{ id: string }>(
-        `INSERT INTO opportunities
-           (client_id, product, stage, value_cr, probability, eta_text, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-         RETURNING id`,
-        [clientId, product, stage, valueCr, probability, etaText],
-      );
-      newId = rows[0]?.id ?? null;
-    } catch (err) {
-      throw new Error('Failed to create opportunity: ' + (err instanceof Error ? err.message : 'database error'));
-    }
-  }
-
-  // Log stage creation (non-fatal)
-  if (newId) {
-    try {
-      await risansiPool.query(
-        `INSERT INTO opportunity_stage_log
-           (opportunity_id, from_stage, to_stage, notes, changed_by)
-         VALUES ($1, NULL, $2, 'Opportunity created', $3)`,
-        [newId, stage, user.email],
-      );
-    } catch (e) { console.error('opportunity_stage_log insert failed:', e); }
-  }
-
-  const desc = `${product} · ${stage}${valueInr > 0 ? ` · ₹${valueInr.toLocaleString('en-IN')}` : ''}`;
-  await logActivity('client', clientId, `opportunity created: ${desc}`, user.email!);
-
-  revalidatePath(`/risansi/clients/${clientId}`);
-  revalidatePath('/risansi/pipeline');
-  revalidatePath('/risansi');
-}
 
 // ── Client: add new client ─────────────────────────────────────
 

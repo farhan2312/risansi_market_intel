@@ -83,6 +83,22 @@ function isApproved(session: Session | null): boolean {
   return session?.user?.risansiAccess === 'Approved';
 }
 
+/**
+ * Both of these stay throws, deliberately.
+ *
+ * They read like messages somebody should see, and a thrown server-action
+ * message is redacted in production — which is exactly the bug the rest of this
+ * codebase spent a day removing. The difference is that neither is reachable.
+ * proxy.ts stops an unsigned or withdrawn request before it arrives: a server
+ * action POSTs to the page path it was rendered from, every such page sits under
+ * the proxy's matcher, and scripts/proxy-coverage-check.mjs fails the build if a
+ * route ever escapes it.
+ *
+ * So this is the layer underneath that, and reaching it means the proxy was
+ * bypassed — which is a fault to read in the logs, not advice to put in front of
+ * a user. Converting it would mean threading a result through twenty-odd
+ * actions to describe a state none of them can be in.
+ */
 export const requireSession = cache(async () => {
   const session = await getSession();
   if (!session?.user) throw new Error('Unauthorized');

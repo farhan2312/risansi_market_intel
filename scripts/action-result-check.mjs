@@ -134,24 +134,22 @@ for (const file of files) {
 // card refused for its format. Each time somebody had written a careful
 // sentence explaining exactly what to do, and the framework ate it.
 //
-// Thirty-six actions still do this. Converting them all at once is a larger
-// change than it is worth today, so this is a ratchet rather than a wall: the
-// known ones are listed and the build fails only when a NEW one appears.
-// Fixing one and deleting its name is always welcome — the check says when a
-// name no longer belongs on the list.
+// This started as a ratchet over thirty-six such actions, listing the known
+// ones so the build failed only on a new one. The list is empty now: every
+// action returns its refusals. The last three names on it — createOpportunity,
+// submitOpportunity and updateClientTier — were endpoints nothing imported, and
+// they were deleted rather than converted, because a refusal returned to no
+// caller is not worth writing.
+//
+// Empty, this is a wall rather than a ratchet, which is the point: the next
+// action to throw a refusal fails the build instead of joining a list.
 //
 // Not every throw counts. An auth or lock guard that throws is fine: it is not
 // telling somebody how to fix what they typed, and it reads the same in every
 // action. What is caught is a thrown SENTENCE — eighteen characters or more —
 // in an action that does not return a result.
 
-const THROWS_ITS_REFUSAL = new Set([
-  // createOpportunity, submitOpportunity and updateClientTier have no caller at
-  // all — nothing in the interface imports them. They were hardened rather than
-  // deleted because a 'use server' export is still a reachable endpoint, and a
-  // returned refusal would be read by nobody. They stay throws on purpose.
-  'createOpportunity', 'submitOpportunity', 'updateClientTier',
-]);
+const THROWS_ITS_REFUSAL = new Set([]);
 
 const throwers = new Map();                      // name -> the sentences it throws
 for (const file of files) {
