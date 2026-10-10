@@ -706,7 +706,12 @@ function ExpenseSignOff({ exhibitionId, expenses, reviewedAt, editable }: {
             title={unpaid.length || noInvoice.length ? 'Settle the lines listed above first' : undefined}
             onClick={async () => {
               setBusy(true); setErr('');
-              try { await reviewExhibitionExpenses(exhibitionId); router.refresh(); }
+              try {
+                // Not the owner, or already closed: the sentence says which.
+                const res = await reviewExhibitionExpenses(exhibitionId);
+                if (!res.ok) { setErr(res.error); return; }
+                router.refresh();
+              }
               catch (e) { setErr(e instanceof Error ? e.message : 'Could not sign off.'); }
               finally { setBusy(false); }
             }}

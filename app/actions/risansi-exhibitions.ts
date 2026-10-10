@@ -88,10 +88,27 @@ export async function canCreateExhibition(): Promise<boolean> {
   return !!user.email && hasRole(user.role, 'admin');
 }
 
-async function assertCanManage(exhibitionId: number): Promise<void> {
+/**
+ * The guards below RETURN their refusal instead of throwing it, because every
+ * sentence in them is advice the user has to read. Thrown, Next redacts it in
+ * production and the rep gets "an error occurred" plus a digest. Inside an
+ * action the pattern is `const g = await guardX(id); if (!g.ok) return g;`.
+ *
+ * 'Exhibition not found.' stays a throw: that is a guard against a bad request,
+ * not advice to anybody.
+ */
+async function guardCanManage(exhibitionId: number): Promise<SaveResult> {
   if (!(await canManageExhibition(exhibitionId))) {
-    throw new Error('You are not on this exhibition’s team.');
+    return fail('You are not on this exhibition’s team.');
   }
+  return { ok: true };
+}
+
+/** The one throwing wrapper left. meetingLeadPrefill hands back the form's
+ *  opening values, not a result, so a refusal there is a load failure. */
+async function assertCanManage(exhibitionId: number): Promise<void> {
+  const g = await guardCanManage(exhibitionId);
+  if (!g.ok) throw new Error(g.error);
 }
 
 /**
@@ -100,7 +117,7 @@ async function assertCanManage(exhibitionId: number): Promise<void> {
  * convention, this is the rule. Without it, spend and captured leads could
  * accumulate against an event nobody agreed to attend.
  */
-async function assertUnlocked(exhibitionId: number): Promise<void> {
+async function guardUnlocked(exhibitionId: number): Promise<SaveResult> {
   const { rows } = await risansiPool.query<{ status: string }>(
     "SELECT status FROM exhibitions WHERE id = $1", [exhibitionId],
   );
@@ -111,22 +128,26 @@ async function assertUnlocked(exhibitionId: number): Promise<void> {
   // different question, and this helper only ever guards writes, so it has to
   // reject Closed explicitly. Without this, everything the close was supposed to
   // freeze — meetings, expenses, the review — stayed editable.
-  assertNotClosed(status);
+  const closed = guardNotClosed(status);
+  if (!closed.ok) return closed;
   if (!UNLOCKED_STATUSES.includes(status as ExhibitionStatus)) {
-    throw new Error("This exhibition has not been approved yet.");
+    return fail("This exhibition has not been approved yet.");
   }
+  return { ok: true };
 }
 
 /** Who may decide: the named approver for this exhibition, or a sysadmin as the
  *  standing fallback so an event is never stuck behind one absent person. */
-async function assertCanApprove(exhibitionId: number, user: Me): Promise<void> {
-  if (hasRole(user.role, 'sysadmin')) return;
+async function guardCanApprove(exhibitionId: number, user: Me): Promise<SaveResult> {
+  if (hasRole(user.role, 'sysadmin')) return { ok: true };
   const { rows } = await risansiPool.query<{ approver_id: number | null }>(
     'SELECT approver_id FROM exhibitions WHERE id = $1', [exhibitionId],
   );
   if (!rows[0]) throw new Error('Exhibition not found.');
-  if (rows[0].approver_id != null && user.id != null && Number(rows[0].approver_id) === Number(user.id)) return;
-  throw new Error('Only the nominated approver can decide on this exhibition.');
+  if (rows[0].approver_id != null && user.id != null && Number(rows[0].approver_id) === Number(user.id)) {
+    return { ok: true };
+  }
+  return fail('Only the nominated approver can decide on this exhibition.');
 }
 
 function touch(id: number) {
@@ -204,14 +225,18 @@ export async function createExhibition(fd: FormData): Promise<CreateResult> {
 
 export async function updateExhibition(id: number, fd: FormData): Promise<SaveResult> {
   const user = await requireUser();
-  await assertCanManage(id);
+  const g = await guardCanManage(id);
+  if (!g.ok) return g;
 
   // Closed means closed: read-only for everyone until a sysadmin reopens it.
   {
     const { rows: st } = await risansiPool.query<{ status: string }>(
       "SELECT status FROM exhibitions WHERE id = $1", [id],
     );
-    if (st[0]) assertNotClosed(st[0].status);
+    if (st[0]) {
+      const open = guardNotClosed(st[0].status);
+      if (!open.ok) return open;
+    }
   }
 
   const start = str(fd, 'start_date');
@@ -318,7 +343,8 @@ export async function deleteExhibition(id: number): Promise<SaveResult> {
 
 export async function submitForApproval(id: number, note?: string): Promise<SaveResult> {
   const user = await requireUser();
-  await assertCanManage(id);
+  const g = await guardCanManage(id);
+  if (!g.ok) return g;
 
   const { rows } = await risansiPool.query<{ status: string; approver_id: number | null }>(
     'SELECT status, approver_id FROM exhibitions WHERE id = $1', [id],
@@ -369,7 +395,8 @@ export async function decideExhibition(
   const user = await requireUser();
   // Not one of the four decisions the UI offers: a bad request, so it stays a throw.
   if (!isDecision(decision)) throw new Error('Unknown decision.');
-  await assertCanApprove(id, user);
+  const g = await guardCanApprove(id, user);
+  if (!g.ok) return g;
 
   {
     const { rows } = await risansiPool.query<{ status: string }>(
@@ -428,14 +455,18 @@ export async function setExhibitionTeam(
   members: { userId: number; role: string; days?: string[] }[],
 ): Promise<SaveResult> {
   const user = await requireUser();
-  await assertCanManage(id);
+  const g = await guardCanManage(id);
+  if (!g.ok) return g;
 
   // Closed means closed: read-only for everyone until a sysadmin reopens it.
   {
     const { rows: st } = await risansiPool.query<{ status: string }>(
       "SELECT status FROM exhibitions WHERE id = $1", [id],
     );
-    if (st[0]) assertNotClosed(st[0].status);
+    if (st[0]) {
+      const open = guardNotClosed(st[0].status);
+      if (!open.ok) return open;
+    }
   }
 
   // The days Risansi is at the stand. A member can attend any subset of these
@@ -574,8 +605,10 @@ export async function saveExhibitionMeeting(
   exhibitionId: number, fd: FormData, meetingId?: number,
 ): Promise<CreateResult> {
   const user = await requireUser();
-  await assertCanManage(exhibitionId);
-  await assertUnlocked(exhibitionId);
+  const g = await guardCanManage(exhibitionId);
+  if (!g.ok) return g;
+  const u = await guardUnlocked(exhibitionId);
+  if (!u.ok) return u;
 
   // A missing company name is the form being wrong, not the server failing, so
   // it comes back as a refusal the dialog can print. Thrown, it reached the rep
@@ -672,15 +705,20 @@ export async function saveExhibitionMeeting(
   return { ok: true, id: savedId };
 }
 
-export async function deleteExhibitionMeeting(exhibitionId: number, meetingId: number) {
+export async function deleteExhibitionMeeting(
+  exhibitionId: number, meetingId: number,
+): Promise<SaveResult> {
   await requireUser();
-  await assertCanManage(exhibitionId);
-  await assertUnlocked(exhibitionId);
+  const g = await guardCanManage(exhibitionId);
+  if (!g.ok) return g;
+  const u = await guardUnlocked(exhibitionId);
+  if (!u.ok) return u;
   await risansiPool.query(
     'DELETE FROM exhibition_meetings WHERE id = $1 AND exhibition_id = $2',
     [meetingId, exhibitionId],
   );
   touch(exhibitionId);
+  return { ok: true };
 }
 
 // ── Expenses ─────────────────────────────────────────────────────
@@ -689,8 +727,10 @@ export async function saveExhibitionExpense(
   exhibitionId: number, fd: FormData, expenseId?: number,
 ): Promise<SaveResult> {
   const user = await requireUser();
-  await assertCanManage(exhibitionId);
-  await assertUnlocked(exhibitionId);
+  const g = await guardCanManage(exhibitionId);
+  if (!g.ok) return g;
+  const u = await guardUnlocked(exhibitionId);
+  if (!u.ok) return u;
 
   const category = str(fd, 'category');
   if (!category) return fail('Pick an expense category.');
@@ -774,15 +814,20 @@ export async function saveExhibitionExpense(
   return { ok: true };
 }
 
-export async function deleteExhibitionExpense(exhibitionId: number, expenseId: number) {
+export async function deleteExhibitionExpense(
+  exhibitionId: number, expenseId: number,
+): Promise<SaveResult> {
   await requireUser();
-  await assertCanManage(exhibitionId);
-  await assertUnlocked(exhibitionId);
+  const g = await guardCanManage(exhibitionId);
+  if (!g.ok) return g;
+  const u = await guardUnlocked(exhibitionId);
+  if (!u.ok) return u;
   await risansiPool.query(
     'DELETE FROM exhibition_expenses WHERE id = $1 AND exhibition_id = $2',
     [expenseId, exhibitionId],
   );
   touch(exhibitionId);
+  return { ok: true };
 }
 
 // ── Post-event review ────────────────────────────────────────────
@@ -794,8 +839,10 @@ export async function deleteExhibitionExpense(exhibitionId: number, expenseId: n
  */
 export async function saveExhibitionReview(exhibitionId: number, fd: FormData): Promise<SaveResult> {
   const user = await requireUser();
-  await assertCanManage(exhibitionId);
-  await assertUnlocked(exhibitionId);
+  const g = await guardCanManage(exhibitionId);
+  if (!g.ok) return g;
+  const u = await guardUnlocked(exhibitionId);
+  if (!u.ok) return u;
 
   const int = (k: string): number | null => {
     const raw = str(fd, k);
@@ -853,7 +900,8 @@ export async function advanceExhibition(
   id: number, next: 'Ongoing' | 'Completed' | 'Closed',
 ): Promise<SaveResult> {
   const user = await requireUser();
-  await assertCanManage(id);
+  const g = await guardCanManage(id);
+  if (!g.ok) return g;
 
   const { rows } = await risansiPool.query<{ status: string }>(
     'SELECT status FROM exhibitions WHERE id = $1', [id],
@@ -883,30 +931,37 @@ export async function advanceExhibition(
 
 // ── Post-event review: dispositions, sign-off, closing ───────────
 
+/** The one guard that carries data: its callers all need the row it read, so
+ *  passing the gate hands back the status and owner rather than re-querying. */
+type OwnerResult =
+  | { ok: true; ex: { status: string; created_by: number | null } }
+  | { ok: false; error: string };
+
 /**
  * The review is the owner's job — the person who proposed the exhibition and
  * carries it. Sysadmin is kept as the standing fallback so an event is never
  * stranded when someone leaves. Team membership is deliberately NOT enough here:
  * these actions create real CRM records and then close the event for good.
  */
-async function assertOwner(exhibitionId: number, user: Me): Promise<{ status: string; created_by: number | null }> {
+async function guardOwner(exhibitionId: number, user: Me): Promise<OwnerResult> {
   const { rows } = await risansiPool.query<{ status: string; created_by: number | null }>(
     'SELECT status, created_by FROM exhibitions WHERE id = $1', [exhibitionId],
   );
   const ex = rows[0];
   if (!ex) throw new Error('Exhibition not found.');
-  if (hasRole(user.role, 'sysadmin')) return ex;
+  if (hasRole(user.role, 'sysadmin')) return { ok: true, ex };
   if (ex.created_by == null || user.id == null || Number(ex.created_by) !== Number(user.id)) {
-    throw new Error('Only the person who proposed this exhibition can run its review.');
+    return fail('Only the person who proposed this exhibition can run its review.');
   }
-  return ex;
+  return { ok: true, ex };
 }
 
 /** Closed is final: nothing may be edited until a sysadmin reopens it. */
-function assertNotClosed(status: string) {
+function guardNotClosed(status: string): SaveResult {
   if (status === 'Closed') {
-    throw new Error('This exhibition is closed. A sysadmin has to reopen it before anything can change.');
+    return fail('This exhibition is closed. A sysadmin has to reopen it before anything can change.');
   }
+  return { ok: true };
 }
 
 /**
@@ -920,8 +975,10 @@ export async function updateMeetingCompany(
   exhibitionId: number, meetingId: number, companyName: string, clientId: number | null,
 ): Promise<SaveResult> {
   const user = await requireUser();
-  const ex = await assertOwner(exhibitionId, user);
-  assertNotClosed(ex.status);
+  const g = await guardOwner(exhibitionId, user);
+  if (!g.ok) return g;
+  const open = guardNotClosed(g.ex.status);
+  if (!open.ok) return open;
 
   const name = companyName.trim();
   if (!name) return fail('Company name cannot be blank.');
@@ -985,8 +1042,10 @@ export async function setMeetingFollowUp(exhibitionId: number, meetingId: number
   valueInr?: number | null;
 }): Promise<SaveResult> {
   const user = await requireUser();
-  const ex = await assertOwner(exhibitionId, user);
-  assertNotClosed(ex.status);
+  const g = await guardOwner(exhibitionId, user);
+  if (!g.ok) return g;
+  const open = guardNotClosed(g.ex.status);
+  if (!open.ok) return open;
 
   const { rows: mrows } = await risansiPool.query<{
     id: number; client_id: number | null; company_name: string;
@@ -1103,10 +1162,12 @@ export async function setMeetingFollowUp(exhibitionId: number, meetingId: number
   return { ok: true };
 }
 
-export async function reviewExhibitionExpenses(exhibitionId: number) {
+export async function reviewExhibitionExpenses(exhibitionId: number): Promise<SaveResult> {
   const user = await requireUser();
-  const ex = await assertOwner(exhibitionId, user);
-  assertNotClosed(ex.status);
+  const g = await guardOwner(exhibitionId, user);
+  if (!g.ok) return g;
+  const open = guardNotClosed(g.ex.status);
+  if (!open.ok) return open;
   await risansiPool.query(
     `UPDATE exhibitions SET expenses_reviewed_at=NOW(), expenses_reviewed_by=$2, updated_at=NOW()
       WHERE id=$1`, [exhibitionId, user.id],
@@ -1116,6 +1177,7 @@ export async function reviewExhibitionExpenses(exhibitionId: number) {
     summary: 'signed off exhibition expenses', actorEmail: user.email,
   }).catch(() => {});
   touch(exhibitionId);
+  return { ok: true };
 }
 
 /**
@@ -1178,7 +1240,9 @@ export async function convertMeetingToLead(
   exhibitionId: number, meetingId: number, fd: FormData,
 ): Promise<SaveResult> {
   const user = await requireUser();
-  const ex = await assertOwner(exhibitionId, user);   // the reviewer, or a sysadmin
+  const g = await guardOwner(exhibitionId, user);     // the reviewer, or a sysadmin
+  if (!g.ok) return g;
+  const ex = g.ex;
   // Closed means closed, including for the one write this module makes outside
   // its own tables. Returned rather than thrown, like every other refusal here.
   if (ex.status === 'Closed') {
@@ -1334,7 +1398,8 @@ export async function skipMeetingLead(
   exhibitionId: number, meetingId: number, reason: string,
 ): Promise<SaveResult> {
   const user = await requireUser();
-  await assertOwner(exhibitionId, user);
+  const g = await guardOwner(exhibitionId, user);
+  if (!g.ok) return g;
   const why = reason.trim();
   if (!why) return fail('Say why this one is not being taken forward.');
   const { rowCount } = await risansiPool.query(
@@ -1348,13 +1413,15 @@ export async function skipMeetingLead(
 }
 
 /** Undo a set-aside, so it is decided again. */
-export async function reopenMeetingLead(exhibitionId: number, meetingId: number): Promise<void> {
+export async function reopenMeetingLead(exhibitionId: number, meetingId: number): Promise<SaveResult> {
   const user = await requireUser();
-  await assertOwner(exhibitionId, user);
+  const g = await guardOwner(exhibitionId, user);
+  if (!g.ok) return g;
   await risansiPool.query(
     `UPDATE exhibition_meetings SET lead_skipped_reason = NULL, lead_decided_at = NULL, lead_decided_by = NULL, updated_at = NOW()
       WHERE id = $1 AND exhibition_id = $2 AND lead_client_id IS NULL`, [meetingId, exhibitionId]);
   touch(exhibitionId);
+  return { ok: true };
 }
 
 export async function closeReadiness(exhibitionId: number): Promise<string[]> {
@@ -1392,8 +1459,10 @@ export async function closeReadiness(exhibitionId: number): Promise<string[]> {
 
 export async function closeExhibition(exhibitionId: number): Promise<SaveResult> {
   const user = await requireUser();
-  const ex = await assertOwner(exhibitionId, user);
-  assertNotClosed(ex.status);
+  const g = await guardOwner(exhibitionId, user);
+  if (!g.ok) return g;
+  const open = guardNotClosed(g.ex.status);
+  if (!open.ok) return open;
 
   // Re-checked on the server: the button being enabled is a convenience, this is
   // the rule. Closing makes everything read-only, so it has to be earned.

@@ -66,7 +66,13 @@ export function PotentialLeads({ exhibitionId, meetings, editable }: {
   });
   const reopen = (id: number) => start(async () => {
     setErr('');
-    try { await reopenMeetingLead(exhibitionId, id); router.refresh(); }
+    try {
+      // Only the reviewer may undo a set-aside, and not once the exhibition is
+      // closed. Both come back as a sentence, like skipMeetingLead's do.
+      const res = await reopenMeetingLead(exhibitionId, id);
+      if (!res.ok) { setErr(res.error); return; }
+      router.refresh();
+    }
     catch (e) { setErr(e instanceof Error ? e.message : 'Could not reopen.'); }
   });
 

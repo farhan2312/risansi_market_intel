@@ -883,16 +883,31 @@ function DeleteMeeting({ exhibitionId, meetingId }: { exhibitionId: number; meet
   const router = useRouter();
   const [confirm, setConfirm] = useState(false);
   const [err, setErr] = useState('');
-  if (err) return <span style={{ fontSize: 11, color: 'var(--neg)' }}>{err}</span>;
-  if (!confirm) return <button onClick={() => setConfirm(true)} style={LINK_BTN}>Delete</button>;
+  // The refusal sits beside the control rather than replacing it. It used to
+  // take the control's place, which was survivable while every failure read
+  // "Could not delete." Now that the action says which of the three reasons it
+  // was, that sentence would have stood where the button had been with no way
+  // back to it.
   return (
-    <span style={{ fontSize: 12 }}>
-      Sure?{' '}
-      <button style={LINK_BTN} onClick={async () => {
-        try { await deleteExhibitionMeeting(exhibitionId, meetingId); router.refresh(); }
-        catch { setErr('Could not delete.'); }
-      }}>Yes</button>{' '}
-      <button style={LINK_BTN} onClick={() => setConfirm(false)}>No</button>
+    <span style={{ fontSize: 12, display: 'inline-flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+      {err && <span style={{ fontSize: 11, color: 'var(--neg)' }}>{err}</span>}
+      {!confirm ? (
+        <button onClick={() => { setErr(''); setConfirm(true); }} style={LINK_BTN}>Delete</button>
+      ) : (
+        <span>
+          Sure?{' '}
+          <button style={LINK_BTN} onClick={async () => {
+            setErr('');
+            try {
+              const res = await deleteExhibitionMeeting(exhibitionId, meetingId);
+              if (!res.ok) { setErr(res.error); setConfirm(false); return; }
+              router.refresh();
+            }
+            catch (e) { setErr(e instanceof Error ? e.message : 'Could not delete.'); setConfirm(false); }
+          }}>Yes</button>{' '}
+          <button style={LINK_BTN} onClick={() => setConfirm(false)}>No</button>
+        </span>
+      )}
     </span>
   );
 }
@@ -1436,15 +1451,26 @@ function DeleteExpense({ exhibitionId, expenseId }: { exhibitionId: number; expe
   const router = useRouter();
   const [confirm, setConfirm] = useState(false);
   const [err, setErr] = useState('');
-  if (err) return <span style={{ fontSize: 11, color: 'var(--neg)' }}>{err}</span>;
-  if (!confirm) return <button onClick={() => setConfirm(true)} style={LINK_BTN}>Delete</button>;
+  // Beside the control, not instead of it — see DeleteMeeting above.
   return (
-    <span style={{ fontSize: 12 }}>
-      <button style={LINK_BTN} onClick={async () => {
-        try { await deleteExhibitionExpense(exhibitionId, expenseId); router.refresh(); }
-        catch { setErr('Failed'); }
-      }}>Confirm</button>{' '}
-      <button style={LINK_BTN} onClick={() => setConfirm(false)}>Cancel</button>
+    <span style={{ fontSize: 12, display: 'inline-flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+      {err && <span style={{ fontSize: 11, color: 'var(--neg)' }}>{err}</span>}
+      {!confirm ? (
+        <button onClick={() => { setErr(''); setConfirm(true); }} style={LINK_BTN}>Delete</button>
+      ) : (
+        <span>
+          <button style={LINK_BTN} onClick={async () => {
+            setErr('');
+            try {
+              const res = await deleteExhibitionExpense(exhibitionId, expenseId);
+              if (!res.ok) { setErr(res.error); setConfirm(false); return; }
+              router.refresh();
+            }
+            catch (e) { setErr(e instanceof Error ? e.message : 'Could not delete.'); setConfirm(false); }
+          }}>Confirm</button>{' '}
+          <button style={LINK_BTN} onClick={() => setConfirm(false)}>Cancel</button>
+        </span>
+      )}
     </span>
   );
 }

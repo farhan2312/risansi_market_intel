@@ -244,7 +244,10 @@ for (const file of files) {
 const newThrowers = [...throwers.keys()].filter(n => !THROWS_ITS_REFUSAL.has(n));
 const nowReturning = [...THROWS_ITS_REFUSAL].filter(n => !throwers.has(n));
 
-console.log(`\n${throwers.size} action(s) still throw a refusal instead of returning it`);
+// Named, not just counted: the count alone sent the last reader grepping for
+// which three they were.
+console.log(`\n${throwers.size} action(s) still throw a refusal instead of returning it`
+  + (throwers.size && throwers.size <= 8 ? `: ${[...throwers.keys()].join(', ')}` : ''));
 if (nowReturning.length) {
   console.log(`  ${nowReturning.length} no longer do — delete from THROWS_ITS_REFUSAL: ${nowReturning.join(', ')}`);
 }
