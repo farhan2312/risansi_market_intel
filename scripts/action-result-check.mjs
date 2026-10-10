@@ -138,7 +138,7 @@ const THROWS_ITS_REFUSAL = new Set([
   'saveExhibitionReview', 'saveExpansionOpportunity', 'saveVisitField', 'setAnnualTarget',
   'setExhibitionTeam', 'setUsdRate', 'skipMeetingLead', 'submitForApproval',
   'submitOpportunity', 'updateClientComment', 'updateClientTier', 'updateEquipment',
-  'updateExhibition', 'updateMeetingCompany', 'updateTaskStatus', 'updateVisitPlan',
+  'updateExhibition', 'updateMeetingCompany', 'updateVisitPlan',
 ]);
 
 const throwers = new Map();                      // name -> the sentences it throws

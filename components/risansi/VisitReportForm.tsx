@@ -209,7 +209,11 @@ export function VisitReportForm({
   const [resolvingTask, setResolvingTask] = useState<ResolvingAction | null>(null);
   const handleCompleteTask = async (taskId: number, status: 'open' | 'completed', title = '', existingNote: string | null = null) => {
     if (status === 'completed') { setResolvingTask({ id: taskId, title, existingNote }); return; }
-    await updateTaskStatus(taskId, 'open');
+    const res = await updateTaskStatus(taskId, 'open');
+    // No error surface on this row, and inventing one here would mean a new
+    // banner in a 2,000-line form. An alert is blunt but it is seen, which is
+    // the entire point of the refusal being returned rather than thrown.
+    if (!res.ok) { alert(res.error); return; }
     router.refresh();
   };
   const handleDeleteTask = async (taskId: number) => {

@@ -211,20 +211,24 @@ export async function addTask({
  */
 export async function updateTaskStatus(
   taskId: number, status: 'open' | 'completed', resolutionNote?: string,
-) {
+): Promise<SaveResult> {
+  // Returns its refusals rather than throwing them. The note requirement below
+  // is the user being asked to do something, and a thrown server-action message
+  // is redacted in production — so the one person who needs to read it is the
+  // one person who cannot.
   const email = await requireEmail();
   await assertCanManageTask(taskId);
-  if (status !== 'open' && status !== 'completed') throw new Error('Invalid status.');
+  if (status !== 'open' && status !== 'completed') return fail('Invalid status.');
 
   const { rows } = await risansiPool.query<{ resolution_note: string | null; status: string }>(
     'SELECT resolution_note, status FROM tasks WHERE id = $1', [taskId],
   );
-  if (!rows[0]) throw new Error('Action not found.');
+  if (!rows[0]) return fail('That action no longer exists.');
   const existing = rows[0].resolution_note;
 
   const note = (resolutionNote ?? '').trim();
   if (status === 'completed' && !existing && !note) {
-    throw new Error('Add a resolution note describing what was done before closing this action.');
+    return fail('Add a resolution note describing what was done before closing this action.');
   }
 
   const client = await risansiPool.connect();
@@ -261,6 +265,7 @@ export async function updateTaskStatus(
   revalidatePath('/risansi');
   revalidatePath('/risansi/field');
   revalidatePath('/risansi/registry');
+  return { ok: true };
 }
 
 // ── Update an action: comment, move the date, mark it done ─────

@@ -71,13 +71,21 @@ function ActionStatusToggle({ task, compact, onToggle }: {
 }) {
   const [loading, setLoading] = useState(false);
   const [resolving, setResolving] = useState(false);
+  // Reopening can be refused — the action may have been deleted under you.
+  const [err, setErr] = useState('');
   const handleToggle = async () => {
     if (task.status === 'open') { setResolving(true); return; }
     setLoading(true);
-    await updateTaskStatus(task.id, 'open');
+    setErr('');
+    const res = await updateTaskStatus(task.id, 'open');
+    if (!res.ok) { setErr(res.error); setLoading(false); return; }
     onToggle();
     setLoading(false);
   };
+
+  const problem = err
+    ? <div style={{ fontSize: 10.5, color: 'var(--neg)', marginTop: 4, lineHeight: 1.4 }}>{err}</div>
+    : null;
 
   if (compact) {
     return (
@@ -85,6 +93,7 @@ function ActionStatusToggle({ task, compact, onToggle }: {
         <Button variant="ghost" size="sm" onClick={handleToggle} disabled={loading} style={{ fontSize: 10 }}>
           {loading ? '…' : task.status === 'completed' ? '↩' : '✓'}
         </Button>
+        {problem}
       {resolving && (
         <ResolveActionDialog
           action={{ id: task.id, title: task.title, existingNote: task.resolution_note }}
@@ -109,6 +118,7 @@ function ActionStatusToggle({ task, compact, onToggle }: {
     >
       {loading ? '…' : task.status === 'completed' ? '✓ Done' : 'Open'}
     </Badge>
+    {problem}
       {resolving && (
         <ResolveActionDialog
           action={{ id: task.id, title: task.title, existingNote: task.resolution_note }}

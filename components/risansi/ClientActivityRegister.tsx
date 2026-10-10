@@ -43,7 +43,11 @@ export function ClientActivityRegister({ clientId, actions, reps, ownerRepId }: 
   const setDone = async (id: number, done: boolean, title = '', existingNote: string | null = null) => {
     if (done) { setResolving({ id, title, existingNote }); return; }
     setBusy(id); setErr('');
-    try { await updateTaskStatus(id, 'open'); router.refresh(); }
+    try {
+      const res = await updateTaskStatus(id, 'open');
+      if (!res.ok) { setErr(res.error); setBusy(null); return; }
+      router.refresh();
+    }
     catch (e) { setErr(e instanceof Error ? e.message : 'Could not update the action.'); }
     finally { setBusy(null); }
   };

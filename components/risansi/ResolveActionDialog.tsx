@@ -93,8 +93,13 @@ export function ResolveActionDialog({ action, onCancel, onDone, intent = 'done' 
     setErr('');
     if (closed) {
       setBusy(true);
-      try { await updateTaskStatus(action.id, 'open', note.trim() || undefined); onDone(); }
-      catch { setErr('Could not reopen this action.'); setBusy(false); }
+      try {
+        const res = await updateTaskStatus(action.id, 'open', note.trim() || undefined);
+        // The refusal says what to do about it; the generic line below is only
+        // for a request that never arrived.
+        if (!res.ok) { setErr(res.error); setBusy(false); return; }
+        onDone();
+      } catch { setErr('Could not reopen this action.'); setBusy(false); }
       return;
     }
     if (needsNote && !note.trim()) {
