@@ -77,6 +77,10 @@ export function ComplaintPageForm({ complaintId, clientId, page, initial, lookup
     listClientPumps(clientId).then(res => {
       if (!live) return;
       if (res.ok) setPumps(res.data);
+    }).catch(() => {
+      // These only feed autocomplete on the serial / model fields, which stay
+      // typeable without them. Swallowed on purpose, rather than left as an
+      // unhandled rejection, because there is nothing here to tell anybody.
     });
     return () => { live = false; };
   }, [page.id, clientId]);

@@ -54,8 +54,12 @@ export function ClientActivityRegister({ clientId, actions, reps, ownerRepId }: 
   const remove = async (id: number) => {
     if (!window.confirm('Delete this action? This cannot be undone.')) return;
     setBusy(id); setErr('');
-    try { await deleteTask(id); router.refresh(); }
-    catch (e) { setErr(e instanceof Error ? e.message : 'Could not delete the action.'); }
+    try {
+      const res = await deleteTask(id);
+      if (!res.ok) { setErr(res.error); return; }
+      router.refresh();
+    }
+    catch { setErr('Could not reach the server. Check your connection and try again.'); }
     finally { setBusy(null); }
   };
 

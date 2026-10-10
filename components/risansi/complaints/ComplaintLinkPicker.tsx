@@ -40,6 +40,9 @@ export function ComplaintLinkPicker({ value, onChange, disabled, excludeId, inpu
       if (!live) return;
       if (!res.ok) { setErr(res.error); return; }
       setLinked(res.data);
+    }).catch(() => {
+      // A refusal comes back as a value; this is the request not arriving.
+      if (live) setErr('Could not load the linked complaint. Reload the page to try again.');
     });
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -54,6 +57,12 @@ export function ComplaintLinkPicker({ value, onChange, disabled, excludeId, inpu
         setBusy(false);
         if (!res.ok) { setErr(res.error); setHits([]); return; }
         setHits(res.data);
+      }).catch(() => {
+        // Without this the search spinner stayed on for good: setBusy(false)
+        // only ran on the success path, so a dropped request left the box
+        // looking like it was still thinking.
+        setBusy(false);
+        setErr('Search could not reach the server. Try typing again.');
       });
     }, 220);
   };

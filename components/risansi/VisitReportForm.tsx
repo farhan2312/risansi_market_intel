@@ -225,7 +225,9 @@ export function VisitReportForm({
   };
   const handleDeleteTask = async (taskId: number) => {
     if (typeof window !== 'undefined' && !window.confirm('Delete this action point? This cannot be undone.')) return;
-    await deleteTask(taskId);
+    const res = await deleteTask(taskId);
+    if (!res.ok) { setActionError(res.error); return; }
+    setActionError('');
     router.refresh();
   };
 

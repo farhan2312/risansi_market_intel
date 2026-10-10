@@ -18,20 +18,25 @@ async function requireEmail(): Promise<string> {
  * May the current user change/delete this task? A session alone was the whole
  * check before, so any rep could complete or delete any team's tasks by id.
  * Allowed if: admin+, the task's creator, its assigned rep, or someone who can
- * see the task's client. Throws otherwise.
+ * see the task's client.
+ *
+ * Returns the refusal rather than throwing it. Every action here returns its
+ * own, and a guard that throws undoes that for all of them: the sentence goes
+ * back through Next, which redacts it, and the rep is told "an error occurred"
+ * when they could have been told to ask the task's owner.
  */
-async function assertCanManageTask(taskId: number): Promise<void> {
+async function guardCanManageTask(taskId: number): Promise<SaveResult> {
   const user = await getCurrentUser();
   const { rows } = await risansiPool.query<{ client_id: number | null; created_by: string | null; assigned_to_rep: number | null }>(
     'SELECT client_id, created_by, assigned_to_rep FROM tasks WHERE id = $1', [taskId],
   );
   const t = rows[0];
   if (!t) throw new Error('Task not found.');
-  if (hasRole(user.role, 'admin')) return;
-  if (user.email && t.created_by && t.created_by.toLowerCase() === user.email.toLowerCase()) return;
-  if (user.id != null && t.assigned_to_rep != null && Number(t.assigned_to_rep) === Number(user.id)) return;
-  if (t.client_id != null && await canViewClient(user, Number(t.client_id))) return;
-  throw new Error('You do not have permission to change this task.');
+  if (hasRole(user.role, 'admin')) return { ok: true };
+  if (user.email && t.created_by && t.created_by.toLowerCase() === user.email.toLowerCase()) return { ok: true };
+  if (user.id != null && t.assigned_to_rep != null && Number(t.assigned_to_rep) === Number(user.id)) return { ok: true };
+  if (t.client_id != null && await canViewClient(user, Number(t.client_id))) return { ok: true };
+  return fail('You do not have permission to change this task. Ask whoever raised it, or an admin.');
 }
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -218,7 +223,8 @@ export async function updateTaskStatus(
   // is redacted in production — so the one person who needs to read it is the
   // one person who cannot.
   const email = await requireEmail();
-  await assertCanManageTask(taskId);
+  const g = await guardCanManageTask(taskId);
+  if (!g.ok) return g;
   if (status !== 'open' && status !== 'completed') return fail('Invalid status.');
 
   const { rows } = await risansiPool.query<{ resolution_note: string | null; status: string }>(
@@ -289,13 +295,9 @@ export interface ActionUpdateInput {
 }
 
 export async function updateAction(taskId: number, input: ActionUpdateInput): Promise<SaveResult> {
-  let email: string;
-  try {
-    email = await requireEmail();
-    await assertCanManageTask(taskId);
-  } catch (e) {
-    return fail(e instanceof Error ? e.message : 'You do not have permission to change this action.');
-  }
+  const email = await requireEmail();
+  const g = await guardCanManageTask(taskId);
+  if (!g.ok) return g;
 
   const { rows } = await risansiPool.query<{ status: string; due_date: string | null; resolution_note: string | null }>(
     'SELECT status, due_date::text AS due_date, resolution_note FROM tasks WHERE id = $1', [taskId],
@@ -394,12 +396,9 @@ export type Result<T> = { ok: true; data: T } | { ok: false; error: string };
 
 /** Everything that has happened to an action, newest first, ending with the day it was raised. */
 export async function listActionHistory(taskId: number): Promise<Result<ActionHistory>> {
-  try {
-    await requireEmail();
-    await assertCanManageTask(taskId);
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : 'You cannot see this action.' };
-  }
+  await requireEmail();
+  const g = await guardCanManageTask(taskId);
+  if (!g.ok) return g;
   const { rows: [t] } = await risansiPool.query<{
     title: string; status: string; due_date: string | null; created_at: string; created_by: string | null;
     creator: string | null; client_name: string | null; assignee: string | null; external: string | null;
@@ -441,9 +440,10 @@ export async function listActionHistory(taskId: number): Promise<Result<ActionHi
   };
 }
 
-export async function deleteTask(taskId: number) {
+export async function deleteTask(taskId: number): Promise<SaveResult> {
   await requireEmail();
-  await assertCanManageTask(taskId);
+  const g = await guardCanManageTask(taskId);
+  if (!g.ok) return g;
 
   const taskRes = await risansiPool.query<{ visit_id: number | null }>(
     'SELECT visit_id FROM tasks WHERE id = $1',
@@ -456,4 +456,5 @@ export async function deleteTask(taskId: number) {
   if (visitId) revalidatePath(`/risansi/visits/${visitId}`);
   revalidatePath('/risansi');
   revalidatePath('/risansi/field');
+  return { ok: true };
 }

@@ -62,11 +62,16 @@ export function ResolveActionDialog({ action, onCancel, onDone, intent = 'done' 
 
   useEffect(() => {
     let alive = true;
+    // The catch matters: a refusal comes back as a value, but a dead session or
+    // a failed query still rejects, and without this the dialog sat empty with
+    // nothing said.
     listActionHistory(action.id).then(r => {
       if (!alive) return;
       if (!r.ok) { setHistErr(r.error); return; }
       setHist(r.data);
       setDue(r.data.dueDate ?? '');
+    }).catch(() => {
+      if (alive) setHistErr('Could not load this action’s history. Reload the page to try again.');
     });
     return () => { alive = false; };
   }, [action.id]);

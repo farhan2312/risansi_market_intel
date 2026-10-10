@@ -182,6 +182,65 @@ for (const file of files) {
   }
 }
 
+// ── The third half: a private helper that throws on an action's behalf ─────
+//
+// An action can return every refusal it writes itself and still redact one, by
+// calling a helper that throws. The exhibitions module did exactly that for a
+// while: twelve actions returned their refusals, and all of them went through
+// assertCanManage, which threw "You are not on this exhibition's team." Nothing
+// above could see it, because the two checks over this file only ever looked at
+// exported actions.
+//
+// A helper that throws is only a problem when a result-returning action calls
+// it — that action's contract says refusals come back, and this one does not.
+// A helper used only by code that throws anyway is left alone.
+// Sentences that are assertions rather than advice. Length already excludes
+// 'Unauthorized' and 'Invalid user id'; these are the longer ones that are
+// still the same in every action and tell nobody how to proceed. "You do not
+// have permission to change this task" is deliberately NOT here: that one
+// names what was refused, and redacted it reaches somebody as "An error
+// occurred" when it could have told them to ask the owner.
+const IS_A_GUARD = /\bnot found\.?$|access required\.?$|^Unauthorized|^Not authenticated|^Invalid |^Not a \w+:/i;
+
+const leakyHelpers = [];
+for (const file of files) {
+  const rel = path.relative(ROOT, file).replace(/\\/g, '/');
+  if (!rel.includes('app/actions/')) continue;
+  const src = fs.readFileSync(file, 'utf8');
+
+  const bodyOf = (declRe) => {
+    const out = new Map();
+    for (const m of src.matchAll(declRe)) {
+      const start = src.indexOf('{', m.index + m[0].length - 1);
+      if (start < 0) continue;
+      let j = start, depth = 0;
+      do { const c = src[j]; if (c === '{') depth++; else if (c === '}') depth--; j++; }
+      while (j < src.length && depth > 0);
+      out.set(m[1], { body: src.slice(start, j), line: src.slice(0, m.index).split('\n').length });
+    }
+    return out;
+  };
+
+  // Private: declared without `export` in front of it.
+  const privates = bodyOf(/(?:^|\n)\s*(?:async )?function (\w+)\s*\(/g);
+  const exported = bodyOf(/(?:^|\n)export async function (\w+)\s*\(/g);
+
+  for (const [name, { body, line }] of privates) {
+    if (exported.has(name)) continue;
+    const said = [...body.matchAll(
+      /throw new Error\(\s*(?:'([^']{18,})'|"([^"]{18,})"|`([^`]{18,})`)/g)]
+      .map(x => x[1] ?? x[2] ?? x[3])
+      .filter(s => !IS_A_GUARD.test(s));
+    if (!said.length) continue;
+
+    const callers = [...actions.keys()].filter(a => {
+      const e = exported.get(a);
+      return e && new RegExp(`(^|[^.\\w])${name}\\s*\\(`).test(e.body);
+    });
+    if (callers.length) leakyHelpers.push({ rel, line, name, said, callers });
+  }
+}
+
 const newThrowers = [...throwers.keys()].filter(n => !THROWS_ITS_REFUSAL.has(n));
 const nowReturning = [...THROWS_ITS_REFUSAL].filter(n => !throwers.has(n));
 
@@ -200,10 +259,20 @@ if (newThrowers.length) {
   console.log('  actions listed at the top of this check already do.');
 }
 
+for (const h of leakyHelpers) {
+  console.log(`\n  ${h.rel}:${h.line}`);
+  console.log(`    ${h.name}() throws a refusal on behalf of ${h.callers.length} action(s) that return theirs:`);
+  console.log(`      ${h.callers.slice(0, 6).join(', ')}${h.callers.length > 6 ? ', …' : ''}`);
+  for (const t of h.said.slice(0, 2)) console.log(`      "${t.slice(0, 96)}"`);
+  console.log('    Have it return a result and let each caller return that, or keep the');
+  console.log('    throw and make the sentence a guard rather than advice.');
+}
+
 // Counted separately. They used to share one number and one sentence, which
 // read as "3 call sites ignore a refusal" when in fact no call site did and
 // three actions had grown a new thrown one.
 console.log(`\n${checked} call site(s) checked`);
 console.log(problems ? `${problems} ignore a refusal` : 'every call site reads its result');
 if (newThrowers.length) console.log(`${newThrowers.length} action(s) throw a refusal that is not on the known list`);
-process.exit(problems + newThrowers.length ? 1 : 0);
+if (leakyHelpers.length) console.log(`${leakyHelpers.length} private helper(s) throw a refusal for an action that returns its own`);
+process.exit(problems + newThrowers.length + leakyHelpers.length ? 1 : 0);
