@@ -144,32 +144,37 @@ function touch(id: number) {
  * window can only ever narrow the run, never extend past it: attending a day
  * the exhibition is not open is not a thing.
  */
-function attendWindow(fd: FormData, start: string | null, end: string | null): [string | null, string | null] {
+// Refusals come back rather than being thrown: these three sentences tell
+// somebody which date to change, and thrown they reached them as a digest.
+function attendWindow(fd: FormData, start: string | null, end: string | null):
+  { ok: true; from: string | null; to: string | null } | { ok: false; error: string } {
   const from = str(fd, 'attend_from') ?? start;
   const to   = str(fd, 'attend_to')   ?? end ?? start;
-  if (!from || !to) return [from, to];
-  if (to < from) throw new Error('Risansi cannot stop attending before it starts.');
-  if (start && from < start) throw new Error(`Risansi cannot attend before the exhibition opens (${start}).`);
+  if (!from || !to) return { ok: true, from, to };
+  if (to < from) return fail('Risansi cannot stop attending before it starts.');
+  if (start && from < start) return fail(`Risansi cannot attend before the exhibition opens (${start}).`);
   const lastDay = end ?? start;
-  if (lastDay && to > lastDay) throw new Error(`Risansi cannot attend after the exhibition closes (${lastDay}).`);
-  return [from, to];
+  if (lastDay && to > lastDay) return fail(`Risansi cannot attend after the exhibition closes (${lastDay}).`);
+  return { ok: true, from, to };
 }
 
-export async function createExhibition(fd: FormData) {
+export async function createExhibition(fd: FormData): Promise<CreateResult> {
   const user = await requireUser();
   // Proposing an exhibition is an admin act now. Everyone else contributes to
   // one they have been put on: meetings, expenses, the post-event review.
   if (!hasRole(user.role, 'admin')) {
-    throw new Error('Only an admin can create an exhibition.');
+    return fail('Only an admin can create an exhibition.');
   }
   const name = str(fd, 'name');
-  if (!name) throw new Error('Exhibition name is required.');
+  if (!name) return fail('Exhibition name is required.');
 
   const start = str(fd, 'start_date');
   const end   = str(fd, 'end_date');
-  if (start && end && end < start) throw new Error('End date cannot be before the start date.');
+  if (start && end && end < start) return fail('End date cannot be before the start date.');
 
-  const [attendFrom, attendTo] = attendWindow(fd, start, end);
+  const win = attendWindow(fd, start, end);
+  if (!win.ok) return win;
+  const { from: attendFrom, to: attendTo } = win;
 
   const { rows } = await risansiPool.query<{ id: number }>(
     `INSERT INTO exhibitions
@@ -194,10 +199,10 @@ export async function createExhibition(fd: FormData) {
     entityLabel: name, summary: `created exhibition ${name}`, actorEmail: user.email,
   }).catch(() => {});
   touch(id);
-  return id;
+  return { ok: true, id };
 }
 
-export async function updateExhibition(id: number, fd: FormData) {
+export async function updateExhibition(id: number, fd: FormData): Promise<SaveResult> {
   const user = await requireUser();
   await assertCanManage(id);
 
@@ -211,17 +216,21 @@ export async function updateExhibition(id: number, fd: FormData) {
 
   const start = str(fd, 'start_date');
   const end   = str(fd, 'end_date');
-  if (start && end && end < start) throw new Error('End date cannot be before the start date.');
+  if (start && end && end < start) return fail('End date cannot be before the start date.');
 
   const status = str(fd, 'status');
+  // A value the dropdown cannot produce: a bad request, not advice, so it stays
+  // a throw like every other enum guard here.
   if (status != null && !isExhibitionStatus(status)) throw new Error('Unknown status.');
   // Submitted / Approved / Rejected are owned by the approval flow. Letting the
   // edit form set them would let a submitter approve their own exhibition.
   if (status && ['Submitted', 'Approved', 'Rejected'].includes(status)) {
-    throw new Error('Use Submit or the approval decision to move to that status.');
+    return fail('Use Submit or the approval decision to move to that status.');
   }
 
-  const [attendFrom, attendTo] = attendWindow(fd, start, end);
+  const win = attendWindow(fd, start, end);
+  if (!win.ok) return win;
+  const { from: attendFrom, to: attendTo } = win;
 
   await risansiPool.query(
     `UPDATE exhibitions SET
@@ -271,16 +280,20 @@ export async function updateExhibition(id: number, fd: FormData) {
     actorEmail: user.email,
   }).catch(() => {});
   touch(id);
-  // Returned so the form can say what happened. Dropping somebody’s travel
-  // days silently is the one outcome this must never have.
+  // Carried on the ok branch so the form can say what happened. Dropping
+  // somebody’s travel days silently is the one outcome this must never have.
   if (stranded.length) {
-    return `Saved. Days outside the new window were removed for ${stranded.map(r => `${r.name} (${r.n} day${r.n === 1 ? '' : 's'})`).join(', ')}.`;
+    return {
+      ok: true,
+      note: `Saved. Days outside the new window were removed for ${stranded.map(r => `${r.name} (${r.n} day${r.n === 1 ? '' : 's'})`).join(', ')}.`,
+    };
   }
+  return { ok: true };
 }
 
-export async function deleteExhibition(id: number) {
+export async function deleteExhibition(id: number): Promise<SaveResult> {
   const user = await requireUser();
-  if (!hasRole(user.role, 'admin')) throw new Error('Only an admin can delete an exhibition.');
+  if (!hasRole(user.role, 'admin')) return fail('Only an admin can delete an exhibition.');
   // A closed exhibition is a settled record — meetings, expenses, invoices and a
   // signed-off review. Deleting it is the most destructive edit there is, so it
   // obeys the same freeze: a sysadmin has to reopen it first, which is logged.
@@ -289,7 +302,7 @@ export async function deleteExhibition(id: number) {
       'SELECT status FROM exhibitions WHERE id = $1', [id],
     );
     if (rows[0]?.status === 'Closed') {
-      throw new Error('This exhibition is closed and cannot be deleted. A sysadmin must reopen it first.');
+      return fail('This exhibition is closed and cannot be deleted. A sysadmin must reopen it first.');
     }
   }
   await risansiPool.query('DELETE FROM exhibitions WHERE id = $1', [id]);
@@ -298,11 +311,12 @@ export async function deleteExhibition(id: number) {
     summary: 'deleted exhibition', actorEmail: user.email,
   }).catch(() => {});
   revalidatePath('/risansi/exhibitions');
+  return { ok: true };
 }
 
 // ── Approval ─────────────────────────────────────────────────────
 
-export async function submitForApproval(id: number, note?: string) {
+export async function submitForApproval(id: number, note?: string): Promise<SaveResult> {
   const user = await requireUser();
   await assertCanManage(id);
 
@@ -317,13 +331,13 @@ export async function submitForApproval(id: number, note?: string) {
   // — undoing a decision, and in the closed case undoing the lock entirely.
   const SUBMITTABLE = ['Draft', 'Shortlisted'];
   if (!SUBMITTABLE.includes(ex.status)) {
-    throw new Error(
+    return fail(
       ex.status === 'Submitted' ? 'This exhibition is already awaiting a decision.'
       : ex.status === 'Closed'  ? 'This exhibition is closed.'
       : `A ${ex.status.toLowerCase()} exhibition cannot be submitted for approval again.`,
     );
   }
-  if (!ex.approver_id) throw new Error('Nominate an approver before submitting.');
+  if (!ex.approver_id) return fail('Nominate an approver before submitting.');
 
   const client = await risansiPool.connect();
   try {
@@ -346,10 +360,14 @@ export async function submitForApproval(id: number, note?: string) {
     summary: 'submitted exhibition for approval', actorEmail: user.email,
   }).catch(() => {});
   touch(id);
+  return { ok: true };
 }
 
-export async function decideExhibition(id: number, decision: Decision, comments?: string) {
+export async function decideExhibition(
+  id: number, decision: Decision, comments?: string,
+): Promise<SaveResult> {
   const user = await requireUser();
+  // Not one of the four decisions the UI offers: a bad request, so it stays a throw.
   if (!isDecision(decision)) throw new Error('Unknown decision.');
   await assertCanApprove(id, user);
 
@@ -360,7 +378,7 @@ export async function decideExhibition(id: number, decision: Decision, comments?
     const status = rows[0]?.status;
     if (!status) throw new Error('Exhibition not found.');
     if (status !== 'Submitted') {
-      throw new Error(
+      return fail(
         status === 'Closed'
           ? 'This exhibition is closed and can no longer be decided.'
           : `Only a submitted exhibition can be decided. This one is ${status.toLowerCase()}.`,
@@ -398,6 +416,7 @@ export async function decideExhibition(id: number, decision: Decision, comments?
     summary: `decision: ${decision}`, actorEmail: user.email,
   }).catch(() => {});
   touch(id);
+  return { ok: true };
 }
 
 // ── Team ─────────────────────────────────────────────────────────
@@ -407,7 +426,7 @@ export async function setExhibitionTeam(
   // `days` is 'YYYY-MM-DD' strings. Omitted means the whole attending window;
   // an empty array means on the team but attending nothing yet.
   members: { userId: number; role: string; days?: string[] }[],
-) {
+): Promise<SaveResult> {
   const user = await requireUser();
   await assertCanManage(id);
 
@@ -448,10 +467,10 @@ export async function setExhibitionTeam(
         : m.days.filter(d => windowDays.has(d)),
     }));
   if (clean.length && !clean.some(m => m.role === 'Team Lead')) {
-    throw new Error('Nominate one team lead.');
+    return fail('Nominate one team lead.');
   }
   if (clean.filter(m => m.role === 'Team Lead').length > 1) {
-    throw new Error('Only one team lead per exhibition.');
+    return fail('Only one team lead per exhibition.');
   }
 
   const client = await risansiPool.connect();
@@ -484,6 +503,7 @@ export async function setExhibitionTeam(
     actorEmail: user.email,
   }).catch(() => {});
   touch(id);
+  return { ok: true };
 }
 
 // ── Meetings (the lookup lives here) ─────────────────────────────
@@ -665,18 +685,20 @@ export async function deleteExhibitionMeeting(exhibitionId: number, meetingId: n
 
 // ── Expenses ─────────────────────────────────────────────────────
 
-export async function saveExhibitionExpense(exhibitionId: number, fd: FormData, expenseId?: number) {
+export async function saveExhibitionExpense(
+  exhibitionId: number, fd: FormData, expenseId?: number,
+): Promise<SaveResult> {
   const user = await requireUser();
   await assertCanManage(exhibitionId);
   await assertUnlocked(exhibitionId);
 
   const category = str(fd, 'category');
-  if (!category) throw new Error('Pick an expense category.');
+  if (!category) return fail('Pick an expense category.');
 
   const actual = inr(fd, 'actual_inr');
   const paid   = inr(fd, 'paid_inr') ?? 0;
   // Mirror the DB constraint so the user gets a sentence, not a Postgres error.
-  if (actual != null && paid > actual) throw new Error('Paid amount cannot exceed the actual amount.');
+  if (actual != null && paid > actual) return fail('Paid amount cannot exceed the actual amount.');
 
   // The invoice travels with the form so it cannot be forgotten afterwards.
   const upload = fd.get('invoice');
@@ -690,7 +712,7 @@ export async function saveExhibitionExpense(exhibitionId: number, fd: FormData, 
       ? await risansiPool.query('SELECT 1 FROM exhibition_expense_files WHERE expense_id = $1', [expenseId])
       : { rowCount: 0 };
     if (!existing.rowCount) {
-      throw new Error('Attach the invoice, quote or a photo of the bill for this expense.');
+      return fail('Attach the invoice, quote or a photo of the bill for this expense.');
     }
   }
 
@@ -699,7 +721,9 @@ export async function saveExhibitionExpense(exhibitionId: number, fd: FormData, 
   if (file) {
     bytes = Buffer.from(await file.arrayBuffer());
     const check = checkInvoice(file.name, file.type || '', file.size, new Uint8Array(bytes.subarray(0, 8)));
-    if (!check.ok) throw new Error(check.error ?? 'That file could not be accepted.');
+    // checkInvoice's own sentence names the format or size limit that was
+    // missed, which is exactly the kind of message Next used to redact.
+    if (!check.ok) return fail(check.error ?? 'That file could not be accepted.');
     mime = check.mime!;
   }
 
@@ -747,6 +771,7 @@ export async function saveExhibitionExpense(exhibitionId: number, fd: FormData, 
   finally { client.release(); }
 
   touch(exhibitionId);
+  return { ok: true };
 }
 
 export async function deleteExhibitionExpense(exhibitionId: number, expenseId: number) {
@@ -767,7 +792,7 @@ export async function deleteExhibitionExpense(exhibitionId: number, expenseId: n
  * companies met, existing-client hits and spend are derived from the meeting and
  * expense tables at read time so the review can never contradict them.
  */
-export async function saveExhibitionReview(exhibitionId: number, fd: FormData) {
+export async function saveExhibitionReview(exhibitionId: number, fd: FormData): Promise<SaveResult> {
   const user = await requireUser();
   await assertCanManage(exhibitionId);
   await assertUnlocked(exhibitionId);
@@ -780,7 +805,7 @@ export async function saveExhibitionReview(exhibitionId: number, fd: FormData) {
   };
   const attend = str(fd, 'attend_next_year');
   if (attend != null && !['Yes', 'No', 'Undecided'].includes(attend)) {
-    throw new Error('Unknown answer for attending next year.');
+    return fail('Unknown answer for attending next year.');
   }
 
   await risansiPool.query(
@@ -810,6 +835,7 @@ export async function saveExhibitionReview(exhibitionId: number, fd: FormData) {
     summary: 'saved post-event review', actorEmail: user.email,
   }).catch(() => {});
   touch(exhibitionId);
+  return { ok: true };
 }
 
 // ── Lifecycle ────────────────────────────────────────────────────
@@ -823,7 +849,9 @@ export async function saveExhibitionReview(exhibitionId: number, fd: FormData) {
  * Only forward moves along this one path are allowed. Anything that would skip
  * the approval flow, or reverse a decision, is rejected.
  */
-export async function advanceExhibition(id: number, next: 'Ongoing' | 'Completed' | 'Closed') {
+export async function advanceExhibition(
+  id: number, next: 'Ongoing' | 'Completed' | 'Closed',
+): Promise<SaveResult> {
   const user = await requireUser();
   await assertCanManage(id);
 
@@ -839,7 +867,7 @@ export async function advanceExhibition(id: number, next: 'Ongoing' | 'Completed
     Completed: ['Closed'],
   };
   if (!ALLOWED[current]?.includes(next)) {
-    throw new Error(`Cannot move from ${current} to ${next}.`);
+    return fail(`Cannot move from ${current} to ${next}.`);
   }
 
   await risansiPool.query(
@@ -850,6 +878,7 @@ export async function advanceExhibition(id: number, next: 'Ongoing' | 'Completed
     summary: `moved from ${current} to ${next}`, actorEmail: user.email,
   }).catch(() => {});
   touch(id);
+  return { ok: true };
 }
 
 // ── Post-event review: dispositions, sign-off, closing ───────────
@@ -889,13 +918,13 @@ function assertNotClosed(status: string) {
  */
 export async function updateMeetingCompany(
   exhibitionId: number, meetingId: number, companyName: string, clientId: number | null,
-) {
+): Promise<SaveResult> {
   const user = await requireUser();
   const ex = await assertOwner(exhibitionId, user);
   assertNotClosed(ex.status);
 
   const name = companyName.trim();
-  if (!name) throw new Error('Company name cannot be blank.');
+  if (!name) return fail('Company name cannot be blank.');
 
   // Only accept an id that resolves to a live client, so a stale or forged value
   // degrades to "unlinked" rather than pointing at nothing.
@@ -918,6 +947,7 @@ export async function updateMeetingCompany(
     actorEmail: user.email,
   }).catch(() => {});
   touch(exhibitionId);
+  return { ok: true };
 }
 
 export type FollowUpType = 'None' | 'Visit' | 'Action' | 'Opportunity';
@@ -936,7 +966,15 @@ export type FollowUpType = 'None' | 'Visit' | 'Action' | 'Opportunity';
  */
 // Same shape as risansi.ts SaveResult, and the same name, so the build check
 // (scripts/action-result-check.mjs) knows to insist the caller reads it.
-export type SaveResult = { ok: true } | { ok: false; error: string };
+//
+// The ok branch carries an optional `note` — the same widening
+// risansi-complaint-admin.ts made, and for the same reason: a save can succeed
+// and still have something the user has to be told, like updateExhibition
+// dropping attendance days that fell outside a narrowed window.
+export type SaveResult = { ok: true; note?: string } | { ok: false; error: string };
+
+/** A refusal, shaped so it satisfies SaveResult and CreateResult alike. */
+const fail = (error: string): { ok: false; error: string } => ({ ok: false, error });
 
 export async function setMeetingFollowUp(exhibitionId: number, meetingId: number, opts: {
   type: FollowUpType;
@@ -1292,18 +1330,21 @@ export async function convertMeetingToLead(
 }
 
 /** Set a marked meeting aside, with the reason on the record. */
-export async function skipMeetingLead(exhibitionId: number, meetingId: number, reason: string): Promise<void> {
+export async function skipMeetingLead(
+  exhibitionId: number, meetingId: number, reason: string,
+): Promise<SaveResult> {
   const user = await requireUser();
   await assertOwner(exhibitionId, user);
   const why = reason.trim();
-  if (!why) throw new Error('Say why this one is not being taken forward.');
+  if (!why) return fail('Say why this one is not being taken forward.');
   const { rowCount } = await risansiPool.query(
     `UPDATE exhibition_meetings
         SET lead_skipped_reason = $1, lead_decided_at = NOW(), lead_decided_by = $2, updated_at = NOW()
       WHERE id = $3 AND exhibition_id = $4 AND lead_client_id IS NULL`,
     [why, user.id, meetingId, exhibitionId]);
-  if (!rowCount) throw new Error('That meeting already has a lead.');
+  if (!rowCount) return fail('That meeting already has a lead.');
   touch(exhibitionId);
+  return { ok: true };
 }
 
 /** Undo a set-aside, so it is decided again. */
@@ -1349,7 +1390,7 @@ export async function closeReadiness(exhibitionId: number): Promise<string[]> {
   return missing;
 }
 
-export async function closeExhibition(exhibitionId: number) {
+export async function closeExhibition(exhibitionId: number): Promise<SaveResult> {
   const user = await requireUser();
   const ex = await assertOwner(exhibitionId, user);
   assertNotClosed(ex.status);
@@ -1357,7 +1398,7 @@ export async function closeExhibition(exhibitionId: number) {
   // Re-checked on the server: the button being enabled is a convenience, this is
   // the rule. Closing makes everything read-only, so it has to be earned.
   const missing = await closeReadiness(exhibitionId);
-  if (missing.length) throw new Error(`Cannot close yet — ${missing.join('; ')}.`);
+  if (missing.length) return fail(`Cannot close yet — ${missing.join('; ')}.`);
 
   const client = await risansiPool.connect();
   try {
@@ -1380,14 +1421,15 @@ export async function closeExhibition(exhibitionId: number) {
     summary: 'closed the exhibition', actorEmail: user.email,
   }).catch(() => {});
   touch(exhibitionId);
+  return { ok: true };
 }
 
 /** Sysadmin-only, and written into the history — a closed event that reopens
  *  should never be a quiet event. */
-export async function reopenExhibition(exhibitionId: number, reason: string) {
+export async function reopenExhibition(exhibitionId: number, reason: string): Promise<SaveResult> {
   const user = await requireUser();
-  if (!hasRole(user.role, 'sysadmin')) throw new Error('Only a sysadmin can reopen a closed exhibition.');
-  if (!reason.trim()) throw new Error('Give a reason for reopening.');
+  if (!hasRole(user.role, 'sysadmin')) return fail('Only a sysadmin can reopen a closed exhibition.');
+  if (!reason.trim()) return fail('Give a reason for reopening.');
 
   const client = await risansiPool.connect();
   try {
@@ -1411,4 +1453,5 @@ export async function reopenExhibition(exhibitionId: number, reason: string) {
     summary: `reopened: ${reason.trim()}`, actorEmail: user.email,
   }).catch(() => {});
   touch(exhibitionId);
+  return { ok: true };
 }

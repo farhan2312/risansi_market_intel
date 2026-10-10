@@ -151,11 +151,6 @@ const THROWS_ITS_REFUSAL = new Set([
   // deleted because a 'use server' export is still a reachable endpoint, and a
   // returned refusal would be read by nobody. They stay throws on purpose.
   'createOpportunity', 'submitOpportunity', 'updateClientTier',
-  // The exhibition cluster, all in app/actions/risansi-exhibitions.ts.
-  'advanceExhibition', 'createExhibition', 'decideExhibition', 'deleteExhibition',
-  'reopenExhibition', 'saveExhibitionExpense', 'saveExhibitionReview',
-  'setExhibitionTeam', 'skipMeetingLead', 'submitForApproval',
-  'updateExhibition', 'updateMeetingCompany',
 ]);
 
 const throwers = new Map();                      // name -> the sentences it throws
@@ -171,8 +166,14 @@ for (const file of files) {
     const start = src.indexOf('{', i);
     let j = start, depth = 0;
     do { const c = src[j]; if (c === '{') depth++; else if (c === '}') depth--; j++; } while (j < src.length && depth > 0);
-    const said = [...src.slice(start, j).matchAll(/throw new Error\(\s*(['"`])([^'"`]{18,})\1/g)]
-      .map(x => x[2])
+    // Each quote style gets its own alternative, so the other two are allowed
+    // inside it. The single character class this used to be made a template
+    // literal invisible as soon as it interpolated anything containing a quote
+    // — which hid `Cannot close yet — ${missing.join('; ')}.`, the one sentence
+    // that lists everything still blocking a close.
+    const said = [...src.slice(start, j).matchAll(
+      /throw new Error\(\s*(?:'([^']{18,})'|"([^"]{18,})"|`([^`]{18,})`)/g)]
+      .map(x => x[1] ?? x[2] ?? x[3])
       // "Upload log not found" is a guard that happens to be long: it tells
       // nobody how to fix anything and reads the same in every action. Length
       // alone already excludes 'Unauthorized' and 'Invalid user id'.
@@ -197,9 +198,12 @@ if (newThrowers.length) {
   console.log('  somebody as "An error occurred" and they try the same thing again.');
   console.log('  Return SaveResult or CreateResult and have the caller read .ok, the way the');
   console.log('  actions listed at the top of this check already do.');
-  problems += newThrowers.length;
 }
 
+// Counted separately. They used to share one number and one sentence, which
+// read as "3 call sites ignore a refusal" when in fact no call site did and
+// three actions had grown a new thrown one.
 console.log(`\n${checked} call site(s) checked`);
 console.log(problems ? `${problems} ignore a refusal` : 'every call site reads its result');
-process.exit(problems ? 1 : 0);
+if (newThrowers.length) console.log(`${newThrowers.length} action(s) throw a refusal that is not on the known list`);
+process.exit(problems + newThrowers.length ? 1 : 0);

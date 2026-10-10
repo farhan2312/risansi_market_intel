@@ -204,11 +204,19 @@ function RowActions({ user, onEdit, onError, onDone }: {
   const [confirmDel, setConfirmDel] = useState(false);
   const [approveRole, setApproveRole] = useState(user.role || 'rep');
 
-  function run(fn: () => Promise<void>) {
+  // Shared by six row actions, and only some of them return a result yet, so it
+  // takes either. A refusal is a value; the catch is for a request that never
+  // arrived.
+  function run(fn: () => Promise<void | { ok: true } | { ok: false; error: string }>) {
     onError('');
     start(async () => {
-      try { await fn(); onDone(); }
-      catch (e) { onError(e instanceof Error ? e.message : 'Action failed'); }
+      try {
+        const res = await fn();
+        if (res && !res.ok) { onError(res.error); return; }
+        onDone();
+      } catch {
+        onError('Could not reach the server. Check your connection and try again.');
+      }
     });
   }
 
@@ -289,10 +297,16 @@ function UserDrawer({ mode, user, onClose, onSaved }: {
     const f = new FormData(e.currentTarget);
     start(async () => {
       try {
-        if (mode === 'create') await createRep(f);
-        else await updateRep(user!.id, f);
+        if (mode === 'create') {
+          const res = await createRep(f);
+          if (!res.ok) { setError(res.error); return; }
+        } else {
+          await updateRep(user!.id, f);
+        }
         onSaved();
       } catch (err) {
+        // updateRep still throws its refusals, so its message is relayed as
+        // before; in production Next redacts it. It is next on the list.
         setError(err instanceof Error ? err.message : 'Failed to save user');
       }
     });

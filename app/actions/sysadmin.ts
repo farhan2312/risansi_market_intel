@@ -109,7 +109,7 @@ export async function setUsdRate(formData: FormData): Promise<SaveResult> {
 // SET NULL, so their book surfaces in the Unassigned tab rather than vanishing,
 // and their secondary and team rows cascade away.
 
-export async function deleteUser(formData: FormData): Promise<void> {
+export async function deleteUser(formData: FormData): Promise<SaveResult> {
   const actor = await requireSysadmin();
   const id = parseInt(formData.get('id') as string, 10);
   const force = formData.get('force') === 'true';
@@ -141,7 +141,7 @@ export async function deleteUser(formData: FormData): Promise<void> {
       if (clients) parts.push(`${clients} client${clients !== 1 ? 's' : ''}`);
       if (visits)  parts.push(`${visits} visit${visits !== 1 ? 's' : ''}`);
       if (opps)    parts.push(`${opps} opportunit${opps !== 1 ? 'ies' : 'y'}`);
-      throw new Error(
+      return fail(
         `Cannot delete — this user still owns ${parts.join(', ')}. Hand their book to someone `
         + `else with Move clients on Reps & Managers, or use force delete.`,
       );
@@ -158,6 +158,7 @@ export async function deleteUser(formData: FormData): Promise<void> {
 
   revalidatePath('/admin');
   revalidatePath('/risansi/admin/reps');
+  return { ok: true };
 }
 
 // The four tour actions that used to live here — setUserTours, assignUserToTour,

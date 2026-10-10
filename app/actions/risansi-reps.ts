@@ -52,7 +52,7 @@ function deriveInitials(name: string): string {
   return name.split(/\s+/).map(w => w[0]?.toUpperCase() ?? '').join('').slice(0, 3) || 'R';
 }
 
-export async function createRep(formData: FormData) {
+export async function createRep(formData: FormData): Promise<SaveResult> {
   const session = await requireSysadmin();
 
   const name     = (formData.get('name')     as string | null)?.trim() ?? '';
@@ -65,12 +65,12 @@ export async function createRep(formData: FormData) {
   const targetCr = formData.get('target_cr') ? parseFloat(formData.get('target_cr') as string) : null;
   const initials = (formData.get('initials') as string | null)?.trim() || deriveInitials(name);
 
-  if (!name)  throw new Error('Name is required');
-  if (!email) throw new Error('Email is required');
+  if (!name)  return fail('Enter the person’s name.');
+  if (!email) return fail('Enter an email address — it is how they sign in.');
 
   const existing = await risansiPool.query('SELECT id FROM users WHERE lower(email) = lower($1)', [email]);
   if (existing.rows.length > 0) {
-    throw new Error(`A user with email "${email}" already exists`);
+    return fail(`${email} is already registered. Edit that account instead of creating a second one.`);
   }
 
   const { rows } = await risansiPool.query<{ id: number }>(
@@ -99,6 +99,7 @@ export async function createRep(formData: FormData) {
   }
 
   revalidatePath('/risansi/admin/reps');
+  return { ok: true };
 }
 
 export async function updateRep(repId: number, formData: FormData) {

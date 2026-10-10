@@ -12,7 +12,8 @@ import {
   submitForApproval, decideExhibition, setExhibitionTeam,
   saveExhibitionMeeting, deleteExhibitionMeeting,
   saveExhibitionExpense, deleteExhibitionExpense, updateExhibition,
-  saveExhibitionReview, advanceExhibition,
+  advanceExhibition,
+  type SaveResult,
 } from '@/app/actions/risansi-exhibitions';
 import { BusinessCards, uploadCards } from './BusinessCards';
 import { MAX_INVOICE_BYTES, INVOICE_ACCEPT } from '@/lib/risansi-exhibition-files';
@@ -267,9 +268,17 @@ function ApprovalBar({ exhibition: ex, canManage, isApprover, readiness }: {
   // server would have accepted it, pushing a finished event back into the queue.
   const canSubmit = canManage && (ex.status === 'Draft' || ex.status === 'Shortlisted');
 
-  async function run(fn: () => Promise<void>) {
+  // Submit, decide and the timeline moves all return their refusal now, so the
+  // sentence the action wrote — "Nominate an approver before submitting",
+  // "Cannot move from Draft to Closed" — is what lands in the banner. The catch
+  // stays for what is still thrown: the auth and closed-record guards.
+  async function run(fn: () => Promise<SaveResult>) {
     setBusy(true); setErr('');
-    try { await fn(); setDeciding(null); setNote(''); router.refresh(); }
+    try {
+      const res = await fn();
+      if (!res.ok) { setErr(res.error); return; }
+      setDeciding(null); setNote(''); router.refresh();
+    }
     catch (e) {
       const raw = e instanceof Error ? e.message : '';
       const redacted = !raw || /unexpected response/i.test(raw) || Boolean((e as { digest?: string })?.digest);
@@ -352,10 +361,21 @@ function Overview({ exhibition: ex, users, canManage }: { exhibition: Exhibition
   const router = useRouter();
   const [edit, setEdit] = useState(false);
   const [err, setErr]   = useState('');
+  // Narrowing the attending window drops team members' days. The action says
+  // whose; this is where that gets read out, because it used to be returned and
+  // then dropped on the floor here.
+  const [note, setNote] = useState('');
   const approvers = users.filter(u => u.role === 'admin' || u.role === 'sysadmin');
 
   if (!edit) {
     return (
+      <>
+      {note && (
+        <div style={{ ...NOTICE, marginBottom: 14 }} role="status">
+          {note}{' '}
+          <button type="button" onClick={() => setNote('')} style={LINK_BTN}>Dismiss</button>
+        </div>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
         <Card title="Event">
           <Detail k="Organizer" v={ex.organizer} />
@@ -382,6 +402,7 @@ function Overview({ exhibition: ex, users, canManage }: { exhibition: Exhibition
           )}
         </Card>
       </div>
+      </>
     );
   }
 
@@ -389,7 +410,11 @@ function Overview({ exhibition: ex, users, canManage }: { exhibition: Exhibition
     <div style={{ ...PANEL, padding: 18, maxWidth: 960 }}>
       <form action={async fd => {
         setErr('');
-        try { await updateExhibition(ex.id, fd); setEdit(false); router.refresh(); }
+        try {
+          const res = await updateExhibition(ex.id, fd);
+          if (!res.ok) { setErr(res.error); return; }
+          setNote(res.note ?? ''); setEdit(false); router.refresh();
+        }
         catch (e) { setErr(e instanceof Error ? e.message : 'Could not save.'); }
       }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -515,7 +540,14 @@ function TeamTab({ exhibitionId, team, users, canManage, attendFrom, attendTo }:
 
   async function save() {
     setBusy(true); setErr('');
-    try { await setExhibitionTeam(exhibitionId, sel); router.refresh(); }
+    try {
+      // The team-lead rules come back as a sentence now ("Nominate one team
+      // lead.", "Only one team lead per exhibition."), so the guess the catch
+      // below had to make is only needed for what still throws.
+      const res = await setExhibitionTeam(exhibitionId, sel);
+      if (!res.ok) { setErr(res.error); return; }
+      router.refresh();
+    }
     catch (e) {
       const raw = e instanceof Error ? e.message : '';
       const redacted = !raw || /unexpected response|Server Components render/i.test(raw)
@@ -1343,7 +1375,14 @@ function ExpenseForm({ exhibitionId, onDone }: { exhibitionId: number; onDone: (
         }
         setBusy(true); setErr('');
         if (file) fd.set('invoice', file);
-        try { await saveExhibitionExpense(exhibitionId, fd); router.refresh(); onDone(); }
+        try {
+          // A rejected category, a paid figure over the actual, or an invoice
+          // the format check turned down all arrive as a sentence now. The
+          // dialog stays open on a refusal so the field can be corrected.
+          const res = await saveExhibitionExpense(exhibitionId, fd);
+          if (!res.ok) { setErr(res.error); setBusy(false); return; }
+          router.refresh(); onDone();
+        }
         catch (e) {
           const raw = e instanceof Error ? e.message : '';
           const redacted = !raw || /unexpected response|Server Components render|Body exceeded/i.test(raw)
@@ -1437,7 +1476,11 @@ function StageNudge({ exhibition: ex, canManage, onGoReview }: {
 
   async function go(next: 'Ongoing' | 'Completed') {
     setBusy(true); setErr('');
-    try { await advanceExhibition(ex.id, next); router.refresh(); }
+    try {
+      const res = await advanceExhibition(ex.id, next);
+      if (!res.ok) { setErr(res.error); return; }
+      router.refresh();
+    }
     catch (e) {
       const raw = e instanceof Error ? e.message : '';
       const redacted = !raw || /unexpected response|Server Components render/i.test(raw)
@@ -1842,5 +1885,7 @@ const BTN_DANGER: CSSProperties = { padding: '8px 16px', borderRadius: 6, backgr
 const PICK_BTN: CSSProperties = { padding: '8px 14px', borderRadius: 6, border: '1px solid var(--line-strong)', background: 'var(--bg-paper)', color: 'var(--fg-2)', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' };
 const LINK_BTN: CSSProperties = { background: 'none', border: 'none', padding: 0, color: 'var(--accent)', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', textDecoration: 'underline' };
 const ERR: CSSProperties = { padding: '8px 12px', background: 'var(--neg-soft)', border: '1px solid var(--neg)', borderLeft: '3px solid var(--neg)', borderRadius: 5, color: 'var(--neg-strong)', fontSize: 12 };
+/** ERR's shape in the warn tones: a save that worked but took something with it. */
+const NOTICE: CSSProperties = { padding: '8px 12px', background: 'var(--warn-soft)', border: '1px solid var(--warn)', borderLeft: '3px solid var(--warn)', borderRadius: 5, color: 'var(--warn-strong)', fontSize: 12 };
 const FLAG_KNOWN: CSSProperties = { padding: '2px 9px', borderRadius: 999, fontSize: 11, fontWeight: 600, background: 'var(--pos-soft)', color: 'var(--pos-strong)' };
 const FLAG_NEW: CSSProperties = { padding: '2px 9px', borderRadius: 999, fontSize: 11, background: 'var(--bg-elev)', color: 'var(--fg-3)' };

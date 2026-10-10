@@ -447,7 +447,10 @@ function CompanyCell({ exhibitionId, meeting: m, editable }: {
   async function save() {
     setBusy(true); setErr('');
     try {
-      await updateMeetingCompany(exhibitionId, m.id, name, clientId);
+      // A blank name comes back as a refusal now, so the editor stays open with
+      // the reason under the input instead of closing on a redacted digest.
+      const res = await updateMeetingCompany(exhibitionId, m.id, name, clientId);
+      if (!res.ok) { setErr(res.error); return; }
       setEdit(false); router.refresh();
     } catch (e) { setErr(e instanceof Error ? e.message : 'Could not save.'); }
     finally { setBusy(false); }
@@ -570,7 +573,11 @@ function SummaryForm({ exhibitionId, review, meetings, editable }: {
     <div style={{ ...PANEL, padding: 16 }}>
       <form className="exh-form" action={async fd => {
         setBusy(true); setErr('');
-        try { await saveExhibitionReview(exhibitionId, fd); setEdit(false); router.refresh(); }
+        try {
+          const res = await saveExhibitionReview(exhibitionId, fd);
+          if (!res.ok) { setErr(res.error); return; }
+          setEdit(false); router.refresh();
+        }
         catch (e) {
           const raw = e instanceof Error ? e.message : '';
           const redacted = !raw || /unexpected response|Server Components render/i.test(raw)
@@ -753,8 +760,14 @@ function ClosePanel({ exhibitionId, blockers, hasReview, closed, editable }: {
             <button onClick={() => setConfirm(false)} style={BTN_GHOST}>Cancel</button>
             <button disabled={busy} onClick={async () => {
               setBusy(true); setErr('');
-              try { await closeExhibition(exhibitionId); router.refresh(); }
-              catch (e) { setErr(e instanceof Error ? e.message : 'Could not close.'); setBusy(false); }
+              try {
+                const res = await closeExhibition(exhibitionId);
+                if (!res.ok) { setErr(res.error); setBusy(false); return; }
+                router.refresh();
+              } catch {
+                setErr('Could not reach the server. Check your connection and try again.');
+                setBusy(false);
+              }
             }} style={BTN_PRIMARY}>{busy ? 'Closing…' : 'Yes, close it'}</button>
           </div>
         </>
@@ -793,7 +806,13 @@ function ClosedBanner({ closedAt, closedByName, exhibitionId, isSysadmin }: {
               <button onClick={() => setOpen(false)} style={BTN_GHOST}>Cancel</button>
               <button disabled={busy || !reason.trim()} onClick={async () => {
                 setBusy(true); setErr('');
-                try { await reopenExhibition(exhibitionId, reason); router.refresh(); }
+                try {
+                  // "Give a reason for reopening." and the sysadmin-only
+                  // refusal both land in the banner above the buttons now.
+                  const res = await reopenExhibition(exhibitionId, reason);
+                  if (!res.ok) { setErr(res.error); setBusy(false); return; }
+                  router.refresh();
+                }
                 catch (e) { setErr(e instanceof Error ? e.message : 'Could not reopen.'); setBusy(false); }
               }} style={BTN_PRIMARY}>{busy ? 'Reopening…' : 'Reopen'}</button>
             </div>

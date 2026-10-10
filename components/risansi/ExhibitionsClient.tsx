@@ -223,8 +223,12 @@ function NewExhibitionModal({ users, defaultApprover, onClose, onCreated }: {
   async function handle(fd: FormData) {
     setSaving(true); setError('');
     try {
-      const id = await createExhibition(fd);
-      onCreated(id as number);
+      // "Exhibition name is required.", "End date cannot be before the start
+      // date." and the attending-window rules come back as refusals now, so the
+      // modal stays open showing which field to fix.
+      const res = await createExhibition(fd);
+      if (!res.ok) { setError(res.error); setSaving(false); return; }
+      onCreated(res.id);
     } catch (err) {
       const raw = err instanceof Error ? err.message : '';
       const redacted = !raw || /unexpected response/i.test(raw) || Boolean((err as { digest?: string })?.digest);

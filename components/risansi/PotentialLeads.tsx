@@ -55,7 +55,13 @@ export function PotentialLeads({ exhibitionId, meetings, editable }: {
 
   const skip = (id: number) => start(async () => {
     setErr('');
-    try { await skipMeetingLead(exhibitionId, id, reason); setSkipping(null); setReason(''); router.refresh(); }
+    try {
+      // A blank reason, or a meeting that already became a lead, comes back as
+      // a sentence now — the reason box stays open with it underneath.
+      const res = await skipMeetingLead(exhibitionId, id, reason);
+      if (!res.ok) { setErr(res.error); return; }
+      setSkipping(null); setReason(''); router.refresh();
+    }
     catch (e) { setErr(e instanceof Error ? e.message : 'Could not save.'); }
   });
   const reopen = (id: number) => start(async () => {
