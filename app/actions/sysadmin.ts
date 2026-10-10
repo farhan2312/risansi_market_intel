@@ -5,6 +5,13 @@ import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 
+// Refusals come back rather than being thrown: Next redacts a thrown
+// server-action message in production, so the sentence telling somebody how to
+// fix what they typed never reaches them. A guard still throws — it is not
+// advice, and it reads the same in every action.
+export type SaveResult = { ok: true } | { ok: false; error: string };
+const fail = (error: string): SaveResult => ({ ok: false, error });
+
 // ── Gate ───────────────────────────────────────────────────────
 // Every action in this file is sysadmin-only. requireSysadmin throws on
 // anything below the sysadmin tier, and returns the acting user's email
@@ -52,12 +59,12 @@ async function audit(
 // ── App settings ───────────────────────────────────────────────
 
 // Company-wide annual revenue target (in Crores), shown on the dashboard.
-export async function setAnnualTarget(formData: FormData): Promise<void> {
+export async function setAnnualTarget(formData: FormData): Promise<SaveResult> {
   const email = await requireSysadmin();
   const raw = (formData.get('annual_target_cr') as string | null)?.trim() ?? '';
   const val = parseFloat(raw);
   if (!Number.isFinite(val) || val <= 0) {
-    throw new Error('Enter a valid annual target in Crores (e.g. 32).');
+    return fail('Enter a valid annual target in Crores (e.g. 32).');
   }
   const { rows: before } = await risansiPool.query<{ value: string }>(
     `SELECT value FROM app_settings WHERE key = 'annual_target_cr'`);
@@ -69,15 +76,16 @@ export async function setAnnualTarget(formData: FormData): Promise<void> {
   await audit('setting', 'annual_target_cr', 'update', before[0]?.value ?? null, String(val), email);
   revalidatePath('/risansi');
   revalidatePath('/risansi/admin/settings');
+  return { ok: true };
 }
 
 // USD→INR conversion rate, used to show quoted values in USD alongside ₹.
-export async function setUsdRate(formData: FormData): Promise<void> {
+export async function setUsdRate(formData: FormData): Promise<SaveResult> {
   const email = await requireSysadmin();
   const raw = (formData.get('usd_inr_rate') as string | null)?.trim() ?? '';
   const val = parseFloat(raw);
   if (!Number.isFinite(val) || val <= 0) {
-    throw new Error('Enter a valid USD→INR rate (e.g. 86).');
+    return fail('Enter a valid USD→INR rate (e.g. 86).');
   }
   const { rows: before } = await risansiPool.query<{ value: string }>(
     `SELECT value FROM app_settings WHERE key = 'usd_inr_rate'`);
@@ -90,6 +98,7 @@ export async function setUsdRate(formData: FormData): Promise<void> {
   revalidatePath('/risansi');
   revalidatePath('/risansi/admin/settings');
   revalidatePath('/risansi/pipeline');
+  return { ok: true };
 }
 
 // ── deleteUser ─────────────────────────────────────────────────

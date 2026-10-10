@@ -6,6 +6,13 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 import { isDepartment } from '@/lib/risansi-auth';
 
+// Refusals come back rather than being thrown: Next redacts a thrown
+// server-action message in production, so the sentence telling somebody how to
+// fix what they typed never reaches them. A guard still throws — it is not
+// advice, and it reads the same in every action.
+export type SaveResult = { ok: true } | { ok: false; error: string };
+const fail = (error: string): SaveResult => ({ ok: false, error });
+
 // Reps & Tours management is a System Admin (sysadmin) capability.
 async function requireSysadmin() {
   const session = await getServerSession(authOptions);
@@ -155,7 +162,7 @@ export async function updateRep(repId: number, formData: FormData) {
   revalidatePath('/admin');
 }
 
-export async function createTour(formData: FormData) {
+export async function createTour(formData: FormData): Promise<SaveResult> {
   await requireSysadmin();
 
   const name            = (formData.get('name') as string | null)?.trim() ?? '';
@@ -165,16 +172,12 @@ export async function createTour(formData: FormData) {
   const alertKey        = formData.get('alert_key_days') ? parseInt(formData.get('alert_key_days') as string, 10) : 100;
   const alertStd        = formData.get('alert_std_days') ? parseInt(formData.get('alert_std_days') as string, 10) : 200;
 
-  if (!name) {
-    throw new Error('Tour name is required');
-  }
-  if (!zone) {
-    throw new Error('Zone is required');
-  }
+  if (!name) return fail('Give the tour a name.');
+  if (!zone) return fail('Choose a zone for the tour.');
 
   const existing = await risansiPool.query('SELECT id FROM tour_routes WHERE LOWER(name) = LOWER($1)', [name]);
   if (existing.rows.length > 0) {
-    throw new Error(`Tour "${name}" already exists`);
+    return fail(`A tour called "${name}" already exists. Pick another name, or edit that one.`);
   }
 
   await risansiPool.query(
@@ -185,6 +188,7 @@ export async function createTour(formData: FormData) {
   );
 
   revalidatePath('/risansi/admin/reps');
+  return { ok: true };
 }
 
 // Delete a route. Its clients lose the route (tour_id → NULL) in the same

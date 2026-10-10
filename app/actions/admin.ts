@@ -8,6 +8,13 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import risansiPool from '@/lib/db-risansi';
 import { recordAudit } from '@/lib/audit';
 
+// Refusals come back rather than being thrown: Next redacts a thrown
+// server-action message in production, so the sentence telling somebody how to
+// fix what they typed never reaches them. A guard still throws — it is not
+// advice, and it reads the same in every action.
+export type SaveResult = { ok: true } | { ok: false; error: string };
+const fail = (error: string): SaveResult => ({ ok: false, error });
+
 const VALID_ROLES = ['rep', 'manager', 'admin', 'sysadmin'];
 
 // Access-approval / user creation is now a System Admin (sysadmin) capability.
@@ -50,14 +57,14 @@ export async function approveUser(formData: FormData) {
 // the user out of band; on next sign-in the layout routes them to
 // /change-password, where they enter the temp value as their "current"
 // password and pick a new one.
-export async function resetUserPassword(formData: FormData) {
+export async function resetUserPassword(formData: FormData): Promise<SaveResult> {
   const admin = await requireSysadmin();
   const id    = parseInt(formData.get('id') as string, 10);
   const tempPw = (formData.get('temp_password') as string | null) ?? '';
 
   if (!Number.isInteger(id) || id <= 0) throw new Error('Invalid user id');
   if (typeof tempPw !== 'string' || tempPw.length < 8) {
-    throw new Error('Temporary password must be at least 8 characters');
+    return fail('The temporary password needs at least 8 characters.');
   }
 
   const { rows } = await risansiPool.query<{ email: string }>('SELECT email FROM users WHERE id = $1', [id]);
@@ -77,6 +84,7 @@ export async function resetUserPassword(formData: FormData) {
   });
 
   revalidatePath('/admin');
+  return { ok: true };
 }
 
 export async function rejectUser(formData: FormData) {

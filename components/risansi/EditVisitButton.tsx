@@ -61,20 +61,22 @@ export function EditVisitButton({ visit, role, compact = false }: {
       f.set('visit_date', date);
       f.set('purpose', purpose);
       if (canReassign && repId) f.set('rep_id', repId);
-      await updateVisitPlan(visit.id, f);
+      const res = await updateVisitPlan(visit.id, f);
+      if (!res.ok) { setErr(res.error); return; }
       setOpen(false); router.refresh();
-    } catch (e2) {
-      setErr(e2 instanceof Error ? e2.message : 'Failed to save');
+    } catch {
+      setErr('Could not reach the server. Check your connection and try again.');
     } finally { setBusy(false); }
   }
 
   async function doDelete(e: MouseEvent) {
     stop(e); setErr(''); setBusy(true);
     try {
-      await deleteVisitPlan(visit.id);
+      const res = await deleteVisitPlan(visit.id);
+      if (!res.ok) { setErr(res.error); setBusy(false); return; }
       setOpen(false); router.refresh();
-    } catch (e2) {
-      setErr(e2 instanceof Error ? e2.message : 'Failed to delete');
+    } catch {
+      setErr('Could not reach the server. Check your connection and try again.');
       setBusy(false);
     }
   }

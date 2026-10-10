@@ -15,11 +15,12 @@ export function AddTourButton() {
     setLoading(true); setError('');
     try {
       const fd = new FormData(e.currentTarget);
-      await createTour(fd);
+      const res = await createTour(fd);
+      if (!res.ok) { setError(res.error); setLoading(false); return; }
       setOpen(false);
       router.refresh();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed');
+    } catch {
+      setError('Could not reach the server. Check your connection and try again.');
       setLoading(false);
     }
   };

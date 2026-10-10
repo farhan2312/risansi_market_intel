@@ -407,11 +407,12 @@ function ResetPasswordPanel({ user }: { user: UserRow }) {
     f.set('temp_password', temp);
     start(async () => {
       try {
-        await resetUserPassword(f);
+        const res = await resetUserPassword(f);
+        if (!res.ok) { setError(res.error); return; }
         setTemp('');
         setMsg('Temporary password set. The user must change it at next sign-in — share it with them securely.');
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to reset password');
+      } catch {
+        setError('Could not reach the server. Check your connection and try again.');
       }
     });
   }

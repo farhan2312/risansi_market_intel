@@ -16,11 +16,12 @@ export function UsdRateForm({ current }: { current: string }) {
     f.set('usd_inr_rate', val);
     start(async () => {
       try {
-        await setUsdRate(f);
+        const res = await setUsdRate(f);
+        if (!res.ok) { setMsg({ ok: false, text: res.error }); return; }
         setMsg({ ok: true, text: 'Saved.' });
         router.refresh();
-      } catch (e) {
-        setMsg({ ok: false, text: e instanceof Error ? e.message : 'Failed to save' });
+      } catch {
+        setMsg({ ok: false, text: 'Could not reach the server. Check your connection and try again.' });
       }
     });
   }

@@ -146,14 +146,16 @@ for (const file of files) {
 // in an action that does not return a result.
 
 const THROWS_ITS_REFUSAL = new Set([
-  'advanceExhibition',
-  'createExhibition', 'createOpportunity', 'createTour', 'decideExhibition',
-  'deleteExhibition', 'deleteUpload', 'deleteVisitPlan',
-  'reopenExhibition', 'resetUserPassword',
-  'saveExhibitionExpense', 'saveExhibitionReview', 'setAnnualTarget', 'setExhibitionTeam',
-  'setUsdRate', 'skipMeetingLead', 'submitForApproval', 'submitOpportunity',
-  'updateClientTier', 'updateExhibition', 'updateMeetingCompany',
-  'updateVisitPlan',
+  // createOpportunity, submitOpportunity and updateClientTier have no caller at
+  // all — nothing in the interface imports them. They were hardened rather than
+  // deleted because a 'use server' export is still a reachable endpoint, and a
+  // returned refusal would be read by nobody. They stay throws on purpose.
+  'createOpportunity', 'submitOpportunity', 'updateClientTier',
+  // The exhibition cluster, all in app/actions/risansi-exhibitions.ts.
+  'advanceExhibition', 'createExhibition', 'decideExhibition', 'deleteExhibition',
+  'reopenExhibition', 'saveExhibitionExpense', 'saveExhibitionReview',
+  'setExhibitionTeam', 'skipMeetingLead', 'submitForApproval',
+  'updateExhibition', 'updateMeetingCompany',
 ]);
 
 const throwers = new Map();                      // name -> the sentences it throws
@@ -169,7 +171,12 @@ for (const file of files) {
     const start = src.indexOf('{', i);
     let j = start, depth = 0;
     do { const c = src[j]; if (c === '{') depth++; else if (c === '}') depth--; j++; } while (j < src.length && depth > 0);
-    const said = [...src.slice(start, j).matchAll(/throw new Error\(\s*(['"`])([^'"`]{18,})\1/g)].map(x => x[2]);
+    const said = [...src.slice(start, j).matchAll(/throw new Error\(\s*(['"`])([^'"`]{18,})\1/g)]
+      .map(x => x[2])
+      // "Upload log not found" is a guard that happens to be long: it tells
+      // nobody how to fix anything and reads the same in every action. Length
+      // alone already excludes 'Unauthorized' and 'Invalid user id'.
+      .filter(s => !/\bnot found\.?$/i.test(s));
     if (said.length) throwers.set(m[1], said);
   }
 }

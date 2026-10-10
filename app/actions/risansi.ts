@@ -1983,7 +1983,7 @@ export async function deleteOpportunity(oppId: number): Promise<Result> {
 
 // Permission for both: admin/sysadmin · the assigned rep · the rep's tour manager.
 // Edits are refused once the visit report has been submitted.
-export async function updateVisitPlan(visitId: string, formData: FormData) {
+export async function updateVisitPlan(visitId: string, formData: FormData): Promise<SaveResult> {
   const user = await requireSession();
 
   const { rows } = await risansiPool.query<{ rep_id: number | null; submitted_at: string | null; client_id: number }>(
@@ -1991,13 +1991,13 @@ export async function updateVisitPlan(visitId: string, formData: FormData) {
   );
   const visit = rows[0];
   if (!visit) throw new Error('Visit not found.');
-  if (visit.submitted_at) throw new Error('A submitted visit can no longer be edited.');
+  if (visit.submitted_at) return fail('A submitted visit can no longer be edited.');
   if (!(await userCanEditOpp(user, visit.rep_id, visit.client_id))) {
-    throw new Error('You do not have permission to edit this visit.');
+    return fail('You do not have permission to edit this visit.');
   }
 
   const visitDate = (formData.get('visit_date') as string | null)?.trim();
-  if (!visitDate) throw new Error('Visit date is required.');
+  if (!visitDate) return fail('Pick the date of the visit.');
   const purpose = (formData.get('purpose') as string | null)?.trim() || 'Routine';
 
   // Owner: reps stay locked to themselves; managers/admins may reassign within
@@ -2011,7 +2011,7 @@ export async function updateVisitPlan(visitId: string, formData: FormData) {
       if (role === 'manager' && typeof user.repId === 'number') {
         const allowed = await getManagerAssignableReps(user.repId);
         if (!allowed.includes(parsed)) {
-          throw new Error('You can only assign to people on your team.');
+          return fail('You can only assign to people on your team.');
         }
       }
       repId = parsed;
@@ -2029,9 +2029,10 @@ export async function updateVisitPlan(visitId: string, formData: FormData) {
   revalidatePath('/risansi/visits');
   revalidatePath(`/risansi/visits/${visitId}`);
   revalidatePath(`/risansi/clients/${visit.client_id}`);
+  return { ok: true };
 }
 
-export async function deleteVisitPlan(visitId: string) {
+export async function deleteVisitPlan(visitId: string): Promise<SaveResult> {
   const user = await requireSession();
 
   const { rows } = await risansiPool.query<{ rep_id: number | null; submitted_at: string | null; client_id: number }>(
@@ -2039,9 +2040,9 @@ export async function deleteVisitPlan(visitId: string) {
   );
   const visit = rows[0];
   if (!visit) throw new Error('Visit not found.');
-  if (visit.submitted_at) throw new Error('A submitted visit cannot be deleted.');
+  if (visit.submitted_at) return fail('A submitted visit cannot be deleted.');
   if (!(await userCanEditOpp(user, visit.rep_id))) {
-    throw new Error('You do not have permission to delete this visit.');
+    return fail('You do not have permission to delete this visit.');
   }
 
   // The visit's own reports and photos cascade automatically, but equipment,
@@ -2051,6 +2052,7 @@ export async function deleteVisitPlan(visitId: string) {
   // than delete them, so pipeline records raised off the visit survive. All in
   // one transaction so a failure leaves nothing half-removed.
   const client = await risansiPool.connect();
+  let submittedMeanwhile = false;
   try {
     await client.query('BEGIN');
     await client.query('DELETE FROM equipment            WHERE visit_id = $1', [visitId]);
@@ -2058,20 +2060,26 @@ export async function deleteVisitPlan(visitId: string) {
     await client.query('DELETE FROM tasks                WHERE visit_id = $1', [visitId]);
     await client.query('UPDATE opportunities SET visit_id = NULL WHERE visit_id = $1', [visitId]);
     // Guard again in SQL so a concurrent submit can't be deleted out from under.
+    // Rolled back and reported rather than thrown: a throw here would be caught
+    // below, rethrown, and redacted by the time it reached the page.
     const res = await client.query('DELETE FROM visits WHERE id = $1 AND submitted_at IS NULL', [visitId]);
-    if (res.rowCount === 0) throw new Error('Visit could not be deleted (it may have been submitted).');
-    await client.query('COMMIT');
+    if (res.rowCount === 0) { submittedMeanwhile = true; await client.query('ROLLBACK'); }
+    else await client.query('COMMIT');
   } catch (e) {
     await client.query('ROLLBACK');
     throw e;
   } finally {
     client.release();
   }
+  if (submittedMeanwhile) {
+    return fail('This visit was submitted a moment ago, so it can no longer be deleted. Reload the page to see it.');
+  }
 
   await logActivity('client', String(visit.client_id), 'visit plan deleted', user.email!);
   revalidatePath('/risansi/field');
   revalidatePath('/risansi/visits');
   revalidatePath(`/risansi/clients/${visit.client_id}`);
+  return { ok: true };
 }
 
 // ── Pipeline: update value / probability ──────────────────────
